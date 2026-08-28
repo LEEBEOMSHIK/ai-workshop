@@ -1,0 +1,1 @@
+"""Shared workshop platform modules."""

@@ -8,7 +8,7 @@
 
 ### 목표
 
-격리된 `feature/workshop-foundation` 브랜치에서 구현 계획의 Task 3 소유자 인증과 브라우저 세션을 테스트 우선으로 구현한다.
+격리된 `feature/workshop-foundation` 브랜치에서 구현 계획의 Task 4 계층형 지식 공간과 멤버십을 테스트 우선으로 구현한다.
 
 ### 진행 상태
 
@@ -16,28 +16,29 @@
 - `.worktrees/workshop-foundation` 격리 작업공간과 `feature/workshop-foundation` 브랜치를 만들었다.
 - Task 1의 React·FastAPI 실행 골격, 잠금 파일과 PostgreSQL·Redis Compose 구성을 완료했다.
 - Task 2의 환경 설정, async DB 세션, Alembic과 공통 오류 계약을 완료했다.
-- 현재 Task 3의 소유자 비밀번호·JWT·쿠키 세션과 로그인 UI를 구현할 차례다.
+- Task 3의 Argon2 비밀번호, JWT HttpOnly 쿠키 세션, 소유자 부트스트랩과 로그인 UI를 완료했다.
+- 현재 Task 4의 회사·개인·임시 지식 공간과 멤버십을 구현할 차례다.
 
 ### 완료 기준
 
-- Argon2 비밀번호 해시와 JWT 검증 테스트가 통과한다.
-- 소유자 부트스트랩과 로그인·현재 사용자·로그아웃 API가 동작한다.
-- 브라우저가 HttpOnly 쿠키 세션으로 보호된 화면에 접근한다.
+- 개인 공간은 사용자당 하나만 만들 수 있다.
+- 임시 공간은 만료 시각이 필수이며 만료된 공간은 기본 목록에서 제외된다.
+- 멤버십이 없는 공간은 API에서 노출되지 않는다.
 
 ## 최근 완료 작업
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. 환경 설정, SQLAlchemy async 기반, Alembic과 공통 오류 계약을 구현하고 검증했다.
-2. React·FastAPI 실행 골격과 PostgreSQL·Redis Compose 구성을 테스트 우선으로 구현했다. 관련 커밋: `a7a8161`
-3. 작업소 기반 1단계 구현 계획을 작성하고 자체 검토했다. 관련 문서: `docs/superpowers/plans/2026-08-29-workshop-foundation.md`
-4. 작업 대시보드와 갱신 규칙을 추가하고 `AGENTS.md`, README에 연결했다. 관련 커밋: `616921e`
-5. `AGENTS.md`를 200줄 이하로 유지하고 상세 지침을 참고 문서로 분리하는 구조를 추가했다. 관련 커밋: `e0a6d33`
+1. 소유자 Argon2 인증, JWT HttpOnly 쿠키 세션, 부트스트랩 CLI와 로그인 UI를 구현했다.
+2. 환경 설정, SQLAlchemy async 기반, Alembic과 공통 오류 계약을 구현하고 검증했다. 관련 커밋: `10673d4`
+3. React·FastAPI 실행 골격과 PostgreSQL·Redis Compose 구성을 테스트 우선으로 구현했다. 관련 커밋: `a7a8161`
+4. 작업소 기반 1단계 구현 계획을 작성하고 자체 검토했다. 관련 문서: `docs/superpowers/plans/2026-08-29-workshop-foundation.md`
+5. 작업 대시보드와 갱신 규칙을 추가하고 `AGENTS.md`, README에 연결했다. 관련 커밋: `616921e`
 
 ## 다음 작업
 
-1. Task 3 소유자 인증과 브라우저 세션을 구현한다.
-2. 이후 계획의 Task 4부터 Task 9까지 순차 실행한다.
+1. Task 4 계층형 지식 공간과 멤버십을 구현한다.
+2. 이후 계획의 Task 5부터 Task 9까지 순차 실행한다.
 3. 1단계 전체 검증 후 RAG AI 검색 구현 계획으로 전환한다.
 
 ## 결정이 필요한 항목

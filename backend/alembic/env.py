@@ -5,6 +5,7 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from ai_workshop.config import get_settings
+from ai_workshop.platform.identity import models as identity_models  # noqa: F401
 from ai_workshop.shared.models import Base
 from alembic import context
 

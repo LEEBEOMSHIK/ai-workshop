@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from ai_workshop.platform.identity.api import router as identity_router
 from ai_workshop.shared.errors import register_error_handlers
 from ai_workshop.shared.request_context import CorrelationIdMiddleware
 
@@ -21,6 +22,7 @@ def create_app() -> FastAPI:
     )
     application.add_middleware(CorrelationIdMiddleware)
     register_error_handlers(application)
+    application.include_router(identity_router)
 
     @application.get("/api/v1/health", tags=["system"])
     async def health() -> dict[str, str]:

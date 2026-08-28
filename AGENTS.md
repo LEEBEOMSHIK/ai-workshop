@@ -17,6 +17,7 @@
 작업 범위에 맞는 문서를 먼저 읽고 승인된 설계를 따른다.
 
 - 프로젝트 목적: `docs/vision/project-vision.md`
+- 현재 작업과 다음 순서: `WORKBOARD.md`
 - 전체 경계와 단계: `docs/architecture/system-design.md`
 - 목표 파일 구조: `docs/architecture/repository-structure.md`
 - 공통 개발 규칙: `docs/guidelines/development-guidelines.md`
@@ -93,6 +94,7 @@
 
 ## 문서와 저장소 관리
 
+- 작업 시작과 종료 시 `WORKBOARD.md`를 갱신하고 최근 완료 작업은 최대 5개만 유지한다.
 - 중요한 공개 계약 또는 모듈 경계 변경은 구현 전에 설계 문서와 ADR을 갱신한다.
 - 자유 메모, 구조화된 실험, 공식 설계와 공개 결과물을 구분한다.
 - 대용량 원본, 임베딩, 모델 가중치와 생성 색인은 Git에 추가하지 않는다.

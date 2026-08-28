@@ -15,6 +15,7 @@ AI Workshop은 AI를 공부한 과정과 실제로 동작하는 기술을 함께
 - [전체 시스템 설계](docs/architecture/system-design.md)
 - [저장소 구조](docs/architecture/repository-structure.md)
 - [개발 및 운영 지침](docs/guidelines/development-guidelines.md)
+- [Codex 참고 문서 구조](docs/guidelines/codex/README.md)
 - [RAG AI 검색 설계](docs/labs/rag/design.md)
 - [ADR-0001: 모듈형 모놀리스](docs/decisions/0001-modular-monolith.md)
 - [ADR-0002: 로컬 우선 데이터 경계](docs/decisions/0002-local-first-data-boundary.md)

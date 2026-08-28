@@ -2,6 +2,16 @@
 
 이 파일은 AI Workshop 저장소 전체에 적용되는 Codex 작업 지침이다. 더 구체적인 하위 `AGENTS.md` 또는 `AGENTS.override.md`가 생기면 해당 디렉터리 범위에서는 하위 지침을 우선한다.
 
+## 파일 유지 규칙
+
+- 이 파일은 공백을 포함해 200줄 이하로 유지한다.
+- 저장소 전체에 즉시 적용해야 하는 짧은 규칙만 둔다.
+- 상세 배경, 예시, 절차가 필요하면 `docs/guidelines/codex/` 또는 관련 설계 문서로 옮기고 이 파일에서 링크한다.
+- 같은 지침을 이 파일과 참고 문서에 중복 작성하지 않는다. `AGENTS.md`에는 요약과 정본 링크만 남긴다.
+- 새 지침 때문에 200줄을 넘게 되면 추가하기 전에 기존 상세 내용을 참고 문서로 분리한다.
+- 하위 디렉터리에 별도 `AGENTS.md`를 만들 때도 같은 200줄 제한과 참고 문서 분리 원칙을 적용한다.
+- 참고 문서의 배치와 연결 규칙은 `docs/guidelines/codex/README.md`를 따른다.
+
 ## 작업 전 읽을 문서
 
 작업 범위에 맞는 문서를 먼저 읽고 승인된 설계를 따른다.
@@ -10,6 +20,7 @@
 - 전체 경계와 단계: `docs/architecture/system-design.md`
 - 목표 파일 구조: `docs/architecture/repository-structure.md`
 - 공통 개발 규칙: `docs/guidelines/development-guidelines.md`
+- Codex 참고 문서 구조: `docs/guidelines/codex/README.md`
 - RAG 작업: `docs/labs/rag/design.md`
 - 기술 결정: `docs/decisions/`
 

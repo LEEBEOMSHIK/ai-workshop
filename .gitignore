@@ -1,1 +1,15 @@
 .worktrees/
+.idea/
+.env
+.local-data/
+.uv-cache/
+.uv-python/
+node_modules/
+frontend/dist/
+backend/.venv/
+backend/build/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

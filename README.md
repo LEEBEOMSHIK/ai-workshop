@@ -6,9 +6,25 @@ AI Workshop은 AI를 공부한 과정과 실제로 동작하는 기술을 함께
 
 ## 현재 상태
 
-현재 저장소는 설계 단계다. 구현 코드는 아직 없으며, 승인된 프로젝트 방향과 기술 경계를 문서로 먼저 관리한다.
+승인된 설계를 기준으로 1단계 작업소 기반을 구현 중이다. 현재 React 앱 셸, FastAPI API와 PostgreSQL·Redis 로컬 서비스를 시작점으로 제공한다.
 
 - [현재 작업 대시보드](WORKBOARD.md)
+
+## 개발 시작
+
+```powershell
+pnpm install
+pnpm --dir frontend test --run
+
+cd backend
+python -m uv sync --all-groups
+python -m uv run python -m pytest -q
+
+cd ..
+docker compose -f infrastructure/compose/compose.yaml up -d
+```
+
+Windows ARM64에서 프로세스 아키텍처가 잘못 감지되면 uv의 Python 요청에 `cpython-3.13-windows-aarch64-none`을 명시한다. 환경 변수와 비밀값은 `.env.example`을 복사한 추적되지 않는 `.env`에 둔다.
 
 ## 설계 문서
 

@@ -1,0 +1,1 @@
+"""Knowledge workspaces and memberships."""

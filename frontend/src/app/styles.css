@@ -252,3 +252,86 @@ h1 {
   color: #ff9d8f;
   font-size: 0.86rem;
 }
+
+.workspace-shell {
+  min-height: 100vh;
+  padding: clamp(2rem, 6vw, 6rem);
+  background: #0a0e13;
+}
+
+.workspace-header {
+  display: flex;
+  width: min(100%, 70rem);
+  margin: 0 auto 3rem;
+  align-items: end;
+  justify-content: space-between;
+  gap: 2rem;
+}
+
+.workspace-title {
+  margin: 0.5rem 0 0;
+  font-size: clamp(2.4rem, 6vw, 4.5rem);
+}
+
+.workspace-kind {
+  display: grid;
+  gap: 0.45rem;
+  color: #9da9b5;
+  font-size: 0.8rem;
+}
+
+.workspace-kind select {
+  padding: 0.7rem 2.5rem 0.7rem 0.8rem;
+  border: 1px solid #33414e;
+  border-radius: 0.6rem;
+  color: #e9edf3;
+  background: #111821;
+}
+
+.workspace-list {
+  display: grid;
+  width: min(100%, 70rem);
+  margin: auto;
+  gap: 0.75rem;
+}
+
+.workspace-row {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+  padding: 1.25rem;
+  border: 1px solid #26313b;
+  border-radius: 0.9rem;
+  background: #10171f;
+}
+
+.workspace-row h2,
+.workspace-row p {
+  margin: 0;
+}
+
+.workspace-row p {
+  margin-top: 0.3rem;
+  color: #7e8994;
+  font-size: 0.8rem;
+}
+
+.workspace-badge {
+  min-width: 3.2rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 999px;
+  color: #9be8df;
+  background: #163b39;
+  font-size: 0.72rem;
+  text-align: center;
+}
+
+.workspace-badge.personal {
+  color: #e8c5a7;
+  background: #3b291b;
+}
+
+.workspace-badge.temporary {
+  color: #bdc5e9;
+  background: #232a48;
+}

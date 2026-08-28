@@ -8,35 +8,36 @@
 
 ### 목표
 
-격리된 `feature/workshop-foundation` 브랜치에서 구현 계획의 Task 2 백엔드 설정·DB·공통 오류 계약을 테스트 우선으로 구현한다.
+격리된 `feature/workshop-foundation` 브랜치에서 구현 계획의 Task 3 소유자 인증과 브라우저 세션을 테스트 우선으로 구현한다.
 
 ### 진행 상태
 
 - 사용자가 현재 세션에서 순차 구현하는 방식을 선택했다.
 - `.worktrees/workshop-foundation` 격리 작업공간과 `feature/workshop-foundation` 브랜치를 만들었다.
 - Task 1의 React·FastAPI 실행 골격, 잠금 파일과 PostgreSQL·Redis Compose 구성을 완료했다.
-- 현재 Task 2의 환경 설정, async DB 세션과 공통 오류 계약을 구현할 차례다.
+- Task 2의 환경 설정, async DB 세션, Alembic과 공통 오류 계약을 완료했다.
+- 현재 Task 3의 소유자 비밀번호·JWT·쿠키 세션과 로그인 UI를 구현할 차례다.
 
 ### 완료 기준
 
-- 환경 변수와 비밀값 검증 테스트가 통과한다.
-- SQLAlchemy async 세션과 Alembic 기반이 구성된다.
-- 공통 오류와 correlation ID 계약 테스트가 통과한다.
+- Argon2 비밀번호 해시와 JWT 검증 테스트가 통과한다.
+- 소유자 부트스트랩과 로그인·현재 사용자·로그아웃 API가 동작한다.
+- 브라우저가 HttpOnly 쿠키 세션으로 보호된 화면에 접근한다.
 
 ## 최근 완료 작업
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. React·FastAPI 실행 골격과 PostgreSQL·Redis Compose 구성을 테스트 우선으로 구현했다.
-2. 작업소 기반 1단계 구현 계획을 작성하고 자체 검토했다. 관련 문서: `docs/superpowers/plans/2026-08-29-workshop-foundation.md`
-3. 작업 대시보드와 갱신 규칙을 추가하고 `AGENTS.md`, README에 연결했다. 관련 커밋: `616921e`
-4. `AGENTS.md`를 200줄 이하로 유지하고 상세 지침을 참고 문서로 분리하는 구조를 추가했다. 관련 커밋: `e0a6d33`
-5. 프로젝트 비전, 시스템 아키텍처, RAG 설계, 저장소 구조, 개발 지침과 ADR을 작성했다. 관련 커밋: `56003a1`
+1. 환경 설정, SQLAlchemy async 기반, Alembic과 공통 오류 계약을 구현하고 검증했다.
+2. React·FastAPI 실행 골격과 PostgreSQL·Redis Compose 구성을 테스트 우선으로 구현했다. 관련 커밋: `a7a8161`
+3. 작업소 기반 1단계 구현 계획을 작성하고 자체 검토했다. 관련 문서: `docs/superpowers/plans/2026-08-29-workshop-foundation.md`
+4. 작업 대시보드와 갱신 규칙을 추가하고 `AGENTS.md`, README에 연결했다. 관련 커밋: `616921e`
+5. `AGENTS.md`를 200줄 이하로 유지하고 상세 지침을 참고 문서로 분리하는 구조를 추가했다. 관련 커밋: `e0a6d33`
 
 ## 다음 작업
 
-1. Task 2 백엔드 설정·DB·오류 계약을 구현한다.
-2. 이후 계획의 Task 3부터 Task 9까지 순차 실행한다.
+1. Task 3 소유자 인증과 브라우저 세션을 구현한다.
+2. 이후 계획의 Task 4부터 Task 9까지 순차 실행한다.
 3. 1단계 전체 검증 후 RAG AI 검색 구현 계획으로 전환한다.
 
 ## 결정이 필요한 항목

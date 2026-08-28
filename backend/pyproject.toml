@@ -4,7 +4,12 @@ version = "0.1.0"
 description = "Local-first AI Workshop API and worker"
 requires-python = ">=3.13,<3.14"
 dependencies = [
+  "alembic>=1.16,<2.0",
   "fastapi>=0.116,<1.0",
+  "psycopg[pool]>=3.2,<4.0",
+  "psycopg-binary>=3.2,<4.0; sys_platform != 'win32' or platform_machine != 'ARM64'",
+  "pydantic-settings>=2.10,<3.0",
+  "sqlalchemy[asyncio]>=2.0,<3.0",
   "uvicorn>=0.35,<1.0",
 ]
 
@@ -13,6 +18,7 @@ dev = [
   "httpx2",
   "mypy>=1.17,<2.0",
   "pytest>=8.4,<10.0",
+  "pytest-asyncio>=1.1,<2.0",
   "ruff>=0.12,<1.0",
 ]
 
@@ -24,6 +30,7 @@ build-backend = "hatchling.build"
 packages = ["src/ai_workshop"]
 
 [tool.pytest.ini_options]
+asyncio_mode = "auto"
 pythonpath = ["src"]
 testpaths = ["tests"]
 

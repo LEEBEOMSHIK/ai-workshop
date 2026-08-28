@@ -1,6 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from ai_workshop.shared.errors import register_error_handlers
+from ai_workshop.shared.request_context import CorrelationIdMiddleware
+
 
 def create_app() -> FastAPI:
     application = FastAPI(
@@ -16,6 +19,8 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    application.add_middleware(CorrelationIdMiddleware)
+    register_error_handlers(application)
 
     @application.get("/api/v1/health", tags=["system"])
     async def health() -> dict[str, str]:

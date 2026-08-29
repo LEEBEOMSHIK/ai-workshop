@@ -6,7 +6,7 @@ from ai_workshop.platform.assets.api import router as asset_router
 from ai_workshop.platform.identity.api import router as identity_router
 from ai_workshop.platform.jobs.api import router as job_router
 from ai_workshop.platform.workspaces.api import router as workspace_router
-from ai_workshop.shared.errors import register_error_handlers
+from ai_workshop.shared.errors import COMMON_ERROR_RESPONSES, register_error_handlers
 from ai_workshop.shared.request_context import CorrelationIdMiddleware
 
 
@@ -16,6 +16,7 @@ def create_app() -> FastAPI:
         version="0.1.0",
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
+        responses=COMMON_ERROR_RESPONSES,
     )
     application.add_middleware(
         CORSMiddleware,

@@ -1,6 +1,7 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Cookie, Depends, Response
+from fastapi import APIRouter, Depends, Response, Security
+from fastapi.security import APIKeyCookie
 
 from ai_workshop.config import Settings, get_settings
 from ai_workshop.platform.identity.domain import User
@@ -8,12 +9,17 @@ from ai_workshop.platform.identity.schemas import LoginRequest, UserResponse
 from ai_workshop.platform.identity.service import AuthService, get_auth_service
 
 SESSION_COOKIE = "ai_workshop_session"
+session_cookie = APIKeyCookie(
+    name=SESSION_COOKIE,
+    scheme_name="SessionCookie",
+    auto_error=False,
+)
 router = APIRouter(prefix="/api/v1/auth", tags=["identity"])
 
 
 async def get_current_user(
     service: Annotated[AuthService, Depends(get_auth_service)],
-    session_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
+    session_token: Annotated[str | None, Security(session_cookie)],
 ) -> User:
     return await service.current_user(session_token)
 

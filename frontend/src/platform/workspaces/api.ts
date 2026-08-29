@@ -1,14 +1,9 @@
-export type WorkspaceKind = "company" | "team" | "personal" | "temporary";
+import { apiRequest } from "../../shared/api/client";
+import type { components } from "../../shared/api/schema";
 
-export interface WorkspaceSummary {
-  id: string;
-  name: string;
-  kind: WorkspaceKind;
-  expires_at: string | null;
-}
+export type WorkspaceKind = components["schemas"]["WorkspaceKind"];
+export type WorkspaceSummary = components["schemas"]["WorkspaceResponse"];
 
 export async function listWorkspaces(): Promise<WorkspaceSummary[]> {
-  const response = await fetch("/api/v1/workspaces", { credentials: "include" });
-  if (!response.ok) throw new Error("지식 공간을 불러오지 못했습니다.");
-  return (await response.json()) as WorkspaceSummary[];
+  return apiRequest<WorkspaceSummary[]>("/api/v1/workspaces");
 }

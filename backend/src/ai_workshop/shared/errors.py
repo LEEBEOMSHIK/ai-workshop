@@ -1,8 +1,10 @@
 from dataclasses import dataclass
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
@@ -11,6 +13,24 @@ class AppError(Exception):
     code: str
     message: str
     status_code: int
+
+
+class ErrorDetail(BaseModel):
+    code: str
+    message: str
+    correlation_id: str
+
+
+class ErrorEnvelope(BaseModel):
+    error: ErrorDetail
+
+
+COMMON_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    401: {"model": ErrorEnvelope, "description": "Authentication required."},
+    404: {"model": ErrorEnvelope, "description": "Resource not found."},
+    409: {"model": ErrorEnvelope, "description": "Resource state conflict."},
+    422: {"model": ErrorEnvelope, "description": "Request validation or domain error."},
+}
 
 
 def _error_response(

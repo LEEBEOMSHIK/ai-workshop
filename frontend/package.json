@@ -5,16 +5,18 @@
   "type": "module",
   "scripts": {
     "build": "tsc -b && vite build",
+    "api:check": "node openapi-ts.config.mjs --check",
+    "api:generate": "node openapi-ts.config.mjs",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest",
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
-    "vite": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "react-router-dom": "latest"
+    "react-router-dom": "latest",
+    "vite": "latest"
   },
   "devDependencies": {
     "@eslint/js": "latest",
@@ -29,7 +31,8 @@
     "eslint-plugin-react-refresh": "latest",
     "globals": "latest",
     "jsdom": "latest",
-    "typescript": ">=6.0.0 <6.1.0",
+    "openapi-typescript": "^7.13.0",
+    "typescript": "^5.9.3",
     "typescript-eslint": "latest",
     "vitest": "latest"
   }

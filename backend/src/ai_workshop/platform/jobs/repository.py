@@ -6,7 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_workshop.platform.jobs.domain import Job, JobStatus, JobType
 from ai_workshop.platform.jobs.models import JobRecord
-from ai_workshop.platform.workspaces.models import WorkspaceMembershipRecord
+from ai_workshop.platform.workspaces.models import WorkspaceMembershipRecord, WorkspaceRecord
+from ai_workshop.platform.workspaces.repository import workspace_is_active
 
 
 class JobRepository(Protocol):
@@ -91,9 +92,11 @@ class SqlAlchemyJobRepository:
                 WorkspaceMembershipRecord,
                 WorkspaceMembershipRecord.workspace_id == JobRecord.workspace_id,
             )
+            .join(WorkspaceRecord, WorkspaceRecord.id == JobRecord.workspace_id)
             .where(
                 JobRecord.id == job_id,
                 WorkspaceMembershipRecord.user_id == user_id,
+                workspace_is_active(),
             )
         )
         record = result.scalar_one_or_none()

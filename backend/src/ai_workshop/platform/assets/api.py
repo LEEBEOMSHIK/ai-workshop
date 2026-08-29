@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile
 
 from ai_workshop.platform.assets.schemas import (
+    AssetVersionResponse,
     DocumentResponse,
     FolderCreate,
     FolderResponse,
@@ -20,6 +21,19 @@ from ai_workshop.platform.identity.domain import User
 from ai_workshop.worker import CeleryJobDispatcher, get_job_dispatcher
 
 router = APIRouter(prefix="/api/v1", tags=["assets"])
+
+
+@router.get(
+    "/documents/{document_id}/versions",
+    response_model=list[AssetVersionResponse],
+)
+async def list_document_versions(
+    document_id: UUID,
+    user: Annotated[User, Depends(get_current_user)],
+    service: Annotated[AssetService, Depends(get_asset_service)],
+) -> list[AssetVersionResponse]:
+    versions = await service.list_versions(user=user, document_id=document_id)
+    return [AssetVersionResponse.from_domain(version) for version in versions]
 
 
 @router.get("/workspaces/{workspace_id}/folders", response_model=list[FolderResponse])

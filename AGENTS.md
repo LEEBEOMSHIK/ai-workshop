@@ -21,6 +21,7 @@
 - 전체 경계와 단계: `docs/architecture/system-design.md`
 - 목표 파일 구조: `docs/architecture/repository-structure.md`
 - 공통 개발 규칙: `docs/guidelines/development-guidelines.md`
+- 로컬 실행과 검증: `docs/runbooks/local-development.md`
 - Codex 참고 문서 구조: `docs/guidelines/codex/README.md`
 - RAG 작업: `docs/labs/rag/design.md`
 - 기술 결정: `docs/decisions/`
@@ -29,8 +30,9 @@
 
 ## 현재 프로젝트 단계
 
-- 설계와 1단계 작업소 기반 구현 계획이 완료됐으며 애플리케이션 코드를 구현 중이다.
-- 사용자가 구현을 명시적으로 승인했다. 구현은 승인된 상세 계획과 테스트 순서를 따른다.
+- 설계와 1단계 작업소 기반 구현이 완료됐으며 다음 단계는 RAG AI 검색 구현 계획 수립이다.
+- 현재 기반은 로그인, 지식 공간·권한, 문서·불변 버전, 영속 job·worker, 모델·프로파일 레지스트리와 OpenAPI 계약을 포함한다.
+- 로컬 실행, migration, owner bootstrap과 smoke 절차는 `docs/runbooks/local-development.md`만 정본으로 사용한다.
 - 미래 `Labs` 영역의 빈 폴더나 예제 구현을 미리 만들지 않는다.
 - 첫 구현 영역은 자산운용 전문 문서 RAG AI 검색이다.
 

@@ -167,7 +167,17 @@ async def test_upload_coordinator_creates_a_durable_verification_job(tmp_path) -
         MemoryAssetRepository(), LocalObjectStore(tmp_path), max_upload_bytes=1024
     )
     job_repository = MemoryJobRepository()
-    coordinator = AssetUploadCoordinator(asset_service, JobService(job_repository))
+    commit_count = 0
+
+    async def commit() -> None:
+        nonlocal commit_count
+        commit_count += 1
+
+    coordinator = AssetUploadCoordinator(
+        asset_service,
+        JobService(job_repository),
+        commit=commit,
+    )
     user = owner()
 
     result = await coordinator.upload(
@@ -183,6 +193,7 @@ async def test_upload_coordinator_creates_a_durable_verification_job(tmp_path) -
     assert result.job.asset_version_id == result.document.versions[-1].id
     assert result.job_created is True
     assert job_repository.jobs == [result.job]
+    assert commit_count == 1
 
 
 @pytest.mark.asyncio

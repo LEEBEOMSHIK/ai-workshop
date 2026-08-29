@@ -25,7 +25,7 @@ def _to_domain(record: UserRecord) -> User:
         email=record.email,
         normalized_email=record.normalized_email,
         password_hash=record.password_hash,
-        role=record.role,
+        role=UserRole(record.role),
         is_active=record.is_active,
     )
 

@@ -1,9 +1,18 @@
 from ai_workshop.config import Settings
+from ai_workshop.platform.jobs.models import JobRecord
 from ai_workshop.worker import ASSET_VERIFICATION_TASK, celery_app, create_celery
 
 
 def test_celery_cli_app_is_available_without_loading_application_secrets() -> None:
     assert ASSET_VERIFICATION_TASK in celery_app.tasks
+
+
+def test_worker_registers_every_table_referenced_by_jobs() -> None:
+    referenced_tables = {
+        foreign_key.column.table.name for foreign_key in JobRecord.__table__.foreign_keys
+    }
+
+    assert referenced_tables == {"asset_versions", "users", "workspaces"}
 
 
 def test_test_environment_executes_celery_tasks_eagerly_without_a_result_backend() -> None:

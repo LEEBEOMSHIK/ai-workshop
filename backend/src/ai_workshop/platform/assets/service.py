@@ -1,4 +1,4 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated
@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_workshop.config import Settings, get_settings
 from ai_workshop.infrastructure.object_store.local import LocalObjectStore
-from ai_workshop.platform.assets.domain import Document, Folder
+from ai_workshop.platform.assets.domain import AssetVersion, Document, Folder
 from ai_workshop.platform.assets.repository import AssetRepository, SqlAlchemyAssetRepository
 from ai_workshop.platform.assets.storage import ObjectStore
 from ai_workshop.platform.identity.domain import User
@@ -83,6 +83,12 @@ class AssetService:
             raise AppError("not_found", "The requested resource was not found.", 404)
         return await self.repository.list_folders(user.id, workspace_id)
 
+    async def list_versions(self, *, user: User, document_id: UUID) -> list[AssetVersion]:
+        document = await self.repository.find_document_for_user(user.id, document_id)
+        if document is None:
+            raise AppError("not_found", "The requested resource was not found.", 404)
+        return document.versions
+
     async def create_folder(
         self,
         *,
@@ -149,9 +155,16 @@ class AssetUploadResult:
 
 
 class AssetUploadCoordinator:
-    def __init__(self, assets: AssetService, jobs: JobService) -> None:
+    def __init__(
+        self,
+        assets: AssetService,
+        jobs: JobService,
+        *,
+        commit: Callable[[], Awaitable[None]] | None = None,
+    ) -> None:
         self.assets = assets
         self.jobs = jobs
+        self.commit = commit or _no_op_commit
 
     async def upload(
         self,
@@ -181,6 +194,7 @@ class AssetUploadCoordinator:
         except Exception:
             await self.assets.object_store.delete(version.object_key)
             raise
+        await self.commit()
         return AssetUploadResult(document, creation.job, creation.created)
 
     async def upload_version(
@@ -209,7 +223,12 @@ class AssetUploadCoordinator:
         except Exception:
             await self.assets.object_store.delete(version.object_key)
             raise
+        await self.commit()
         return AssetUploadResult(document, creation.job, creation.created)
+
+
+async def _no_op_commit() -> None:
+    return None
 
 
 def get_asset_service(
@@ -226,5 +245,6 @@ def get_asset_service(
 def get_asset_upload_coordinator(
     assets: Annotated[AssetService, Depends(get_asset_service)],
     jobs: Annotated[JobService, Depends(get_job_service)],
+    session: Annotated[AsyncSession, Depends(get_session)],
 ) -> AssetUploadCoordinator:
-    return AssetUploadCoordinator(assets, jobs)
+    return AssetUploadCoordinator(assets, jobs, commit=session.commit)

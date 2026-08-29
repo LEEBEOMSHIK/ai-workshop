@@ -2,7 +2,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from ai_workshop.platform.assets.domain import Document, Folder, VersionStatus
+from ai_workshop.platform.assets.domain import AssetVersion, Document, Folder, VersionStatus
 
 
 class FolderCreate(BaseModel):
@@ -41,4 +41,22 @@ class DocumentResponse(BaseModel):
             latest_version=latest.number,
             status=latest.status,
             job_id=job_id,
+        )
+
+
+class AssetVersionResponse(BaseModel):
+    id: UUID
+    number: int
+    media_type: str
+    size: int
+    status: VersionStatus
+
+    @classmethod
+    def from_domain(cls, version: AssetVersion) -> "AssetVersionResponse":
+        return cls(
+            id=version.id,
+            number=version.number,
+            media_type=version.media_type,
+            size=version.size,
+            status=version.status,
         )

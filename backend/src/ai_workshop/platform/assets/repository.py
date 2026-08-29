@@ -6,7 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_workshop.platform.assets.domain import AssetVersion, Document, Folder
 from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecord, FolderRecord
-from ai_workshop.platform.workspaces.models import WorkspaceMembershipRecord
+from ai_workshop.platform.workspaces.models import WorkspaceMembershipRecord, WorkspaceRecord
+from ai_workshop.platform.workspaces.repository import workspace_is_active
 
 
 class AssetRepository(Protocol):
@@ -31,24 +32,29 @@ class SqlAlchemyAssetRepository:
     async def has_workspace_access(self, user_id: UUID, workspace_id: UUID) -> bool:
         result = await self.session.execute(
             select(WorkspaceMembershipRecord.id)
+            .join(
+                WorkspaceRecord,
+                WorkspaceRecord.id == WorkspaceMembershipRecord.workspace_id,
+            )
             .where(
                 WorkspaceMembershipRecord.user_id == user_id,
                 WorkspaceMembershipRecord.workspace_id == workspace_id,
+                workspace_is_active(),
             )
             .limit(1)
         )
         return result.scalar_one_or_none() is not None
 
     async def save(self, document: Document) -> Document:
-        self.session.add(
-            DocumentRecord(
-                id=document.id,
-                workspace_id=document.workspace_id,
-                folder_id=document.folder_id,
-                name=document.name,
-                active_version_id=document.active_version_id,
-            )
+        document_record = DocumentRecord(
+            id=document.id,
+            workspace_id=document.workspace_id,
+            folder_id=document.folder_id,
+            name=document.name,
+            active_version_id=document.active_version_id,
         )
+        self.session.add(document_record)
+        await self.session.flush()
         for version in document.versions:
             self.session.add(
                 AssetVersionRecord(
@@ -166,9 +172,11 @@ class SqlAlchemyAssetRepository:
                 WorkspaceMembershipRecord,
                 WorkspaceMembershipRecord.workspace_id == DocumentRecord.workspace_id,
             )
+            .join(WorkspaceRecord, WorkspaceRecord.id == DocumentRecord.workspace_id)
             .where(
                 DocumentRecord.id == document_id,
                 WorkspaceMembershipRecord.user_id == user_id,
+                workspace_is_active(),
             )
         )
         record = result.scalar_one_or_none()

@@ -24,7 +24,7 @@ ai-workshop = "ai_workshop.platform.identity.cli:main"
 
 [dependency-groups]
 dev = [
-  "httpx2",
+  "httpx>=0.28,<1.0",
   "mypy>=1.17,<2.0",
   "pytest>=8.4,<10.0",
   "pytest-asyncio>=1.1,<2.0",
@@ -40,8 +40,9 @@ build-backend = "hatchling.build"
 packages = ["src/ai_workshop"]
 
 [tool.pytest.ini_options]
+addopts = ["-p", "no:cacheprovider", "--basetemp=.pytest-tmp"]
 asyncio_mode = "auto"
-pythonpath = ["src"]
+pythonpath = [".", "src"]
 testpaths = ["tests"]
 
 [tool.ruff]

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -b && vite build",
+    "dev": "vite --host 127.0.0.1",
     "api:check": "node openapi-ts.config.mjs --check",
     "api:generate": "node openapi-ts.config.mjs",
     "lint": "eslint . --max-warnings 0",

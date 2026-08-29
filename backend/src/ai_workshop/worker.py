@@ -8,8 +8,11 @@ from fastapi import Depends
 
 from ai_workshop.config import Settings, get_settings
 from ai_workshop.platform.assets.tasks import AssetTaskError, create_asset_verification_workflow
+from ai_workshop.shared.model_registry import load_models
 
 ASSET_VERIFICATION_TASK = "ai_workshop.assets.verify_stored"
+
+load_models()
 
 
 def create_celery(settings: Settings | None = None) -> Celery:

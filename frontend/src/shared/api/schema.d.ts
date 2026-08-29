@@ -62,7 +62,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List Document Versions */
+        get: operations["list_document_versions_api_v1_documents__document_id__versions_get"];
         put?: never;
         /** Upload Document Version */
         post: operations["upload_document_version_api_v1_documents__document_id__versions_post"];
@@ -234,6 +235,21 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AssetVersionResponse */
+        AssetVersionResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Media Type */
+            media_type: string;
+            /** Number */
+            number: number;
+            /** Size */
+            size: number;
+            status: components["schemas"]["VersionStatus"];
+        };
         /** Body_upload_document_api_v1_workspaces__workspace_id__documents_post */
         Body_upload_document_api_v1_workspaces__workspace_id__documents_post: {
             /** File */
@@ -625,6 +641,64 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    list_document_versions_api_v1_documents__document_id__versions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssetVersionResponse"][];
                 };
             };
             /** @description Authentication required. */

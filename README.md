@@ -6,7 +6,7 @@ AI Workshop은 AI를 공부한 과정과 실제로 동작하는 기술을 함께
 
 ## 현재 상태
 
-승인된 설계를 기준으로 1단계 작업소 기반을 구현 중이다. 현재 React 앱 셸, FastAPI API와 PostgreSQL·Redis 로컬 서비스를 시작점으로 제공한다.
+1단계 작업소 기반이 구현됐다. React 앱, FastAPI API, PostgreSQL, Redis, Celery worker, 불변 문서 버전, 지식 공간 권한과 교체 가능한 RAG 모델·프로파일 레지스트리를 제공한다.
 
 - [현재 작업 대시보드](WORKBOARD.md)
 
@@ -14,17 +14,11 @@ AI Workshop은 AI를 공부한 과정과 실제로 동작하는 기술을 함께
 
 ```powershell
 pnpm install
-pnpm --dir frontend test --run
-
-cd backend
-python -m uv sync --all-groups
-python -m uv run python -m pytest -q
-
-cd ..
-docker compose -f infrastructure/compose/compose.yaml up -d
+Copy-Item .env.example .env
+.\scripts\smoke.ps1
 ```
 
-Windows ARM64에서 프로세스 아키텍처가 잘못 감지되면 uv의 Python 요청에 `cpython-3.13-windows-aarch64-none`을 명시한다. 환경 변수와 비밀값은 `.env.example`을 복사한 추적되지 않는 `.env`에 둔다.
+일상 개발 실행, owner 생성, migration, 테스트와 문제 해결 절차는 [로컬 개발 실행서](docs/runbooks/local-development.md)를 따른다. 환경 변수와 비밀값은 추적되지 않는 `.env`에 둔다.
 
 ## 설계 문서
 
@@ -33,6 +27,7 @@ Windows ARM64에서 프로세스 아키텍처가 잘못 감지되면 uv의 Pytho
 - [전체 시스템 설계](docs/architecture/system-design.md)
 - [저장소 구조](docs/architecture/repository-structure.md)
 - [개발 및 운영 지침](docs/guidelines/development-guidelines.md)
+- [로컬 개발 실행서](docs/runbooks/local-development.md)
 - [Codex 참고 문서 구조](docs/guidelines/codex/README.md)
 - [RAG AI 검색 설계](docs/labs/rag/design.md)
 - [ADR-0001: 모듈형 모놀리스](docs/decisions/0001-modular-monolith.md)

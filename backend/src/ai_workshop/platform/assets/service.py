@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated
 from uuid import UUID, uuid4
@@ -12,6 +13,8 @@ from ai_workshop.platform.assets.domain import Document, Folder
 from ai_workshop.platform.assets.repository import AssetRepository, SqlAlchemyAssetRepository
 from ai_workshop.platform.assets.storage import ObjectStore
 from ai_workshop.platform.identity.domain import User
+from ai_workshop.platform.jobs.domain import Job
+from ai_workshop.platform.jobs.service import JobService, get_job_service
 from ai_workshop.shared.db import get_session
 from ai_workshop.shared.errors import AppError
 
@@ -138,6 +141,77 @@ class AssetService:
             raise
 
 
+@dataclass(frozen=True, slots=True)
+class AssetUploadResult:
+    document: Document
+    job: Job
+    job_created: bool
+
+
+class AssetUploadCoordinator:
+    def __init__(self, assets: AssetService, jobs: JobService) -> None:
+        self.assets = assets
+        self.jobs = jobs
+
+    async def upload(
+        self,
+        *,
+        user: User,
+        workspace_id: UUID,
+        folder_id: UUID | None,
+        filename: str,
+        media_type: str,
+        content: AsyncIterator[bytes],
+    ) -> AssetUploadResult:
+        document = await self.assets.upload(
+            user=user,
+            workspace_id=workspace_id,
+            folder_id=folder_id,
+            filename=filename,
+            media_type=media_type,
+            content=content,
+        )
+        version = document.versions[-1]
+        try:
+            creation = await self.jobs.create_asset_verification(
+                user_id=user.id,
+                workspace_id=document.workspace_id,
+                asset_version_id=version.id,
+            )
+        except Exception:
+            await self.assets.object_store.delete(version.object_key)
+            raise
+        return AssetUploadResult(document, creation.job, creation.created)
+
+    async def upload_version(
+        self,
+        *,
+        user: User,
+        document_id: UUID,
+        filename: str,
+        media_type: str,
+        content: AsyncIterator[bytes],
+    ) -> AssetUploadResult:
+        document = await self.assets.upload_version(
+            user=user,
+            document_id=document_id,
+            filename=filename,
+            media_type=media_type,
+            content=content,
+        )
+        version = document.versions[-1]
+        try:
+            creation = await self.jobs.create_asset_verification(
+                user_id=user.id,
+                workspace_id=document.workspace_id,
+                asset_version_id=version.id,
+            )
+        except Exception:
+            await self.assets.object_store.delete(version.object_key)
+            raise
+        return AssetUploadResult(document, creation.job, creation.created)
+
+
 def get_asset_service(
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
@@ -147,3 +221,10 @@ def get_asset_service(
         LocalObjectStore(settings.object_store_root),
         max_upload_bytes=50 * 1024 * 1024,
     )
+
+
+def get_asset_upload_coordinator(
+    assets: Annotated[AssetService, Depends(get_asset_service)],
+    jobs: Annotated[JobService, Depends(get_job_service)],
+) -> AssetUploadCoordinator:
+    return AssetUploadCoordinator(assets, jobs)

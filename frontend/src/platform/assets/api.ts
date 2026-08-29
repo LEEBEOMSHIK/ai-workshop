@@ -3,6 +3,7 @@ export interface DocumentSummary {
   name: string;
   latest_version: number;
   status: "stored" | "processing" | "ready" | "failed";
+  job_id?: string | null;
 }
 
 export async function listDocuments(workspaceId: string): Promise<DocumentSummary[]> {

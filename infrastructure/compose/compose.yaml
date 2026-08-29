@@ -1,6 +1,72 @@
 name: ai-workshop
 
+x-backend: &backend
+  image: ghcr.io/astral-sh/uv:python3.13-bookworm-slim
+  working_dir: /app
+  environment:
+    AI_WORKSHOP_SECRET_KEY: ${AI_WORKSHOP_SECRET_KEY:-local-development-secret-change-before-sharing}
+    AI_WORKSHOP_DATABASE_URL: postgresql+psycopg://ai_workshop:ai_workshop@postgres:5432/ai_workshop
+    AI_WORKSHOP_REDIS_URL: redis://redis:6379/0
+    AI_WORKSHOP_OBJECT_STORE_ROOT: /data/objects
+    UV_PROJECT_ENVIRONMENT: /opt/venv
+    UV_LINK_MODE: copy
+  volumes:
+    - ../../backend:/app
+    - backend-venv:/opt/venv
+    - object-data:/data/objects
+
 services:
+  api:
+    <<: *backend
+    command: ["uv", "run", "uvicorn", "ai_workshop.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "uv",
+          "run",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  worker:
+    <<: *backend
+    command:
+      [
+        "uv",
+        "run",
+        "celery",
+        "-A",
+        "ai_workshop.worker:celery_app",
+        "worker",
+        "--loglevel=INFO",
+      ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "uv run celery -A ai_workshop.worker:celery_app inspect ping --timeout 5 | grep -q pong",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
   postgres:
     image: postgres:17-alpine
     environment:
@@ -31,5 +97,7 @@ services:
       retries: 10
 
 volumes:
+  backend-venv:
+  object-data:
   postgres-data:
   redis-data:

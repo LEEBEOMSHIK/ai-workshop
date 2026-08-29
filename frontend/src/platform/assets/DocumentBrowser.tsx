@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { JobStatus } from "../jobs/JobStatus";
 import { type DocumentSummary, uploadDocument } from "./api";
 import { UploadDialog } from "./UploadDialog";
 
@@ -52,6 +53,9 @@ export function DocumentBrowser({
             <span className={`document-state ${document.status}`}>
               {statusLabels[document.status]}
             </span>
+            {document.job_id ? (
+              <JobStatus jobId={document.job_id} initialStatus="queued" />
+            ) : null}
           </article>
         ))}
       </section>

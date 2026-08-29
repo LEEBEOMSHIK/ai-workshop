@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ai_workshop.platform.assets.api import router as asset_router
 from ai_workshop.platform.identity.api import router as identity_router
+from ai_workshop.platform.jobs.api import router as job_router
 from ai_workshop.platform.workspaces.api import router as workspace_router
 from ai_workshop.shared.errors import register_error_handlers
 from ai_workshop.shared.request_context import CorrelationIdMiddleware
@@ -26,6 +27,7 @@ def create_app() -> FastAPI:
     register_error_handlers(application)
     application.include_router(asset_router)
     application.include_router(identity_router)
+    application.include_router(job_router)
     application.include_router(workspace_router)
 
     @application.get("/api/v1/health", tags=["system"])

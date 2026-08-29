@@ -21,6 +21,7 @@ class AssetRepository(Protocol):
     async def add_folder(self, folder: Folder) -> Folder: ...
     async def find_document_for_user(self, user_id: UUID, document_id: UUID) -> Document | None: ...
     async def save_version(self, document: Document, version: AssetVersion) -> Document: ...
+    async def find_version(self, version_id: UUID) -> AssetVersion | None: ...
 
 
 class SqlAlchemyAssetRepository:
@@ -215,3 +216,18 @@ class SqlAlchemyAssetRepository:
         )
         await self.session.flush()
         return document
+
+    async def find_version(self, version_id: UUID) -> AssetVersion | None:
+        record = await self.session.get(AssetVersionRecord, version_id)
+        if record is None:
+            return None
+        return AssetVersion(
+            id=record.id,
+            document_id=record.document_id,
+            number=record.number,
+            object_key=record.object_key,
+            sha256=record.sha256,
+            media_type=record.media_type,
+            size=record.size,
+            status=record.status,
+        )

@@ -13,6 +13,7 @@ describe("DocumentBrowser", () => {
             name: "quarterly-report.pdf",
             latest_version: 2,
             status: "stored",
+            job_id: "job-1",
           },
         ]}
       />,
@@ -22,5 +23,6 @@ describe("DocumentBrowser", () => {
     expect(screen.getByText("버전 2")).toBeVisible();
     expect(screen.queryByRole("button", { name: "검색" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "문서 올리기" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "상태 새로고침" })).toBeVisible();
   });
 });

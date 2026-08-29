@@ -401,7 +401,7 @@ h1 {
 
 .document-row {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto minmax(12rem, 1fr) auto auto;
   align-items: center;
   gap: 1rem;
   padding: 1rem 1.2rem;
@@ -452,4 +452,67 @@ h1 {
 .document-state.failed {
   color: #ffb2a7;
   background: #442521;
+}
+
+.job-status {
+  display: grid;
+  min-width: 9rem;
+  justify-items: end;
+  gap: 0.25rem;
+}
+
+.job-state {
+  color: #aeb8c1;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.job-state.running,
+.job-state.queued {
+  color: #e7c98c;
+}
+
+.job-state.succeeded {
+  color: #82d9cf;
+}
+
+.job-state.failed,
+.job-error {
+  color: #ffb2a7;
+}
+
+.job-stage,
+.job-error {
+  color: #77838e;
+  font-size: 0.68rem;
+}
+
+.job-status button {
+  padding: 0;
+  border: 0;
+  color: #8ecfc7;
+  background: transparent;
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+
+.job-status button:disabled {
+  color: #65717c;
+  cursor: wait;
+}
+
+@media (max-width: 760px) {
+  .document-header {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .document-row {
+    grid-template-columns: auto 1fr auto;
+  }
+
+  .job-status {
+    grid-column: 2 / -1;
+    justify-items: start;
+  }
 }

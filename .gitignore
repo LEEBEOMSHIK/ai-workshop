@@ -1,4 +1,5 @@
 .worktrees/
+.superpowers/
 .idea/
 .env
 .local-data/

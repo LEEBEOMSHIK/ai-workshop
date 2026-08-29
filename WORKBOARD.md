@@ -1,54 +1,54 @@
 # Workboard
 
 - 마지막 갱신일: 2026-08-30
-- 현재 단계: 1단계 작업소 기반 완료
-- 전체 상태: 다음 RAG AI 검색 구현 계획 준비
+- 현재 단계: 2단계 RAG AI 검색 상세 설계 문서 검토
+- 전체 상태: 승인된 상세 설계를 정본 문서로 작성하고 사용자 검토 대기 중
 
 ## 현재 작업
 
 ### 목표
 
-격리된 `feature/workshop-foundation` 브랜치의 Task 9 구현과 검증을 마치고 통합 방식을 결정한다.
+작성된 자산운용 전문 문서 RAG AI 검색 상세 설계를 검토받고 구현 계획 작성의 기준으로 확정한다.
 
 ### 진행 상태
 
-- 사용자가 현재 세션에서 순차 구현하는 방식을 선택했다.
-- `.worktrees/workshop-foundation` 격리 작업공간과 `feature/workshop-foundation` 브랜치를 만들었다.
-- Task 1의 React·FastAPI 실행 골격, 잠금 파일과 PostgreSQL·Redis Compose 구성을 완료했다.
-- Task 2의 환경 설정, async DB 세션, Alembic과 공통 오류 계약을 완료했다.
-- Task 3의 Argon2 비밀번호, JWT HttpOnly 쿠키 세션, 소유자 부트스트랩과 로그인 UI를 완료했다.
-- Task 4의 회사·팀·개인·임시 지식 공간, 멤버십과 UI 구분을 완료했다.
-- Task 5의 로컬 객체 저장소와 불변 문서 버전 코어를 완료했다. 관련 커밋: `5c7ac34`
-- Task 5의 폴더 API, 권한 확인 업로드, 새 버전 등록과 문서 브라우저를 완료했다.
-- Task 6의 영속 작업 상태, 멱등 생성, Celery worker, 작업 조회 API와 수동 상태 UI를 완료했다.
-- Task 7의 불변 모델·프로파일 레지스트리, 종류별 검증, YAML 등록 API와 Model Lab UI를 완료했다.
-- Task 8의 OpenAPI 계약·결정적 export·생성 TypeScript 타입·공통 typed client 전환을 완료했다.
-- Task 9의 실제 API·Redis worker E2E, 활성 공간 접근 경계, 공통 백엔드 이미지, 일회성 migration, smoke와 로컬 실행서를 완료했다.
+- 1단계 작업소 기반을 `main`에 통합하고 전체 백엔드·프론트엔드·실제 worker E2E 검증을 완료했다.
+- 기존 승인 설계에서 첫 검색 기준선은 `BM25 + bi-encoder + RRF`, 비교 기준은 BM25 단독으로 확정돼 있다.
+- 색인·검색·생성 프로파일은 분리하며 첫 검색 순위에는 LLM을 사용하지 않는다.
+- 첫 수직 슬라이스는 Markdown, TXT와 텍스트 PDF이며 이후 DOCX, 스캔 PDF OCR 순서로 확장한다.
+- 첫 답변은 LLM 생성문이 아니라 원문 근거 발췌이며 SUPPORTED와 INSUFFICIENT_EVIDENCE를 구분한다.
+- Elasticsearch의 BM25와 dense 결과를 Python 애플리케이션 계층에서 RRF로 결합한다.
+- 사용자 화면의 프로파일은 원자 프로파일을 조합해 이름과 버전으로 저장한 RAG 구성이며, BM25 기준선 외에는 사용자가 저장한 구성만 목록과 비교에 나타난다.
+- 상세 설계 정본은 docs/labs/rag/designs/2026-08-30-ai-search-detailed-design.md에 작성했다.
+- 현재 구현에는 지식 공간·권한, 원본 문서·불변 버전, 영속 job·worker, 모델·프로파일 레지스트리가 준비돼 있다.
+- 파서·공통 문서 모델·청킹·Elasticsearch 색인·검색·의미 하이라이트·평가 모듈은 아직 구현되지 않았다.
 
 ### 완료 기준
 
-- 소유자 전체 흐름과 회사·개인·임시 공간, 문서·작업 접근 경계가 실제 worker E2E에서 통과했다.
-- API·worker·migration이 같은 이미지로 실행되고 migration은 명시적 일회성 서비스로 분리됐다.
-- 격리 smoke와 로컬 실행·문제 해결 runbook이 검증됐다.
+- 첫 구현이 독립적으로 검증 가능한 수직 슬라이스들로 나뉜다.
+- 파싱 결과에서 검색 결과와 원문 하이라이트까지 provenance가 끊기지 않는다.
+- 권한 및 검색 범위 필터가 BM25와 dense 검색 전에 적용되는 구조가 명시된다.
+- BM25 단독과 hybrid 검색을 동일한 평가 세트에서 비교할 수 있다.
+- 승인된 상세 설계와 실행 가능한 구현 계획 문서가 작성된다.
 
 ## 최근 완료 작업
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. 실제 API·Redis worker E2E, 접근 경계, 공통 이미지 Compose, smoke와 로컬 실행서를 구현하고 검증했다.
-2. OpenAPI 공개 계약, 결정적 export와 생성 TypeScript 타입, 공통 typed client를 구현하고 검증했다.
-3. 불변 RAG 모델·프로파일 레지스트리, 종류별 검증, YAML 등록 API와 Model Lab UI를 구현하고 검증했다.
-4. 영속 작업 상태, 멱등 생성, Celery worker, 객체 검증, 작업 조회 API와 수동 상태 UI를 구현하고 검증했다.
-5. 폴더 API, 권한 확인 문서 업로드, 불변 새 버전 등록과 문서 브라우저를 구현했다. 관련 커밋: `b1411f8`
+1. 자산운용 RAG AI 검색의 처리 흐름, Hybrid retrieval, 근거 응답, 저장형 RAG 구성과 평가 상세 설계 문서를 작성했다.
+2. 1단계 작업소 기반을 `main`에 통합하고 전체 테스트·빌드·실제 worker E2E를 재검증했다. 관련 커밋: `14b8171`
+3. 실제 API·Redis worker E2E, 접근 경계, 공통 이미지 Compose, smoke와 로컬 실행서를 구현하고 검증했다.
+4. OpenAPI 공개 계약, 결정적 export와 생성 TypeScript 타입, 공통 typed client를 구현하고 검증했다.
+5. 불변 RAG 모델·프로파일 레지스트리, 종류별 검증, YAML 등록 API와 Model Lab UI를 구현하고 검증했다.
 
 ## 다음 작업
 
-1. 자산운용 전문 문서 RAG AI 검색의 상세 구현 계획을 작성한다.
-2. 계획에서 파서·청킹·색인·BM25+bi-encoder·RRF·리랭커·의미 하이라이트의 구현 및 평가 순서를 확정한다.
+1. 작성된 상세 설계 정본을 사용자와 검토하고 필요한 수정을 반영한다.
+2. 최종 승인된 설계를 기준으로 파서·청킹·색인·BM25+bi-encoder·RRF·의미 하이라이트·저장형 구성·평가 구현 계획을 작성한다.
 
 ## 결정이 필요한 항목
 
-- 검증된 `feature/workshop-foundation` 브랜치를 어떤 방식으로 통합할지 결정해야 한다.
+- 작성된 상세 설계 정본의 사용자 승인만 남아 있다.
 
 ## 차단 요소
 

@@ -1,7 +1,7 @@
 # 저장소 구조
 
 - 상태: 승인됨
-- 기준일: 2026-08-29
+- 기준일: 2026-08-30
 
 ## 목표 구조
 
@@ -20,7 +20,7 @@ ai-workshop/
 │  │  │  └─ rag/
 │  │  │     ├─ documents/
 │  │  │     ├─ search/
-│  │  │     ├─ model-lab/
+│  │  │     ├─ configuration-studio/
 │  │  │     ├─ experiments/
 │  │  │     └─ agents/
 │  │  └─ shared/
@@ -41,6 +41,7 @@ ai-workshop/
 │  │     │  └─ rag/
 │  │     │     ├─ documents/
 │  │     │     ├─ ingestion/
+│  │     │     ├─ parsing/
 │  │     │     ├─ chunking/
 │  │     │     ├─ indexing/
 │  │     │     ├─ retrieval/

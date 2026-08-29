@@ -30,7 +30,11 @@ export function WorkspacePage({ initialWorkspaces = [] }: WorkspacePageProps) {
       </header>
       <section className="workspace-list" aria-label="지식 공간 목록">
         {initialWorkspaces.map((workspace) => (
-          <article className="workspace-row" key={workspace.id}>
+          <a
+            className="workspace-row"
+            href={`/workspaces/${workspace.id}/documents`}
+            key={workspace.id}
+          >
             <span className={`workspace-badge ${workspace.kind}`}>
               {labels[workspace.kind]}
             </span>
@@ -38,7 +42,7 @@ export function WorkspacePage({ initialWorkspaces = [] }: WorkspacePageProps) {
               <h2>{workspace.name}</h2>
               <p>{workspace.expires_at ? "만료 일정 있음" : "지속 보관"}</p>
             </div>
-          </article>
+          </a>
         ))}
       </section>
     </main>

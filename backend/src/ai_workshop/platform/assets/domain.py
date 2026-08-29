@@ -23,6 +23,34 @@ class AssetVersion:
 
 
 @dataclass(slots=True)
+class Folder:
+    id: UUID
+    workspace_id: UUID
+    parent_id: UUID | None
+    name: str
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        workspace_id: UUID,
+        parent_id: UUID | None,
+        name: str,
+    ) -> "Folder":
+        return cls(uuid4(), workspace_id, parent_id, name.strip())
+
+    def move_to(
+        self,
+        new_parent_id: UUID | None,
+        *,
+        new_parent_ancestors: tuple[UUID, ...],
+    ) -> None:
+        if new_parent_id == self.id or self.id in new_parent_ancestors:
+            raise ValueError("A folder move cannot create a cycle.")
+        self.parent_id = new_parent_id
+
+
+@dataclass(slots=True)
 class Document:
     id: UUID
     workspace_id: UUID

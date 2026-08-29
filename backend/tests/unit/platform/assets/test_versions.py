@@ -1,6 +1,8 @@
 from uuid import uuid4
 
-from ai_workshop.platform.assets.domain import Document, VersionStatus
+import pytest
+
+from ai_workshop.platform.assets.domain import Document, Folder, VersionStatus
 
 
 def test_document_versions_increase_and_do_not_activate_before_processing() -> None:
@@ -23,3 +25,12 @@ def test_document_versions_increase_and_do_not_activate_before_processing() -> N
     assert second.number == 2
     assert second.status is VersionStatus.STORED
     assert document.active_version_id is None
+
+
+def test_folder_rejects_itself_and_descendants_as_parent() -> None:
+    workspace_id = uuid4()
+    root = Folder.create(workspace_id=workspace_id, parent_id=None, name="Research")
+    child = Folder.create(workspace_id=workspace_id, parent_id=root.id, name="2026")
+
+    with pytest.raises(ValueError, match="cycle"):
+        root.move_to(child.id, new_parent_ancestors=(root.id,))

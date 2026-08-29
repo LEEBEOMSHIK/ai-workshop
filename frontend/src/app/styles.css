@@ -303,6 +303,8 @@ h1 {
   border: 1px solid #26313b;
   border-radius: 0.9rem;
   background: #10171f;
+  color: inherit;
+  text-decoration: none;
 }
 
 .workspace-row h2,
@@ -334,4 +336,120 @@ h1 {
 .workspace-badge.temporary {
   color: #bdc5e9;
   background: #232a48;
+}
+
+.document-shell {
+  min-height: 100vh;
+  padding: clamp(2rem, 6vw, 6rem);
+  background: #0a0e13;
+}
+
+.document-header {
+  display: flex;
+  width: min(100%, 70rem);
+  margin: 0 auto 3rem;
+  align-items: end;
+  justify-content: space-between;
+  gap: 2rem;
+}
+
+.document-title {
+  margin: 0.5rem 0;
+  font-size: clamp(2.4rem, 6vw, 4.5rem);
+}
+
+.document-header p:not(.eyebrow) {
+  color: #87939e;
+}
+
+.upload-control {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.upload-control button {
+  padding: 0.8rem 1rem;
+  border: 0;
+  border-radius: 0.65rem;
+  color: #07100f;
+  background: #55d9c9;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.upload-control [role="status"] {
+  color: #8d99a5;
+  font-size: 0.8rem;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.document-list {
+  display: grid;
+  width: min(100%, 70rem);
+  margin: auto;
+  gap: 0.65rem;
+}
+
+.document-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.2rem;
+  border: 1px solid #26313b;
+  border-radius: 0.85rem;
+  background: #10171f;
+}
+
+.file-mark {
+  width: 3.2rem;
+  padding: 0.6rem 0.3rem;
+  border-radius: 0.5rem;
+  color: #82d9cf;
+  background: #173633;
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.document-meta h2,
+.document-meta p {
+  margin: 0;
+}
+
+.document-meta h2 {
+  font-size: 0.95rem;
+}
+
+.document-meta p {
+  margin-top: 0.25rem;
+  color: #77838e;
+  font-size: 0.78rem;
+}
+
+.document-state {
+  padding: 0.35rem 0.55rem;
+  border-radius: 999px;
+  color: #b9c3cc;
+  background: #202a34;
+  font-size: 0.72rem;
+}
+
+.document-state.ready {
+  color: #9be8df;
+  background: #163b39;
+}
+
+.document-state.failed {
+  color: #ffb2a7;
+  background: #442521;
 }

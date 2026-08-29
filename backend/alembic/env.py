@@ -5,6 +5,7 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from ai_workshop.config import get_settings
+from ai_workshop.labs.rag.models import models as rag_model_models  # noqa: F401
 from ai_workshop.platform.assets import models as asset_models  # noqa: F401
 from ai_workshop.platform.identity import models as identity_models  # noqa: F401
 from ai_workshop.platform.jobs import models as job_models  # noqa: F401

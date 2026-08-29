@@ -5,6 +5,8 @@ import {
 } from "react-router-dom";
 
 import { listDocuments } from "../platform/assets/api";
+import { loadModelLab } from "../labs/rag/models/api";
+import { ModelLabRoute } from "../labs/rag/models/ModelLabPage";
 import { DocumentPage } from "../platform/assets/DocumentPage";
 import { LoginPage } from "../platform/identity/LoginPage";
 import { WorkspacePage } from "../platform/workspaces/WorkspacePage";
@@ -32,6 +34,11 @@ export const routes: RouteObject[] = [
     path: "/workspaces/:workspaceId/documents",
     element: <DocumentPage />,
     loader: documentLoader,
+  },
+  {
+    path: "/rag/models",
+    element: <ModelLabRoute />,
+    loader: loadModelLab,
   },
 ];
 

@@ -1,0 +1,201 @@
+from uuid import UUID, uuid4
+
+from fastapi.testclient import TestClient
+
+from ai_workshop.labs.rag.models.domain import (
+    ModelDefinition,
+    ModelKind,
+    Profile,
+    ProfileKind,
+)
+from ai_workshop.labs.rag.models.repository import ModelRegistryRepository
+from ai_workshop.labs.rag.models.service import (
+    RagModelRegistryService,
+    get_rag_model_registry_service,
+)
+from ai_workshop.main import create_app
+from ai_workshop.platform.identity.api import get_current_user
+from ai_workshop.platform.identity.domain import User, UserRole
+
+
+class MemoryRegistryRepository(ModelRegistryRepository):
+    def __init__(self) -> None:
+        self.models: list[ModelDefinition] = []
+        self.profiles: list[Profile] = []
+
+    async def model_version_exists(self, kind: ModelKind, name: str, version: int) -> bool:
+        return any(
+            (item.kind, item.name, item.version) == (kind, name, version)
+            for item in self.models
+        )
+
+    async def add_model(self, model: ModelDefinition) -> ModelDefinition:
+        self.models.append(model)
+        return model
+
+    async def list_models(self) -> list[ModelDefinition]:
+        return list(self.models)
+
+    async def find_models(self, model_ids: tuple[UUID, ...]) -> list[ModelDefinition]:
+        return [item for item in self.models if item.id in model_ids]
+
+    async def profile_version_exists(
+        self, kind: ProfileKind, name: str, version: int
+    ) -> bool:
+        return any(
+            (item.kind, item.name, item.version) == (kind, name, version)
+            for item in self.profiles
+        )
+
+    async def add_profile(self, profile: Profile) -> Profile:
+        self.profiles.append(profile)
+        return profile
+
+    async def list_profiles(self, kind: ProfileKind | None = None) -> list[Profile]:
+        return [item for item in self.profiles if kind is None or item.kind is kind]
+
+    async def find_profile(self, profile_id: UUID) -> Profile | None:
+        return next((item for item in self.profiles if item.id == profile_id), None)
+
+    async def set_default(self, profile: Profile) -> Profile:
+        self.profiles = [
+            Profile(
+                item.id,
+                item.kind,
+                item.name,
+                item.version,
+                item.config,
+                item.bindings,
+                item.evaluation_state,
+                item.id == profile.id,
+            )
+            if item.kind is profile.kind
+            else item
+            for item in self.profiles
+        ]
+        return next(item for item in self.profiles if item.id == profile.id)
+
+
+def owner() -> User:
+    return User(
+        id=uuid4(),
+        display_name="Owner",
+        email="owner@example.com",
+        normalized_email="owner@example.com",
+        password_hash="hash",
+        role=UserRole.OWNER,
+    )
+
+
+def test_model_and_profile_versions_are_registered_and_listed() -> None:
+    repository = MemoryRegistryRepository()
+    app = create_app()
+    app.dependency_overrides[get_current_user] = owner
+    app.dependency_overrides[get_rag_model_registry_service] = lambda: RagModelRegistryService(
+        repository
+    )
+
+    with TestClient(app) as client:
+        model_response = client.post(
+            "/api/v1/rag/models",
+            json={
+                "kind": "embedding",
+                "name": "embedding-baseline",
+                "version": 1,
+                "config": {"dimension": 768, "token_env": "EMBEDDING_TOKEN"},
+            },
+        )
+        model_id = model_response.json()["id"]
+        profile_response = client.post(
+            "/api/v1/rag/profiles/indexing",
+            json={
+                "name": "indexing-baseline",
+                "version": 1,
+                "config": {"chunker": {"name": "structure", "version": 1}},
+                "bindings": [{"role": "embedding", "model_id": model_id}],
+                "evaluation_state": "draft",
+            },
+        )
+        models = client.get("/api/v1/rag/models")
+        profiles = client.get("/api/v1/rag/profiles/indexing")
+
+    assert model_response.status_code == 201
+    assert profile_response.status_code == 201
+    assert models.json()[0]["config"] == {
+        "dimension": 768,
+        "token_env": "EMBEDDING_TOKEN",
+    }
+    assert profiles.json()[0]["bindings"] == [
+        {"role": "embedding", "model_id": model_id}
+    ]
+    assert profiles.json()[0]["is_default"] is False
+
+
+def test_unpassed_profile_cannot_be_promoted_to_default() -> None:
+    repository = MemoryRegistryRepository()
+    app = create_app()
+    app.dependency_overrides[get_current_user] = owner
+    app.dependency_overrides[get_rag_model_registry_service] = lambda: RagModelRegistryService(
+        repository
+    )
+
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/v1/rag/profiles/retrieval",
+            json={
+                "name": "bm25-baseline",
+                "version": 1,
+                "config": {"bm25": {"analyzer": "standard"}},
+                "bindings": [],
+                "evaluation_state": "draft",
+            },
+        )
+        promoted = client.post(
+            f"/api/v1/rag/profiles/{created.json()['id']}/default"
+        )
+
+    assert created.status_code == 201
+    assert promoted.status_code == 409
+    assert promoted.json()["error"]["code"] == "profile_not_evaluated"
+
+
+def test_yaml_profile_is_validated_and_registered_through_the_api() -> None:
+    repository = MemoryRegistryRepository()
+    app = create_app()
+    app.dependency_overrides[get_current_user] = owner
+    app.dependency_overrides[get_rag_model_registry_service] = lambda: RagModelRegistryService(
+        repository
+    )
+
+    with TestClient(app) as client:
+        model = client.post(
+            "/api/v1/rag/models",
+            json={
+                "kind": "llm",
+                "name": "answer-model",
+                "version": 1,
+                "config": {"endpoint_env": "LOCAL_LLM_ENDPOINT"},
+            },
+        ).json()
+        response = client.post(
+            "/api/v1/rag/profiles/generation/yaml",
+            json={
+                "content": f"""
+kind: generation
+name: local-generation
+version: 1
+evaluation_state: draft
+config:
+  prompt_ref: grounded-answer-v1
+bindings:
+  - role: llm
+    model_id: {model["id"]}
+"""
+            },
+        )
+
+    assert response.status_code == 201
+    assert response.json()["kind"] == "generation"
+    assert response.json()["bindings"] == [
+        {"role": "llm", "model_id": model["id"]}
+    ]

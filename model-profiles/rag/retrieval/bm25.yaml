@@ -1,0 +1,9 @@
+kind: retrieval
+name: bm25-baseline
+version: 1
+evaluation_state: draft
+config:
+  bm25:
+    analyzer: standard
+    top_k: 30
+bindings: []

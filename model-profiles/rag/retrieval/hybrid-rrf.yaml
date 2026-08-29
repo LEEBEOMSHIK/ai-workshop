@@ -1,0 +1,17 @@
+kind: retrieval
+name: hybrid-rrf
+version: 1
+evaluation_state: draft
+config:
+  bm25:
+    analyzer: standard
+    top_k: 30
+  dense:
+    top_k: 30
+  rrf:
+    k: 60
+  indexing_profile_id: 00000000-0000-0000-0000-000000000201
+  reranker:
+    enabled: false
+    optional: true
+bindings: []

@@ -20,6 +20,35 @@ def test_split_sentences_keeps_numbered_clauses_together() -> None:
     )
 
 
+def test_split_sentences_splits_punctuationless_adjacent_numbered_clauses() -> None:
+    assert split_sentences("1. 투자 대상 2. 위험 한도") == (
+        "1. 투자 대상",
+        "2. 위험 한도",
+    )
+
+
+def test_split_sentences_recognizes_numbered_markers_at_valid_clause_starts() -> None:
+    assert split_sentences("도입 문장입니다. 1. 첫 항목 2. 둘째 항목") == (
+        "도입 문장입니다.",
+        "1. 첫 항목",
+        "2. 둘째 항목",
+    )
+
+
+def test_split_sentences_treats_numeric_sentence_endings_as_sentence_boundaries() -> None:
+    assert split_sentences("기준 연도는 2025. 다음 기준은 2026.") == (
+        "기준 연도는 2025.",
+        "다음 기준은 2026.",
+    )
+
+
+def test_split_sentences_does_not_treat_embedded_numeric_values_as_clause_markers() -> None:
+    assert split_sentences("1. 기준 연도는 2025. 다음 문장입니다.") == (
+        "1. 기준 연도는 2025.",
+        "다음 문장입니다.",
+    )
+
+
 def test_split_sentences_keeps_list_items_and_table_cells_as_single_units() -> None:
     assert split_sentences("- 손실 한도: 5%") == ("- 손실 한도: 5%",)
     assert split_sentences("자산군 | 한도 | 10%") == ("자산군 | 한도 | 10%",)

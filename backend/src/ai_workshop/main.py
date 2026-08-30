@@ -2,7 +2,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from ai_workshop.labs.rag.models.api import router as rag_model_router
-from ai_workshop.labs.rag.search.api import router as rag_search_router
 from ai_workshop.platform.assets.api import router as asset_router
 from ai_workshop.platform.identity.api import router as identity_router
 from ai_workshop.platform.jobs.api import router as job_router
@@ -32,7 +31,6 @@ def create_app() -> FastAPI:
     application.include_router(identity_router)
     application.include_router(job_router)
     application.include_router(rag_model_router)
-    application.include_router(rag_search_router)
     application.include_router(workspace_router)
 
     @application.get("/api/v1/health", tags=["system"])

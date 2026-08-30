@@ -18,9 +18,6 @@ EXPECTED_PATHS = {
     "/api/v1/rag/profiles/{kind}",
     "/api/v1/rag/profiles/{kind}/yaml",
     "/api/v1/rag/profiles/{profile_id}/default",
-    "/api/v1/rag/search",
-    "/api/v1/rag/sources/{asset_version_id}/normalized-text",
-    "/api/v1/rag/sources/{asset_version_id}/pdf/pages/{page_number}",
     "/api/v1/workspaces",
     "/api/v1/workspaces/{workspace_id}/documents",
     "/api/v1/workspaces/{workspace_id}/folders",
@@ -83,46 +80,3 @@ def test_openapi_export_is_deterministic_sorted_json_with_a_final_newline(tmp_pa
     parsed = json.loads(first)
     expected = json.dumps(parsed, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     assert first == second == expected
-
-
-def test_rag_search_contract_uses_authenticated_actor_and_distinct_highlights() -> None:
-    schema = create_app().openapi()
-    request_schema = schema["components"]["schemas"]["SearchRequest"]
-
-    assert set(request_schema["required"]) == {
-        "query",
-        "configuration_id",
-        "workspace_ids",
-    }
-    assert "actor_id" not in request_schema["properties"]
-    assert request_schema["properties"]["query"]["minLength"] == 2
-    assert request_schema["properties"]["query"]["maxLength"] == 1000
-    assert request_schema["properties"]["workspace_ids"]["minItems"] == 1
-    assert request_schema["properties"]["top_k"] == {
-        "default": 10,
-        "maximum": 50,
-        "minimum": 1,
-        "title": "Top K",
-        "type": "integer",
-    }
-    assert schema["components"]["schemas"]["HighlightKind"]["enum"] == [
-        "keyword",
-        "semantic",
-    ]
-
-    for path in (
-        "/api/v1/rag/sources/{asset_version_id}/normalized-text",
-        "/api/v1/rag/sources/{asset_version_id}/pdf/pages/{page_number}",
-    ):
-        parameters = schema["paths"][path]["get"]["parameters"]
-        projection = next(item for item in parameters if item["name"] == "projection_id")
-        assert projection["in"] == "query"
-        assert projection["required"] is True
-
-    pdf_success = schema["paths"][
-        "/api/v1/rag/sources/{asset_version_id}/pdf/pages/{page_number}"
-    ]["get"]["responses"]["200"]
-    assert pdf_success["content"]["image/png"]["schema"] == {
-        "format": "binary",
-        "type": "string",
-    }

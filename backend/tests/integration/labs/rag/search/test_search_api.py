@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import replace
 from hashlib import sha256
+from pathlib import Path
 from uuid import UUID
 
 import pymupdf
@@ -14,8 +15,12 @@ from ai_workshop.labs.rag.documents.domain import (
     StructuralElement,
 )
 from ai_workshop.labs.rag.embeddings.contracts import (
+    EmbeddingModelConfig,
     EmbeddingPort,
     EmbeddingRuntimeUnavailableError,
+)
+from ai_workshop.labs.rag.embeddings.sentence_transformers import (
+    SentenceTransformerEmbedding,
 )
 from ai_workshop.labs.rag.highlighting.domain import AnswerPolicy, EvidenceSource
 from ai_workshop.labs.rag.indexing.contracts import IndexDescriptor
@@ -481,6 +486,70 @@ def test_evidence_embedding_runtime_failure_is_a_typed_api_outage() -> None:
 
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "evidence_embedding_unavailable"
+
+
+class DocumentEncodingFailureModel:
+    def __init__(self, failure: Exception) -> None:
+        self.failure = failure
+        self.calls: list[list[str]] = []
+        self.tokenizer = lambda *args, **kwargs: {"input_ids": [1, 2]}
+
+    def get_sentence_embedding_dimension(self) -> int:
+        return 2
+
+    def encode(self, texts: Sequence[str], **kwargs: object) -> list[list[float]]:
+        del kwargs
+        exact_texts = list(texts)
+        self.calls.append(exact_texts)
+        if exact_texts[0].startswith("passage: "):
+            raise self.failure
+        return [[1.0, 0.0] for _ in exact_texts]
+
+
+@pytest.mark.parametrize("failure_type", [OSError, RuntimeError])
+def test_bm25_semantic_path_maps_production_document_runtime_failure_to_503(
+    tmp_path: Path,
+    failure_type: type[Exception],
+) -> None:
+    source = _source(1, "가입 후 해지 조건입니다.")
+    failure = failure_type("production document encoding failed")
+    model = DocumentEncodingFailureModel(failure)
+    embedding = SentenceTransformerEmbedding(
+        EmbeddingModelConfig(
+            repo_id="synthetic/local-model",
+            revision="a" * 40,
+            dimension=2,
+            max_tokens=32,
+            query_prefix="query: ",
+            document_prefix="passage: ",
+            normalize=True,
+            device="cpu",
+            dtype="float32",
+            output_mode="dense",
+            data_policy="local_only",
+            batch_size=2,
+        ),
+        cache_folder=tmp_path,
+        loader=lambda *args, **kwargs: model,
+    )
+    resolver = InMemorySearchConfigurationResolver(_configuration(embedding))
+    source_resolver = AuthoritativeSourceResolver((source,))
+    service = SearchApplicationService(
+        configuration_resolver=resolver,
+        scope_resolver=RecordingScopeResolver(),
+        sparse_retriever=SparseRetriever((SparseHit(source.chunk, rank=1, score=10.0),)),
+        dense_retriever=DenseRetriever(),
+        source_resolver=source_resolver,
+    )
+
+    response = _post_search(service, query="상품 유동성")
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "evidence_embedding_unavailable"
+    assert model.calls == [
+        ["query: 상품 유동성"],
+        ["passage: 가입 후 해지 조건입니다."],
+    ]
 
 
 def test_evidence_embedding_programming_defect_propagates() -> None:

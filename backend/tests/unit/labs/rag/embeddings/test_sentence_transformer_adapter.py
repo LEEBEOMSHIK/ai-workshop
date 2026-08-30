@@ -7,6 +7,7 @@ import pytest
 
 from ai_workshop.labs.rag.embeddings.contracts import (
     EmbeddingModelConfig,
+    EmbeddingRuntimeUnavailableError,
     EmbeddingValidationError,
 )
 from ai_workshop.labs.rag.embeddings.sentence_transformers import (
@@ -45,9 +46,16 @@ class RecordingTokenizer:
 
 
 class RecordingModel:
-    def __init__(self, *, dimension: int = 3, output: list[list[float]] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        dimension: int = 3,
+        output: list[list[float]] | None = None,
+        failure: Exception | None = None,
+    ) -> None:
         self.dimension = dimension
         self.output = output
+        self.failure = failure
         self.tokenizer = RecordingTokenizer()
         self.calls: list[tuple[list[str], dict[str, object]]] = []
 
@@ -56,6 +64,8 @@ class RecordingModel:
 
     def encode(self, texts: Sequence[str], **kwargs: object) -> list[list[float]]:
         self.calls.append((list(texts), kwargs))
+        if self.failure is not None:
+            raise self.failure
         if self.output is not None:
             return self.output
         return [[1.0, 0.0, 0.0] for _ in texts]
@@ -122,6 +132,65 @@ def test_adapter_uses_query_prefix_without_double_prefixing(tmp_path: Path) -> N
 
     assert embedding.encode_query("같은 입력") == [1.0, 0.0, 0.0]
     assert loader.model.calls[0][0] == ["query: 같은 입력"]
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [OSError("document cache unavailable"), RuntimeError("document runtime failed")],
+)
+def test_document_embedding_translates_model_operational_failure(
+    tmp_path: Path,
+    failure: Exception,
+) -> None:
+    embedding = SentenceTransformerEmbedding(
+        config(),
+        cache_folder=tmp_path,
+        loader=RecordingLoader(RecordingModel(failure=failure)),
+    )
+
+    with pytest.raises(EmbeddingRuntimeUnavailableError) as caught:
+        embedding.encode_documents(["synthetic document"])
+
+    assert caught.value.__cause__ is failure
+
+
+def test_document_embedding_translates_loader_operational_failure(
+    tmp_path: Path,
+) -> None:
+    failure = OSError("document model missing")
+
+    def loader(repo_id: str, **kwargs: Any) -> RecordingModel:
+        del repo_id, kwargs
+        raise failure
+
+    embedding = SentenceTransformerEmbedding(
+        config(), cache_folder=tmp_path, loader=loader
+    )
+
+    with pytest.raises(EmbeddingRuntimeUnavailableError) as caught:
+        embedding.encode_documents(["synthetic document"])
+
+    assert caught.value.__cause__ is failure
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [AssertionError("assert defect"), TypeError("type defect"), ValueError("value defect")],
+)
+def test_document_embedding_propagates_model_programming_defect(
+    tmp_path: Path,
+    failure: Exception,
+) -> None:
+    embedding = SentenceTransformerEmbedding(
+        config(),
+        cache_folder=tmp_path,
+        loader=RecordingLoader(RecordingModel(failure=failure)),
+    )
+
+    with pytest.raises(type(failure)) as caught:
+        embedding.encode_documents(["synthetic document"])
+
+    assert caught.value is failure
 
 
 @pytest.mark.parametrize(

@@ -55,7 +55,15 @@ class SentenceTransformerEmbedding:
         return len(token_ids)
 
     def encode_documents(self, texts: Sequence[str]) -> list[list[float]]:
-        return self._encode([self._document_input(text) for text in texts])
+        model_inputs = [self._document_input(text) for text in texts]
+        try:
+            return self._encode(model_inputs)
+        except EmbeddingRuntimeUnavailableError:
+            raise
+        except (OSError, RuntimeError) as exc:
+            raise EmbeddingRuntimeUnavailableError(
+                "The local embedding model runtime is unavailable."
+            ) from exc
 
     def encode_query(self, text: str) -> list[float]:
         try:

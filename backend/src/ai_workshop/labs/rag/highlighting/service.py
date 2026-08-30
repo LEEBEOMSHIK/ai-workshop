@@ -178,11 +178,14 @@ class EvidenceSelector:
             for source in sources
             for evidence in source.chunk.evidence_units
         )
-        eligible = tuple(
-            (source, evidence)
-            for source, evidence, warnings in candidates
-            if not warnings
-        )
+        eligible_items: list[tuple[EvidenceSource, EvidenceUnit]] = []
+        seen_evidence_units: set[UUID] = set()
+        for source, evidence, warnings in candidates:
+            if warnings or evidence.id in seen_evidence_units:
+                continue
+            seen_evidence_units.add(evidence.id)
+            eligible_items.append((source, evidence))
+        eligible = tuple(eligible_items)
         selection_warnings = tuple(
             dict.fromkeys(
                 warning
@@ -212,14 +215,18 @@ class EvidenceSelector:
             )
 
         primary = answers[0]
-        seen_documents = {primary.source.document_id}
+        conflict_documents: set[UUID] = set()
         conflicts: list[EvidenceAnswer] = []
         for answer in answers[1:]:
-            if answer.source.document_id in seen_documents:
+            document_id = answer.source.document_id
+            if (
+                document_id == primary.source.document_id
+                or document_id in conflict_documents
+            ):
                 continue
-            seen_documents.add(answer.source.document_id)
             if _directly_incompatible(query, primary, answer):
                 conflicts.append(answer)
+                conflict_documents.add(document_id)
         conflict_state = (
             ConflictState.SEPARATE_SOURCES if conflicts else ConflictState.NONE
         )
@@ -333,6 +340,7 @@ def _directly_incompatible(
     if (
         left_number is not None
         and right_number is not None
+        and bool(left_number[1])
         and left_number[1] == right_number[1]
         and left_number[0] != right_number[0]
     ):

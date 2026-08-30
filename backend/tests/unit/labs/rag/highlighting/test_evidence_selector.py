@@ -47,12 +47,36 @@ class RecordingEmbedding:
         return [list(item) for item in self.document_vectors]
 
 
+class RepeatingEmbedding:
+    dimension = 2
+
+    def __init__(self) -> None:
+        self.encoded_documents: list[str] = []
+
+    def count_tokens(self, text: str) -> int:
+        return len(text.split())
+
+    def count_query_tokens(self, text: str) -> int:
+        return len(text.split())
+
+    def encode_query(self, text: str) -> list[float]:
+        assert text
+        return [1.0, 0.0]
+
+    def encode_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        self.encoded_documents = list(texts)
+        return [[1.0, 0.0] for _ in texts]
+
+
 def _source(
     value: int,
     text: str,
     *,
     location: SourceLocation | None = None,
     projection_id: UUID | None = None,
+    document_id: UUID | None = None,
+    asset_version_id: UUID | None = None,
+    asset_version_number: int | None = None,
 ) -> EvidenceSource:
     chunk_id = UUID(f"30000000-0000-0000-0000-{value:012d}")
     exact_projection_id = projection_id or UUID(
@@ -76,7 +100,8 @@ def _source(
     chunk = RetrievedChunk(
         chunk_id=chunk_id,
         projection_id=exact_projection_id,
-        asset_version_id=UUID(f"70000000-0000-0000-0000-{value:012d}"),
+        asset_version_id=asset_version_id
+        or UUID(f"70000000-0000-0000-0000-{value:012d}"),
         workspace_id=WORKSPACE_ID,
         folder_id=None,
         index_build_id=INDEX_BUILD_ID,
@@ -86,8 +111,9 @@ def _source(
         evidence_units=(evidence,),
     )
     return EvidenceSource(
-        document_id=UUID(f"80000000-0000-0000-0000-{value:012d}"),
-        asset_version_number=value,
+        document_id=document_id
+        or UUID(f"80000000-0000-0000-0000-{value:012d}"),
+        asset_version_number=asset_version_number or value,
         media_type="text/plain",
         chunk=chunk,
         fused_score=1.0 / value,
@@ -188,6 +214,20 @@ def test_semantic_evidence_selects_the_highest_scoring_qualifying_unit() -> None
     assert result.answer.semantic_score > 0.99
 
 
+def test_duplicate_evidence_unit_identity_is_embedded_only_once() -> None:
+    source = _source(1, "가입 후 해지 조건입니다.")
+    embedding = RepeatingEmbedding()
+
+    result = EvidenceSelector(embedding).select(
+        query="상품 유동성",
+        sources=(source, source),
+        policy=_policy(min_semantic_score=0.8),
+    )
+
+    assert result.status is AnswerStatus.SUPPORTED
+    assert embedding.encoded_documents == [source.chunk.evidence_units[0].text]
+
+
 def test_missing_provenance_is_normal_insufficient_evidence() -> None:
     source = _source(1, "환매 수수료는 1%입니다.")
     incomplete = EvidenceUnit(
@@ -276,6 +316,62 @@ def test_conflicting_qualifying_sources_remain_separate() -> None:
     assert [item.excerpt for item in result.conflicts] == [
         "최소 가입 금액은 200만원입니다."
     ]
+
+
+def test_later_proven_conflict_from_the_same_document_is_not_suppressed() -> None:
+    external_document_id = UUID("80000000-0000-0000-0000-000000000099")
+    external_asset_version_id = UUID("70000000-0000-0000-0000-000000000099")
+
+    result = EvidenceSelector(RecordingEmbedding()).select(
+        query="최소 가입 금액",
+        sources=(
+            _source(1, "최소 가입 금액은 100만원입니다."),
+            _source(
+                2,
+                "최소 가입 금액은 100만원으로 유지됩니다.",
+                document_id=external_document_id,
+                asset_version_id=external_asset_version_id,
+                asset_version_number=9,
+            ),
+            _source(
+                3,
+                "최소 가입 금액은 200만원입니다.",
+                document_id=external_document_id,
+                asset_version_id=external_asset_version_id,
+                asset_version_number=9,
+            ),
+            _source(
+                4,
+                "최소 가입 금액은 300만원입니다.",
+                document_id=external_document_id,
+                asset_version_id=external_asset_version_id,
+                asset_version_number=9,
+            ),
+        ),
+        policy=_policy(),
+    )
+
+    assert result.status is AnswerStatus.SUPPORTED
+    assert result.answer is not None
+    assert result.answer.excerpt == "최소 가입 금액은 100만원입니다."
+    assert [item.excerpt for item in result.conflicts] == [
+        "최소 가입 금액은 200만원입니다."
+    ]
+
+
+def test_unknown_or_empty_numeric_units_never_prove_a_conflict() -> None:
+    result = EvidenceSelector(RecordingEmbedding()).select(
+        query="최소 가입 횟수",
+        sources=(
+            _source(1, "최소 가입 횟수는 1회입니다."),
+            _source(2, "최소 가입 횟수는 2명입니다."),
+        ),
+        policy=_policy(),
+    )
+
+    assert result.status is AnswerStatus.SUPPORTED
+    assert result.conflict_state is ConflictState.NONE
+    assert result.conflicts == ()
 
 
 def test_same_numeric_conclusion_with_different_wording_is_not_a_conflict() -> None:

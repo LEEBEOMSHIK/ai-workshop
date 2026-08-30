@@ -1,0 +1,13 @@
+kind: indexing
+name: e5-structure-aware
+version: 2
+evaluation_state: draft
+config:
+  chunker:
+    name: structure-aware
+    version: 2
+    target_tokens: 380
+    overlap_tokens: 60
+bindings:
+  - role: embedding
+    model_id: 00000000-0000-0000-0000-000000000101

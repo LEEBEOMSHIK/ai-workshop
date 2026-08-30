@@ -1,0 +1,32 @@
+{
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "chunk_id": { "type": "keyword" },
+      "projection_id": { "type": "keyword" },
+      "asset_version_id": { "type": "keyword" },
+      "workspace_id": { "type": "keyword" },
+      "folder_id": { "type": "keyword" },
+      "allowed_user_ids": { "type": "keyword" },
+      "status": { "type": "keyword" },
+      "title": { "type": "text" },
+      "section_path": { "type": "text" },
+      "text": { "type": "text" },
+      "evidence_units": {
+        "type": "nested",
+        "properties": {
+          "id": { "type": "keyword" },
+          "ordinal": { "type": "integer" },
+          "text": { "type": "text" },
+          "element_id": { "type": "keyword" },
+          "page": { "type": "integer" },
+          "char_start": { "type": "integer" },
+          "char_end": { "type": "integer" },
+          "bbox": { "type": "float" }
+        }
+      },
+      "embedding": { "type": "dense_vector", "dims": 768, "similarity": "cosine" },
+      "index_build_id": { "type": "keyword" }
+    }
+  }
+}

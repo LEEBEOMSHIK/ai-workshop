@@ -47,6 +47,7 @@ addopts = ["-p", "no:cacheprovider", "--basetemp=.pytest-tmp"]
 asyncio_mode = "auto"
 pythonpath = [".", "src"]
 testpaths = ["tests"]
+markers = ["integration: requires an explicitly started local integration service"]
 
 [tool.ruff]
 target-version = "py313"

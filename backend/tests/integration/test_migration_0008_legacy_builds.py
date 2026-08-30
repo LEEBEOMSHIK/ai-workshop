@@ -354,6 +354,7 @@ def test_0008_reconciles_duplicate_legacy_builds_before_unique_constraint(
             command.upgrade(config, REVISION_0008)
 
             asyncio.run(_assert_upgraded_shape(settings, ids))
+            command.upgrade(config, "head")
             command.check(config)
     finally:
         try:

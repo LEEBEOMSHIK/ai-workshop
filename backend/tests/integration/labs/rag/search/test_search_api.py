@@ -251,6 +251,8 @@ def _configuration(
             INDEXING_PROFILE_ID,
         ),
         embedding=embedding,
+        workspace_ids=(WORKSPACE_ID,),
+        experimental=True,
     )
 
 
@@ -383,8 +385,37 @@ def test_supported_search_returns_extractive_answer_and_authenticated_actor() ->
         "version_id": str(CONFIGURATION_VERSION_ID),
         "version": 3,
     }
+    assert payload["experimental"] is True
     assert resolver.calls == [(CONFIGURATION_ID, ACTOR_ID)]
     assert source_resolver.calls[0][0] == ACTOR_ID
+
+
+def test_configuration_workspace_subscription_is_checked_before_scope_resolution() -> None:
+    source = _source(1, "환매 수수료는 1%입니다.")
+    service, _, _, _ = _search_service(sources=(source,))
+
+    class UnexpectedScopeResolver:
+        async def resolve(self, **_values: object) -> ResolvedSearchScope:
+            raise AssertionError("Scope resolution must follow configuration subscription checks.")
+
+    service.scope_resolver = UnexpectedScopeResolver()
+    app = create_app()
+    app.dependency_overrides[get_current_user] = owner
+    app.dependency_overrides[get_search_service] = lambda: service
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/rag/search",
+            json={
+                "query": "환매 수수료",
+                "configuration_id": str(CONFIGURATION_ID),
+                "workspace_ids": [str(PRIVATE_WORKSPACE_ID)],
+                "folder_ids": [],
+                "top_k": 10,
+            },
+        )
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
 
 
 def test_related_source_alone_never_changes_insufficient_status() -> None:

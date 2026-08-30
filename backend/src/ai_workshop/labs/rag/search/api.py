@@ -17,7 +17,6 @@ from ai_workshop.labs.rag.retrieval.scope import (
     SqlAlchemySearchScopeRepository,
 )
 from ai_workshop.labs.rag.search.configuration_port import (
-    ResolvedSearchConfiguration,
     SearchConfigurationResolverPort,
 )
 from ai_workshop.labs.rag.search.repository import SqlAlchemySearchSourceResolver
@@ -36,23 +35,20 @@ from ai_workshop.labs.rag.search.viewer_repository import (
 from ai_workshop.platform.identity.api import get_current_user
 from ai_workshop.platform.identity.domain import User
 from ai_workshop.shared.db import get_session
-from ai_workshop.shared.errors import AppError, ErrorEnvelope
+from ai_workshop.shared.errors import ErrorEnvelope
 
 router = APIRouter(prefix="/api/v1/rag", tags=["rag-search"])
 
 
-class UnavailableSearchConfigurationResolver:
-    async def resolve(
-        self,
-        configuration_id: UUID,
-        actor_id: UUID,
-    ) -> ResolvedSearchConfiguration:
-        del configuration_id, actor_id
-        raise AppError("not_found", "The requested resource was not found.", 404)
+def get_search_configuration_resolver(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> SearchConfigurationResolverPort:
+    from ai_workshop.labs.rag.configurations.repository import (
+        SqlAlchemySearchConfigurationResolver,
+    )
 
-
-def get_search_configuration_resolver() -> SearchConfigurationResolverPort:
-    return UnavailableSearchConfigurationResolver()
+    return SqlAlchemySearchConfigurationResolver(session, settings)
 
 
 async def get_search_service(

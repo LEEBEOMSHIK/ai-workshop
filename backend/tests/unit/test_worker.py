@@ -1,9 +1,21 @@
+from uuid import UUID, uuid4
+
 import pytest
 from sqlalchemy.exc import DisconnectionError, IntegrityError, OperationalError, TimeoutError
 
+import ai_workshop.worker as worker_module
 from ai_workshop.config import Settings
+from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand
 from ai_workshop.platform.jobs.models import JobRecord
-from ai_workshop.worker import ASSET_VERIFICATION_TASK, _rag_error, celery_app, create_celery
+from ai_workshop.worker import (
+    ASSET_VERIFICATION_TASK,
+    RAG_INGESTION_TASK,
+    CeleryJobDispatcher,
+    VerifiedAssetSubscription,
+    _rag_error,
+    celery_app,
+    create_celery,
+)
 
 
 def test_celery_cli_app_is_available_without_loading_application_secrets() -> None:
@@ -58,3 +70,88 @@ def test_integrity_error_is_never_classified_as_retryable() -> None:
     _code, retryable = _rag_error(error)
 
     assert retryable is False
+
+
+def test_rag_dispatcher_sends_only_the_persisted_job_id() -> None:
+    settings = Settings(
+        _env_file=None,
+        environment="test",
+        secret_key="x" * 32,
+        redis_url="redis://unused:6379/0",
+    )
+    dispatcher = CeleryJobDispatcher(settings)
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    task = dispatcher.application.tasks[RAG_INGESTION_TASK]
+    task.delay = lambda *args, **kwargs: calls.append((args, kwargs))  # type: ignore[method-assign]
+    job_id = uuid4()
+
+    dispatcher.ensure_indexed(job_id)
+
+    assert calls == [((str(job_id),), {})]
+
+
+def test_verified_asset_enqueues_distinct_profiles_with_job_ids_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asset_version_id = uuid4()
+    first_profile_id = uuid4()
+    second_profile_id = uuid4()
+    first_requester = uuid4()
+    duplicate_requester = uuid4()
+
+    class VerificationWorkflow:
+        async def run(self, job_id: UUID) -> UUID:
+            del job_id
+            return asset_version_id
+
+    class Subscriptions:
+        async def for_asset(
+            self, verified_asset_version_id: UUID
+        ) -> tuple[VerifiedAssetSubscription, ...]:
+            assert verified_asset_version_id == asset_version_id
+            return (
+                VerifiedAssetSubscription(first_profile_id, first_requester),
+                VerifiedAssetSubscription(first_profile_id, duplicate_requester),
+                VerifiedAssetSubscription(second_profile_id, first_requester),
+            )
+
+    commands: list[EnsureIndexedCommand] = []
+    persisted_job_ids: list[UUID] = []
+
+    async def ensure_job(
+        settings: Settings,
+        command: EnsureIndexedCommand,
+    ) -> UUID:
+        del settings
+        commands.append(command)
+        job_id = uuid4()
+        persisted_job_ids.append(job_id)
+        return job_id
+
+    monkeypatch.setattr(
+        worker_module,
+        "create_asset_verification_workflow",
+        lambda _settings: VerificationWorkflow(),
+    )
+    monkeypatch.setattr(worker_module, "_ensure_rag_job", ensure_job)
+    settings = Settings(
+        _env_file=None,
+        environment="test",
+        secret_key="x" * 32,
+        redis_url="redis://unused:6379/0",
+    )
+    app = create_celery(settings, rag_subscriptions=Subscriptions())
+    dispatched: list[str] = []
+    app.tasks[RAG_INGESTION_TASK].delay = lambda job_id: dispatched.append(job_id)  # type: ignore[method-assign]
+
+    app.tasks[ASSET_VERIFICATION_TASK].delay(str(uuid4()))
+
+    assert [command.indexing_profile_id for command in commands] == [
+        first_profile_id,
+        second_profile_id,
+    ]
+    assert [command.requested_by for command in commands] == [
+        first_requester,
+        first_requester,
+    ]
+    assert dispatched == [str(job_id) for job_id in persisted_job_ids]

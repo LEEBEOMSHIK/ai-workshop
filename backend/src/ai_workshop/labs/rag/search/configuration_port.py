@@ -19,6 +19,8 @@ class ResolvedSearchConfiguration:
     answer_policy: AnswerPolicy | None
     active_index_alias: ActiveIndexAlias
     embedding: EmbeddingPort
+    workspace_ids: tuple[UUID, ...] = ()
+    experimental: bool = True
 
     def __post_init__(self) -> None:
         if self.configuration_version < 1:

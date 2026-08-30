@@ -15,6 +15,9 @@ EXPECTED_PATHS = {
     "/api/v1/health",
     "/api/v1/jobs/{job_id}",
     "/api/v1/rag/models",
+    "/api/v1/rag/configurations",
+    "/api/v1/rag/configurations/{configuration_id}",
+    "/api/v1/rag/configurations/{configuration_id}/default",
     "/api/v1/rag/profiles/{kind}",
     "/api/v1/rag/profiles/{kind}/yaml",
     "/api/v1/rag/profiles/{profile_id}/default",
@@ -133,3 +136,33 @@ def test_rag_search_contract_uses_authenticated_actor_and_distinct_highlights() 
     assert normalized_failure["content"]["application/json"]["schema"] == {
         "$ref": "#/components/schemas/ErrorEnvelope"
     }
+
+
+def test_saved_rag_configuration_contract_is_versioned_and_experimental() -> None:
+    schema = create_app().openapi()
+    components = schema["components"]["schemas"]
+
+    create = components["SavedRagConfigurationCreate"]
+    assert create["properties"]["generation_profile_id"]["anyOf"] == [
+        {"format": "uuid", "type": "string"},
+        {"type": "null"},
+    ]
+    assert create["properties"]["workspace_ids"]["minItems"] == 1
+
+    policy = components["AnswerPolicyCreate"]
+    assert policy["properties"]["require_complete_provenance"]["const"] is True
+    assert policy["properties"]["conflict_mode"]["const"] == "separate_sources"
+    policy_version = components["AnswerPolicyVersionResponse"]
+    assert policy_version["properties"]["mode"]["const"] == "extractive"
+    assert policy_version["properties"]["require_complete_provenance"]["const"] is True
+    assert policy_version["properties"]["conflict_mode"]["const"] == "separate_sources"
+
+    response = components["SavedRagConfigurationResponse"]
+    assert {
+        "version_id",
+        "answer_policy",
+        "evaluation_state",
+        "is_default",
+        "experimental",
+    } <= set(response["required"])
+    assert "experimental" in components["SearchResponse"]["required"]

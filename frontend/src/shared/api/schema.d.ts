@@ -107,6 +107,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/rag/configurations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Configurations */
+        get: operations["list_configurations_api_v1_rag_configurations_get"];
+        put?: never;
+        /** Create Configuration */
+        post: operations["create_configuration_api_v1_rag_configurations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/configurations/{configuration_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Configuration Detail */
+        get: operations["configuration_detail_api_v1_rag_configurations__configuration_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/configurations/{configuration_id}/default": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Promote Configuration Default */
+        post: operations["promote_configuration_default_api_v1_rag_configurations__configuration_id__default_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/rag/models": {
         parameters: {
             query?: never;
@@ -286,6 +338,54 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AnswerPolicyCreate */
+        AnswerPolicyCreate: {
+            /**
+             * Conflict Mode
+             * @default separate_sources
+             * @constant
+             */
+            conflict_mode: "separate_sources";
+            /** Min Keyword Coverage */
+            min_keyword_coverage: number;
+            /** Min Semantic Score */
+            min_semantic_score: number;
+            /**
+             * Require Complete Provenance
+             * @default true
+             * @constant
+             */
+            require_complete_provenance: true;
+        };
+        /** AnswerPolicyVersionResponse */
+        AnswerPolicyVersionResponse: {
+            /**
+             * Conflict Mode
+             * @constant
+             */
+            conflict_mode: "separate_sources";
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Min Keyword Coverage */
+            min_keyword_coverage: number;
+            /** Min Semantic Score */
+            min_semantic_score: number;
+            /**
+             * Mode
+             * @constant
+             */
+            mode: "extractive";
+            /**
+             * Require Complete Provenance
+             * @constant
+             */
+            require_complete_provenance: true;
+            /** Version */
+            version: number;
+        };
         /**
          * AnswerStatus
          * @enum {string}
@@ -672,6 +772,67 @@ export interface components {
              */
             workspace_id: string;
         };
+        /** SavedRagConfigurationCreate */
+        SavedRagConfigurationCreate: {
+            answer_policy: components["schemas"]["AnswerPolicyCreate"];
+            /** Generation Profile Id */
+            generation_profile_id?: string | null;
+            /**
+             * Indexing Profile Id
+             * Format: uuid
+             */
+            indexing_profile_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Retrieval Profile Id
+             * Format: uuid
+             */
+            retrieval_profile_id: string;
+            /** Workspace Ids */
+            workspace_ids: string[];
+        };
+        /** SavedRagConfigurationResponse */
+        SavedRagConfigurationResponse: {
+            answer_policy: components["schemas"]["AnswerPolicyVersionResponse"];
+            evaluation_state: components["schemas"]["EvaluationState"];
+            /** Experimental */
+            experimental: boolean;
+            /** Generation Profile Id */
+            generation_profile_id: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Indexing Profile Id
+             * Format: uuid
+             */
+            indexing_profile_id: string;
+            /** Is Default */
+            is_default: boolean;
+            /** Is System */
+            is_system: boolean;
+            /** Name */
+            name: string;
+            /** Owner Id */
+            owner_id: string | null;
+            /**
+             * Retrieval Profile Id
+             * Format: uuid
+             */
+            retrieval_profile_id: string;
+            /** Version */
+            version: number;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+            /** Workspace Ids */
+            workspace_ids: string[];
+        };
         /** SearchRequest */
         SearchRequest: {
             /**
@@ -698,6 +859,8 @@ export interface components {
             conflict_state: components["schemas"]["ConflictState"];
             /** Conflicts */
             conflicts: components["schemas"]["EvidenceAnswerResponse"][];
+            /** Experimental */
+            experimental: boolean;
             /** Related Sources */
             related_sources: components["schemas"]["RelatedSourceResponse"][];
             status: components["schemas"]["AnswerStatus"];
@@ -1198,6 +1361,238 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JobResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    list_configurations_api_v1_rag_configurations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedRagConfigurationResponse"][];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    create_configuration_api_v1_rag_configurations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SavedRagConfigurationCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedRagConfigurationResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    configuration_detail_api_v1_rag_configurations__configuration_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                configuration_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedRagConfigurationResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    promote_configuration_default_api_v1_rag_configurations__configuration_id__default_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                configuration_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedRagConfigurationResponse"];
                 };
             };
             /** @description Authentication required. */

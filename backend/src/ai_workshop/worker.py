@@ -10,6 +10,9 @@ from fastapi import Depends
 from sqlalchemy.exc import DisconnectionError, OperationalError, TimeoutError
 
 from ai_workshop.config import Settings, get_settings
+from ai_workshop.labs.rag.configurations.repository import (
+    SqlAlchemyRagConfigurationRepository,
+)
 from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand, RagIngestionError
 from ai_workshop.labs.rag.ingestion.repository import SqlAlchemyRagIngestionCommandRepository
 from ai_workshop.labs.rag.ingestion.service import RagIngestionService, RagIngestionWorkflow
@@ -44,6 +47,28 @@ class NoVerifiedAssetSubscriptions:
         return ()
 
 
+class PersistentVerifiedAssetSubscriptions:
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+
+    async def for_asset(
+        self, asset_version_id: UUID
+    ) -> tuple[VerifiedAssetSubscription, ...]:
+        engine = create_engine(self.settings)
+        sessions = create_session_factory(engine)
+        try:
+            async with sessions() as session:
+                subscriptions = await SqlAlchemyRagConfigurationRepository(
+                    session
+                ).subscriptions_for_asset(asset_version_id)
+            return tuple(
+                VerifiedAssetSubscription(profile_id, requested_by)
+                for profile_id, requested_by in subscriptions
+            )
+        finally:
+            await engine.dispose()
+
+
 def create_celery(
     settings: Settings | None = None,
     *,
@@ -60,7 +85,6 @@ def create_celery(
     environment = (
         settings.environment if settings else environ.get("AI_WORKSHOP_ENVIRONMENT", "local")
     )
-    subscriptions = rag_subscriptions or NoVerifiedAssetSubscriptions()
     application = Celery(
         "ai_workshop",
         broker=broker_url,
@@ -84,10 +108,17 @@ def create_celery(
     def verify_asset(job_id: str) -> None:
         try:
             resolved_settings = settings or get_settings()
+            subscriptions = rag_subscriptions or PersistentVerifiedAssetSubscriptions(
+                resolved_settings
+            )
             asset_version_id = run(
                 create_asset_verification_workflow(resolved_settings).run(UUID(job_id))
             )
+            seen_profiles: set[UUID] = set()
             for subscription in run(subscriptions.for_asset(asset_version_id)):
+                if subscription.indexing_profile_id in seen_profiles:
+                    continue
+                seen_profiles.add(subscription.indexing_profile_id)
                 rag_job_id = run(
                     _ensure_rag_job(
                         resolved_settings,
@@ -141,6 +172,9 @@ class CeleryJobDispatcher:
 
     def verify_asset(self, job_id: UUID) -> None:
         self.application.tasks[ASSET_VERIFICATION_TASK].delay(str(job_id))
+
+    def ensure_indexed(self, job_id: UUID) -> None:
+        self.application.tasks[RAG_INGESTION_TASK].delay(str(job_id))
 
 
 def get_job_dispatcher(

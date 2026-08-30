@@ -6,4 +6,5 @@ config:
   bm25:
     analyzer: standard
     top_k: 30
+  indexing_profile_id: 00000000-0000-0000-0000-000000000201
 bindings: []

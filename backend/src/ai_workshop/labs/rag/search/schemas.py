@@ -163,6 +163,7 @@ class SearchResponse(BaseModel):
     warnings: list[str]
     related_sources: list[RelatedSourceResponse]
     configuration_version: ConfigurationVersionResponse
+    experimental: bool
 
     @classmethod
     def from_domain(cls, result: SearchResult) -> Self:
@@ -186,6 +187,7 @@ class SearchResponse(BaseModel):
                 version_id=configuration.configuration_version_id,
                 version=configuration.configuration_version,
             ),
+            experimental=configuration.experimental,
         )
 
 

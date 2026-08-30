@@ -77,6 +77,8 @@ class SearchApplicationService:
                 "The selected search configuration has no answer policy version.",
                 409,
             )
+        if not set(request.workspace_ids).issubset(configuration.workspace_ids):
+            raise AppError("not_found", "The requested resource was not found.", 404)
 
         retrieval = HybridRetrievalService(
             scope_resolver=self.scope_resolver,

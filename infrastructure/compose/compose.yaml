@@ -5,7 +5,7 @@ x-backend: &backend
   build:
     context: ../../backend
     dockerfile: Dockerfile
-  environment:
+  environment: &backend-environment
     AI_WORKSHOP_ENVIRONMENT: ${AI_WORKSHOP_ENVIRONMENT:-local}
     AI_WORKSHOP_SECRET_KEY: ${AI_WORKSHOP_SECRET_KEY:-local-development-secret-change-before-sharing}
     AI_WORKSHOP_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-ai_workshop}:${POSTGRES_PASSWORD:-ai_workshop}@postgres:5432/${POSTGRES_DB:-ai_workshop}
@@ -48,6 +48,12 @@ services:
 
   worker:
     <<: *backend
+    environment:
+      <<: *backend-environment
+      AI_WORKSHOP_MODEL_CACHE_ROOT: /models
+    volumes:
+      - object-data:/data/objects
+      - model-cache:/models
     command:
       [
         "celery",
@@ -137,6 +143,32 @@ services:
       timeout: 3s
       retries: 10
 
+  model-tools:
+    image: ai-workshop-backend:local
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    profiles: ["model-tools"]
+    command:
+      [
+        "ai-workshop",
+        "register-rag-models",
+        "--catalog-dir",
+        "/app/model-profiles/rag/models",
+      ]
+    environment:
+      AI_WORKSHOP_ENVIRONMENT: ${AI_WORKSHOP_ENVIRONMENT:-local}
+      AI_WORKSHOP_SECRET_KEY: ${AI_WORKSHOP_SECRET_KEY:-local-development-secret-change-before-sharing}
+      AI_WORKSHOP_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-ai_workshop}:${POSTGRES_PASSWORD:-ai_workshop}@postgres:5432/${POSTGRES_DB:-ai_workshop}
+      AI_WORKSHOP_MODEL_CACHE_ROOT: /models
+    volumes:
+      - model-cache:/models
+      - ../../model-profiles:/app/model-profiles:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:9.5.2
     environment:
@@ -154,6 +186,7 @@ services:
       retries: 12
 
 volumes:
+  model-cache:
   object-data:
   postgres-data:
   redis-data:

@@ -28,6 +28,12 @@ class ModelRegistryRepository(Protocol):
 
     async def add_model(self, model: ModelDefinition) -> ModelDefinition: ...
 
+    async def find_model(self, model_id: UUID) -> ModelDefinition | None: ...
+
+    async def find_model_version(
+        self, kind: ModelKind, name: str, version: int
+    ) -> ModelDefinition | None: ...
+
     async def list_models(self) -> list[ModelDefinition]: ...
 
     async def find_models(self, model_ids: tuple[UUID, ...]) -> list[ModelDefinition]: ...
@@ -107,6 +113,23 @@ class SqlAlchemyModelRegistryRepository:
         self.session.add(record)
         await self.session.flush()
         return _model_to_domain(record)
+
+    async def find_model(self, model_id: UUID) -> ModelDefinition | None:
+        record = await self.session.get(ModelDefinitionRecord, model_id)
+        return _model_to_domain(record) if record is not None else None
+
+    async def find_model_version(
+        self, kind: ModelKind, name: str, version: int
+    ) -> ModelDefinition | None:
+        result = await self.session.execute(
+            select(ModelDefinitionRecord).where(
+                ModelDefinitionRecord.kind == kind,
+                ModelDefinitionRecord.name == name,
+                ModelDefinitionRecord.version == version,
+            )
+        )
+        record = result.scalar_one_or_none()
+        return _model_to_domain(record) if record is not None else None
 
     async def list_models(self) -> list[ModelDefinition]:
         result = await self.session.execute(

@@ -54,6 +54,7 @@ class IngestionExecution:
     status: ProjectionStatus
     parsed_artifact: ArtifactReference | None = None
     chunk_artifact: ArtifactReference | None = None
+    embedding_artifact: ArtifactReference | None = None
 
 
 class RagIngestionError(Exception):

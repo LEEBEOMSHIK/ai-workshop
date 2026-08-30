@@ -153,6 +153,7 @@ async def delete_fixture(requested_by: UUID, duplicate_requester: UUID) -> None:
                 select(
                     RagIngestionJobRecord.parsed_object_key,
                     RagIngestionJobRecord.chunk_object_key,
+                    RagIngestionJobRecord.embedding_object_key,
                 ).where(RagIngestionJobRecord.requested_by == requested_by)
             )
             artifact_keys = [
@@ -180,7 +181,33 @@ class WordTokenCounter:
 
 
 class ExplicitVerifiedStages:
+    def __init__(self, settings, object_store) -> None:
+        self.settings = settings
+        self.object_store = object_store
+
     async def embed(self, *, projection_id: UUID, indexing_profile_id: UUID) -> int:
+        content = b'{"synthetic_normalized_vectors":[[1.0]]}'
+        key = f"rag/embeddings/{projection_id}.json"
+        stored = await self.object_store.put_if_absent(key, bytes_source(content))
+        authoritative = b"".join(
+            [part async for part in self.object_store.open(stored.key)]
+        )
+        settings = self.settings
+        engine = create_engine(settings)
+        sessions = create_session_factory(engine)
+        try:
+            async with sessions.begin() as session:
+                ingestion = await session.scalar(
+                    select(RagIngestionJobRecord)
+                    .where(RagIngestionJobRecord.projection_id == projection_id)
+                    .with_for_update()
+                )
+                assert ingestion is not None
+                ingestion.embedding_object_key = stored.key
+                ingestion.embedding_sha256 = hashlib.sha256(authoritative).hexdigest()
+                ingestion.embedding_count = 1
+        finally:
+            await engine.dispose()
         return 1
 
     async def index(self, *, projection_id: UUID, indexing_profile_id: UUID) -> None:
@@ -314,10 +341,11 @@ def parsing_service(settings) -> ParsingService:
 
 
 def workflow_factory(settings, parser, *, lifecycle=None, object_store=None):
-    stages = ExplicitVerifiedStages()
+    store = object_store or LocalObjectStore(settings.object_store_root)
+    stages = ExplicitVerifiedStages(settings, store)
     return RagIngestionWorkflow(
         lifecycle or SqlAlchemyRagIngestionLifecycle(settings),
-        object_store or LocalObjectStore(settings.object_store_root),
+        store,
         parser,
         StructuralChunker(WordTokenCounter()),
         stages,
@@ -709,7 +737,7 @@ async def test_parser_failure_is_terminal_without_automatic_substitution() -> No
 
 
 @pytest.mark.asyncio
-async def test_production_composition_fails_instead_of_pretending_ready_without_verifier() -> None:
+async def test_production_composition_rejects_profile_without_embedding_binding() -> None:
     (
         requested_by,
         duplicate_requester,
@@ -721,7 +749,7 @@ async def test_production_composition_fails_instead_of_pretending_ready_without_
     job_id = await create_ingestion_job(requested_by, asset_version_id, indexing_profile_id)
     app = create_celery(settings)
     try:
-        with pytest.raises(RuntimeError, match="embedding_stage_unavailable"):
+        with pytest.raises(RuntimeError, match="embedding_binding_invalid"):
             await to_thread(app.tasks[RAG_INGESTION_TASK].delay, str(job_id))
 
         engine = create_engine(settings)
@@ -735,7 +763,7 @@ async def test_production_composition_fails_instead_of_pretending_ready_without_
                     RagProjectionRecord, ingestion.projection_id
                 )
             assert job is not None and job.status == JobStatus.FAILED
-            assert job.error_code == "embedding_stage_unavailable"
+            assert job.error_code == "embedding_binding_invalid"
             assert projection is not None and projection.status == ProjectionStatus.FAILED
         finally:
             await engine.dispose()

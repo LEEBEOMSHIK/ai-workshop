@@ -187,6 +187,46 @@ async def test_successful_indexing_verifies_alias_after_count_and_activation() -
 
 
 @pytest.mark.asyncio
+async def test_prepare_finishes_bulk_and_count_without_activating_alias() -> None:
+    index = RecordingIndex()
+    service = _service(index)
+
+    prepared = await service.prepare_projection(
+        descriptor=IndexDescriptor(vector_dimension=768, similarity="cosine"),
+        profile_id=PROFILE_ID,
+        build_id=BUILD_ID,
+        projection_id=PROJECTION_ID,
+        expected_chunk_count=1,
+        documents=(_document(),),
+    )
+
+    assert [event.split(":")[0] for event in index.events] == ["create", "bulk", "count"]
+    assert prepared.build_id == BUILD_ID
+    assert prepared.indexed_document_count == 1
+    assert prepared.alias_verified is False
+
+
+@pytest.mark.asyncio
+async def test_activation_ack_and_exclusive_revalidation_are_a_separate_boundary() -> None:
+    index = RecordingIndex()
+    service = _service(index)
+    prepared = await service.prepare_projection(
+        descriptor=IndexDescriptor(vector_dimension=768, similarity="cosine"),
+        profile_id=PROFILE_ID,
+        build_id=BUILD_ID,
+        projection_id=PROJECTION_ID,
+        expected_chunk_count=1,
+        documents=(_document(),),
+    )
+    index.events.clear()
+
+    activated = await service.activate_prepared(prepared)
+
+    assert activated.alias_verified is True
+    assert [event.split(":")[0] for event in index.events] == ["activate", "targets"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("expected_chunk_count", "documents"),
     [

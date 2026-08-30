@@ -1,0 +1,16 @@
+id: 00000000-0000-0000-0000-000000000101
+kind: embedding
+name: multilingual-e5-base
+version: 1
+config:
+  repo_id: intfloat/multilingual-e5-base
+  revision: d128750597153bb5987e10b1c3493a34e5a4502a
+  dimension: 768
+  max_tokens: 512
+  query_prefix: "query: "
+  document_prefix: "passage: "
+  normalize: true
+  device: cpu
+  dtype: float32
+  output_mode: dense
+  data_policy: local_only

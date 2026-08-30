@@ -10,6 +10,11 @@ from ai_workshop.labs.rag.documents.domain import (
     SourceLocation,
     StructuralElement,
 )
+from ai_workshop.labs.rag.embeddings.contracts import (
+    EmbeddingDescriptor,
+    EmbeddingResult,
+    EmbeddingVector,
+)
 
 
 def _location_to_json(location: SourceLocation) -> dict[str, object]:
@@ -151,3 +156,54 @@ def deserialize_chunking_result(content: bytes) -> ChunkingResult:
         for chunk in value["chunks"]
     )
     return ChunkingResult(chunks=chunks, evidence_units=tuple(evidence_by_id.values()))
+
+
+def serialize_embedding_result(result: EmbeddingResult) -> bytes:
+    descriptor = result.descriptor
+    return _encode(
+        {
+            "descriptor": {
+                "projection_id": str(descriptor.projection_id),
+                "indexing_profile_id": str(descriptor.indexing_profile_id),
+                "model_definition_id": str(descriptor.model_definition_id),
+                "model_revision": descriptor.model_revision,
+                "model_config_sha256": descriptor.model_config_sha256,
+                "profile_config_sha256": descriptor.profile_config_sha256,
+                "dimension": descriptor.dimension,
+                "max_tokens": descriptor.max_tokens,
+                "normalize": descriptor.normalize,
+                "output_mode": descriptor.output_mode,
+            },
+            "vectors": [
+                {"chunk_id": str(vector.chunk_id), "values": list(vector.values)}
+                for vector in result.vectors
+            ],
+        }
+    )
+
+
+def deserialize_embedding_result(content: bytes) -> EmbeddingResult:
+    value = _decode(content)
+    raw = value["descriptor"]
+    descriptor = EmbeddingDescriptor(
+        projection_id=UUID(raw["projection_id"]),
+        indexing_profile_id=UUID(raw["indexing_profile_id"]),
+        model_definition_id=UUID(raw["model_definition_id"]),
+        model_revision=raw["model_revision"],
+        model_config_sha256=raw["model_config_sha256"],
+        profile_config_sha256=raw["profile_config_sha256"],
+        dimension=raw["dimension"],
+        max_tokens=raw["max_tokens"],
+        normalize=raw["normalize"],
+        output_mode=raw["output_mode"],
+    )
+    return EmbeddingResult(
+        descriptor,
+        tuple(
+            EmbeddingVector(
+                chunk_id=UUID(vector["chunk_id"]),
+                values=tuple(float(item) for item in vector["values"]),
+            )
+            for vector in value["vectors"]
+        ),
+    )

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse
 import asyncio
 from getpass import getpass
@@ -39,10 +41,16 @@ async def bootstrap_owner(name: str, email: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(prog="ai-workshop")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    bootstrap = subparsers.add_parser("bootstrap-owner")
-    bootstrap.add_argument("--name", required=True)
-    bootstrap.add_argument("--email", required=True)
+    add_bootstrap_owner_parser(subparsers)
     args = parser.parse_args()
 
     if args.command == "bootstrap-owner":
         asyncio.run(bootstrap_owner(args.name, args.email))
+
+
+def add_bootstrap_owner_parser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    bootstrap = subparsers.add_parser("bootstrap-owner")
+    bootstrap.add_argument("--name", required=True)
+    bootstrap.add_argument("--email", required=True)

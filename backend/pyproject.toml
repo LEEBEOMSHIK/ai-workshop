@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [project.scripts]
-ai-workshop = "ai_workshop.platform.identity.cli:main"
+ai-workshop = "ai_workshop.cli:main"
 
 [dependency-groups]
 dev = [

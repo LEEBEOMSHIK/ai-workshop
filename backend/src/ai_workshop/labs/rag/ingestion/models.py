@@ -32,6 +32,11 @@ class RagIngestionJobRecord(TimestampMixin, Base):
     parsed_sha256: Mapped[str | None] = mapped_column(String(64))
     chunk_object_key: Mapped[str | None] = mapped_column(String(700))
     chunk_sha256: Mapped[str | None] = mapped_column(String(64))
+    embedding_object_key: Mapped[str | None] = mapped_column(String(700))
+    embedding_sha256: Mapped[str | None] = mapped_column(String(64))
+    index_build_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("rag_index_builds.id", ondelete="SET NULL")
+    )
     parsed_element_count: Mapped[int | None] = mapped_column(Integer)
     chunk_count: Mapped[int | None] = mapped_column(Integer)
     embedding_count: Mapped[int | None] = mapped_column(Integer)

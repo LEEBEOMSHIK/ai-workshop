@@ -2,14 +2,17 @@ from uuid import UUID
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     CheckConstraint,
     Float,
     ForeignKey,
     ForeignKeyConstraint,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -104,7 +107,26 @@ class EvidenceUnitRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 class RagIndexBuildRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "rag_index_builds"
+    __table_args__ = (
+        UniqueConstraint("projection_id"),
+        UniqueConstraint("index_name"),
+        Index(
+            "uq_rag_index_builds_active_profile",
+            "indexing_profile_id",
+            unique=True,
+            postgresql_where=text("is_active"),
+        ),
+    )
 
     projection_id: Mapped[UUID] = mapped_column(
         ForeignKey("rag_document_projections.id", ondelete="CASCADE"), nullable=False
     )
+    indexing_profile_id: Mapped[UUID] = mapped_column(
+        ForeignKey("rag_profiles.id", ondelete="RESTRICT"), nullable=False
+    )
+    index_name: Mapped[str | None] = mapped_column(String(700))
+    expected_document_count: Mapped[int | None] = mapped_column(Integer)
+    indexed_document_count: Mapped[int | None] = mapped_column(Integer)
+    vector_dimension: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str | None] = mapped_column(String(32))
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

@@ -1,0 +1,16 @@
+id: 00000000-0000-0000-0000-000000000102
+kind: embedding
+name: bge-m3
+version: 1
+config:
+  repo_id: BAAI/bge-m3
+  revision: 5617a9f61b028005a4858fdac845db406aefb181
+  dimension: 1024
+  max_tokens: 8192
+  query_prefix: ""
+  document_prefix: ""
+  normalize: true
+  device: cpu
+  dtype: float32
+  output_mode: dense
+  data_policy: local_only

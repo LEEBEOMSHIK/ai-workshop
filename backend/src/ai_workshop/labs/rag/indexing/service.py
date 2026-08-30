@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from uuid import UUID
 
 from ai_workshop.labs.rag.indexing.contracts import (
@@ -11,6 +11,10 @@ from ai_workshop.labs.rag.indexing.contracts import (
 
 @dataclass(frozen=True, slots=True)
 class IndexingResult:
+    descriptor: IndexDescriptor
+    profile_id: UUID
+    build_id: UUID
+    projection_id: UUID
     index_name: str
     alias: str
     indexed_document_count: int
@@ -23,6 +27,26 @@ class IndexingService:
         self.index_prefix = index_prefix
 
     async def index_projection(
+        self,
+        *,
+        descriptor: IndexDescriptor,
+        profile_id: UUID,
+        build_id: UUID,
+        projection_id: UUID,
+        expected_chunk_count: int,
+        documents: Sequence[IndexDocument],
+    ) -> IndexingResult:
+        prepared = await self.prepare_projection(
+            descriptor=descriptor,
+            profile_id=profile_id,
+            build_id=build_id,
+            projection_id=projection_id,
+            expected_chunk_count=expected_chunk_count,
+            documents=documents,
+        )
+        return await self.activate_prepared(prepared)
+
+    async def prepare_projection(
         self,
         *,
         descriptor: IndexDescriptor,
@@ -51,14 +75,26 @@ class IndexingService:
                 "Elasticsearch projection count mismatch: "
                 f"expected {expected_chunk_count}, found {indexed_document_count}."
             )
-        if not await self.search_index.activate(alias, index_name):
-            raise ValueError("Elasticsearch did not acknowledge alias activation.")
-        await self.revalidate_active_target(
+        return IndexingResult(
+            descriptor=descriptor,
             profile_id=profile_id,
             build_id=build_id,
-            descriptor=descriptor,
+            projection_id=projection_id,
+            index_name=index_name,
+            alias=alias,
+            indexed_document_count=indexed_document_count,
+            alias_verified=False,
         )
-        return IndexingResult(index_name, alias, indexed_document_count, alias_verified=True)
+
+    async def activate_prepared(self, prepared: IndexingResult) -> IndexingResult:
+        if not await self.search_index.activate(prepared.alias, prepared.index_name):
+            raise ValueError("Elasticsearch did not acknowledge alias activation.")
+        await self.revalidate_active_target(
+            profile_id=prepared.profile_id,
+            build_id=prepared.build_id,
+            descriptor=prepared.descriptor,
+        )
+        return replace(prepared, alias_verified=True)
 
     async def revalidate_active_target(
         self,

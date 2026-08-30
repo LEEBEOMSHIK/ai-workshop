@@ -2,6 +2,7 @@
 
 
 def load_models() -> None:
+    from ai_workshop.labs.rag.documents import models as rag_document_models
     from ai_workshop.labs.rag.ingestion import models as rag_ingestion_models
     from ai_workshop.labs.rag.models import models as rag_models
     from ai_workshop.platform.assets import models as asset_models
@@ -13,6 +14,7 @@ def load_models() -> None:
         asset_models.AssetVersionRecord,
         identity_models.UserRecord,
         job_models.JobRecord,
+        rag_document_models.RagIndexBuildRecord,
         rag_ingestion_models.RagIngestionJobRecord,
         rag_models.ModelDefinitionRecord,
         workspace_models.WorkspaceRecord,

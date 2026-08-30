@@ -23,6 +23,11 @@ from ai_workshop.labs.rag.ingestion.domain import (
 )
 from ai_workshop.labs.rag.ingestion.models import RagIngestionJobRecord
 from ai_workshop.labs.rag.ingestion.service import RagIngestionWorkflow
+from ai_workshop.labs.rag.ingestion.stages import (
+    ProductionEmbeddingStage,
+    ProductionIndexingStage,
+    ProductionReadinessVerifier,
+)
 from ai_workshop.labs.rag.models.models import ProfileRecord
 from ai_workshop.labs.rag.parsing.markdown import MarkdownParser
 from ai_workshop.labs.rag.parsing.pdf import PdfParser
@@ -155,6 +160,16 @@ class SqlAlchemyRagIngestionLifecycle:
                 rows = await self._load(session, job_id, lock=True)
                 if rows.projection.status is not ProjectionStatus.EMBEDDING:
                     return self._require_completed_stage(rows, ProjectionStatus.INDEXING)
+                if (
+                    rows.ingestion.embedding_object_key is None
+                    or rows.ingestion.embedding_sha256 is None
+                    or rows.ingestion.embedding_count != embedding_count
+                ):
+                    raise RagIngestionError(
+                        "embedding_artifact_missing",
+                        "Embedding completion requires durable artifact metadata and count.",
+                        retryable=False,
+                    )
                 rows.ingestion.embedding_count = embedding_count
                 await self._advance(session, rows, ProjectionStatus.INDEXING)
                 return self._execution(rows)
@@ -321,6 +336,9 @@ class SqlAlchemyRagIngestionLifecycle:
             chunk_artifact=_artifact(
                 rows.ingestion.chunk_object_key, rows.ingestion.chunk_sha256
             ),
+            embedding_artifact=_artifact(
+                rows.ingestion.embedding_object_key, rows.ingestion.embedding_sha256
+            ),
         )
 
     def _require_completed_stage(
@@ -377,33 +395,7 @@ class _WhitespaceTokenCounter:
         return len(text.split())
 
 
-class _UnavailableProductionStages:
-    async def embed(self, *, projection_id: UUID, indexing_profile_id: UUID) -> int:
-        raise RagIngestionError(
-            "embedding_stage_unavailable",
-            "The real embedding and index verifier are not wired yet.",
-            retryable=False,
-        )
-
-    async def index(self, *, projection_id: UUID, indexing_profile_id: UUID) -> None:
-        raise RagIngestionError(
-            "indexing_stage_unavailable",
-            "The real indexing and alias verifier are not wired yet.",
-            retryable=False,
-        )
-
-    async def verify(
-        self, *, projection_id: UUID, indexing_profile_id: UUID
-    ) -> ReadinessVerification:
-        raise RagIngestionError(
-            "readiness_verifier_unavailable",
-            "The real count and alias verifier is not wired yet.",
-            retryable=False,
-        )
-
-
 def create_rag_ingestion_workflow(settings: Settings) -> RagIngestionWorkflow:
-    stages = _UnavailableProductionStages()
     object_store = LocalObjectStore(settings.object_store_root)
     return RagIngestionWorkflow(
         SqlAlchemyRagIngestionLifecycle(settings),
@@ -413,7 +405,7 @@ def create_rag_ingestion_workflow(settings: Settings) -> RagIngestionWorkflow:
             ParserRegistry((PlainTextParser(), MarkdownParser(), PdfParser())),
         ),
         StructuralChunker(_WhitespaceTokenCounter()),
-        stages,
-        stages,
-        stages,
+        ProductionEmbeddingStage(settings, object_store),
+        ProductionIndexingStage(settings, object_store),
+        ProductionReadinessVerifier(settings),
     )

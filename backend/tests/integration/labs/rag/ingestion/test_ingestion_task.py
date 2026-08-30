@@ -1,23 +1,34 @@
-from asyncio import to_thread
+import hashlib
+from asyncio import gather, to_thread
 from collections.abc import AsyncIterator
+from threading import Barrier, Event, Lock
 from uuid import UUID, uuid4
 
 import pytest
 from celery.exceptions import Retry
 from sqlalchemy import delete, select
+from sqlalchemy.exc import OperationalError
 
 from ai_workshop.config import get_settings
 from ai_workshop.infrastructure.object_store.local import LocalObjectStore
 from ai_workshop.labs.rag.chunking import StructuralChunker
 from ai_workshop.labs.rag.documents.domain import ProjectionStatus
-from ai_workshop.labs.rag.documents.models import RagProjectionRecord
+from ai_workshop.labs.rag.documents.models import (
+    RagProjectionRecord,
+    RetrievalChunkRecord,
+    StructuralElementRecord,
+)
 from ai_workshop.labs.rag.ingestion.domain import (
     EnsureIndexedCommand,
     ReadinessVerification,
 )
 from ai_workshop.labs.rag.ingestion.models import RagIngestionJobRecord
 from ai_workshop.labs.rag.ingestion.repository import SqlAlchemyRagIngestionCommandRepository
-from ai_workshop.labs.rag.ingestion.service import RagIngestionService
+from ai_workshop.labs.rag.ingestion.serialization import (
+    deserialize_chunking_result,
+    deserialize_parsed_document,
+)
+from ai_workshop.labs.rag.ingestion.service import RagIngestionService, RagIngestionWorkflow
 from ai_workshop.labs.rag.ingestion.tasks import SqlAlchemyRagIngestionLifecycle
 from ai_workshop.labs.rag.models.models import ProfileRecord
 from ai_workshop.labs.rag.parsing import plain_text
@@ -203,6 +214,98 @@ class ExplicitFailingParser:
         raise ParsingError("synthetic_parser_failure", "The explicit parser failed.")
 
 
+class BarrierParser:
+    def __init__(self, delegate: ParsingService) -> None:
+        self.delegate = delegate
+        self.barrier = Barrier(2)
+        self.lock = Lock()
+        self.element_ids: list[UUID] = []
+
+    async def materialize_and_parse(self, asset_version, filename):
+        document = await self.delegate.materialize_and_parse(asset_version, filename)
+        with self.lock:
+            self.element_ids.append(document.elements[0].id)
+        self.barrier.wait(timeout=10)
+        return document
+
+
+class PublicationCoordinator:
+    def __init__(self) -> None:
+        self.lock = Lock()
+        self.parsed_put_calls = 0
+        self.chunk_put_calls = 0
+        self.first_transition_completed = Event()
+        self.second_chunk_transition_completed = Event()
+
+
+class OrderedPublicationStore:
+    def __init__(self, delegate: LocalObjectStore, coordinator: PublicationCoordinator) -> None:
+        self.delegate = delegate
+        self.coordinator = coordinator
+
+    async def put(self, key: str, source: AsyncIterator[bytes]):
+        content = b"".join([part async for part in source])
+        if key.startswith("rag/parsed/"):
+            with self.coordinator.lock:
+                call = self.coordinator.parsed_put_calls
+                self.coordinator.parsed_put_calls += 1
+            if call == 1:
+                self.coordinator.first_transition_completed.wait(timeout=10)
+        return await self.delegate.put(key, bytes_source(content))
+
+    async def put_if_absent(self, key: str, source: AsyncIterator[bytes]):
+        content = b"".join([part async for part in source])
+        if key.startswith("rag/chunks/"):
+            with self.coordinator.lock:
+                call = self.coordinator.chunk_put_calls
+                self.coordinator.chunk_put_calls += 1
+            stored = await self.delegate.put_if_absent(key, bytes_source(content))
+            if call == 0:
+                self.coordinator.second_chunk_transition_completed.wait(timeout=10)
+            return stored
+        return await self.delegate.put_if_absent(key, bytes_source(content))
+
+    def open(self, key: str) -> AsyncIterator[bytes]:
+        return self.delegate.open(key)
+
+    async def delete(self, key: str) -> None:
+        await self.delegate.delete(key)
+
+
+class SignalingLifecycle(SqlAlchemyRagIngestionLifecycle):
+    def __init__(self, settings, coordinator: PublicationCoordinator) -> None:
+        super().__init__(settings)
+        self.coordinator = coordinator
+
+    async def complete_parsing(self, job_id, document, artifact):
+        execution = await super().complete_parsing(job_id, document, artifact)
+        self.coordinator.first_transition_completed.set()
+        return execution
+
+    async def complete_chunking(self, job_id, result, artifact):
+        execution = await super().complete_chunking(job_id, result, artifact)
+        self.coordinator.second_chunk_transition_completed.set()
+        return execution
+
+
+class FailOnceOperationalLifecycle(SqlAlchemyRagIngestionLifecycle):
+    def __init__(self, settings) -> None:
+        super().__init__(settings)
+        self.lock = Lock()
+        self.failed = False
+
+    async def complete_parsing(self, job_id, document, artifact):
+        with self.lock:
+            if not self.failed:
+                self.failed = True
+                raise OperationalError(
+                    "synthetic parsing transition",
+                    {},
+                    OSError("synthetic transient database failure"),
+                )
+        return await super().complete_parsing(job_id, document, artifact)
+
+
 def parsing_service(settings) -> ParsingService:
     return ParsingService(
         LocalObjectStore(settings.object_store_root),
@@ -210,13 +313,11 @@ def parsing_service(settings) -> ParsingService:
     )
 
 
-def workflow_factory(settings, parser):
+def workflow_factory(settings, parser, *, lifecycle=None, object_store=None):
     stages = ExplicitVerifiedStages()
-    from ai_workshop.labs.rag.ingestion.service import RagIngestionWorkflow
-
     return RagIngestionWorkflow(
-        SqlAlchemyRagIngestionLifecycle(settings),
-        LocalObjectStore(settings.object_store_root),
+        lifecycle or SqlAlchemyRagIngestionLifecycle(settings),
+        object_store or LocalObjectStore(settings.object_store_root),
         parser,
         StructuralChunker(WordTokenCounter()),
         stages,
@@ -351,6 +452,165 @@ async def test_eager_task_reloads_job_only_payload_and_reaches_ready_idempotentl
             assert ingestion.embedding_count == ingestion.chunk_count == 1
             assert ingestion.indexed_document_count == 1
             assert ingestion.index_alias_verified is True
+        finally:
+            await engine.dispose()
+    finally:
+        await LocalObjectStore(settings.object_store_root).delete(
+            f"synthetic/{asset_version_id}.txt"
+        )
+        await delete_fixture(requested_by, duplicate_requester)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_eager_duplicates_publish_one_authoritative_parsed_graph() -> None:
+    (
+        requested_by,
+        duplicate_requester,
+        _workspace_id,
+        asset_version_id,
+        indexing_profile_id,
+    ) = await seed_command_dependencies()
+    settings = get_settings()
+    job_id = await create_ingestion_job(requested_by, asset_version_id, indexing_profile_id)
+    parser = BarrierParser(parsing_service(settings))
+    coordinator = PublicationCoordinator()
+    store = OrderedPublicationStore(
+        LocalObjectStore(settings.object_store_root), coordinator
+    )
+    app = create_celery(
+        settings,
+        rag_workflow_factory=lambda _settings: workflow_factory(
+            settings,
+            parser,
+            lifecycle=SignalingLifecycle(settings, coordinator),
+            object_store=store,
+        ),
+    )
+    try:
+        task = app.tasks[RAG_INGESTION_TASK]
+        first, second = await gather(
+            to_thread(task.apply, args=(str(job_id),), throw=True),
+            to_thread(task.apply, args=(str(job_id),), throw=True),
+        )
+        assert first.successful() is True
+        assert second.successful() is True
+        assert len(set(parser.element_ids)) == 2
+
+        engine = create_engine(settings)
+        sessions = create_session_factory(engine)
+        try:
+            async with sessions() as session:
+                ingestion = await session.get(RagIngestionJobRecord, job_id)
+                job = await session.get(JobRecord, job_id)
+                assert ingestion is not None
+                projection = await session.get(
+                    RagProjectionRecord, ingestion.projection_id
+                )
+                persisted_element_id = await session.scalar(
+                    select(StructuralElementRecord.id).where(
+                        StructuralElementRecord.projection_id == ingestion.projection_id
+                    )
+                )
+                persisted_chunk_id = await session.scalar(
+                    select(RetrievalChunkRecord.id).where(
+                        RetrievalChunkRecord.projection_id == ingestion.projection_id
+                    )
+                )
+            assert ingestion.parsed_object_key == (
+                f"rag/parsed/{ingestion.projection_id}.json"
+            )
+            parsed_bytes = b"".join(
+                [part async for part in store.open(ingestion.parsed_object_key)]
+            )
+            authoritative = deserialize_parsed_document(parsed_bytes)
+            assert hashlib.sha256(parsed_bytes).hexdigest() == ingestion.parsed_sha256
+            assert persisted_element_id == authoritative.elements[0].id
+            assert persisted_element_id in parser.element_ids
+            assert ingestion.chunk_object_key == (
+                f"rag/chunks/{ingestion.projection_id}.json"
+            )
+            chunk_bytes = b"".join(
+                [part async for part in store.open(ingestion.chunk_object_key)]
+            )
+            authoritative_chunks = deserialize_chunking_result(chunk_bytes)
+            assert hashlib.sha256(chunk_bytes).hexdigest() == ingestion.chunk_sha256
+            assert persisted_chunk_id == authoritative_chunks.chunks[0].id
+            assert job is not None and job.status == JobStatus.SUCCEEDED
+            assert projection is not None and projection.status == ProjectionStatus.READY
+        finally:
+            await engine.dispose()
+    finally:
+        await LocalObjectStore(settings.object_store_root).delete(
+            f"synthetic/{asset_version_id}.txt"
+        )
+        await delete_fixture(requested_by, duplicate_requester)
+
+
+@pytest.mark.asyncio
+async def test_db_operational_failure_after_publication_retries_without_terminalizing() -> None:
+    (
+        requested_by,
+        duplicate_requester,
+        _workspace_id,
+        asset_version_id,
+        indexing_profile_id,
+    ) = await seed_command_dependencies()
+    settings = get_settings()
+    job_id = await create_ingestion_job(requested_by, asset_version_id, indexing_profile_id)
+    parser = parsing_service(settings)
+    lifecycle = FailOnceOperationalLifecycle(settings)
+    store = LocalObjectStore(settings.object_store_root)
+    app = create_celery(
+        settings,
+        rag_workflow_factory=lambda _settings: workflow_factory(
+            settings, parser, lifecycle=lifecycle, object_store=store
+        ),
+    )
+    try:
+        with pytest.raises(Retry):
+            await to_thread(app.tasks[RAG_INGESTION_TASK].delay, str(job_id))
+
+        engine = create_engine(settings)
+        sessions = create_session_factory(engine)
+        try:
+            async with sessions() as session:
+                before_retry = await session.get(RagIngestionJobRecord, job_id)
+                running_job = await session.get(JobRecord, job_id)
+                assert before_retry is not None
+                projection = await session.get(
+                    RagProjectionRecord, before_retry.projection_id
+                )
+            parsed_key = f"rag/parsed/{before_retry.projection_id}.json"
+            published_bytes = b"".join([part async for part in store.open(parsed_key)])
+            assert running_job is not None and running_job.status == JobStatus.RUNNING
+            assert projection is not None and projection.status == ProjectionStatus.PARSING
+            assert before_retry.parsed_object_key is None
+
+            completed = await to_thread(
+                app.tasks[RAG_INGESTION_TASK].delay, str(job_id)
+            )
+            assert completed.get() is None
+
+            async with sessions() as session:
+                after_retry = await session.get(RagIngestionJobRecord, job_id)
+                completed_job = await session.get(JobRecord, job_id)
+                assert after_retry is not None
+                persisted_element_id = await session.scalar(
+                    select(StructuralElementRecord.id).where(
+                        StructuralElementRecord.projection_id == after_retry.projection_id
+                    )
+                )
+            authoritative_bytes = b"".join(
+                [part async for part in store.open(parsed_key)]
+            )
+            authoritative = deserialize_parsed_document(authoritative_bytes)
+            assert authoritative_bytes == published_bytes
+            assert after_retry.parsed_sha256 == hashlib.sha256(
+                authoritative_bytes
+            ).hexdigest()
+            assert persisted_element_id == authoritative.elements[0].id
+            assert completed_job is not None
+            assert completed_job.status == JobStatus.SUCCEEDED
         finally:
             await engine.dispose()
     finally:

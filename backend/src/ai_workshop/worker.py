@@ -7,6 +7,7 @@ from uuid import UUID
 
 from celery import Celery, Task  # type: ignore[import-untyped]
 from fastapi import Depends
+from sqlalchemy.exc import DisconnectionError, OperationalError, TimeoutError
 
 from ai_workshop.config import Settings, get_settings
 from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand, RagIngestionError
@@ -165,6 +166,8 @@ def _rag_error(exc: Exception) -> tuple[str, bool]:
         return exc.code, exc.retryable
     if isinstance(exc, ParsingError):
         return exc.code, False
+    if isinstance(exc, (OperationalError, TimeoutError, DisconnectionError)):
+        return "database_transient", True
     if isinstance(exc, OSError):
         return "parser_unavailable", True
     return "rag_ingestion_failed", False

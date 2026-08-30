@@ -1,6 +1,9 @@
+import pytest
+from sqlalchemy.exc import DisconnectionError, IntegrityError, OperationalError, TimeoutError
+
 from ai_workshop.config import Settings
 from ai_workshop.platform.jobs.models import JobRecord
-from ai_workshop.worker import ASSET_VERIFICATION_TASK, celery_app, create_celery
+from ai_workshop.worker import ASSET_VERIFICATION_TASK, _rag_error, celery_app, create_celery
 
 
 def test_celery_cli_app_is_available_without_loading_application_secrets() -> None:
@@ -33,3 +36,25 @@ def test_test_environment_executes_celery_tasks_eagerly_without_a_result_backend
     assert result.get() == "stored"
     assert app.conf.result_backend is None
     assert "ai_workshop.assets.verify_stored" in app.tasks
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        OperationalError("statement", {}, OSError("connection lost")),
+        TimeoutError("pool timeout"),
+        DisconnectionError("connection invalidated"),
+    ],
+)
+def test_only_transient_sqlalchemy_database_signals_are_retryable(error: Exception) -> None:
+    _code, retryable = _rag_error(error)
+
+    assert retryable is True
+
+
+def test_integrity_error_is_never_classified_as_retryable() -> None:
+    error = IntegrityError("insert", {}, ValueError("constraint violation"))
+
+    _code, retryable = _rag_error(error)
+
+    assert retryable is False

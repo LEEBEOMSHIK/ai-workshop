@@ -18,6 +18,7 @@ from ai_workshop.labs.rag.ingestion.domain import (
     ArtifactReference,
     EnsureIndexedCommand,
     IngestionExecution,
+    RagIngestionError,
     ReadinessVerification,
 )
 from ai_workshop.labs.rag.ingestion.serialization import (
@@ -140,6 +141,16 @@ class MemoryObjectStore:
         self.objects[key] = content
         return StoredObject(key, len(content), hashlib.sha256(content).hexdigest())
 
+    async def put_if_absent(
+        self, key: str, source: AsyncIterator[bytes]
+    ) -> StoredObject:
+        content = b"".join([part async for part in source])
+        self.objects.setdefault(key, content)
+        authoritative = self.objects[key]
+        return StoredObject(
+            key, len(authoritative), hashlib.sha256(authoritative).hexdigest()
+        )
+
     async def open(self, key: str) -> AsyncIterator[bytes]:
         yield self.objects[key]
 
@@ -157,6 +168,24 @@ class FixedParser:
         assert asset_version.id == self.document.asset_version_id
         assert filename == "synthetic.txt"
         return self.document
+
+
+class CorruptReadBackStore(MemoryObjectStore):
+    async def put(self, key: str, source: AsyncIterator[bytes]) -> StoredObject:
+        candidate = b"".join([part async for part in source])
+        self.objects[key] = b"corrupted-after-publication"
+        return StoredObject(key, len(candidate), hashlib.sha256(candidate).hexdigest())
+
+    async def put_if_absent(
+        self, key: str, source: AsyncIterator[bytes]
+    ) -> StoredObject:
+        return await self.put(key, source)
+
+
+class MissingReadBackStore(MemoryObjectStore):
+    async def open(self, key: str) -> AsyncIterator[bytes]:
+        raise OSError("synthetic exact-key read failure")
+        yield b""  # pragma: no cover
 
 
 class FixedChunker:
@@ -320,6 +349,95 @@ async def test_workflow_persists_artifacts_before_advancing_through_exact_lifecy
     assert deserialize_parsed_document(store.objects[lifecycle.artifacts[0].key]) == document
     assert deserialize_chunking_result(store.objects[lifecycle.artifacts[1].key]) == chunks
     assert lifecycle.verification == ReadinessVerification(1, 1, 1, 1, True)
+
+
+def ingestion_execution_fixture(
+    *, job_id: UUID, asset_version_id: UUID, projection_id: UUID
+) -> IngestionExecution:
+    return IngestionExecution(
+        job_id=job_id,
+        projection_id=projection_id,
+        asset_version=AssetVersion(
+            id=asset_version_id,
+            document_id=uuid4(),
+            number=1,
+            object_key="synthetic/source.txt",
+            sha256="a" * 64,
+            media_type="text/plain",
+            size=34,
+            status=VersionStatus.STORED,
+        ),
+        filename="synthetic.txt",
+        indexing_profile_id=uuid4(),
+        requested_by=uuid4(),
+        chunking_config=ChunkingConfig(380, 60, 440),
+        status=ProjectionStatus.PENDING,
+    )
+
+
+@pytest.mark.asyncio
+async def test_corrupted_exact_key_readback_never_advances_parsing_status() -> None:
+    job_id = uuid4()
+    asset_version_id = uuid4()
+    projection_id = uuid4()
+    document = parsed_fixture(asset_version_id)
+    lifecycle = MemoryLifecycle(
+        ingestion_execution_fixture(
+            job_id=job_id,
+            asset_version_id=asset_version_id,
+            projection_id=projection_id,
+        )
+    )
+    stages = ExplicitFakeStages()
+    workflow = RagIngestionWorkflow(
+        lifecycle,
+        CorruptReadBackStore(),
+        FixedParser(document),
+        FixedChunker(document, chunks_fixture(projection_id, document)),
+        stages,
+        stages,
+        stages,
+    )
+
+    with pytest.raises(RagIngestionError) as raised:
+        await workflow.run(job_id)
+
+    assert raised.value.code == "artifact_readback_mismatch"
+    assert lifecycle.statuses == [ProjectionStatus.PENDING, ProjectionStatus.PARSING]
+    assert lifecycle.artifacts == []
+
+
+@pytest.mark.asyncio
+async def test_unreadable_exact_key_never_advances_parsing_status() -> None:
+    job_id = uuid4()
+    asset_version_id = uuid4()
+    projection_id = uuid4()
+    document = parsed_fixture(asset_version_id)
+    lifecycle = MemoryLifecycle(
+        ingestion_execution_fixture(
+            job_id=job_id,
+            asset_version_id=asset_version_id,
+            projection_id=projection_id,
+        )
+    )
+    stages = ExplicitFakeStages()
+    workflow = RagIngestionWorkflow(
+        lifecycle,
+        MissingReadBackStore(),
+        FixedParser(document),
+        FixedChunker(document, chunks_fixture(projection_id, document)),
+        stages,
+        stages,
+        stages,
+    )
+
+    with pytest.raises(RagIngestionError) as raised:
+        await workflow.run(job_id)
+
+    assert raised.value.code == "artifact_readback_failed"
+    assert raised.value.retryable is True
+    assert lifecycle.statuses == [ProjectionStatus.PENDING, ProjectionStatus.PARSING]
+    assert lifecycle.artifacts == []
 
 
 def test_readiness_requires_real_count_and_alias_verification() -> None:

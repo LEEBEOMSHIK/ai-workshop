@@ -13,12 +13,21 @@ from ai_workshop.labs.rag.ingestion.domain import (
     ReadinessVerification,
 )
 from ai_workshop.labs.rag.ingestion.serialization import (
+    deserialize_chunking_result,
     deserialize_parsed_document,
     serialize_chunking_result,
     serialize_parsed_document,
 )
 from ai_workshop.platform.assets.domain import AssetVersion
-from ai_workshop.platform.assets.storage import ObjectStore
+from ai_workshop.platform.assets.storage import StoredObject
+
+
+class ImmutableArtifactStore(Protocol):
+    async def put_if_absent(
+        self, key: str, source: AsyncIterator[bytes]
+    ) -> StoredObject: ...
+
+    def open(self, key: str) -> AsyncIterator[bytes]: ...
 
 
 class IngestionCommandRepository(Protocol):
@@ -100,7 +109,7 @@ class RagIngestionWorkflow:
     def __init__(
         self,
         lifecycle: RagIngestionLifecycle,
-        object_store: ObjectStore,
+        object_store: ImmutableArtifactStore,
         parser: ParsingPort,
         chunker: ChunkingPort,
         embeddings: EmbeddingStagePort,
@@ -123,8 +132,12 @@ class RagIngestionWorkflow:
                     execution.asset_version, execution.filename
                 )
                 content = serialize_parsed_document(document)
-                artifact = await self._store_artifact(
+                artifact, authoritative_content = await self._publish_artifact(
                     f"rag/parsed/{execution.projection_id}.json", content
+                )
+                document = self._deserialize_parsed(
+                    authoritative_content,
+                    asset_version_id=execution.asset_version.id,
                 )
                 execution = await self.lifecycle.complete_parsing(
                     job_id, document, artifact
@@ -137,8 +150,9 @@ class RagIngestionWorkflow:
                         "The parsed artifact reference is missing.",
                         retryable=False,
                     )
-                document = deserialize_parsed_document(
-                    await self._read_artifact(execution.parsed_artifact)
+                document = self._deserialize_parsed(
+                    await self._read_artifact(execution.parsed_artifact),
+                    asset_version_id=execution.asset_version.id,
                 )
                 result = self.chunker.chunk(
                     document,
@@ -146,8 +160,12 @@ class RagIngestionWorkflow:
                     config=execution.chunking_config,
                 )
                 content = serialize_chunking_result(result)
-                artifact = await self._store_artifact(
+                artifact, authoritative_content = await self._publish_artifact(
                     f"rag/chunks/{execution.projection_id}.json", content
+                )
+                result = self._deserialize_chunks(
+                    authoritative_content,
+                    projection_id=execution.projection_id,
                 )
                 execution = await self.lifecycle.complete_chunking(job_id, result, artifact)
                 continue
@@ -193,19 +211,33 @@ class RagIngestionWorkflow:
             error_message=error_message,
         )
 
-    async def _store_artifact(self, key: str, content: bytes) -> ArtifactReference:
-        sha256 = hashlib.sha256(content).hexdigest()
-        stored = await self.object_store.put(key, _bytes_source(content))
-        if stored.key != key or stored.sha256 != sha256:
+    async def _publish_artifact(
+        self, key: str, content: bytes
+    ) -> tuple[ArtifactReference, bytes]:
+        try:
+            stored = await self.object_store.put_if_absent(key, _bytes_source(content))
+        except OSError as exc:
             raise RagIngestionError(
-                "artifact_write_mismatch",
-                "The object store did not preserve the RAG artifact digest.",
+                "artifact_publication_failed",
+                "The immutable RAG artifact could not be published.",
                 retryable=True,
+            ) from exc
+        exact_content = await self._read_exact_key(key)
+        exact_sha256 = hashlib.sha256(exact_content).hexdigest()
+        if (
+            stored.key != key
+            or stored.size != len(exact_content)
+            or stored.sha256 != exact_sha256
+        ):
+            raise RagIngestionError(
+                "artifact_readback_mismatch",
+                "The immutable RAG artifact metadata does not match its exact-key bytes.",
+                retryable=False,
             )
-        return ArtifactReference(key, sha256)
+        return ArtifactReference(key, exact_sha256), exact_content
 
     async def _read_artifact(self, artifact: ArtifactReference) -> bytes:
-        content = b"".join([part async for part in self.object_store.open(artifact.key)])
+        content = await self._read_exact_key(artifact.key)
         if hashlib.sha256(content).hexdigest() != artifact.sha256:
             raise RagIngestionError(
                 "artifact_checksum_mismatch",
@@ -213,6 +245,58 @@ class RagIngestionWorkflow:
                 retryable=False,
             )
         return content
+
+    async def _read_exact_key(self, key: str) -> bytes:
+        try:
+            return b"".join([part async for part in self.object_store.open(key)])
+        except OSError as exc:
+            raise RagIngestionError(
+                "artifact_readback_failed",
+                "The immutable RAG artifact could not be read from its exact key.",
+                retryable=True,
+            ) from exc
+
+    @staticmethod
+    def _deserialize_parsed(
+        content: bytes, *, asset_version_id: UUID
+    ) -> ParsedDocument:
+        try:
+            document = deserialize_parsed_document(content)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RagIngestionError(
+                "artifact_payload_invalid",
+                "The immutable parsed artifact payload is invalid.",
+                retryable=False,
+            ) from exc
+        if document.asset_version_id != asset_version_id:
+            raise RagIngestionError(
+                "artifact_payload_mismatch",
+                "The immutable parsed artifact belongs to another asset version.",
+                retryable=False,
+            )
+        return document
+
+    @staticmethod
+    def _deserialize_chunks(
+        content: bytes, *, projection_id: UUID
+    ) -> ChunkingResult:
+        try:
+            result = deserialize_chunking_result(content)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RagIngestionError(
+                "artifact_payload_invalid",
+                "The immutable chunk artifact payload is invalid.",
+                retryable=False,
+            ) from exc
+        if any(chunk.projection_id != projection_id for chunk in result.chunks) or any(
+            unit.projection_id != projection_id for unit in result.evidence_units
+        ):
+            raise RagIngestionError(
+                "artifact_payload_mismatch",
+                "The immutable chunk artifact belongs to another projection.",
+                retryable=False,
+            )
+        return result
 
 
 async def _bytes_source(content: bytes) -> AsyncIterator[bytes]:

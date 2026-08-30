@@ -177,6 +177,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/rag/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Search */
+        post: operations["search_api_v1_rag_search_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/sources/{asset_version_id}/normalized-text": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Normalized Text */
+        get: operations["normalized_text_api_v1_rag_sources__asset_version_id__normalized_text_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/sources/{asset_version_id}/pdf/pages/{page_number}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Pdf Page */
+        get: operations["pdf_page_api_v1_rag_sources__asset_version_id__pdf_pages__page_number__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces": {
         parameters: {
             query?: never;
@@ -235,6 +286,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AnswerStatus
+         * @enum {string}
+         */
+        AnswerStatus: "supported" | "insufficient_evidence";
         /** AssetVersionResponse */
         AssetVersionResponse: {
             /**
@@ -262,6 +318,26 @@ export interface components {
             /** File */
             file: string;
         };
+        /** ConfigurationVersionResponse */
+        ConfigurationVersionResponse: {
+            /**
+             * Configuration Id
+             * Format: uuid
+             */
+            configuration_id: string;
+            /** Version */
+            version: number;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
+        /**
+         * ConflictState
+         * @enum {string}
+         */
+        ConflictState: "none" | "separate_sources";
         /** DocumentResponse */
         DocumentResponse: {
             /**
@@ -295,6 +371,20 @@ export interface components {
          * @enum {string}
          */
         EvaluationState: "draft" | "pending" | "passed" | "failed";
+        /** EvidenceAnswerResponse */
+        EvidenceAnswerResponse: {
+            /** Excerpt */
+            excerpt: string;
+            /** Highlights */
+            highlights: components["schemas"]["HighlightSpanResponse"][];
+            /** Keyword Coverage */
+            keyword_coverage: number | null;
+            /** Semantic Score */
+            semantic_score: number | null;
+            source: components["schemas"]["SourceReferenceResponse"];
+            /** Warnings */
+            warnings: string[];
+        };
         /** FolderCreate */
         FolderCreate: {
             /** Name */
@@ -313,6 +403,39 @@ export interface components {
             name: string;
             /** Parent Id */
             parent_id: string | null;
+        };
+        /**
+         * HighlightKind
+         * @enum {string}
+         */
+        HighlightKind: "keyword" | "semantic";
+        /** HighlightSpanResponse */
+        HighlightSpanResponse: {
+            /** Bbox */
+            bbox: [
+                number,
+                number,
+                number,
+                number
+            ] | null;
+            /** Char End */
+            char_end: number;
+            /** Char Start */
+            char_start: number;
+            /**
+             * Evidence Unit Id
+             * Format: uuid
+             */
+            evidence_unit_id: string;
+            kind: components["schemas"]["HighlightKind"];
+            /** Page */
+            page: number | null;
+            /** Score */
+            score: number | null;
+            /** Text */
+            text: string;
+            /** Warnings */
+            warnings: string[];
         };
         /** JobResponse */
         JobResponse: {
@@ -345,7 +468,7 @@ export interface components {
          * JobType
          * @enum {string}
          */
-        JobType: "verify_asset";
+        JobType: "verify_asset" | "rag_ingestion";
         JsonScalar: string | number | boolean | null;
         "JsonValue-Input": components["schemas"]["JsonScalar"] | components["schemas"]["JsonValue-Input"][] | {
             [key: string]: components["schemas"]["JsonValue-Input"];
@@ -396,6 +519,62 @@ export interface components {
             name: string;
             /** Version */
             version: number;
+        };
+        /** NormalizedElementResponse */
+        NormalizedElementResponse: {
+            /** Confidence */
+            confidence: number | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            location: components["schemas"]["SourceLocationResponse"];
+            /** Ordinal */
+            ordinal: number;
+            /** Section Path */
+            section_path: string[];
+            /** Text */
+            text: string;
+        };
+        /** NormalizedTextResponse */
+        NormalizedTextResponse: {
+            /**
+             * Asset Version Id
+             * Format: uuid
+             */
+            asset_version_id: string;
+            /** Asset Version Number */
+            asset_version_number: number;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /** Elements */
+            elements: components["schemas"]["NormalizedElementResponse"][];
+            /** Folder Id */
+            folder_id: string | null;
+            /** Media Type */
+            media_type: string;
+            /** Parser Name */
+            parser_name: string;
+            /** Parser Version */
+            parser_version: string;
+            /**
+             * Projection Id
+             * Format: uuid
+             */
+            projection_id: string;
+            /** Title */
+            title: string;
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
         };
         /** ProfileBindingCreate */
         ProfileBindingCreate: {
@@ -452,6 +631,148 @@ export interface components {
         ProfileYamlRequest: {
             /** Content */
             content: string;
+        };
+        /** RelatedSourceResponse */
+        RelatedSourceResponse: {
+            /**
+             * Asset Version Id
+             * Format: uuid
+             */
+            asset_version_id: string;
+            /** Asset Version Number */
+            asset_version_number: number;
+            /**
+             * Chunk Id
+             * Format: uuid
+             */
+            chunk_id: string;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /** Folder Id */
+            folder_id: string | null;
+            /** Fused Score */
+            fused_score: number;
+            /** Media Type */
+            media_type: string;
+            /**
+             * Projection Id
+             * Format: uuid
+             */
+            projection_id: string;
+            /** Section Path */
+            section_path: string[];
+            /** Title */
+            title: string;
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
+        };
+        /** SearchRequest */
+        SearchRequest: {
+            /**
+             * Configuration Id
+             * Format: uuid
+             */
+            configuration_id: string;
+            /** Folder Ids */
+            folder_ids?: string[];
+            /** Query */
+            query: string;
+            /**
+             * Top K
+             * @default 10
+             */
+            top_k: number;
+            /** Workspace Ids */
+            workspace_ids: string[];
+        };
+        /** SearchResponse */
+        SearchResponse: {
+            answer: components["schemas"]["EvidenceAnswerResponse"] | null;
+            configuration_version: components["schemas"]["ConfigurationVersionResponse"];
+            conflict_state: components["schemas"]["ConflictState"];
+            /** Conflicts */
+            conflicts: components["schemas"]["EvidenceAnswerResponse"][];
+            /** Related Sources */
+            related_sources: components["schemas"]["RelatedSourceResponse"][];
+            status: components["schemas"]["AnswerStatus"];
+            /** Warnings */
+            warnings: string[];
+        };
+        /** SourceLocationResponse */
+        SourceLocationResponse: {
+            /** Bbox */
+            bbox: [
+                number,
+                number,
+                number,
+                number
+            ] | null;
+            /** Char End */
+            char_end: number;
+            /** Char Start */
+            char_start: number;
+            /**
+             * Element Id
+             * Format: uuid
+             */
+            element_id: string;
+            /** Page */
+            page: number | null;
+        };
+        /** SourceReferenceResponse */
+        SourceReferenceResponse: {
+            /**
+             * Asset Version Id
+             * Format: uuid
+             */
+            asset_version_id: string;
+            /** Asset Version Number */
+            asset_version_number: number;
+            /**
+             * Chunk Id
+             * Format: uuid
+             */
+            chunk_id: string;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /**
+             * Element Id
+             * Format: uuid
+             */
+            element_id: string;
+            /**
+             * Evidence Unit Id
+             * Format: uuid
+             */
+            evidence_unit_id: string;
+            /** Folder Id */
+            folder_id: string | null;
+            location: components["schemas"]["SourceLocationResponse"];
+            /** Media Type */
+            media_type: string;
+            /**
+             * Projection Id
+             * Format: uuid
+             */
+            projection_id: string;
+            /** Section Path */
+            section_path: string[];
+            /** Title */
+            title: string;
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
         };
         /** UserResponse */
         UserResponse: {
@@ -1264,6 +1585,205 @@ export interface operations {
             };
             /** @description Request validation or domain error. */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    search_api_v1_rag_search_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SearchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Search dependency unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    normalized_text_api_v1_rag_sources__asset_version_id__normalized_text_get: {
+        parameters: {
+            query: {
+                projection_id: string;
+            };
+            header?: never;
+            path: {
+                asset_version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NormalizedTextResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    pdf_page_api_v1_rag_sources__asset_version_id__pdf_pages__page_number__get: {
+        parameters: {
+            query: {
+                projection_id: string;
+            };
+            header?: never;
+            path: {
+                asset_version_id: string;
+                page_number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authorized immutable PDF page image. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": string;
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Source object unavailable. */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

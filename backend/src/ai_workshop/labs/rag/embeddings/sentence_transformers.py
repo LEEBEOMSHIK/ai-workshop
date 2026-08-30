@@ -37,8 +37,14 @@ class SentenceTransformerEmbedding:
         self._model: _SentenceTransformerModel | None = None
 
     def count_tokens(self, text: str) -> int:
+        return self._count_input(self._document_input(text))
+
+    def count_query_tokens(self, text: str) -> int:
+        return self._count_input(self._query_input(text))
+
+    def _count_input(self, model_input: str) -> int:
         encoded = self._load().tokenizer(
-            text,
+            model_input,
             add_special_tokens=True,
             truncation=False,
         )
@@ -48,11 +54,17 @@ class SentenceTransformerEmbedding:
         return len(token_ids)
 
     def encode_documents(self, texts: Sequence[str]) -> list[list[float]]:
-        return self._encode([f"{self.config.document_prefix}{text}" for text in texts])
+        return self._encode([self._document_input(text) for text in texts])
 
     def encode_query(self, text: str) -> list[float]:
-        vectors = self._encode([f"{self.config.query_prefix}{text}"])
+        vectors = self._encode([self._query_input(text)])
         return vectors[0]
+
+    def _document_input(self, text: str) -> str:
+        return f"{self.config.document_prefix}{text}"
+
+    def _query_input(self, text: str) -> str:
+        return f"{self.config.query_prefix}{text}"
 
     def _load(self) -> _SentenceTransformerModel:
         if self._model is None:

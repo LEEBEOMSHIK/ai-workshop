@@ -5,8 +5,19 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
+from elastic_transport import (
+    ApiError,
+    ApiResponseMeta,
+    HttpHeaders,
+    NodeConfig,
+)
+from elastic_transport import (
+    ConnectionError as ElasticsearchConnectionError,
+)
 from elasticsearch import AsyncElasticsearch
-from sqlalchemy import delete, select
+from sqlalchemy import delete, event, select
+from sqlalchemy.engine import Engine
+from sqlalchemy.exc import OperationalError
 
 from ai_workshop.config import Settings, get_settings
 from ai_workshop.infrastructure.object_store.local import LocalObjectStore
@@ -48,6 +59,8 @@ from ai_workshop.labs.rag.parsing.registry import ParserRegistry
 from ai_workshop.labs.rag.parsing.service import ParsingService
 from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecord
 from ai_workshop.platform.identity.models import UserRecord
+from ai_workshop.platform.jobs.domain import JobStatus
+from ai_workshop.platform.jobs.models import JobRecord
 from ai_workshop.platform.workspaces.models import WorkspaceMembershipRecord, WorkspaceRecord
 from ai_workshop.shared.db import create_engine, create_session_factory
 
@@ -66,9 +79,26 @@ class WordTokenCounter:
         return len(text.split())
 
 
+def elasticsearch_api_error(status: int) -> ApiError:
+    return ApiError(
+        "synthetic Elasticsearch response",
+        ApiResponseMeta(
+            status=status,
+            http_version="1.1",
+            headers=HttpHeaders(),
+            duration=0.0,
+            node=NodeConfig("http", "localhost", 9200),
+        ),
+        {},
+    )
+
+
 class FailFirstActivationIndex:
-    def __init__(self, delegate: ElasticsearchSearchIndex) -> None:
+    def __init__(
+        self, delegate: ElasticsearchSearchIndex, *, failure_mode: str
+    ) -> None:
         self.delegate = delegate
+        self.failure_mode = failure_mode
         self.failed = False
 
     async def create(self, descriptor: IndexDescriptor) -> None:
@@ -85,7 +115,13 @@ class FailFirstActivationIndex:
     async def activate(self, alias: str, index_name: str) -> bool:
         if not self.failed:
             self.failed = True
-            return False
+            if self.failure_mode == "acknowledgement":
+                return False
+            if self.failure_mode == "connection":
+                raise ElasticsearchConnectionError("synthetic connection loss")
+            if self.failure_mode == "api-503":
+                raise elasticsearch_api_error(503)
+            raise AssertionError(f"Unexpected failure mode: {self.failure_mode}")
         return await self.delegate.activate(alias, index_name)
 
     async def active_targets(self, alias: str) -> tuple[str, ...]:
@@ -105,6 +141,41 @@ class CoordinatedVerifier:
             projection_id=projection_id,
             indexing_profile_id=indexing_profile_id,
         )
+
+
+class CorruptEmbeddingMetadataLifecycle(SqlAlchemyRagIngestionLifecycle):
+    def __init__(self, settings: Settings, *, field: str, value: object) -> None:
+        super().__init__(settings)
+        self.field = field
+        self.value = value
+
+    async def complete_embedding(self, job_id: UUID, *, embedding_count: int):
+        execution = await super().complete_embedding(
+            job_id, embedding_count=embedding_count
+        )
+        engine = create_engine(self.settings)
+        sessions = create_session_factory(engine)
+        try:
+            async with sessions.begin() as session:
+                ingestion = await session.scalar(
+                    select(RagIngestionJobRecord)
+                    .where(RagIngestionJobRecord.job_id == job_id)
+                    .with_for_update()
+                )
+                assert ingestion is not None
+                setattr(ingestion, self.field, self.value)
+        finally:
+            await engine.dispose()
+        return execution
+
+
+class NeverSearchIndexFactory:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def __call__(self):
+        self.calls += 1
+        raise AssertionError("Elasticsearch factory must not be called for corrupt metadata.")
 
 
 def fake_embedding(
@@ -249,21 +320,107 @@ async def seed_two_jobs(
 def workflow(
     settings: Settings,
     verifier: CoordinatedVerifier | ProductionReadinessVerifier,
+    *,
+    lifecycle: SqlAlchemyRagIngestionLifecycle | None = None,
+    indexing: ProductionIndexingStage | None = None,
 ) -> RagIngestionWorkflow:
     store = LocalObjectStore(settings.object_store_root)
     return RagIngestionWorkflow(
-        SqlAlchemyRagIngestionLifecycle(settings),
+        lifecycle or SqlAlchemyRagIngestionLifecycle(settings),
         store,
         ParsingService(store, ParserRegistry((PlainTextParser(),))),
         StructuralChunker(WordTokenCounter()),
         ProductionEmbeddingStage(settings, store, embedding_factory=fake_embedding),
-        ProductionIndexingStage(settings, store),
+        indexing or ProductionIndexingStage(settings, store),
         verifier,
     )
 
 
 @pytest.mark.asyncio
-async def test_competing_builds_and_activation_retry_converge_db_ready_with_real_alias() -> None:
+@pytest.mark.parametrize(
+    ("field", "value", "error_code"),
+    [
+        ("chunk_count", 2, "indexing_input_mismatch"),
+        ("embedding_count", 2, "indexing_input_mismatch"),
+        ("embedding_sha256", "0" * 64, "artifact_checksum_mismatch"),
+    ],
+)
+async def test_corrupt_persisted_embedding_metadata_rejects_before_es_factory(
+    field: str,
+    value: object,
+    error_code: str,
+) -> None:
+    settings = get_settings().model_copy(
+        update={"elasticsearch_index_prefix": f"rag-task7-corrupt-{uuid4().hex}"}
+    )
+    owner_id, profile_id, job_ids, source_keys, inserted_model = await seed_two_jobs(
+        settings
+    )
+    store = LocalObjectStore(settings.object_store_root)
+    engine = create_engine(settings)
+    sessions = create_session_factory(engine)
+    artifact_keys: list[str] = []
+    search_factory = NeverSearchIndexFactory()
+    try:
+        with pytest.raises(RagIngestionError) as exc_info:
+            await workflow(
+                settings,
+                ProductionReadinessVerifier(settings),
+                lifecycle=CorruptEmbeddingMetadataLifecycle(
+                    settings, field=field, value=value
+                ),
+                indexing=ProductionIndexingStage(
+                    settings,
+                    store,
+                    search_index_session=search_factory,
+                ),
+            ).run(job_ids[0])
+
+        assert exc_info.value.code == error_code
+        assert search_factory.calls == 0
+    finally:
+        async with sessions() as session:
+            ingestions = list(
+                await session.scalars(
+                    select(RagIngestionJobRecord).where(
+                        RagIngestionJobRecord.job_id.in_(job_ids)
+                    )
+                )
+            )
+            artifact_keys = [
+                key
+                for ingestion in ingestions
+                for key in (
+                    ingestion.parsed_object_key,
+                    ingestion.chunk_object_key,
+                    ingestion.embedding_object_key,
+                )
+                if key is not None
+            ]
+        async with sessions.begin() as session:
+            await session.execute(
+                delete(WorkspaceRecord).where(WorkspaceRecord.created_by == owner_id)
+            )
+            await session.execute(delete(ProfileRecord).where(ProfileRecord.id == profile_id))
+            await session.execute(delete(UserRecord).where(UserRecord.id == owner_id))
+            if inserted_model:
+                await session.execute(
+                    delete(ModelDefinitionRecord).where(
+                        ModelDefinitionRecord.id == E5_ID
+                    )
+                )
+        await engine.dispose()
+        for key in (*source_keys, *artifact_keys):
+            await store.delete(key)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure_mode", ["acknowledgement", "connection", "api-503"]
+)
+async def test_competing_builds_and_activation_retry_converge_db_ready_with_real_alias(
+    failure_mode: str,
+) -> None:
     base = get_settings()
     prefix = f"rag-task7-{uuid4().hex}"
     settings = base.model_copy(update={"elasticsearch_index_prefix": prefix})
@@ -271,7 +428,9 @@ async def test_competing_builds_and_activation_retry_converge_db_ready_with_real
         settings
     )
     client: AsyncElasticsearch = create_elasticsearch(settings)
-    activation_index = FailFirstActivationIndex(ElasticsearchSearchIndex(client))
+    activation_index = FailFirstActivationIndex(
+        ElasticsearchSearchIndex(client), failure_mode=failure_mode
+    )
 
     @asynccontextmanager
     async def activation_session() -> AsyncIterator[SearchIndexPort]:
@@ -408,6 +567,200 @@ async def test_competing_builds_and_activation_retry_converge_db_ready_with_real
                 )
         finally:
             await client.close()
+        async with sessions.begin() as session:
+            await session.execute(
+                delete(WorkspaceRecord).where(WorkspaceRecord.created_by == owner_id)
+            )
+            await session.execute(delete(ProfileRecord).where(ProfileRecord.id == profile_id))
+            await session.execute(delete(UserRecord).where(UserRecord.id == owner_id))
+            if inserted_model:
+                await session.execute(
+                    delete(ModelDefinitionRecord).where(
+                        ModelDefinitionRecord.id == E5_ID
+                    )
+                )
+        await engine.dispose()
+        for key in (*source_keys, *artifact_keys):
+            await store.delete(key)
+
+
+@pytest.mark.asyncio
+async def test_alias_success_then_database_commit_failure_reuses_build_and_converges() -> None:
+    base = get_settings()
+    prefix = f"rag-task7-commit-{uuid4().hex}"
+    settings = base.model_copy(update={"elasticsearch_index_prefix": prefix})
+    owner_id, profile_id, job_ids, source_keys, inserted_model = await seed_two_jobs(
+        settings
+    )
+    client: AsyncElasticsearch = create_elasticsearch(settings)
+    delegate = ElasticsearchSearchIndex(client)
+    commit_failed = False
+    listener_armed = False
+
+    def fail_first_commit(_connection) -> None:
+        nonlocal commit_failed
+        if not commit_failed:
+            commit_failed = True
+            raise OperationalError(
+                "synthetic readiness commit failure", {}, OSError("connection lost")
+            )
+
+    class ArmCommitFailureAfterAlias:
+        async def create(self, descriptor: IndexDescriptor) -> None:
+            await delegate.create(descriptor)
+
+        async def bulk_upsert(
+            self, index_name: str, documents: Sequence[IndexDocument]
+        ) -> int:
+            return await delegate.bulk_upsert(index_name, documents)
+
+        async def count_projection(
+            self, index_name: str, projection_id: UUID
+        ) -> int:
+            return await delegate.count_projection(index_name, projection_id)
+
+        async def activate(self, alias: str, index_name: str) -> bool:
+            nonlocal listener_armed
+            acknowledged = await delegate.activate(alias, index_name)
+            if acknowledged and not listener_armed:
+                event.listen(Engine, "commit", fail_first_commit)
+                listener_armed = True
+            return acknowledged
+
+        async def active_targets(self, alias: str) -> tuple[str, ...]:
+            return await delegate.active_targets(alias)
+
+    armed_index = ArmCommitFailureAfterAlias()
+
+    @asynccontextmanager
+    async def activation_session() -> AsyncIterator[SearchIndexPort]:
+        yield armed_index
+
+    store = LocalObjectStore(settings.object_store_root)
+    engine = create_engine(settings)
+    sessions = create_session_factory(engine)
+    artifact_keys: list[str] = []
+    index_names: list[str] = []
+    try:
+        with pytest.raises(OperationalError, match="readiness commit failure"):
+            await workflow(
+                settings,
+                ProductionReadinessVerifier(
+                    settings, search_index_session=activation_session
+                ),
+            ).run(job_ids[0])
+        assert commit_failed is True
+        if listener_armed:
+            event.remove(Engine, "commit", fail_first_commit)
+            listener_armed = False
+
+        async with sessions() as session:
+            ingestion = await session.scalar(
+                select(RagIngestionJobRecord).where(
+                    RagIngestionJobRecord.job_id == job_ids[0]
+                )
+            )
+            assert ingestion is not None
+            original_build_id = ingestion.index_build_id
+            original_vector_key = ingestion.embedding_object_key
+            original_vector_hash = ingestion.embedding_sha256
+            build = await session.get(RagIndexBuildRecord, original_build_id)
+            job = await session.get(JobRecord, job_ids[0])
+            projection = await session.get(RagProjectionRecord, ingestion.projection_id)
+        assert build is not None
+        assert build.status == "prepared"
+        assert build.is_active is False
+        assert job is not None and job.status == JobStatus.RUNNING.value
+        assert projection is not None
+        assert projection.status == ProjectionStatus.INDEXING
+        alias = IndexDescriptor(768, "cosine").active_alias(prefix, profile_id)
+        assert await delegate.active_targets(alias) == (build.index_name,)
+
+        await workflow(settings, ProductionReadinessVerifier(settings)).run(job_ids[0])
+
+        async with sessions() as session:
+            ingestion = await session.scalar(
+                select(RagIngestionJobRecord).where(
+                    RagIngestionJobRecord.job_id == job_ids[0]
+                )
+            )
+            assert ingestion is not None
+            reloaded_build = await session.get(
+                RagIndexBuildRecord, ingestion.index_build_id
+            )
+            job = await session.get(JobRecord, job_ids[0])
+            projection = await session.get(RagProjectionRecord, ingestion.projection_id)
+            index_names = list(
+                await session.scalars(
+                    select(RagIndexBuildRecord.index_name).where(
+                        RagIndexBuildRecord.indexing_profile_id == profile_id,
+                        RagIndexBuildRecord.index_name.is_not(None),
+                    )
+                )
+            )
+            artifact_keys = [
+                key
+                for key in (
+                    ingestion.parsed_object_key,
+                    ingestion.chunk_object_key,
+                    ingestion.embedding_object_key,
+                )
+                if key is not None
+            ]
+        assert ingestion.index_build_id == original_build_id
+        assert ingestion.embedding_object_key == original_vector_key
+        assert ingestion.embedding_sha256 == original_vector_hash
+        assert reloaded_build is not None
+        assert reloaded_build.status == "ready"
+        assert reloaded_build.is_active is True
+        assert job is not None and job.status == JobStatus.SUCCEEDED.value
+        assert projection is not None and projection.status == ProjectionStatus.READY
+        assert await delegate.active_targets(alias) == (reloaded_build.index_name,)
+    finally:
+        if listener_armed:
+            event.remove(Engine, "commit", fail_first_commit)
+        if not index_names:
+            async with sessions() as session:
+                index_names = list(
+                    await session.scalars(
+                        select(RagIndexBuildRecord.index_name).where(
+                            RagIndexBuildRecord.indexing_profile_id == profile_id,
+                            RagIndexBuildRecord.index_name.is_not(None),
+                        )
+                    )
+                )
+        try:
+            if index_names:
+                await client.indices.delete(
+                    index=",".join(index_names), ignore_unavailable=True
+                )
+        finally:
+            await client.close()
+        async with sessions() as session:
+            ingestions = list(
+                await session.scalars(
+                    select(RagIngestionJobRecord).where(
+                        RagIngestionJobRecord.job_id.in_(job_ids)
+                    )
+                )
+            )
+            artifact_keys = list(
+                dict.fromkeys(
+                    [
+                        *artifact_keys,
+                        *[
+                            key
+                            for ingestion in ingestions
+                            for key in (
+                                ingestion.parsed_object_key,
+                                ingestion.chunk_object_key,
+                                ingestion.embedding_object_key,
+                            )
+                            if key is not None
+                        ],
+                    ]
+                )
+            )
         async with sessions.begin() as session:
             await session.execute(
                 delete(WorkspaceRecord).where(WorkspaceRecord.created_by == owner_id)

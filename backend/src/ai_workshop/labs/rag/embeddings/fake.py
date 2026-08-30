@@ -18,7 +18,10 @@ class DeterministicFakeEmbedding:
         self.document_prefix = document_prefix
 
     def count_tokens(self, text: str) -> int:
-        return len(text.split())
+        return len(f"{self.document_prefix}{text}".split())
+
+    def count_query_tokens(self, text: str) -> int:
+        return len(f"{self.query_prefix}{text}".split())
 
     def encode_documents(self, texts: Sequence[str]) -> list[list[float]]:
         return [self._encode(f"{self.document_prefix}{text}") for text in texts]

@@ -9,6 +9,14 @@ from ai_workshop.labs.rag.indexing.contracts import (
 )
 
 
+class AliasActivationNotAcknowledgedError(ValueError):
+    """Elasticsearch received the alias update but did not acknowledge it."""
+
+
+class ActiveAliasTargetMismatchError(ValueError):
+    """The active alias does not exclusively identify the intended build."""
+
+
 @dataclass(frozen=True, slots=True)
 class IndexingResult:
     descriptor: IndexDescriptor
@@ -88,7 +96,9 @@ class IndexingService:
 
     async def activate_prepared(self, prepared: IndexingResult) -> IndexingResult:
         if not await self.search_index.activate(prepared.alias, prepared.index_name):
-            raise ValueError("Elasticsearch did not acknowledge alias activation.")
+            raise AliasActivationNotAcknowledgedError(
+                "Elasticsearch did not acknowledge alias activation."
+            )
         await self.revalidate_active_target(
             profile_id=prepared.profile_id,
             build_id=prepared.build_id,
@@ -106,7 +116,9 @@ class IndexingService:
         index_name = descriptor.concrete_index_name(self.index_prefix, profile_id, build_id)
         alias = descriptor.active_alias(self.index_prefix, profile_id)
         if await self.search_index.active_targets(alias) != (index_name,):
-            raise ValueError("The active alias must resolve exclusively to the verified index.")
+            raise ActiveAliasTargetMismatchError(
+                "The active alias must resolve exclusively to the verified index."
+            )
         return True
 
     @staticmethod

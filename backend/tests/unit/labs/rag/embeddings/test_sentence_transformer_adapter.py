@@ -32,11 +32,15 @@ def config(*, dimension: int = 3) -> EmbeddingModelConfig:
 
 
 class RecordingTokenizer:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
     def __call__(
         self, text: str, *, add_special_tokens: bool, truncation: bool
     ) -> dict[str, list[int]]:
         assert add_special_tokens is True
         assert truncation is False
+        self.calls.append(text)
         return {"input_ids": list(range(len(text.split()) + 2))}
 
 
@@ -101,13 +105,21 @@ def test_adapter_is_lazy_and_loads_exact_pinned_local_runtime_options(tmp_path: 
     }
 
 
-def test_adapter_uses_query_prefix_and_model_tokenizer_without_truncation(
+def test_adapter_counts_document_and_query_tokens_with_the_exact_model_prefix(
     tmp_path: Path,
 ) -> None:
     loader = RecordingLoader(RecordingModel())
     embedding = SentenceTransformerEmbedding(config(), cache_folder=tmp_path, loader=loader)
 
-    assert embedding.count_tokens("one two") == 4
+    assert embedding.count_tokens("one two") == 5
+    assert embedding.count_query_tokens("one two") == 5
+    assert loader.model.tokenizer.calls == ["passage: one two", "query: one two"]
+
+
+def test_adapter_uses_query_prefix_without_double_prefixing(tmp_path: Path) -> None:
+    loader = RecordingLoader(RecordingModel())
+    embedding = SentenceTransformerEmbedding(config(), cache_folder=tmp_path, loader=loader)
+
     assert embedding.encode_query("같은 입력") == [1.0, 0.0, 0.0]
     assert loader.model.calls[0][0] == ["query: 같은 입력"]
 

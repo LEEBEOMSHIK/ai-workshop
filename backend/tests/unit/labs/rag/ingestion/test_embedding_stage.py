@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from dataclasses import replace
+from pathlib import Path
 from uuid import UUID
 
 import pytest
@@ -8,7 +9,11 @@ from ai_workshop.labs.rag.chunking.contracts import ChunkingResult
 from ai_workshop.labs.rag.documents.domain import RetrievalChunk
 from ai_workshop.labs.rag.embeddings.contracts import (
     EmbeddingDescriptor,
+    EmbeddingModelConfig,
     EmbeddingValidationError,
+)
+from ai_workshop.labs.rag.embeddings.sentence_transformers import (
+    SentenceTransformerEmbedding,
 )
 from ai_workshop.labs.rag.ingestion.stages import (
     embed_chunks,
@@ -69,6 +74,49 @@ class RecordingEmbedding:
         raise AssertionError("Document embedding must not encode queries.")
 
 
+class BoundaryTokenizer:
+    def __call__(
+        self, text: str, *, add_special_tokens: bool, truncation: bool
+    ) -> dict[str, list[int]]:
+        assert add_special_tokens is True
+        assert truncation is False
+        return {"input_ids": list(range(len(text.split())))}
+
+
+class BoundaryModel:
+    def __init__(self) -> None:
+        self.tokenizer = BoundaryTokenizer()
+        self.encoded: list[list[str]] = []
+
+    def get_sentence_embedding_dimension(self) -> int:
+        return 3
+
+    def encode(self, texts: Sequence[str], **kwargs: object) -> list[list[float]]:
+        self.encoded.append(list(texts))
+        return [[1.0, 0.0, 0.0] for _ in texts]
+
+
+def boundary_embedding(model: BoundaryModel) -> SentenceTransformerEmbedding:
+    return SentenceTransformerEmbedding(
+        EmbeddingModelConfig(
+            repo_id="intfloat/multilingual-e5-base",
+            revision="d128750597153bb5987e10b1c3493a34e5a4502a",
+            dimension=3,
+            max_tokens=2,
+            query_prefix="query: ",
+            document_prefix="passage: ",
+            normalize=True,
+            device="cpu",
+            dtype="float32",
+            output_mode="dense",
+            data_policy="local_only",
+            batch_size=2,
+        ),
+        cache_folder=Path("unused-test-cache"),
+        loader=lambda *args, **kwargs: model,
+    )
+
+
 def test_embedding_stage_validates_every_token_count_before_encoding() -> None:
     embedding = RecordingEmbedding([[1.0, 0.0, 0.0]])
 
@@ -80,6 +128,19 @@ def test_embedding_stage_validates_every_token_count_before_encoding() -> None:
         )
 
     assert embedding.encoded == []
+
+
+def test_embedding_stage_rejects_prefix_induced_overflow_before_model_encode() -> None:
+    model = BoundaryModel()
+
+    with pytest.raises(EmbeddingValidationError, match="token limit"):
+        embed_chunks(
+            chunks("one two"),
+            embedding=boundary_embedding(model),
+            descriptor=descriptor(max_tokens=2),
+        )
+
+    assert model.encoded == []
 
 
 @pytest.mark.parametrize(

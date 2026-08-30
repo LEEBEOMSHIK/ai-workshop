@@ -7,7 +7,11 @@ import pytest
 from ai_workshop.labs.rag.documents.domain import EvidenceUnit, SourceLocation
 from ai_workshop.labs.rag.indexing.contracts import IndexDescriptor, IndexDocument
 from ai_workshop.labs.rag.indexing.elasticsearch import build_mapping
-from ai_workshop.labs.rag.indexing.service import IndexingService
+from ai_workshop.labs.rag.indexing.service import (
+    ActiveAliasTargetMismatchError,
+    AliasActivationNotAcknowledgedError,
+    IndexingService,
+)
 
 PROFILE_ID = UUID("00000000-0000-0000-0000-000000000101")
 BUILD_ID = UUID("00000000-0000-0000-0000-000000000201")
@@ -159,10 +163,22 @@ async def test_alias_verification_rejects_wrong_or_multiple_targets(
 ) -> None:
     index = RecordingIndex(active_targets=active_targets)
 
-    with pytest.raises(ValueError, match="exclusively"):
+    with pytest.raises(ActiveAliasTargetMismatchError, match="exclusively"):
         await _index_one(_service(index))
 
     assert index.events[-1].startswith("targets:")
+
+
+@pytest.mark.asyncio
+async def test_unacknowledged_alias_activation_has_a_distinct_error() -> None:
+    index = RecordingIndex(activation_acknowledged=False)
+
+    with pytest.raises(
+        AliasActivationNotAcknowledgedError, match="did not acknowledge"
+    ):
+        await _index_one(_service(index))
+
+    assert index.events[-1].startswith("activate:")
 
 
 @pytest.mark.asyncio

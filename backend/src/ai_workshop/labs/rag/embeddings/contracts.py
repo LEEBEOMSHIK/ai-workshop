@@ -17,6 +17,9 @@ class EmbeddingPort(Protocol):
     def count_tokens(self, text: str) -> int:
         raise NotImplementedError
 
+    def count_query_tokens(self, text: str) -> int:
+        raise NotImplementedError
+
     def encode_documents(self, texts: Sequence[str]) -> list[list[float]]:
         raise NotImplementedError
 

@@ -7,6 +7,13 @@ from pathlib import Path
 from typing import cast
 from uuid import UUID, uuid4
 
+from elastic_transport import (
+    ApiError,
+    ConnectionTimeout,
+)
+from elastic_transport import (
+    ConnectionError as ElasticsearchConnectionError,
+)
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -38,7 +45,12 @@ from ai_workshop.labs.rag.indexing.contracts import (
     SearchIndexPort,
 )
 from ai_workshop.labs.rag.indexing.elasticsearch import ElasticsearchSearchIndex
-from ai_workshop.labs.rag.indexing.service import IndexingResult, IndexingService
+from ai_workshop.labs.rag.indexing.service import (
+    ActiveAliasTargetMismatchError,
+    AliasActivationNotAcknowledgedError,
+    IndexingResult,
+    IndexingService,
+)
 from ai_workshop.labs.rag.ingestion.domain import (
     ArtifactReference,
     RagIngestionError,
@@ -64,6 +76,40 @@ from ai_workshop.platform.workspaces.models import (
     WorkspaceRecord,
 )
 from ai_workshop.shared.db import create_engine, create_session_factory
+
+
+def _classify_activation_error(exc: Exception) -> RagIngestionError:
+    if isinstance(
+        exc,
+        (
+            AliasActivationNotAcknowledgedError,
+            ElasticsearchConnectionError,
+            ConnectionTimeout,
+        ),
+    ):
+        return RagIngestionError(
+            "index_activation_failed",
+            "The prepared index alias activation failed transiently.",
+            retryable=True,
+        )
+    if isinstance(exc, ApiError):
+        retryable = exc.meta.status == 429 or exc.meta.status >= 500
+        return RagIngestionError(
+            "index_activation_failed" if retryable else "index_activation_rejected",
+            (
+                "The prepared index alias activation failed transiently."
+                if retryable
+                else "Elasticsearch rejected the prepared alias activation."
+            ),
+            retryable=retryable,
+        )
+    if isinstance(exc, (ActiveAliasTargetMismatchError, ValueError)):
+        return RagIngestionError(
+            "index_activation_rejected",
+            "The prepared index alias failed deterministic validation.",
+            retryable=False,
+        )
+    raise TypeError("expected Elasticsearch activation failure classification") from exc
 
 
 def embed_chunks(
@@ -495,6 +541,20 @@ class ProductionIndexingStage:
                     "The authoritative chunk or embedding artifact is invalid.",
                     retryable=False,
                 ) from exc
+            authoritative_chunk_count = len(chunks.chunks)
+            authoritative_embedding_count = len(embeddings.vectors)
+            if not (
+                ingestion.chunk_count
+                == ingestion.embedding_count
+                == authoritative_chunk_count
+                == authoritative_embedding_count
+                and authoritative_chunk_count > 0
+            ):
+                raise RagIngestionError(
+                    "indexing_input_mismatch",
+                    "Persisted and authoritative chunk/vector counts must match and be positive.",
+                    retryable=False,
+                )
             persisted = tuple(
                 (row.id, row.ordinal, row.text, tuple(row.section_path))
                 for row in persisted_chunks
@@ -733,12 +793,13 @@ class ProductionReadinessVerifier:
                             search_index,
                             index_prefix=self.settings.elasticsearch_index_prefix,
                         ).activate_prepared(prepared)
-                except ValueError as exc:
-                    raise RagIngestionError(
-                        "index_activation_failed",
-                        "The prepared index alias activation did not complete.",
-                        retryable=True,
-                    ) from exc
+                except (
+                    ValueError,
+                    ElasticsearchConnectionError,
+                    ConnectionTimeout,
+                    ApiError,
+                ) as exc:
+                    raise _classify_activation_error(exc) from exc
                 if not activated.alias_verified:
                     raise RagIngestionError(
                         "index_activation_failed",

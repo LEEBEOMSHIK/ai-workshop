@@ -52,6 +52,30 @@ def upgrade() -> None:
         WHERE projection.id = build.projection_id
         """
     )
+    op.execute(
+        """
+        WITH ranked_builds AS (
+            SELECT id,
+                   row_number() OVER (
+                       PARTITION BY projection_id
+                       ORDER BY created_at ASC, id ASC
+                   ) AS position
+            FROM rag_index_builds
+        )
+        DELETE FROM rag_index_builds AS build
+        USING ranked_builds AS ranked
+        WHERE build.id = ranked.id
+          AND ranked.position > 1
+        """
+    )
+    op.execute(
+        """
+        UPDATE rag_ingestion_jobs AS ingestion
+        SET index_build_id = build.id
+        FROM rag_index_builds AS build
+        WHERE build.projection_id = ingestion.projection_id
+        """
+    )
     op.alter_column("rag_index_builds", "indexing_profile_id", nullable=False)
     op.create_foreign_key(
         "fk_rag_index_builds_indexing_profile_id",

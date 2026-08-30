@@ -39,3 +39,19 @@ class UnsupportedParserError(ParsingError):
         super().__init__(
             "unsupported_format", f"Unsupported source format: {media_type} ({filename})."
         )
+
+
+class ConflictingFormatError(ParsingError):
+    def __init__(self, media_type: str, filename: str) -> None:
+        super().__init__(
+            "conflicting_format",
+            f"Media type {media_type} conflicts with filename extension in {filename}.",
+        )
+
+
+class InvalidPdfCoordinatesError(ParsingError):
+    def __init__(self, page_number: int) -> None:
+        super().__init__(
+            "invalid_pdf_coordinates",
+            f"PDF page {page_number} has text coordinates outside page bounds.",
+        )

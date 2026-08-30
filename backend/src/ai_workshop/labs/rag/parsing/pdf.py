@@ -1,10 +1,42 @@
+from math import isfinite
 from typing import Any
 from uuid import uuid4
 
 import pymupdf
 
 from ai_workshop.labs.rag.documents.domain import ParsedDocument, SourceLocation, StructuralElement
-from ai_workshop.labs.rag.parsing.contracts import OcrRequiredError, ParseRequest
+from ai_workshop.labs.rag.parsing.contracts import (
+    InvalidPdfCoordinatesError,
+    OcrRequiredError,
+    ParseRequest,
+)
+
+
+def _validated_bbox(
+    raw_bbox: Any,
+    page_rect: Any,
+    page_number: int,
+) -> tuple[float, float, float, float]:
+    try:
+        left, top, right, bottom = (float(value) for value in raw_bbox)
+        page_left = float(page_rect.x0)
+        page_top = float(page_rect.y0)
+        page_right = float(page_rect.x1)
+        page_bottom = float(page_rect.y1)
+    except (TypeError, ValueError) as error:
+        raise InvalidPdfCoordinatesError(page_number) from error
+    values = (left, top, right, bottom, page_left, page_top, page_right, page_bottom)
+    if (
+        not all(isfinite(value) for value in values)
+        or left > right
+        or top > bottom
+        or left < page_left
+        or top < page_top
+        or right > page_right
+        or bottom > page_bottom
+    ):
+        raise InvalidPdfCoordinatesError(page_number)
+    return left, top, right, bottom
 
 
 class PdfParser:
@@ -42,7 +74,7 @@ class PdfParser:
                                         page=page_number,
                                         char_start=char_offset,
                                         char_end=char_offset + len(value),
-                                        bbox=tuple(span["bbox"]),
+                                        bbox=_validated_bbox(span["bbox"], page.rect, page_number),
                                     ),
                                     parser_name=self.parser_name,
                                     parser_version=self.parser_version,

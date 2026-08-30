@@ -71,6 +71,7 @@ class EvidenceUnit:
     ordinal: int
     text: str
     location: SourceLocation
+    projection_id: UUID | None = None
 
     @classmethod
     def create(
@@ -80,10 +81,11 @@ class EvidenceUnit:
         location: SourceLocation | None,
         ordinal: int,
         chunk_id: UUID | None = None,
+        projection_id: UUID | None = None,
     ) -> "EvidenceUnit":
         if location is None:
             raise ProvenanceError("Evidence units require a source location.")
-        return cls(uuid4(), chunk_id, ordinal, text, location)
+        return cls(uuid4(), chunk_id, ordinal, text, location, projection_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +96,15 @@ class RetrievalChunk:
     text: str
     section_path: tuple[str, ...]
     evidence_units: tuple[EvidenceUnit, ...]
+
+    def __post_init__(self) -> None:
+        for evidence in self.evidence_units:
+            if evidence.chunk_id != self.id:
+                raise ProvenanceError(
+                    "Evidence units must declare their containing retrieval chunk."
+                )
+            if evidence.projection_id != self.projection_id:
+                raise ProvenanceError("Evidence units must declare the chunk projection.")
 
 
 @dataclass(frozen=True, slots=True)

@@ -61,6 +61,8 @@ class SqlAlchemyRagDocumentRepository:
         self.session = session
 
     async def add_projection(self, projection: RagProjection) -> RagProjection:
+        if projection.status is not ProjectionStatus.PENDING:
+            raise ValueError("New RAG document projections must start pending.")
         self.session.add(
             RagProjectionRecord(
                 id=projection.id,
@@ -92,6 +94,18 @@ class SqlAlchemyRagDocumentRepository:
         projection_id: UUID,
         document: ParsedDocument,
     ) -> None:
+        projection = await self.session.get(RagProjectionRecord, projection_id)
+        if projection is None:
+            raise LookupError("RAG document projection does not exist.")
+        if projection.asset_version_id != document.asset_version_id:
+            raise ValueError("A parsed document must match the projection asset version.")
+        chunk_exists = await self.session.scalar(
+            select(RetrievalChunkRecord.id)
+            .where(RetrievalChunkRecord.projection_id == projection_id)
+            .limit(1)
+        )
+        if chunk_exists is not None:
+            raise ValueError("Parsed elements cannot be replaced after chunks exist.")
         await self.session.execute(
             delete(StructuralElementRecord).where(
                 StructuralElementRecord.projection_id == projection_id
@@ -124,6 +138,26 @@ class SqlAlchemyRagDocumentRepository:
         projection_id: UUID,
         chunks: tuple[RetrievalChunk, ...],
     ) -> None:
+        element_ids = {
+            evidence.location.element_id
+            for chunk in chunks
+            for evidence in chunk.evidence_units
+        }
+        for chunk in chunks:
+            if chunk.projection_id != projection_id:
+                raise ValueError("A retrieval chunk must belong to the projection being replaced.")
+        if element_ids:
+            result = await self.session.execute(
+                select(StructuralElementRecord.id).where(
+                    StructuralElementRecord.projection_id == projection_id,
+                    StructuralElementRecord.id.in_(element_ids),
+                )
+            )
+            if set(result.scalars()) != element_ids:
+                raise ValueError(
+                    "Evidence units must reference structural elements in the containing "
+                    "projection."
+                )
         chunk_ids = select(RetrievalChunkRecord.id).where(
             RetrievalChunkRecord.projection_id == projection_id
         )
@@ -135,8 +169,6 @@ class SqlAlchemyRagDocumentRepository:
         )
         evidence_records: list[EvidenceUnitRecord] = []
         for chunk in chunks:
-            if chunk.projection_id != projection_id:
-                raise ValueError("A retrieval chunk must belong to the projection being replaced.")
             self.session.add(
                 RetrievalChunkRecord(
                     id=chunk.id,
@@ -154,6 +186,7 @@ class SqlAlchemyRagDocumentRepository:
                 evidence_records.append(
                     EvidenceUnitRecord(
                         id=evidence.id,
+                        projection_id=projection_id,
                         retrieval_chunk_id=chunk.id,
                         ordinal=evidence.ordinal,
                         text=evidence.text,

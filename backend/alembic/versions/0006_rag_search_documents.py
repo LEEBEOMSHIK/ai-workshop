@@ -40,6 +40,11 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["asset_version_id"], ["asset_versions.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["indexing_profile_id"], ["rag_profiles.id"], ondelete="RESTRICT"),
         sa.PrimaryKeyConstraint("id"),
+        sa.CheckConstraint(
+            "status IN ('pending', 'parsing', 'chunking', 'embedding', 'indexing', "
+            "'ready', 'failed', 'partial_ready')",
+            name="ck_rag_document_projections_status",
+        ),
         sa.UniqueConstraint("asset_version_id", "indexing_profile_id"),
     )
     op.create_table(
@@ -63,6 +68,7 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("projection_id", "ordinal"),
+        sa.UniqueConstraint("projection_id", "id"),
     )
     op.create_table(
         "rag_retrieval_chunks",
@@ -77,9 +83,11 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("projection_id", "ordinal"),
+        sa.UniqueConstraint("projection_id", "id"),
     )
     op.create_table(
         "rag_evidence_units",
+        sa.Column("projection_id", sa.Uuid(), nullable=False),
         sa.Column("retrieval_chunk_id", sa.Uuid(), nullable=False),
         sa.Column("ordinal", sa.Integer(), nullable=False),
         sa.Column("text", sa.Text(), nullable=False),
@@ -91,10 +99,14 @@ def upgrade() -> None:
         sa.Column("id", sa.Uuid(), nullable=False),
         *timestamps(),
         sa.ForeignKeyConstraint(
-            ["retrieval_chunk_id"], ["rag_retrieval_chunks.id"], ondelete="CASCADE"
+            ["projection_id", "retrieval_chunk_id"],
+            ["rag_retrieval_chunks.projection_id", "rag_retrieval_chunks.id"],
+            ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(
-            ["element_id"], ["rag_structural_elements.id"], ondelete="CASCADE"
+            ["projection_id", "element_id"],
+            ["rag_structural_elements.projection_id", "rag_structural_elements.id"],
+            ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("retrieval_chunk_id", "ordinal"),

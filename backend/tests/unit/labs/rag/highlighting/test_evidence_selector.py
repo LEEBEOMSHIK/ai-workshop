@@ -374,6 +374,46 @@ def test_unknown_or_empty_numeric_units_never_prove_a_conflict() -> None:
     assert result.conflicts == ()
 
 
+@pytest.mark.parametrize("longer_token", ["포인트", "로컬", "입니다만"])
+@pytest.mark.parametrize("punctuation", ["", "."])
+def test_recognized_unit_prefix_inside_a_longer_token_never_proves_a_conflict(
+    punctuation: str,
+    longer_token: str,
+) -> None:
+    result = EvidenceSelector(RecordingEmbedding()).select(
+        query="기준 수익률",
+        sources=(
+            _source(1, f"기준 수익률은 1퍼센트{longer_token}{punctuation}"),
+            _source(2, f"기준 수익률은 2퍼센트{punctuation}"),
+        ),
+        policy=_policy(),
+    )
+
+    assert result.status is AnswerStatus.SUPPORTED
+    assert result.conflict_state is ConflictState.NONE
+    assert result.conflicts == ()
+
+
+@pytest.mark.parametrize("punctuation", ["", "."])
+def test_complete_recognized_unit_at_end_or_punctuation_proves_a_conflict(
+    punctuation: str,
+) -> None:
+    result = EvidenceSelector(RecordingEmbedding()).select(
+        query="최소 가입 금액",
+        sources=(
+            _source(1, f"최소 가입 금액은 100만원{punctuation}"),
+            _source(2, f"최소 가입 금액은 200만원{punctuation}"),
+        ),
+        policy=_policy(),
+    )
+
+    assert result.status is AnswerStatus.SUPPORTED
+    assert result.conflict_state is ConflictState.SEPARATE_SOURCES
+    assert [item.excerpt for item in result.conflicts] == [
+        f"최소 가입 금액은 200만원{punctuation}"
+    ]
+
+
 def test_same_numeric_conclusion_with_different_wording_is_not_a_conflict() -> None:
     result = EvidenceSelector(RecordingEmbedding()).select(
         query="최소 가입 금액",

@@ -20,9 +20,26 @@ from ai_workshop.labs.rag.highlighting.domain import (
 )
 
 _TOKEN_PATTERN = re.compile(r"\w+|[%]+", re.UNICODE)
-_NUMERIC_CLAIM_PATTERN = re.compile(
+_NUMERIC_VALUE_PATTERN = re.compile(
     r"([+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)"
-    r"\s*(퍼센트|억원|만원|개월|%|원|년|일)?"
+)
+_RECOGNIZED_NUMERIC_UNITS = ("퍼센트", "억원", "만원", "개월", "%", "원", "년", "일")
+_NUMERIC_UNIT_SUFFIXES = (
+    "입니다",
+    "으로",
+    "에서",
+    "부터",
+    "까지",
+    "보다",
+    "은",
+    "는",
+    "이",
+    "가",
+    "을",
+    "를",
+    "의",
+    "에",
+    "로",
 )
 _POLARITY_PATTERNS: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     (
@@ -373,12 +390,44 @@ def _same_claim_key(query: str, left: str, right: str) -> bool:
 
 def _single_numeric_claim(text: str) -> tuple[Decimal, str] | None:
     normalized, _, _ = _normalize_with_original_offsets(text)
-    matches = _NUMERIC_CLAIM_PATTERN.findall(normalized)
+    matches = tuple(_NUMERIC_VALUE_PATTERN.finditer(normalized))
     if len(matches) != 1:
         return None
-    value, unit = matches[0]
+    match = matches[0]
+    unit = _recognized_unit_after(normalized, match.end())
+    if unit is None:
+        return None
     normalized_unit = "%" if unit == "퍼센트" else unit
-    return Decimal(value.replace(",", "")), normalized_unit
+    return Decimal(match.group(1).replace(",", "")), normalized_unit
+
+
+def _recognized_unit_after(text: str, value_end: int) -> str | None:
+    unit_start = value_end
+    while unit_start < len(text) and text[unit_start].isspace():
+        unit_start += 1
+    for unit in _RECOGNIZED_NUMERIC_UNITS:
+        if not text.startswith(unit, unit_start):
+            continue
+        if _has_numeric_unit_boundary(text, unit_start + len(unit)):
+            return unit
+    return None
+
+
+def _has_numeric_unit_boundary(text: str, unit_end: int) -> bool:
+    if unit_end == len(text) or not _is_unicode_token_character(text[unit_end]):
+        return True
+    for suffix in _NUMERIC_UNIT_SUFFIXES:
+        if not text.startswith(suffix, unit_end):
+            continue
+        suffix_end = unit_end + len(suffix)
+        if suffix_end == len(text) or not _is_unicode_token_character(text[suffix_end]):
+            return True
+    return False
+
+
+def _is_unicode_token_character(character: str) -> bool:
+    category = unicodedata.category(character)
+    return category[0] in {"L", "M", "N"} or category == "Pc"
 
 
 def _explicit_polarity(text: str) -> tuple[str, bool] | None:

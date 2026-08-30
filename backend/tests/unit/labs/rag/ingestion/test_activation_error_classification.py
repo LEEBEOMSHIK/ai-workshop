@@ -1,5 +1,3 @@
-from typing import cast
-
 import pytest
 from elastic_transport import (
     ApiError,
@@ -55,7 +53,6 @@ def test_expected_transient_activation_failures_are_retryable(error: Exception) 
     "error",
     [
         ActiveAliasTargetMismatchError("wrong target"),
-        ValueError("deterministic mapping validation"),
         _api_error(400),
         _api_error(404),
     ],
@@ -67,6 +64,10 @@ def test_deterministic_activation_failures_are_terminal(error: Exception) -> Non
     assert classified.retryable is False
 
 
-def test_unexpected_activation_failure_is_not_normalized() -> None:
-    with pytest.raises(TypeError, match="expected Elasticsearch activation failure"):
-        _classify_activation_error(cast(Exception, RuntimeError("programming bug")))
+def test_unexpected_generic_value_error_is_raised_unchanged() -> None:
+    error = ValueError("programming bug in search-index port")
+
+    with pytest.raises(ValueError) as exc_info:
+        _classify_activation_error(error)
+
+    assert exc_info.value is error

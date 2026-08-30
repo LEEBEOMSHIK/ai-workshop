@@ -103,13 +103,13 @@ def _classify_activation_error(exc: Exception) -> RagIngestionError:
             ),
             retryable=retryable,
         )
-    if isinstance(exc, (ActiveAliasTargetMismatchError, ValueError)):
+    if isinstance(exc, ActiveAliasTargetMismatchError):
         return RagIngestionError(
             "index_activation_rejected",
             "The prepared index alias failed deterministic validation.",
             retryable=False,
         )
-    raise TypeError("expected Elasticsearch activation failure classification") from exc
+    raise exc
 
 
 def embed_chunks(
@@ -794,7 +794,8 @@ class ProductionReadinessVerifier:
                             index_prefix=self.settings.elasticsearch_index_prefix,
                         ).activate_prepared(prepared)
                 except (
-                    ValueError,
+                    ActiveAliasTargetMismatchError,
+                    AliasActivationNotAcknowledgedError,
                     ElasticsearchConnectionError,
                     ConnectionTimeout,
                     ApiError,

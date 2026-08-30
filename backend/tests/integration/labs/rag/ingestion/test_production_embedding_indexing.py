@@ -100,6 +100,7 @@ class FailFirstActivationIndex:
         self.delegate = delegate
         self.failure_mode = failure_mode
         self.failed = False
+        self.unexpected_error = ValueError("synthetic search-index programming error")
 
     async def create(self, descriptor: IndexDescriptor) -> None:
         await self.delegate.create(descriptor)
@@ -121,6 +122,8 @@ class FailFirstActivationIndex:
                 raise ElasticsearchConnectionError("synthetic connection loss")
             if self.failure_mode == "api-503":
                 raise elasticsearch_api_error(503)
+            if self.failure_mode == "generic-value":
+                raise self.unexpected_error
             raise AssertionError(f"Unexpected failure mode: {self.failure_mode}")
         return await self.delegate.activate(alias, index_name)
 
@@ -416,9 +419,9 @@ async def test_corrupt_persisted_embedding_metadata_rejects_before_es_factory(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "failure_mode", ["acknowledgement", "connection", "api-503"]
+    "failure_mode", ["acknowledgement", "connection", "api-503", "generic-value"]
 )
-async def test_competing_builds_and_activation_retry_converge_db_ready_with_real_alias(
+async def test_competing_builds_preserve_errors_and_retryable_paths_converge(
     failure_mode: str,
 ) -> None:
     base = get_settings()
@@ -454,6 +457,9 @@ async def test_competing_builds_and_activation_retry_converge_db_ready_with_real
         )
         failures = [item for item in outcomes if isinstance(item, Exception)]
         assert len(failures) == 1
+        if failure_mode == "generic-value":
+            assert failures[0] is activation_index.unexpected_error
+            return
         assert isinstance(failures[0], RagIngestionError)
         assert failures[0].retryable is True
 
@@ -550,6 +556,31 @@ async def test_competing_builds_and_activation_retry_converge_db_ready_with_real
             if key is not None
         ]
     finally:
+        async with sessions() as session:
+            cleanup_ingestions = list(
+                await session.scalars(
+                    select(RagIngestionJobRecord).where(
+                        RagIngestionJobRecord.job_id.in_(job_ids)
+                    )
+                )
+            )
+            artifact_keys = list(
+                dict.fromkeys(
+                    [
+                        *artifact_keys,
+                        *[
+                            key
+                            for ingestion in cleanup_ingestions
+                            for key in (
+                                ingestion.parsed_object_key,
+                                ingestion.chunk_object_key,
+                                ingestion.embedding_object_key,
+                            )
+                            if key is not None
+                        ],
+                    ]
+                )
+            )
         if not index_names:
             async with sessions() as session:
                 index_names = list(

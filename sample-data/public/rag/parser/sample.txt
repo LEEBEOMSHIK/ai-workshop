@@ -1,0 +1,3 @@
+Synthetic public parser fixture.
+
+Second public paragraph.

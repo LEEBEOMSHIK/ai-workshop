@@ -621,6 +621,11 @@ export interface components {
             max_p50_latency_ms: number;
             /** Max P95 Latency Ms */
             max_p95_latency_ms: number;
+            /**
+             * Metric Definition Version
+             * @constant
+             */
+            metric_definition_version: 1;
             /** Min Highlight Iou */
             min_highlight_iou: number;
             /** Min Mrr */
@@ -633,6 +638,8 @@ export interface components {
             min_supported_precision: number;
             /** Required Reproducibility */
             required_reproducibility: number;
+            /** Retrieval K */
+            retrieval_k: number;
         };
         /** EvaluationPolicyResponse */
         EvaluationPolicyResponse: {
@@ -657,6 +664,11 @@ export interface components {
             max_p50_latency_ms: number;
             /** Max P95 Latency Ms */
             max_p95_latency_ms: number;
+            /**
+             * Metric Definition Version
+             * @constant
+             */
+            metric_definition_version: 1;
             /** Min Highlight Iou */
             min_highlight_iou: number;
             /** Min Mrr */
@@ -674,13 +686,18 @@ export interface components {
             owner_id: string;
             /** Required Reproducibility */
             required_reproducibility: number;
+            /** Retrieval K */
+            retrieval_k: number;
             /** Version */
             version: number;
         };
         /** EvaluationRunCreate */
         EvaluationRunCreate: {
-            /** Configuration Version Ids */
-            configuration_version_ids: string[];
+            /**
+             * Configuration Version Ids
+             * @description Additional exact Saved Configuration Versions; the automatic system BM25 baseline is always included first.
+             */
+            configuration_version_ids?: string[];
             /** Dataset Fixture */
             dataset_fixture?: {
                 [key: string]: unknown;
@@ -690,10 +707,17 @@ export interface components {
             /** Evaluation Policy Version Id */
             evaluation_policy_version_id?: string | null;
             /**
+             * Metric Definition Version
+             * @constant
+             */
+            metric_definition_version: 1;
+            /**
              * Repetition Count
              * @default 2
              */
             repetition_count: number;
+            /** Retrieval K */
+            retrieval_k: number;
         };
         /** EvaluationRunResponse */
         EvaluationRunResponse: {
@@ -718,6 +742,11 @@ export interface components {
              */
             id: string;
             /**
+             * Metric Definition Version
+             * @constant
+             */
+            metric_definition_version: 1;
+            /**
              * Owner Id
              * Format: uuid
              */
@@ -726,11 +755,17 @@ export interface components {
             query_set_sha256: string;
             /** Repetition Count */
             repetition_count: number;
+            /** Retrieval K */
+            retrieval_k: number;
             /** Runtime Environment */
             runtime_environment: {
                 [key: string]: unknown;
             };
             status: components["schemas"]["EvaluationRunStatus"];
+            /** Worker Runtime Environment */
+            worker_runtime_environment: {
+                [key: string]: unknown;
+            } | null;
         };
         /**
          * EvaluationRunStatus

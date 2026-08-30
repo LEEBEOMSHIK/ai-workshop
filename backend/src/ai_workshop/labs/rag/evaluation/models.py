@@ -1,3 +1,5 @@
+# ruff: noqa: E501 -- SQL constraints stay aligned with the migration verbatim.
+
 from datetime import datetime
 from uuid import UUID
 
@@ -7,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     LargeBinary,
@@ -45,9 +48,42 @@ class EvaluationDatasetRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     document_snapshot: Mapped[list[dict[str, object]]] = mapped_column(
         JSON, nullable=False
     )
+    document_snapshot_bytes: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     document_snapshot_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     query_set_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    query_set_bytes: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     case_count: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class EvaluationDatasetCaseRecord(TimestampMixin, Base):
+    __tablename__ = "rag_evaluation_dataset_cases"
+    __table_args__ = (
+        UniqueConstraint("dataset_snapshot_id", "ordinal"),
+        CheckConstraint("ordinal >= 0", name="ck_rag_eval_dataset_cases_ordinal"),
+    )
+
+    dataset_snapshot_id: Mapped[UUID] = mapped_column(
+        ForeignKey("rag_evaluation_datasets.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    canonical_case_bytes: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    canonical_case_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    query_bytes: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    query_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    permission_scenario: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    expected_evidence_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    authorized_source_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    forbidden_source_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    expected_highlight: Mapped[dict[str, object] | None] = mapped_column(JSON)
+
+
+class EvaluationSeedOwnershipRecord(Base):
+    __tablename__ = "rag_evaluation_seed_ownership"
+
+    seed_kind: Mapped[str] = mapped_column(String(32), primary_key=True)
+    seed_id: Mapped[UUID] = mapped_column(primary_key=True)
 
 
 class EvaluationPolicyRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -74,6 +110,22 @@ class EvaluationPolicyRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "required_reproducibility = 1.0",
             name="ck_rag_eval_policies_reproducibility",
         ),
+        CheckConstraint(
+            "metric_definition_version = 1 AND retrieval_k BETWEEN 1 AND 50",
+            name="ck_rag_eval_policies_metric_definition",
+        ),
+        CheckConstraint(
+            "min_recall_at_k NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8) AND "
+            "min_mrr NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8) AND "
+            "min_ndcg NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8) AND "
+            "min_supported_precision NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8) AND "
+            "max_false_grounding_rate NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8) AND "
+            "min_highlight_iou NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8) AND "
+            "max_p50_latency_ms NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8) AND "
+            "max_p95_latency_ms NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8) AND "
+            "required_reproducibility NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8)",
+            name="ck_rag_eval_policies_finite",
+        ),
     )
 
     owner_id: Mapped[UUID] = mapped_column(
@@ -83,6 +135,8 @@ class EvaluationPolicyRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ForeignKey("rag_evaluation_datasets.id", ondelete="RESTRICT"), nullable=False
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False)
+    metric_definition_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    retrieval_k: Mapped[int] = mapped_column(Integer, nullable=False)
     min_recall_at_k: Mapped[float] = mapped_column(Float, nullable=False)
     min_mrr: Mapped[float] = mapped_column(Float, nullable=False)
     min_ndcg: Mapped[float] = mapped_column(Float, nullable=False)
@@ -104,6 +158,10 @@ class EvaluationRunRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ),
         CheckConstraint("repetition_count >= 2", name="ck_rag_eval_runs_repetitions"),
         CheckConstraint("candidate_count > 0", name="ck_rag_eval_runs_candidates"),
+        CheckConstraint(
+            "metric_definition_version = 1 AND retrieval_k BETWEEN 1 AND 50",
+            name="ck_rag_eval_runs_metric_definition",
+        ),
         CheckConstraint(
             "(status = 'pending' AND claim_token IS NULL AND claimed_at IS NULL "
             "AND finished_at IS NULL) OR "
@@ -132,6 +190,9 @@ class EvaluationRunRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     document_snapshot_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     query_set_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     runtime_environment: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    worker_runtime_environment: Mapped[dict[str, object] | None] = mapped_column(JSON)
+    metric_definition_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    retrieval_k: Mapped[int] = mapped_column(Integer, nullable=False)
     repetition_count: Mapped[int] = mapped_column(Integer, nullable=False)
     candidate_count: Mapped[int] = mapped_column(Integer, nullable=False)
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -184,6 +245,18 @@ class EvaluationRunConfigurationRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base
             "reproducibility IS NOT NULL)",
             name="ck_rag_eval_candidates_completion",
         ),
+        CheckConstraint(
+            "(recall_at_k IS NULL OR recall_at_k NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8)) AND "
+            "(mrr IS NULL OR mrr NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8)) AND "
+            "(ndcg IS NULL OR ndcg NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8)) AND "
+            "(supported_precision IS NULL OR supported_precision NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8)) AND "
+            "(false_grounding_rate IS NULL OR false_grounding_rate NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8)) AND "
+            "(highlight_iou IS NULL OR highlight_iou NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8)) AND "
+            "(p50_latency_ms IS NULL OR p50_latency_ms NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8)) AND "
+            "(p95_latency_ms IS NULL OR p95_latency_ms NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8)) AND "
+            "(reproducibility IS NULL OR reproducibility NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8))",
+            name="ck_rag_eval_candidates_finite",
+        ),
     )
 
     run_id: Mapped[UUID] = mapped_column(
@@ -228,15 +301,29 @@ class EvaluationCaseResultRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("run_configuration_id", "evaluation_case_id"),
         UniqueConstraint("run_configuration_id", "ordinal"),
+        ForeignKeyConstraint(
+            ["dataset_snapshot_id", "evaluation_case_id"],
+            ["rag_evaluation_dataset_cases.dataset_snapshot_id", "rag_evaluation_dataset_cases.id"],
+            ondelete="RESTRICT",
+        ),
         CheckConstraint("ordinal >= 0", name="ck_rag_eval_cases_ordinal"),
         CheckConstraint("duration_ms >= 0", name="ck_rag_eval_cases_duration"),
         CheckConstraint("access_leaks >= 0", name="ck_rag_eval_cases_leaks"),
+        CheckConstraint(
+            "duration_ms NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8) AND "
+            "(recall_at_k IS NULL OR recall_at_k NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8)) AND "
+            "(reciprocal_rank IS NULL OR reciprocal_rank NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8)) AND "
+            "(ndcg IS NULL OR ndcg NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8)) AND "
+            "(highlight_iou IS NULL OR highlight_iou NOT IN ('NaN'::float8, 'Infinity'::float8, '-Infinity'::float8))",
+            name="ck_rag_eval_cases_finite",
+        ),
     )
 
     run_configuration_id: Mapped[UUID] = mapped_column(
         ForeignKey("rag_evaluation_run_configurations.id", ondelete="CASCADE"),
         nullable=False,
     )
+    dataset_snapshot_id: Mapped[UUID] = mapped_column(nullable=False)
     evaluation_case_id: Mapped[UUID] = mapped_column(nullable=False)
     ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
     query_sha256: Mapped[str] = mapped_column(String(64), nullable=False)

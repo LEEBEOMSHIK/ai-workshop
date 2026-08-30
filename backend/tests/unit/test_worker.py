@@ -149,6 +149,19 @@ def test_evaluation_task_reloads_the_persisted_run_id_only() -> None:
     assert calls == [run_id]
 
 
+def test_evaluation_task_uses_late_ack_and_worker_loss_redelivery() -> None:
+    settings = Settings(
+        _env_file=None,
+        environment="test",
+        secret_key="x" * 32,
+        redis_url="redis://unused:6379/0",
+    )
+    task = create_celery(settings).tasks[RAG_EVALUATION_TASK]
+
+    assert task.acks_late is True
+    assert task.reject_on_worker_lost is True
+
+
 def test_verified_asset_enqueues_distinct_profiles_with_job_ids_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

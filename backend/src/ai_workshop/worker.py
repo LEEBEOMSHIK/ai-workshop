@@ -181,6 +181,8 @@ def create_celery(
     @application.task(  # type: ignore[untyped-decorator]
         name=RAG_EVALUATION_TASK,
         ignore_result=True,
+        acks_late=True,
+        reject_on_worker_lost=True,
         shared=False,
     )
     def evaluate_configuration_run(run_id: str) -> None:

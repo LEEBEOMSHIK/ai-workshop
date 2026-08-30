@@ -6,12 +6,12 @@ from uuid import UUID
 from ai_workshop.labs.rag.embeddings.contracts import EmbeddingPort
 from ai_workshop.labs.rag.models.domain import FrozenJsonValue, Profile, ProfileKind
 from ai_workshop.labs.rag.retrieval.domain import (
-    ActiveIndexAlias,
     DenseHit,
     FusedHit,
     QueryEmbeddingUnavailableError,
     ResolvedSearchScope,
     SearchBackendUnavailableError,
+    SearchIndexTarget,
     SparseHit,
 )
 from ai_workshop.labs.rag.retrieval.query_embedding import RetrievalQueryEmbedding
@@ -33,7 +33,7 @@ class SparseRetrieverPort(Protocol):
     async def search_sparse(
         self,
         *,
-        index_alias: ActiveIndexAlias,
+        index_alias: SearchIndexTarget,
         query: str,
         actor_id: UUID,
         scope: ResolvedSearchScope,
@@ -45,7 +45,7 @@ class DenseRetrieverPort(Protocol):
     async def search_dense(
         self,
         *,
-        index_alias: ActiveIndexAlias,
+        index_alias: SearchIndexTarget,
         query_vector: tuple[float, ...],
         actor_id: UUID,
         scope: ResolvedSearchScope,
@@ -76,7 +76,7 @@ class HybridRetrievalService:
         folder_ids: tuple[UUID, ...],
         indexing_profile_id: UUID,
         retrieval_profile: Profile,
-        index_alias: ActiveIndexAlias,
+        index_alias: SearchIndexTarget,
         result_limit: int,
     ) -> tuple[FusedHit, ...]:
         clean_query = query.strip()
@@ -180,12 +180,10 @@ def _retrieval_settings(profile: Profile) -> tuple[int, int | None, int]:
 def _validate_active_alias(
     profile: Profile,
     indexing_profile_id: UUID,
-    index_alias: ActiveIndexAlias,
+    index_alias: SearchIndexTarget,
     *,
     dense_top_k: int | None,
 ) -> None:
-    if not isinstance(index_alias, ActiveIndexAlias):
-        raise ValueError("Retrieval requires a resolved active index alias.")
     if index_alias.indexing_profile_id != indexing_profile_id:
         raise ValueError(
             "The active index alias must match the selected indexing profile."

@@ -50,6 +50,37 @@ class AccessExposure:
 
 
 @dataclass(frozen=True, slots=True)
+class HighlightObservation:
+    surface: str
+    document_id: UUID
+    asset_version_id: UUID
+    evidence_unit_id: UUID
+    page: int | None
+    kind: HighlightKind
+    spans: tuple[CharacterSpan, ...]
+    bboxes: tuple[BoundingBox, ...]
+
+    def __post_init__(self) -> None:
+        if self.surface not in {"answer", "conflict"}:
+            raise ValueError("A highlight surface must be answer or conflict.")
+        if self.page is not None and self.page < 0:
+            raise ValueError("A highlight page cannot be negative.")
+        if not self.spans and not self.bboxes:
+            raise ValueError("A highlight requires a truthful source location.")
+
+    @property
+    def identity(self) -> tuple[str, UUID, UUID, UUID, int | None, HighlightKind]:
+        return (
+            self.surface,
+            self.document_id,
+            self.asset_version_id,
+            self.evidence_unit_id,
+            self.page,
+            self.kind,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class StableObservation:
     retrieved_evidence_ids: tuple[UUID, ...]
     answer_status: AnswerStatus
@@ -59,6 +90,7 @@ class StableObservation:
     highlight_kind: HighlightKind | None
     highlight_spans: tuple[CharacterSpan, ...]
     highlight_bboxes: tuple[BoundingBox, ...]
+    highlights: tuple[HighlightObservation, ...] = ()
 
 
 def _unique(items: Iterable[UUID]) -> tuple[UUID, ...]:
@@ -243,6 +275,20 @@ def bbox_set_iou(
     return intersection / union if union else None
 
 
+def structured_highlight_iou(
+    expected: HighlightObservation,
+    actual: Sequence[HighlightObservation],
+) -> float:
+    matching = tuple(item for item in actual if item.identity == expected.identity)
+    if not matching:
+        return 0.0
+    actual_spans = tuple(span for item in matching for span in item.spans)
+    actual_bboxes = tuple(box for item in matching for box in item.bboxes)
+    if expected.spans:
+        return span_iou(expected=expected.spans, actual=actual_spans) or 0.0
+    return bbox_set_iou(expected=expected.bboxes, actual=actual_bboxes) or 0.0
+
+
 def percentile(values: Sequence[float], quantile: float) -> float:
     if not values:
         raise ValueError("A percentile requires a nonempty sample.")
@@ -267,9 +313,14 @@ def percentile(values: Sequence[float], quantile: float) -> float:
 def count_access_leaks(
     exposures: Sequence[AccessExposure],
     *,
-    allowed_source_ids: frozenset[UUID],
+    authorized_source_ids: frozenset[UUID],
+    forbidden_source_ids: frozenset[UUID],
 ) -> int:
-    return sum(item.source_id not in allowed_source_ids for item in exposures)
+    return sum(
+        item.source_id in forbidden_source_ids
+        or item.source_id not in authorized_source_ids
+        for item in exposures
+    )
 
 
 def reproducibility_rate(

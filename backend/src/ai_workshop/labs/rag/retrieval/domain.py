@@ -34,11 +34,43 @@ class ActiveIndexAlias:
 
 
 @dataclass(frozen=True, slots=True)
+class FrozenIndexTarget:
+    descriptor: IndexDescriptor
+    indexing_profile_id: UUID
+    index_names: tuple[str, ...]
+    index_build_ids: tuple[UUID, ...]
+    asset_version_ids: tuple[UUID, ...]
+
+    def __post_init__(self) -> None:
+        if not self.index_names or any(not item.strip() for item in self.index_names):
+            raise ValueError("A frozen index target requires concrete index names.")
+        if len(self.index_names) != len(self.index_build_ids):
+            raise ValueError("Concrete index names and build IDs must align.")
+        if len(self.index_names) != len(set(self.index_names)):
+            raise ValueError("Concrete index names must be unique.")
+        if len(self.index_build_ids) != len(set(self.index_build_ids)):
+            raise ValueError("Concrete index build IDs must be unique.")
+        if not self.asset_version_ids or len(self.asset_version_ids) != len(
+            set(self.asset_version_ids)
+        ):
+            raise ValueError("A frozen target requires unique Asset Versions.")
+
+    @property
+    def name(self) -> str:
+        return ",".join(self.index_names)
+
+
+type SearchIndexTarget = ActiveIndexAlias | FrozenIndexTarget
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedSearchScope:
     workspace_ids: tuple[UUID, ...]
     folder_ids: tuple[UUID, ...]
     active_only: bool = True
     ready_only: bool = True
+    asset_version_ids: tuple[UUID, ...] = ()
+    index_build_ids: tuple[UUID, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

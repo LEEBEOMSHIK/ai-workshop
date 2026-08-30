@@ -6,7 +6,11 @@ from dataclasses import dataclass
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from ai_workshop.labs.rag.evaluation.metrics import BoundingBox, CharacterSpan
+from ai_workshop.labs.rag.evaluation.metrics import (
+    BoundingBox,
+    CharacterSpan,
+    HighlightObservation,
+)
 from ai_workshop.labs.rag.highlighting.domain import AnswerStatus, HighlightKind
 
 
@@ -34,7 +38,7 @@ class PermissionScenario:
     actor: str
     workspace_ids: tuple[UUID, ...]
     folder_ids: tuple[UUID, ...]
-    allowed_source_ids: frozenset[UUID]
+    authorized_source_ids: frozenset[UUID]
     forbidden_source_ids: frozenset[UUID]
     as_of: str
 
@@ -44,6 +48,29 @@ class ExpectedHighlight:
     kind: HighlightKind
     spans: tuple[CharacterSpan, ...]
     bboxes: tuple[BoundingBox, ...]
+    surface: str = "answer"
+    document_id: UUID | None = None
+    asset_version_id: UUID | None = None
+    evidence_unit_id: UUID | None = None
+    page: int | None = None
+
+    def as_observation(self) -> HighlightObservation | None:
+        if (
+            self.document_id is None
+            or self.asset_version_id is None
+            or self.evidence_unit_id is None
+        ):
+            return None
+        return HighlightObservation(
+            surface=self.surface,
+            document_id=self.document_id,
+            asset_version_id=self.asset_version_id,
+            evidence_unit_id=self.evidence_unit_id,
+            page=self.page,
+            kind=self.kind,
+            spans=self.spans,
+            bboxes=self.bboxes,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +96,8 @@ class EvaluationDataset:
     document_snapshot_sha256: str
     query_set_sha256: str
     cases: tuple[EvaluationCase, ...]
+    document_snapshot_bytes: bytes = b""
+    query_set_bytes: bytes = b""
 
 
 def _sha256(value: bytes) -> str:
@@ -110,6 +139,13 @@ def _uuid_tuple(value: object, name: str) -> tuple[UUID, ...]:
     return result
 
 
+def _uuid(value: object, name: str) -> UUID:
+    try:
+        return UUID(_string(value, name))
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a UUID.") from exc
+
+
 def _load_highlight(value: object) -> ExpectedHighlight | None:
     if value is None:
         return None
@@ -142,7 +178,28 @@ def _load_highlight(value: object) -> ExpectedHighlight | None:
         bboxes.append(BoundingBox(*(float(item) for item in raw)))
     if not spans and not bboxes:
         raise ValueError("An expected highlight requires a truthful location.")
-    return ExpectedHighlight(kind, tuple(spans), tuple(bboxes))
+    page_value = document.get("page")
+    if page_value is not None and (
+        isinstance(page_value, bool) or not isinstance(page_value, int) or page_value < 0
+    ):
+        raise ValueError("Expected highlight page must be a non-negative integer or null.")
+    surface = _string(document.get("surface"), "expected.highlight.surface")
+    if surface not in {"answer", "conflict"}:
+        raise ValueError("Expected highlight surface must be answer or conflict.")
+    return ExpectedHighlight(
+        kind,
+        tuple(spans),
+        tuple(bboxes),
+        surface=surface,
+        document_id=_uuid(document.get("document_id"), "expected.highlight.document_id"),
+        asset_version_id=_uuid(
+            document.get("asset_version_id"), "expected.highlight.asset_version_id"
+        ),
+        evidence_unit_id=_uuid(
+            document.get("evidence_unit_id"), "expected.highlight.evidence_unit_id"
+        ),
+        page=page_value,
+    )
 
 
 def load_evaluation_dataset(fixture_bytes: bytes) -> EvaluationDataset:
@@ -180,10 +237,10 @@ def load_evaluation_dataset(fixture_bytes: bytes) -> EvaluationDataset:
             folder_ids=_uuid_tuple(
                 raw_scenario.get("folder_ids", []), "permission folder_ids"
             ),
-            allowed_source_ids=frozenset(
+            authorized_source_ids=frozenset(
                 _uuid_tuple(
-                    raw_scenario.get("allowed_source_ids", []),
-                    "permission allowed_source_ids",
+                    raw_scenario.get("authorized_source_ids"),
+                    "permission authorized_source_ids",
                 )
             ),
             forbidden_source_ids=frozenset(
@@ -194,9 +251,12 @@ def load_evaluation_dataset(fixture_bytes: bytes) -> EvaluationDataset:
             ),
             as_of=_string(raw_scenario.get("as_of"), "permission as_of"),
         )
+        if not scenario.authorized_source_ids:
+            raise ValueError("A permission scenario requires an exhaustive authorized universe.")
+        if not scenario.authorized_source_ids.isdisjoint(scenario.forbidden_source_ids):
+            raise ValueError("Authorized and forbidden source sets must be disjoint.")
         expected = _mapping(case.get("expected"), "evaluation case expected")
-        cases.append(
-            EvaluationCase(
+        evaluation_case = EvaluationCase(
                 id=UUID(_string(case.get("id"), "evaluation case id")),
                 kind=_string(case.get("kind"), "evaluation case kind"),
                 query=query,
@@ -213,7 +273,17 @@ def load_evaluation_dataset(fixture_bytes: bytes) -> EvaluationDataset:
                 ),
                 expected_highlight=_load_highlight(expected.get("highlight")),
             )
-        )
+        if not evaluation_case.expected_evidence_ids.issubset(
+            scenario.authorized_source_ids
+        ):
+            raise ValueError("Expected evidence must belong to the authorized universe.")
+        if (
+            evaluation_case.expected_highlight is not None
+            and evaluation_case.expected_highlight.evidence_unit_id
+            not in evaluation_case.expected_evidence_ids
+        ):
+            raise ValueError("Expected highlight evidence must be a correct expected source.")
+        cases.append(evaluation_case)
     if len(cases) != len({case.id for case in cases}):
         raise ValueError("Evaluation case IDs must be unique.")
     query_identity = [
@@ -237,6 +307,8 @@ def load_evaluation_dataset(fixture_bytes: bytes) -> EvaluationDataset:
         document_snapshot_sha256=_sha256(_canonical_bytes(raw_snapshot)),
         query_set_sha256=_sha256(_canonical_bytes(query_identity)),
         cases=tuple(cases),
+        document_snapshot_bytes=_canonical_bytes(raw_snapshot),
+        query_set_bytes=_canonical_bytes(query_identity),
     )
 
 
@@ -282,6 +354,8 @@ class EvaluationPolicy:
     owner_id: UUID
     dataset_snapshot_id: UUID
     version: int
+    metric_definition_version: int
+    retrieval_k: int
     recall_at_k: float
     mrr: float
     ndcg: float
@@ -300,6 +374,8 @@ class EvaluationPolicy:
         owner_id: UUID,
         dataset_snapshot_id: UUID,
         version: int,
+        metric_definition_version: int,
+        retrieval_k: int,
         recall_at_k: float,
         mrr: float,
         ndcg: float,
@@ -316,6 +392,8 @@ class EvaluationPolicy:
             owner_id=owner_id,
             dataset_snapshot_id=dataset_snapshot_id,
             version=version,
+            metric_definition_version=metric_definition_version,
+            retrieval_k=retrieval_k,
             recall_at_k=recall_at_k,
             mrr=mrr,
             ndcg=ndcg,
@@ -332,6 +410,10 @@ class EvaluationPolicy:
     def validate(self) -> "EvaluationPolicy":
         if self.version < 1:
             raise PromotionPolicyError("An Evaluation Policy version must be positive.")
+        if self.metric_definition_version != 1:
+            raise PromotionPolicyError("The metric definition version must be exactly 1.")
+        if self.retrieval_k < 1 or self.retrieval_k > 50:
+            raise PromotionPolicyError("retrieval_k must be between 1 and 50.")
         ratios = (
             self.recall_at_k,
             self.mrr,
@@ -361,6 +443,8 @@ class EvaluationPolicy:
 class PromotionEvidence:
     configuration_version_id: UUID
     evaluated_configuration_version_id: UUID
+    metric_definition_version: int
+    retrieval_k: int
     run_status: EvaluationRunStatus
     candidate_status: CandidateStatus
     failure: str | None
@@ -384,6 +468,8 @@ class PromotionGate:
             or metrics is None
             or evidence.configuration_version_id
             != evidence.evaluated_configuration_version_id
+            or evidence.metric_definition_version != policy.metric_definition_version
+            or evidence.retrieval_k != policy.retrieval_k
         ):
             return False
         return (

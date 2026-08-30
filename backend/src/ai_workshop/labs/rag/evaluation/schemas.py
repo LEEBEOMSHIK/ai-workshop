@@ -1,7 +1,7 @@
 from typing import Annotated, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ai_workshop.labs.rag.evaluation.domain import (
     CandidateStatus,
@@ -21,7 +21,11 @@ def _rounded(value: float) -> float:
 
 
 class EvaluationPolicyCreate(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
+
     dataset_snapshot_id: UUID
+    metric_definition_version: Literal[1]
+    retrieval_k: int = Field(ge=1, le=50)
     min_recall_at_k: float = Field(ge=0.0, le=1.0)
     min_mrr: float = Field(ge=0.0, le=1.0)
     min_ndcg: float = Field(ge=0.0, le=1.0)
@@ -35,10 +39,13 @@ class EvaluationPolicyCreate(BaseModel):
 
 
 class EvaluationPolicyResponse(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
     id: UUID
     owner_id: UUID
     dataset_snapshot_id: UUID
     version: int
+    metric_definition_version: Literal[1]
+    retrieval_k: int
     min_recall_at_k: float
     min_mrr: float
     min_ndcg: float
@@ -57,6 +64,8 @@ class EvaluationPolicyResponse(BaseModel):
             owner_id=policy.owner_id,
             dataset_snapshot_id=policy.dataset_snapshot_id,
             version=policy.version,
+            metric_definition_version=1,
+            retrieval_k=policy.retrieval_k,
             min_recall_at_k=_rounded(policy.recall_at_k),
             min_mrr=_rounded(policy.mrr),
             min_ndcg=_rounded(policy.ndcg),
@@ -74,7 +83,15 @@ class EvaluationRunCreate(BaseModel):
     dataset_fixture: dict[str, object] | None = None
     dataset_snapshot_id: UUID | None = None
     evaluation_policy_version_id: UUID | None = None
-    configuration_version_ids: list[UUID] = Field(min_length=1)
+    configuration_version_ids: list[UUID] = Field(
+        default_factory=list,
+        description=(
+            "Additional exact Saved Configuration Versions; the automatic system BM25 "
+            "baseline is always included first."
+        ),
+    )
+    metric_definition_version: Literal[1]
+    retrieval_k: int = Field(ge=1, le=50)
     repetition_count: int = Field(default=2, ge=2, le=5)
 
     @model_validator(mode="after")
@@ -87,6 +104,7 @@ class EvaluationRunCreate(BaseModel):
 
 
 class EvaluationMetricsResponse(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
     recall_at_k: float
     mrr: float
     ndcg: float
@@ -115,6 +133,7 @@ class EvaluationMetricsResponse(BaseModel):
 
 
 class EvaluationCaseResponse(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
     evaluation_case_id: UUID
     ordinal: int
     query_sha256: str
@@ -157,6 +176,22 @@ class EvaluationCaseResponse(BaseModel):
                     "highlight_bboxes": [
                         [item.x0, item.y0, item.x1, item.y1]
                         for item in stable.highlight_bboxes
+                    ],
+                    "highlights": [
+                        {
+                            "surface": item.surface,
+                            "document_id": str(item.document_id),
+                            "asset_version_id": str(item.asset_version_id),
+                            "evidence_unit_id": str(item.evidence_unit_id),
+                            "page": item.page,
+                            "kind": item.kind.value,
+                            "spans": [[span.start, span.end] for span in item.spans],
+                            "bboxes": [
+                                [box.x0, box.y0, box.x1, box.y1]
+                                for box in item.bboxes
+                            ],
+                        }
+                        for item in stable.highlights
                     ],
                     "exposures": [
                         {
@@ -235,6 +270,9 @@ class EvaluationRunResponse(BaseModel):
     document_snapshot_sha256: str
     query_set_sha256: str
     runtime_environment: dict[str, object]
+    worker_runtime_environment: dict[str, object] | None
+    metric_definition_version: Literal[1]
+    retrieval_k: int
     repetition_count: int
     failure: str | None
     candidates: list[EvaluationCandidateResponse]
@@ -251,6 +289,13 @@ class EvaluationRunResponse(BaseModel):
             document_snapshot_sha256=run.document_snapshot_sha256,
             query_set_sha256=run.query_set_sha256,
             runtime_environment=dict(run.runtime_environment),
+            worker_runtime_environment=(
+                dict(run.worker_runtime_environment)
+                if run.worker_runtime_environment is not None
+                else None
+            ),
+            metric_definition_version=1,
+            retrieval_k=run.retrieval_k,
             repetition_count=run.repetition_count,
             failure=run.failure,
             candidates=[

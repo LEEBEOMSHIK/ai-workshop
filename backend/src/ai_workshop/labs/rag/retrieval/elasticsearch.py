@@ -8,9 +8,11 @@ from ai_workshop.labs.rag.documents.domain import EvidenceUnit, SourceLocation
 from ai_workshop.labs.rag.retrieval.domain import (
     ActiveIndexAlias,
     DenseHit,
+    FrozenIndexTarget,
     ResolvedSearchScope,
     RetrievedChunk,
     SearchBackendUnavailableError,
+    SearchIndexTarget,
     SparseHit,
 )
 
@@ -40,6 +42,22 @@ def build_scope_filter(
         filters.append({"terms": {"folder_id": [str(item) for item in scope.folder_ids]}})
     if scope.ready_only:
         filters.append({"term": {"status": "ready"}})
+    if scope.asset_version_ids:
+        filters.append(
+            {
+                "terms": {
+                    "asset_version_id": [str(item) for item in scope.asset_version_ids]
+                }
+            }
+        )
+    if scope.index_build_ids:
+        filters.append(
+            {
+                "terms": {
+                    "index_build_id": [str(item) for item in scope.index_build_ids]
+                }
+            }
+        )
     return filters
 
 
@@ -50,7 +68,7 @@ class ElasticsearchSparseRetriever:
     async def search_sparse(
         self,
         *,
-        index_alias: ActiveIndexAlias,
+        index_alias: SearchIndexTarget,
         query: str,
         actor_id: UUID,
         scope: ResolvedSearchScope,
@@ -95,7 +113,7 @@ class ElasticsearchDenseRetriever:
     async def search_dense(
         self,
         *,
-        index_alias: ActiveIndexAlias,
+        index_alias: SearchIndexTarget,
         query_vector: tuple[float, ...],
         actor_id: UUID,
         scope: ResolvedSearchScope,
@@ -130,16 +148,18 @@ class ElasticsearchDenseRetriever:
 
 
 def _validate_search(
-    index_alias: ActiveIndexAlias,
+    index_alias: SearchIndexTarget,
     scope: ResolvedSearchScope,
     top_k: int,
 ) -> None:
-    if not isinstance(index_alias, ActiveIndexAlias):
-        raise ValueError("Retrieval requires a resolved active index alias.")
+    if not isinstance(index_alias, (ActiveIndexAlias, FrozenIndexTarget)):
+        raise ValueError("Retrieval requires a resolved index target.")
     if not scope.workspace_ids:
         raise ValueError("Retrieval requires a non-empty authorized workspace scope.")
-    if not scope.active_only:
+    if isinstance(index_alias, ActiveIndexAlias) and not scope.active_only:
         raise ValueError("Normal retrieval requires the active profile index alias.")
+    if isinstance(index_alias, FrozenIndexTarget) and scope.active_only:
+        raise ValueError("Frozen evaluation retrieval cannot use active-only semantics.")
     if not scope.ready_only:
         raise ValueError("Normal retrieval requires READY projections.")
     if top_k < 1:

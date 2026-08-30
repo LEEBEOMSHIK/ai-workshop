@@ -57,6 +57,8 @@ class FakeEvaluationService:
             owner_id=ACTOR_ID,
             dataset_snapshot_id=self.dataset_id,
             version=1,
+            metric_definition_version=1,
+            retrieval_k=3,
             recall_at_k=0.1,
             mrr=0.1,
             ndcg=0.1,
@@ -87,6 +89,9 @@ class FakeEvaluationService:
             document_snapshot_sha256="2" * 64,
             query_set_sha256="3" * 64,
             runtime_environment={"python": "3.13"},
+            worker_runtime_environment={"execution_role": "celery-worker"},
+            metric_definition_version=1,
+            retrieval_k=3,
             repetition_count=2,
             failure=None,
             candidates=(self.candidate,),
@@ -129,6 +134,8 @@ def test_policy_api_requires_complete_exact_security_thresholds() -> None:
             "/api/v1/rag/evaluation-policies",
             json={
                 "dataset_snapshot_id": str(service.dataset_id),
+                "metric_definition_version": 1,
+                "retrieval_k": 3,
                 "min_recall_at_k": 0.1,
                 "min_mrr": 0.1,
                 "min_ndcg": 0.1,
@@ -145,6 +152,8 @@ def test_policy_api_requires_complete_exact_security_thresholds() -> None:
             "/api/v1/rag/evaluation-policies",
             json={
                 "dataset_snapshot_id": str(service.dataset_id),
+                "metric_definition_version": 1,
+                "retrieval_k": 3,
                 "min_recall_at_k": 0.1,
                 "min_mrr": 0.1,
                 "min_ndcg": 0.1,
@@ -175,6 +184,8 @@ def test_run_create_detail_and_list_keep_candidate_identity_and_round_only_respo
                 "configuration_version_ids": [
                     str(service.candidate.configuration_version_id)
                 ],
+                "metric_definition_version": 1,
+                "retrieval_k": 3,
                 "repetition_count": 2,
             },
         )
@@ -191,6 +202,9 @@ def test_run_create_detail_and_list_keep_candidate_identity_and_round_only_respo
     )
     assert payload["candidates"][0]["metrics"]["recall_at_k"] == 0.333333
     assert payload["candidates"][0]["metrics"]["p50_latency_ms"] == 12.345679
+    assert payload["metric_definition_version"] == 1
+    assert payload["retrieval_k"] == 3
+    assert payload["worker_runtime_environment"]["execution_role"] == "celery-worker"
     assert service.candidate.metrics is not None
     assert service.candidate.metrics.recall_at_k == 1 / 3
     assert len(listed.json()) == 1

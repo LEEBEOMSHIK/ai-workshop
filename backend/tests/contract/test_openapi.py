@@ -185,5 +185,8 @@ def test_evaluation_contract_requires_exact_security_and_reproducibility_thresho
     assert policy["properties"]["required_reproducibility"]["minimum"] == 1.0
     assert policy["properties"]["required_reproducibility"]["maximum"] == 1.0
     run = components["EvaluationRunCreate"]
-    assert run["properties"]["configuration_version_ids"]["minItems"] == 1
+    assert "configuration_version_ids" not in run["required"]
+    assert "automatic system BM25 baseline" in run["properties"][
+        "configuration_version_ids"
+    ]["description"]
     assert run["properties"]["repetition_count"]["minimum"] == 2

@@ -15,6 +15,7 @@ from ai_workshop.labs.rag.evaluation.metrics import (
 )
 from ai_workshop.labs.rag.evaluation.service import (
     CandidateExecutionInput,
+    CandidateIndexBuildSnapshot,
     CaseEvaluationResult,
     EvaluationRunClaim,
     EvaluationWorkflow,
@@ -32,7 +33,7 @@ def dataset() -> EvaluationDataset:
         actor="caller",
         workspace_ids=(uuid4(),),
         folder_ids=(),
-        allowed_source_ids=frozenset({E1}),
+        authorized_source_ids=frozenset({E1, E2}),
         forbidden_source_ids=frozenset(),
         as_of="2026-08-31T00:00:00Z",
     )
@@ -108,8 +109,15 @@ class MemoryRepository:
         self.failed: list[tuple[UUID, str]] = []
         self.run_completed: UUID | None = None
 
-    async def claim_run(self, run_id: UUID) -> EvaluationRunClaim | None:
+    async def claim_run(
+        self, run_id: UUID, worker_runtime_environment: object
+    ) -> EvaluationRunClaim | None:
+        assert worker_runtime_environment
         return self.claim if run_id == self.claim.run_id else None
+
+    async def heartbeat(self, run_id: UUID, claim_token: UUID) -> None:
+        assert run_id == self.claim.run_id
+        assert claim_token == self.claim.claim_token
 
     async def mark_candidate_running(self, candidate_id: UUID, claim_token: UUID) -> None:
         assert claim_token == self.claim.claim_token
@@ -181,17 +189,106 @@ class RecordingSearch:
         )
 
 
+class WorkerLossSearch:
+    def __init__(self, interrupted_case_id: UUID) -> None:
+        self.interrupted_case_id = interrupted_case_id
+        self.interrupted = False
+        self.calls: list[UUID] = []
+
+    async def execute(
+        self,
+        *,
+        actor_id: UUID,
+        candidate: CandidateExecutionInput,
+        case: EvaluationCase,
+    ) -> SearchExecutionObservation:
+        del actor_id, candidate
+        self.calls.append(case.id)
+        if case.id == self.interrupted_case_id and not self.interrupted:
+            self.interrupted = True
+            raise KeyboardInterrupt
+        return SearchExecutionObservation(
+            stable=stable(case),
+            exposures=(),
+            duration_ms=10.0,
+        )
+
+
+@pytest.mark.parametrize("duration_ms", [float("nan"), float("inf"), float("-inf")])
+def test_search_observation_rejects_non_finite_duration(duration_ms: float) -> None:
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        SearchExecutionObservation(
+            stable=stable(dataset().cases[0]),
+            exposures=(),
+            duration_ms=duration_ms,
+        )
+
+
+@pytest.mark.asyncio
+async def test_stale_worker_resume_skips_durable_cases_without_duplicates() -> None:
+    frozen_dataset = dataset()
+    build = CandidateIndexBuildSnapshot(
+        asset_version_id=uuid4(),
+        projection_id=uuid4(),
+        index_build_id=uuid4(),
+        index_name="frozen-index",
+        indexing_profile_id=uuid4(),
+        vector_dimension=1024,
+        active_at_snapshot=True,
+    )
+    candidate = CandidateExecutionInput(uuid4(), uuid4(), uuid4(), 0, (build,))
+    claim = EvaluationRunClaim(
+        run_id=uuid4(),
+        claim_token=uuid4(),
+        owner_id=uuid4(),
+        dataset=frozen_dataset,
+        metric_definition_version=1,
+        retrieval_k=1,
+        repetition_count=2,
+        candidates=(candidate,),
+    )
+    repository = MemoryRepository(claim)
+    search = WorkerLossSearch(frozen_dataset.cases[1].id)
+    workflow = EvaluationWorkflow(repository, search)
+
+    with pytest.raises(KeyboardInterrupt):
+        await workflow.run(claim.run_id)
+    assert [result.evaluation_case_id for _, result in repository.case_results] == [
+        frozen_dataset.cases[0].id
+    ]
+
+    await workflow.run(claim.run_id)
+
+    stored_ids = [result.evaluation_case_id for _, result in repository.case_results]
+    assert stored_ids == [case.id for case in frozen_dataset.cases]
+    assert len(stored_ids) == len(set(stored_ids))
+    assert search.calls.count(frozen_dataset.cases[0].id) == 2
+    assert search.calls.count(frozen_dataset.cases[1].id) == 3
+
+
 @pytest.mark.asyncio
 async def test_workflow_keeps_failed_candidate_and_completes_stable_comparison() -> None:
     run_id = uuid4()
     owner_id = uuid4()
-    first = CandidateExecutionInput(uuid4(), uuid4(), uuid4(), 0)
-    second = CandidateExecutionInput(uuid4(), uuid4(), uuid4(), 1)
+    profile_id = uuid4()
+    build = CandidateIndexBuildSnapshot(
+        asset_version_id=uuid4(),
+        projection_id=uuid4(),
+        index_build_id=uuid4(),
+        index_name="frozen-index",
+        indexing_profile_id=profile_id,
+        vector_dimension=1024,
+        active_at_snapshot=True,
+    )
+    first = CandidateExecutionInput(uuid4(), uuid4(), uuid4(), 0, (build,))
+    second = CandidateExecutionInput(uuid4(), uuid4(), uuid4(), 1, (build,))
     claim = EvaluationRunClaim(
         run_id=run_id,
         claim_token=uuid4(),
         owner_id=owner_id,
         dataset=dataset(),
+        metric_definition_version=1,
+        retrieval_k=1,
         repetition_count=2,
         candidates=(first, second),
     )

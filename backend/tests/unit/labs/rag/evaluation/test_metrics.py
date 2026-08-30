@@ -8,6 +8,7 @@ from ai_workshop.labs.rag.evaluation.metrics import (
     AnswerObservation,
     BoundingBox,
     CharacterSpan,
+    HighlightObservation,
     StableObservation,
     bbox_iou,
     bbox_set_iou,
@@ -19,6 +20,7 @@ from ai_workshop.labs.rag.evaluation.metrics import (
     reciprocal_rank,
     reproducibility_rate,
     span_iou,
+    structured_highlight_iou,
     supported_precision,
 )
 from ai_workshop.labs.rag.highlighting.domain import AnswerStatus, HighlightKind
@@ -139,7 +141,74 @@ def test_access_leaks_count_every_exposing_surface_including_case_logs() -> None
         AccessExposure("case_output", E4),
     )
 
-    assert count_access_leaks(exposures, allowed_source_ids=frozenset({E1})) == 4
+    assert count_access_leaks(
+        exposures,
+        authorized_source_ids=frozenset({E1, E4}),
+        forbidden_source_ids=frozenset({E2}),
+    ) == 3
+
+
+def test_forbidden_sources_take_precedence_and_authorized_related_sources_are_safe() -> None:
+    exposures = (
+        AccessExposure("related_source", E1),
+        AccessExposure("answer", E2),
+        AccessExposure("log", E3),
+    )
+
+    assert count_access_leaks(
+        exposures,
+        authorized_source_ids=frozenset({E1, E2}),
+        forbidden_source_ids=frozenset({E2}),
+    ) == 2
+
+
+def test_structured_highlight_iou_requires_source_kind_page_and_surface_identity() -> None:
+    expected = HighlightObservation(
+        surface="answer",
+        document_id=E1,
+        asset_version_id=E2,
+        evidence_unit_id=E3,
+        page=1,
+        kind=HighlightKind.KEYWORD,
+        spans=(CharacterSpan(10, 20),),
+        bboxes=(),
+    )
+    same = expected
+    wrong_source = HighlightObservation(
+        surface="answer",
+        document_id=E4,
+        asset_version_id=E2,
+        evidence_unit_id=E3,
+        page=1,
+        kind=HighlightKind.KEYWORD,
+        spans=(CharacterSpan(10, 20),),
+        bboxes=(),
+    )
+    wrong_kind = HighlightObservation(
+        surface="answer",
+        document_id=E1,
+        asset_version_id=E2,
+        evidence_unit_id=E3,
+        page=1,
+        kind=HighlightKind.SEMANTIC,
+        spans=(CharacterSpan(10, 20),),
+        bboxes=(),
+    )
+    conflict_same_coordinates = HighlightObservation(
+        surface="conflict",
+        document_id=E1,
+        asset_version_id=E2,
+        evidence_unit_id=E3,
+        page=1,
+        kind=HighlightKind.KEYWORD,
+        spans=(CharacterSpan(10, 20),),
+        bboxes=(),
+    )
+
+    assert structured_highlight_iou(expected, (same,)) == 1.0
+    assert structured_highlight_iou(expected, (wrong_source,)) == 0.0
+    assert structured_highlight_iou(expected, (wrong_kind,)) == 0.0
+    assert structured_highlight_iou(expected, (conflict_same_coordinates,)) == 0.0
 
 
 def test_reproducibility_compares_stable_outputs_and_ignores_latency() -> None:

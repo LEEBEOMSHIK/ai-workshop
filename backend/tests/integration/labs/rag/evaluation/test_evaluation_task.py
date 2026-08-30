@@ -1,22 +1,22 @@
 import json
 from collections.abc import Iterator, Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
-from time import perf_counter
+from typing import cast
 from uuid import UUID, uuid4
 
 import psycopg
 import pytest
 from alembic.config import Config
-from elasticsearch import AsyncElasticsearch
 from psycopg import sql
-from sqlalchemy import func, make_url, select
+from sqlalchemy import make_url, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from ai_workshop.config import Settings, get_settings
 from ai_workshop.infrastructure.search.elasticsearch import create_elasticsearch
 from ai_workshop.labs.rag.configurations.domain import (
+    BM25_BASELINE_CONFIGURATION_VERSION_ID,
     BM25_RETRIEVAL_PROFILE_ID,
     E5_INDEXING_PROFILE_ID,
 )
@@ -25,15 +25,19 @@ from ai_workshop.labs.rag.configurations.repository import (
 )
 from ai_workshop.labs.rag.configurations.service import RagConfigurationService
 from ai_workshop.labs.rag.documents.domain import EvidenceUnit, SourceLocation
+from ai_workshop.labs.rag.documents.models import (
+    EvidenceUnitRecord,
+    RagIndexBuildRecord,
+    RagProjectionRecord,
+    RetrievalChunkRecord,
+    StructuralElementRecord,
+)
 from ai_workshop.labs.rag.embeddings.contracts import EmbeddingPort
 from ai_workshop.labs.rag.evaluation.domain import (
-    EvaluationCase,
     load_evaluation_dataset,
 )
-from ai_workshop.labs.rag.evaluation.metrics import StableObservation
 from ai_workshop.labs.rag.evaluation.models import (
     EvaluationCaseResultRecord,
-    EvaluationDispatchRecord,
     EvaluationRunConfigurationRecord,
     EvaluationRunRecord,
 )
@@ -42,30 +46,22 @@ from ai_workshop.labs.rag.evaluation.repository import (
     SqlAlchemyEvaluationRepository,
 )
 from ai_workshop.labs.rag.evaluation.service import (
-    CandidateExecutionInput,
     EvaluationApplicationService,
     EvaluationWorkflow,
-    SearchExecutionObservation,
 )
-from ai_workshop.labs.rag.highlighting.domain import AnswerStatus
+from ai_workshop.labs.rag.evaluation.tasks import ProductionEvaluationSearch
 from ai_workshop.labs.rag.indexing.contracts import IndexDescriptor, IndexDocument
 from ai_workshop.labs.rag.indexing.elasticsearch import ElasticsearchSearchIndex
 from ai_workshop.labs.rag.indexing.service import IndexingService
-from ai_workshop.labs.rag.models.domain import EvaluationState, Profile, ProfileKind
+from ai_workshop.labs.rag.models.domain import EvaluationState, ProfileKind
 from ai_workshop.labs.rag.models.repository import SqlAlchemyModelRegistryRepository
 from ai_workshop.labs.rag.models.service import RagModelRegistryService
-from ai_workshop.labs.rag.retrieval.domain import ActiveIndexAlias, ResolvedSearchScope
-from ai_workshop.labs.rag.retrieval.elasticsearch import (
-    ElasticsearchDenseRetriever,
-    ElasticsearchSparseRetriever,
-)
-from ai_workshop.labs.rag.retrieval.service import HybridRetrievalService
+from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecord
 from ai_workshop.platform.identity.models import UserRecord
 from ai_workshop.platform.workspaces.models import (
     WorkspaceMembershipRecord,
     WorkspaceRecord,
 )
-from ai_workshop.shared.errors import AppError
 from alembic import command
 
 pytestmark = pytest.mark.integration
@@ -80,6 +76,12 @@ BGE_RETRIEVAL_PROFILE_ID = UUID("00000000-0000-0000-0000-000000000205")
 E5_MODEL_ID = UUID("00000000-0000-0000-0000-000000000101")
 EVIDENCE_A = UUID("00000000-0000-0000-0000-000000001001")
 EVIDENCE_B = UUID("00000000-0000-0000-0000-000000001002")
+BGE_EVIDENCE_A = UUID("00000000-0000-0000-0000-000000001003")
+BGE_EVIDENCE_B = UUID("00000000-0000-0000-0000-000000001004")
+FORBIDDEN_PRIVATE = UUID("00000000-0000-0000-0000-000000001005")
+FORBIDDEN_INACTIVE = UUID("00000000-0000-0000-0000-000000001006")
+DOCUMENT_ID = UUID("00000000-0000-0000-0000-000000001301")
+ASSET_VERSION_ID = UUID("00000000-0000-0000-0000-000000001302")
 
 
 def _database_url(base_url: str, database: str) -> str:
@@ -119,32 +121,6 @@ class NoIngestionJobs:
     async def ensure_indexed(self, command: object) -> UUID:
         del command
         raise AssertionError("No active assets are seeded for this test.")
-
-
-class ExactExpectedSearch:
-    async def execute(
-        self,
-        *,
-        actor_id: UUID,
-        candidate: CandidateExecutionInput,
-        case: EvaluationCase,
-    ) -> SearchExecutionObservation:
-        del actor_id, candidate
-        highlight = case.expected_highlight
-        return SearchExecutionObservation(
-            stable=StableObservation(
-                retrieved_evidence_ids=tuple(sorted(case.expected_evidence_ids)),
-                answer_status=case.expected_answer_status,
-                answer_evidence_ids=tuple(sorted(case.expected_evidence_ids)),
-                conflict_evidence_ids=(),
-                related_evidence_ids=(),
-                highlight_kind=highlight.kind if highlight else None,
-                highlight_spans=highlight.spans if highlight else (),
-                highlight_bboxes=highlight.bboxes if highlight else (),
-            ),
-            exposures=(),
-            duration_ms=10.0,
-        )
 
 
 async def _seed_actor_and_workspaces(session: AsyncSession) -> UUID:
@@ -191,141 +167,6 @@ async def _seed_actor_and_workspaces(session: AsyncSession) -> UUID:
     return actor_id
 
 
-@pytest.mark.asyncio
-async def test_durable_run_persists_raw_cases_and_policy_gate_promotes_exact_version(
-    isolated_evaluation_database_url: str,
-) -> None:
-    engine = create_async_engine(isolated_evaluation_database_url)
-    sessions = async_sessionmaker(engine, expire_on_commit=False)
-    try:
-        async with sessions() as session:
-            actor_id = await _seed_actor_and_workspaces(session)
-            configuration_service = RagConfigurationService(
-                SqlAlchemyRagConfigurationRepository(session),
-                NoIngestionJobs(),
-                commit=session.commit,
-            )
-            first = await configuration_service.create(
-                owner_id=actor_id,
-                name="caller BM25 A",
-                indexing_profile_id=E5_INDEXING_PROFILE_ID,
-                retrieval_profile_id=BM25_RETRIEVAL_PROFILE_ID,
-                generation_profile_id=None,
-                min_semantic_score=0.0,
-                min_keyword_coverage=0.0,
-                require_complete_provenance=True,
-                conflict_mode="separate_sources",
-                workspace_ids=(COMPANY_ID, PERSONAL_ID),
-            )
-            second = await configuration_service.create(
-                owner_id=actor_id,
-                name="caller BM25 B",
-                indexing_profile_id=E5_INDEXING_PROFILE_ID,
-                retrieval_profile_id=BM25_RETRIEVAL_PROFILE_ID,
-                generation_profile_id=None,
-                min_semantic_score=0.0,
-                min_keyword_coverage=0.0,
-                require_complete_provenance=True,
-                conflict_mode="separate_sources",
-                workspace_ids=(COMPANY_ID, PERSONAL_ID),
-            )
-            evaluation_repository = SqlAlchemyEvaluationApplicationRepository(session)
-            dataset = await evaluation_repository.add_or_get_dataset(
-                actor_id,
-                load_evaluation_dataset(FIXTURE.read_bytes()),
-            )
-            await session.commit()
-            evaluation_service = EvaluationApplicationService(
-                evaluation_repository, commit=session.commit
-            )
-            policy = await evaluation_service.create_policy(
-                actor_id=actor_id,
-                dataset_snapshot_id=dataset.id,
-                min_recall_at_k=1.0,
-                min_mrr=1.0,
-                min_ndcg=1.0,
-                min_supported_precision=1.0,
-                max_false_grounding_rate=0.0,
-                min_highlight_iou=1.0,
-                max_p50_latency_ms=10.0,
-                max_p95_latency_ms=10.0,
-                max_access_leaks=0,
-                required_reproducibility=1.0,
-            )
-            run = await evaluation_service.start_run(
-                actor_id=actor_id,
-                dataset_fixture=None,
-                dataset_snapshot_id=dataset.id,
-                evaluation_policy_version_id=policy.id,
-                configuration_version_ids=(
-                    first.configuration.version_id,
-                    second.configuration.version_id,
-                ),
-                repetition_count=2,
-            )
-            assert [item.configuration_version_id for item in run.candidates] == [
-                first.configuration.version_id,
-                second.configuration.version_id,
-            ]
-            assert await session.get(EvaluationDispatchRecord, run.id) is not None
-
-        await EvaluationWorkflow(
-            SqlAlchemyEvaluationRepository(sessions), ExactExpectedSearch()
-        ).run(run.id)
-
-        async with sessions.begin() as session:
-            interrupted = await session.get(EvaluationRunRecord, run.id)
-            assert interrupted is not None
-            interrupted.status = "running"
-            interrupted.claimed_at = datetime.now(UTC) - timedelta(minutes=31)
-            interrupted.claim_token = uuid4()
-            interrupted.finished_at = None
-        await EvaluationWorkflow(
-            SqlAlchemyEvaluationRepository(sessions), ExactExpectedSearch()
-        ).run(run.id)
-
-        async with sessions() as session:
-            stored_run = await session.get(EvaluationRunRecord, run.id)
-            assert stored_run is not None and stored_run.status == "completed"
-            candidates = list(
-                await session.scalars(
-                    select(EvaluationRunConfigurationRecord)
-                    .where(EvaluationRunConfigurationRecord.run_id == run.id)
-                    .order_by(EvaluationRunConfigurationRecord.ordinal)
-                )
-            )
-            assert [item.status for item in candidates] == ["completed", "completed"]
-            assert candidates[0].component_snapshot["configuration"]["version_id"] == str(
-                first.configuration.version_id
-            )
-            assert candidates[0].component_snapshot["configuration"]["workspace_ids"] == [
-                str(COMPANY_ID),
-                str(PERSONAL_ID),
-            ]
-            assert (
-                await session.scalar(
-                    select(func.count()).select_from(EvaluationCaseResultRecord)
-                )
-                == 24
-            )
-            configuration_service = RagConfigurationService(
-                SqlAlchemyRagConfigurationRepository(session),
-                NoIngestionJobs(),
-                commit=session.commit,
-            )
-            promoted = await configuration_service.promote_default(
-                first.configuration.id, actor_id
-            )
-            assert promoted.version_id == first.configuration.version_id
-            assert promoted.is_default is True
-            assert promoted.evaluation_state.value == "passed"
-            with pytest.raises(AppError) as stale_identity:
-                await configuration_service.promote_default(uuid4(), actor_id)
-            assert stale_identity.value.status_code == 404
-    finally:
-        await engine.dispose()
-
-
 class DeterministicDenseEmbedding(EmbeddingPort):
     def __init__(self, dimension: int) -> None:
         self.dimension = dimension
@@ -348,107 +189,20 @@ class DeterministicDenseEmbedding(EmbeddingPort):
         return self._vector(text)
 
 
-class FixedScope:
-    def __init__(self, workspace_id: UUID) -> None:
-        self.scope = ResolvedSearchScope((workspace_id,), ())
-
-    async def resolve(
-        self,
-        *,
-        actor_id: UUID,
-        workspace_ids: tuple[UUID, ...],
-        folder_ids: tuple[UUID, ...],
-    ) -> ResolvedSearchScope:
-        del actor_id
-        assert workspace_ids == self.scope.workspace_ids
-        assert folder_ids == ()
-        return self.scope
-
-
-class RealElasticsearchCandidateSearch:
-    def __init__(
-        self,
-        *,
-        client: AsyncElasticsearch,
-        profiles: dict[UUID, tuple[UUID, Profile, int]],
-        index_prefix: str,
-    ) -> None:
-        self.sparse = ElasticsearchSparseRetriever(client)
-        self.dense = ElasticsearchDenseRetriever(client)
-        self.profiles = profiles
-        self.index_prefix = index_prefix
-
-    async def execute(
-        self,
-        *,
-        actor_id: UUID,
-        candidate: CandidateExecutionInput,
-        case: EvaluationCase,
-    ) -> SearchExecutionObservation:
-        indexing_profile_id, retrieval_profile, dimension = self.profiles[
-            candidate.configuration_version_id
-        ]
-        embedding = DeterministicDenseEmbedding(dimension)
-        started = perf_counter()
-        hits = await HybridRetrievalService(
-            scope_resolver=FixedScope(COMPANY_ID),
-            embedding=embedding,
-            sparse_retriever=self.sparse,
-            dense_retriever=self.dense,
-        ).search(
-            actor_id=actor_id,
-            query=case.query,
-            workspace_ids=(COMPANY_ID,),
-            folder_ids=(),
-            indexing_profile_id=indexing_profile_id,
-            retrieval_profile=retrieval_profile,
-            index_alias=ActiveIndexAlias(
-                IndexDescriptor(dimension, "cosine"),
-                self.index_prefix,
-                indexing_profile_id,
-            ),
-            result_limit=10,
-        )
-        retrieved = tuple(
-            evidence.id
-            for hit in hits
-            if hit.chunk is not None
-            for evidence in hit.chunk.evidence_units
-        )
-        matched = tuple(item for item in retrieved if item in case.expected_evidence_ids)
-        highlight = case.expected_highlight if matched else None
-        return SearchExecutionObservation(
-            stable=StableObservation(
-                retrieved_evidence_ids=retrieved,
-                answer_status=(
-                    case.expected_answer_status
-                    if matched
-                    else AnswerStatus.INSUFFICIENT_EVIDENCE
-                ),
-                answer_evidence_ids=matched[:1],
-                conflict_evidence_ids=(),
-                related_evidence_ids=tuple(item for item in retrieved if item not in matched),
-                highlight_kind=highlight.kind if highlight else None,
-                highlight_spans=highlight.spans if highlight else (),
-                highlight_bboxes=highlight.bboxes if highlight else (),
-            ),
-            exposures=(),
-            duration_ms=(perf_counter() - started) * 1000.0,
-        )
-
-
 def _mini_fixture() -> bytes:
     queries = (
         (
             UUID("00000000-0000-0000-0000-000000001101"),
             "위험등급 코드 A-17의 의미는?",
             EVIDENCE_A,
+            BGE_EVIDENCE_A,
             "keyword",
         ),
         (
             UUID("00000000-0000-0000-0000-000000001102"),
             "환매를 미리 알려야 하는 기간은?",
             EVIDENCE_B,
+            BGE_EVIDENCE_B,
             "semantic",
         ),
     )
@@ -458,7 +212,12 @@ def _mini_fixture() -> bytes:
         "name": "real same snapshot",
         "version": 1,
         "document_snapshot": [
-            {"asset_version_id": str(uuid4()), "sha256": "a" * 64, "active": True}
+            {
+                "document_id": str(DOCUMENT_ID),
+                "asset_version_id": str(ASSET_VERSION_ID),
+                "sha256": "a" * 64,
+                "active": True,
+            }
         ],
         "cases": [
             {
@@ -471,32 +230,49 @@ def _mini_fixture() -> bytes:
                     "actor": "caller",
                     "workspace_ids": [str(COMPANY_ID)],
                     "folder_ids": [],
-                    "allowed_source_ids": [str(evidence_id)],
-                    "forbidden_source_ids": [],
+                    "authorized_source_ids": [
+                        str(EVIDENCE_A),
+                        str(EVIDENCE_B),
+                        str(BGE_EVIDENCE_A),
+                        str(BGE_EVIDENCE_B),
+                    ],
+                    "forbidden_source_ids": [
+                        str(FORBIDDEN_PRIVATE),
+                        str(FORBIDDEN_INACTIVE),
+                    ],
                     "as_of": "2026-08-31T00:00:00Z",
                 },
                 "expected": {
                     "answer_status": "supported",
-                    "evidence_unit_ids": [str(evidence_id)],
+                    "evidence_unit_ids": [str(evidence_id), str(bge_evidence_id)],
                     "highlight": {
+                        "surface": "answer",
+                        "document_id": str(DOCUMENT_ID),
+                        "asset_version_id": str(ASSET_VERSION_ID),
+                        "evidence_unit_id": str(evidence_id),
+                        "page": None,
                         "kind": kind,
                         "spans": [[0, 4]],
                         "bboxes": [],
                     },
                 },
             }
-            for case_id, query, evidence_id, kind in queries
+            for case_id, query, evidence_id, bge_evidence_id, kind in queries
         ],
     }
     return json.dumps(fixture, ensure_ascii=False, indent=2).encode("utf-8")
 
 
-def _index_documents(
+async def _seed_projection(
     *,
+    session: AsyncSession,
     actor_id: UUID,
+    indexing_profile_id: UUID,
     dimension: int,
     projection_id: UUID,
     build_id: UUID,
+    index_name: str,
+    evidence_ids: tuple[UUID, UUID],
 ) -> tuple[IndexDocument, ...]:
     values = (
         (EVIDENCE_A, "위험등급 코드 A-17은 고위험 상품을 뜻한다."),
@@ -504,8 +280,21 @@ def _index_documents(
     )
     embedding = DeterministicDenseEmbedding(dimension)
     documents: list[IndexDocument] = []
-    for ordinal, (evidence_id, text) in enumerate(values):
+    session.add(
+        RagProjectionRecord(
+            id=projection_id,
+            asset_version_id=ASSET_VERSION_ID,
+            indexing_profile_id=indexing_profile_id,
+            status="ready",
+        )
+    )
+    await session.flush()
+    pending_evidence: list[EvidenceUnitRecord] = []
+    for ordinal, (evidence_id, text) in enumerate(
+        zip(evidence_ids, (item[1] for item in values), strict=True)
+    ):
         chunk_id = uuid4()
+        element_id = uuid4()
         evidence = EvidenceUnit(
             id=evidence_id,
             chunk_id=chunk_id,
@@ -513,18 +302,58 @@ def _index_documents(
             ordinal=0,
             text=text,
             location=SourceLocation(
-                element_id=uuid4(),
+                element_id=element_id,
                 page=None,
                 char_start=0,
                 char_end=len(text),
                 bbox=None,
             ),
         )
+        session.add(
+            StructuralElementRecord(
+                id=element_id,
+                projection_id=projection_id,
+                ordinal=ordinal,
+                kind="paragraph",
+                text=text,
+                section_path=["public fixture"],
+                page=None,
+                char_start=0,
+                char_end=len(text),
+                bbox=None,
+                parser_name="task11-fixture",
+                parser_version="1",
+                confidence=1.0,
+            )
+        )
+        session.add(
+            RetrievalChunkRecord(
+                id=chunk_id,
+                projection_id=projection_id,
+                ordinal=ordinal,
+                text=text,
+                section_path=["public fixture"],
+            )
+        )
+        pending_evidence.append(
+            EvidenceUnitRecord(
+                id=evidence_id,
+                projection_id=projection_id,
+                retrieval_chunk_id=chunk_id,
+                ordinal=0,
+                text=text,
+                element_id=element_id,
+                page=None,
+                char_start=0,
+                char_end=len(text),
+                bbox=None,
+            )
+        )
         documents.append(
             IndexDocument(
                 chunk_id=chunk_id,
                 projection_id=projection_id,
-                asset_version_id=uuid4(),
+                asset_version_id=ASSET_VERSION_ID,
                 workspace_id=COMPANY_ID,
                 folder_id=None,
                 allowed_user_ids=(actor_id,),
@@ -537,6 +366,52 @@ def _index_documents(
                 index_build_id=build_id,
             )
         )
+    await session.flush()
+    session.add_all(pending_evidence)
+    await session.flush()
+    session.add(
+        RagIndexBuildRecord(
+            id=build_id,
+            projection_id=projection_id,
+            indexing_profile_id=indexing_profile_id,
+            index_name=index_name,
+            expected_document_count=4,
+            indexed_document_count=4,
+            vector_dimension=dimension,
+            status="ready",
+            is_active=True,
+        )
+    )
+    for evidence_id, allowed_users, asset_id in (
+        (FORBIDDEN_PRIVATE, (uuid4(),), ASSET_VERSION_ID),
+        (FORBIDDEN_INACTIVE, (actor_id,), uuid4()),
+    ):
+        chunk_id = uuid4()
+        evidence = EvidenceUnit(
+            id=evidence_id,
+            chunk_id=chunk_id,
+            projection_id=projection_id,
+            ordinal=0,
+            text="A-17 환매 private inactive",
+            location=SourceLocation(uuid4(), None, 0, 24, None),
+        )
+        documents.append(
+            IndexDocument(
+                chunk_id=chunk_id,
+                projection_id=projection_id,
+                asset_version_id=asset_id,
+                workspace_id=COMPANY_ID,
+                folder_id=None,
+                allowed_user_ids=allowed_users,
+                status="ready",
+                title="must never surface",
+                section_path=("forbidden",),
+                text=evidence.text,
+                evidence_units=(evidence,),
+                embedding=tuple(embedding.encode_documents((evidence.text,))[0]),
+                index_build_id=build_id,
+            )
+        )
     return tuple(documents)
 
 
@@ -544,7 +419,7 @@ def _index_documents(
 async def test_real_bm25_e5_bge_compare_the_same_snapshot_with_caller_saved_configs(
     isolated_evaluation_database_url: str,
 ) -> None:
-    settings = Settings(
+    settings = Settings(  # type: ignore[call-arg,arg-type]
         _env_file=None,
         secret_key="task11-real-search-secret-key-value",
         database_url=isolated_evaluation_database_url,
@@ -598,6 +473,90 @@ async def test_real_bm25_e5_bge_compare_the_same_snapshot_with_caller_saved_conf
                     workspace_ids=(COMPANY_ID,),
                 )
                 configurations.append(result.configuration)
+            session.add(
+                DocumentRecord(
+                    id=DOCUMENT_ID,
+                    workspace_id=COMPANY_ID,
+                    folder_id=None,
+                    name="same immutable snapshot.pdf",
+                    active_version_id=ASSET_VERSION_ID,
+                )
+            )
+            await session.flush()
+            session.add(
+                AssetVersionRecord(
+                    id=ASSET_VERSION_ID,
+                    document_id=DOCUMENT_ID,
+                    number=1,
+                    object_key=f"task11/{ASSET_VERSION_ID}.pdf",
+                    sha256="a" * 64,
+                    media_type="text/plain",
+                    size=100,
+                    status="ready",
+                )
+            )
+            await session.flush()
+            indexer = IndexingService(
+                ElasticsearchSearchIndex(client),
+                index_prefix=settings.elasticsearch_index_prefix,
+            )
+            index_specs: list[
+                tuple[UUID, int, UUID, UUID, str, tuple[IndexDocument, ...]]
+            ] = []
+            for indexing_id, dimension, evidence_ids in (
+                (E5_INDEXING_PROFILE_ID, 768, (EVIDENCE_A, EVIDENCE_B)),
+                (
+                    BGE_INDEXING_PROFILE_ID,
+                    1024,
+                    (BGE_EVIDENCE_A, BGE_EVIDENCE_B),
+                ),
+            ):
+                projection_id = uuid4()
+                build_id = uuid4()
+                index_name = IndexDescriptor(
+                    dimension, "cosine"
+                ).concrete_index_name(
+                    settings.elasticsearch_index_prefix, indexing_id, build_id
+                )
+                documents = await _seed_projection(
+                    session=session,
+                    actor_id=actor_id,
+                    indexing_profile_id=indexing_id,
+                    dimension=dimension,
+                    projection_id=projection_id,
+                    build_id=build_id,
+                    index_name=index_name,
+                    evidence_ids=evidence_ids,
+                )
+                index_specs.append(
+                    (
+                        indexing_id,
+                        dimension,
+                        projection_id,
+                        build_id,
+                        index_name,
+                        documents,
+                    )
+                )
+            await session.commit()
+            for (
+                indexing_id,
+                dimension,
+                projection_id,
+                build_id,
+                index_name,
+                documents,
+            ) in index_specs:
+                indexed = await indexer.index_projection(
+                    descriptor=IndexDescriptor(dimension, "cosine"),
+                    profile_id=indexing_id,
+                    build_id=build_id,
+                    projection_id=projection_id,
+                    expected_chunk_count=4,
+                    documents=documents,
+                )
+                assert indexed.index_name == index_name
+                concrete_indices.append(index_name)
             repository = SqlAlchemyEvaluationApplicationRepository(session)
             dataset = await repository.add_or_get_dataset(
                 actor_id, load_evaluation_dataset(_mini_fixture())
@@ -613,72 +572,34 @@ async def test_real_bm25_e5_bge_compare_the_same_snapshot_with_caller_saved_conf
                 configuration_version_ids=tuple(
                     item.version_id for item in configurations
                 ),
+                metric_definition_version=1,
+                retrieval_k=10,
                 repetition_count=2,
             )
-            configuration_repository = SqlAlchemyRagConfigurationRepository(session)
-            profiles = {
-                BM25_RETRIEVAL_PROFILE_ID: await configuration_repository.find_profile(
-                    BM25_RETRIEVAL_PROFILE_ID
-                ),
-                e5_hybrid.id: await configuration_repository.find_profile(e5_hybrid.id),
-                BGE_RETRIEVAL_PROFILE_ID: await configuration_repository.find_profile(
-                    BGE_RETRIEVAL_PROFILE_ID
-                ),
-            }
-        indexer = IndexingService(
-            ElasticsearchSearchIndex(client), index_prefix=settings.elasticsearch_index_prefix
+            document = await session.get(DocumentRecord, DOCUMENT_ID)
+            assert document is not None
+            document.active_version_id = None
+            for build in await session.scalars(select(RagIndexBuildRecord)):
+                build.is_active = False
+            await session.commit()
+        production_search = ProductionEvaluationSearch(
+            settings,
+            embedding_factory=lambda config: DeterministicDenseEmbedding(
+                config.dimension
+            ),
         )
-        for indexing_id, dimension in (
-            (E5_INDEXING_PROFILE_ID, 768),
-            (BGE_INDEXING_PROFILE_ID, 1024),
-        ):
-            projection_id = uuid4()
-            build_id = uuid4()
-            indexed = await indexer.index_projection(
-                descriptor=IndexDescriptor(dimension, "cosine"),
-                profile_id=indexing_id,
-                build_id=build_id,
-                projection_id=projection_id,
-                expected_chunk_count=2,
-                documents=_index_documents(
-                    actor_id=actor_id,
-                    dimension=dimension,
-                    projection_id=projection_id,
-                    build_id=build_id,
-                ),
-            )
-            concrete_indices.append(indexed.index_name)
-        bm25_profile = profiles[BM25_RETRIEVAL_PROFILE_ID]
-        e5_profile = profiles[e5_hybrid.id]
-        bge_profile = profiles[BGE_RETRIEVAL_PROFILE_ID]
-        assert bm25_profile is not None
-        assert e5_profile is not None
-        assert bge_profile is not None
-        candidate_profiles: dict[UUID, tuple[UUID, Profile, int]] = {
-            configurations[0].version_id: (
-                E5_INDEXING_PROFILE_ID,
-                bm25_profile,
-                768,
-            ),
-            configurations[1].version_id: (
-                E5_INDEXING_PROFILE_ID,
-                e5_profile,
-                768,
-            ),
-            configurations[2].version_id: (
-                BGE_INDEXING_PROFILE_ID,
-                bge_profile,
-                1024,
-            ),
-        }
-        await EvaluationWorkflow(
-            SqlAlchemyEvaluationRepository(sessions),
-            RealElasticsearchCandidateSearch(
-                client=client,
-                profiles=candidate_profiles,
-                index_prefix=settings.elasticsearch_index_prefix,
-            ),
-        ).run(run.id)
+        try:
+            await EvaluationWorkflow(
+                SqlAlchemyEvaluationRepository(sessions),
+                production_search,
+                runtime_provider=lambda: {
+                    "application_revision": "task11-integration",
+                    "device": "cpu",
+                    "execution_role": "celery-worker",
+                },
+            ).run(run.id)
+        finally:
+            await production_search.close()
         async with sessions() as session:
             candidates = list(
                 await session.scalars(
@@ -688,18 +609,64 @@ async def test_real_bm25_e5_bge_compare_the_same_snapshot_with_caller_saved_conf
                 )
             )
             assert [item.configuration_version_id for item in candidates] == [
-                item.version_id for item in configurations
+                BM25_BASELINE_CONFIGURATION_VERSION_ID,
+                *(item.version_id for item in configurations),
             ]
-            assert all(item.status == "completed" for item in candidates)
-            assert all(item.recall_at_k == 1.0 for item in candidates)
+            diagnostic_results = list(
+                await session.scalars(select(EvaluationCaseResultRecord))
+            )
+            assert [(item.status, item.failure) for item in candidates] == [
+                ("completed", None),
+                ("completed", None),
+                ("completed", None),
+                ("completed", None),
+            ], [
+                (
+                    item.run_configuration_id,
+                    [raw["answer_status"] for raw in item.raw_observations],
+                    item.recall_at_k,
+                    item.highlight_iou,
+                )
+                for item in diagnostic_results
+            ]
+            assert all(item.recall_at_k == 0.5 for item in candidates)
+            assert all(item.access_leaks == 0 for item in candidates)
             assert all(item.reproducibility == 1.0 for item in candidates)
             snapshot_versions = {
-                item.component_snapshot["configuration"]["version_id"]
+                cast(
+                    dict[str, object], item.component_snapshot["configuration"]
+                )["version_id"]
                 for item in candidates
             }
             assert snapshot_versions == {
-                str(item.version_id) for item in configurations
+                str(BM25_BASELINE_CONFIGURATION_VERSION_ID),
+                *(str(item.version_id) for item in configurations),
             }
+            stored_run = await session.get(EvaluationRunRecord, run.id)
+            assert stored_run is not None
+            assert stored_run.worker_runtime_environment == {
+                "application_revision": "task11-integration",
+                "device": "cpu",
+                "execution_role": "celery-worker",
+            }
+            raw_results = list(await session.scalars(select(EvaluationCaseResultRecord)))
+            forbidden = {str(FORBIDDEN_PRIVATE), str(FORBIDDEN_INACTIVE)}
+            assert raw_results
+            assert all(
+                forbidden.isdisjoint(
+                    {
+                        evidence_id
+                        for observation in result.raw_observations
+                        for field in (
+                            "retrieved_evidence_ids",
+                            "answer_evidence_ids",
+                            "related_evidence_ids",
+                        )
+                        for evidence_id in cast(list[str], observation[field])
+                    }
+                )
+                for result in raw_results
+            )
     finally:
         if concrete_indices:
             await client.indices.delete(index=",".join(concrete_indices), ignore_unavailable=True)

@@ -5,7 +5,7 @@ from uuid import UUID
 from ai_workshop.labs.rag.embeddings.contracts import EmbeddingPort
 from ai_workshop.labs.rag.highlighting.domain import AnswerPolicy
 from ai_workshop.labs.rag.models.domain import Profile
-from ai_workshop.labs.rag.retrieval.domain import ActiveIndexAlias
+from ai_workshop.labs.rag.retrieval.domain import SearchIndexTarget
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,7 +17,7 @@ class ResolvedSearchConfiguration:
     retrieval_profile: Profile
     answer_policy_version_id: UUID | None
     answer_policy: AnswerPolicy | None
-    active_index_alias: ActiveIndexAlias
+    active_index_alias: SearchIndexTarget
     embedding: EmbeddingPort
     workspace_ids: tuple[UUID, ...] = ()
     experimental: bool = True

@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import platform
 import sys
@@ -8,6 +9,9 @@ from importlib.metadata import PackageNotFoundError, version
 from typing import Protocol
 from uuid import UUID
 
+from ai_workshop.labs.rag.configurations.domain import (
+    BM25_BASELINE_CONFIGURATION_VERSION_ID,
+)
 from ai_workshop.labs.rag.evaluation.domain import (
     CandidateStatus,
     EvaluationCase,
@@ -30,8 +34,26 @@ from ai_workshop.labs.rag.evaluation.metrics import (
     reciprocal_rank,
     reproducibility_rate,
     span_iou,
+    structured_highlight_iou,
     supported_precision,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateIndexBuildSnapshot:
+    asset_version_id: UUID
+    projection_id: UUID
+    index_build_id: UUID
+    index_name: str
+    indexing_profile_id: UUID
+    vector_dimension: int
+    active_at_snapshot: bool
+
+    def __post_init__(self) -> None:
+        if not self.index_name.strip():
+            raise ValueError("An Evaluation candidate requires a concrete index name.")
+        if self.vector_dimension < 1:
+            raise ValueError("An Evaluation candidate requires a positive dimension.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,8 +62,20 @@ class CandidateExecutionInput:
     configuration_id: UUID
     configuration_version_id: UUID
     ordinal: int
+    index_builds: tuple[CandidateIndexBuildSnapshot, ...]
+    retrieval_k: int = 10
     workspace_ids: tuple[UUID, ...] = ()
     is_system: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.index_builds:
+            raise ValueError("An Evaluation candidate requires an immutable index manifest.")
+        profile_ids = {item.indexing_profile_id for item in self.index_builds}
+        dimensions = {item.vector_dimension for item in self.index_builds}
+        if len(profile_ids) != 1 or len(dimensions) != 1:
+            raise ValueError("An Evaluation candidate index manifest must be compatible.")
+        if not 1 <= self.retrieval_k <= 50:
+            raise ValueError("An Evaluation candidate requires a supported retrieval K.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +84,8 @@ class EvaluationRunClaim:
     claim_token: UUID
     owner_id: UUID
     dataset: EvaluationDataset
+    metric_definition_version: int
+    retrieval_k: int
     repetition_count: int
     candidates: tuple[CandidateExecutionInput, ...]
 
@@ -61,8 +97,8 @@ class SearchExecutionObservation:
     duration_ms: float
 
     def __post_init__(self) -> None:
-        if self.duration_ms < 0:
-            raise ValueError("Search duration cannot be negative.")
+        if not math.isfinite(self.duration_ms) or self.duration_ms < 0:
+            raise ValueError("Search duration must be finite and non-negative.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +142,9 @@ class EvaluationRunView:
     document_snapshot_sha256: str
     query_set_sha256: str
     runtime_environment: Mapping[str, object]
+    worker_runtime_environment: Mapping[str, object] | None
+    metric_definition_version: int
+    retrieval_k: int
     repetition_count: int
     failure: str | None
     candidates: tuple[EvaluationCandidateView, ...]
@@ -135,6 +174,8 @@ class EvaluationApplicationRepositoryPort(Protocol):
         dataset: EvaluationDataset,
         evaluation_policy_version_id: UUID | None,
         configuration_version_ids: tuple[UUID, ...],
+        metric_definition_version: int,
+        retrieval_k: int,
         repetition_count: int,
         runtime_environment: Mapping[str, object],
     ) -> EvaluationRunView: ...
@@ -152,7 +193,7 @@ async def _no_op_commit() -> None:
     return None
 
 
-def _runtime_environment() -> dict[str, object]:
+def capture_worker_runtime(*, environment: str) -> dict[str, object]:
     packages: dict[str, str] = {}
     for package in (
         "celery",
@@ -165,16 +206,37 @@ def _runtime_environment() -> dict[str, object]:
             packages[package] = version(package)
         except PackageNotFoundError:
             packages[package] = "unavailable"
+    revision = os.environ.get("AI_WORKSHOP_BUILD_REVISION")
+    if not revision:
+        if environment == "production":
+            raise RuntimeError("A production evaluation worker requires a build revision.")
+        revision = "development-worktree"
     return {
         "python": platform.python_version(),
         "implementation": platform.python_implementation(),
         "platform": sys.platform,
         "application": "ai-workshop",
-        "application_revision": os.environ.get(
-            "AI_WORKSHOP_BUILD_REVISION", "development-worktree"
-        ),
+        "application_revision": revision,
+        "execution_role": "celery-worker",
+        "device": os.environ.get("AI_WORKSHOP_MODEL_DEVICE", "cpu"),
+        "model_cache_root": os.environ.get("AI_WORKSHOP_MODEL_CACHE_ROOT"),
         "packages": packages,
     }
+
+
+def normalize_evaluation_candidates(
+    configuration_version_ids: tuple[UUID, ...],
+) -> tuple[UUID, ...]:
+    if len(configuration_version_ids) != len(set(configuration_version_ids)):
+        raise ValueError("Evaluation candidates must be unique.")
+    return (
+        BM25_BASELINE_CONFIGURATION_VERSION_ID,
+        *(
+            item
+            for item in configuration_version_ids
+            if item != BM25_BASELINE_CONFIGURATION_VERSION_ID
+        ),
+    )
 
 
 class EvaluationApplicationService:
@@ -192,6 +254,8 @@ class EvaluationApplicationService:
         *,
         actor_id: UUID,
         dataset_snapshot_id: UUID,
+        metric_definition_version: int,
+        retrieval_k: int,
         min_recall_at_k: float,
         min_mrr: float,
         min_ndcg: float,
@@ -216,6 +280,8 @@ class EvaluationApplicationService:
             version=await self.application_repository.next_policy_version(
                 actor_id, dataset.id
             ),
+            metric_definition_version=metric_definition_version,
+            retrieval_k=retrieval_k,
             recall_at_k=min_recall_at_k,
             mrr=min_mrr,
             ndcg=min_ndcg,
@@ -239,6 +305,8 @@ class EvaluationApplicationService:
         dataset_snapshot_id: UUID | None,
         evaluation_policy_version_id: UUID | None,
         configuration_version_ids: tuple[UUID, ...],
+        metric_definition_version: int,
+        retrieval_k: int,
         repetition_count: int,
     ) -> EvaluationRunView:
         dataset: EvaluationDataset
@@ -263,12 +331,17 @@ class EvaluationApplicationService:
             dataset = visible_dataset
         else:
             raise ValueError("An Evaluation Run requires one immutable dataset snapshot.")
-        runtime = _runtime_environment()
+        normalized_candidates = normalize_evaluation_candidates(
+            configuration_version_ids
+        )
+        runtime: dict[str, object] = {"capture": "celery-worker-start"}
         run = await self.application_repository.create_run(
             actor_id=actor_id,
             dataset=dataset,
             evaluation_policy_version_id=evaluation_policy_version_id,
-            configuration_version_ids=configuration_version_ids,
+            configuration_version_ids=normalized_candidates,
+            metric_definition_version=metric_definition_version,
+            retrieval_k=retrieval_k,
             repetition_count=repetition_count,
             runtime_environment=runtime,
         )
@@ -288,7 +361,11 @@ class EvaluationApplicationService:
 
 
 class EvaluationRepositoryPort(Protocol):
-    async def claim_run(self, run_id: UUID) -> EvaluationRunClaim | None: ...
+    async def claim_run(
+        self, run_id: UUID, worker_runtime_environment: Mapping[str, object]
+    ) -> EvaluationRunClaim | None: ...
+
+    async def heartbeat(self, run_id: UUID, claim_token: UUID) -> None: ...
 
     async def mark_candidate_running(
         self, candidate_id: UUID, claim_token: UUID
@@ -377,6 +454,9 @@ def _highlight_iou(
     expected = case.expected_highlight
     if expected is None:
         return None
+    structured_expected = expected.as_observation()
+    if structured_expected is not None:
+        return structured_highlight_iou(structured_expected, observation.highlights)
     if expected.spans:
         return span_iou(expected=expected.spans, actual=observation.highlight_spans)
     if not expected.bboxes:
@@ -428,7 +508,10 @@ def evaluate_case(
         access_leaks=sum(
             count_access_leaks(
                 item.exposures,
-                allowed_source_ids=case.permission_scenario.allowed_source_ids,
+                authorized_source_ids=(
+                    case.permission_scenario.authorized_source_ids
+                ),
+                forbidden_source_ids=case.permission_scenario.forbidden_source_ids,
             )
             for item in observations
         ),
@@ -488,12 +571,17 @@ class EvaluationWorkflow:
         self,
         repository: EvaluationRepositoryPort,
         search: EvaluationSearchPort,
+        *,
+        runtime_provider: Callable[[], Mapping[str, object]] | None = None,
     ) -> None:
         self.repository = repository
         self.search = search
+        self.runtime_provider = runtime_provider or (
+            lambda: capture_worker_runtime(environment="test")
+        )
 
     async def run(self, run_id: UUID) -> None:
-        claim = await self.repository.claim_run(run_id)
+        claim = await self.repository.claim_run(run_id, self.runtime_provider())
         if claim is None:
             return
         try:
@@ -524,7 +612,13 @@ class EvaluationWorkflow:
                                 for _ in range(claim.repetition_count)
                             ]
                         )
-                        result = evaluate_case(case, ordinal, observations)
+                        await self.repository.heartbeat(run_id, claim.claim_token)
+                        result = evaluate_case(
+                            case,
+                            ordinal,
+                            observations,
+                            retrieval_k=claim.retrieval_k,
+                        )
                         await self.repository.add_case_result(
                             candidate.id,
                             claim.claim_token,

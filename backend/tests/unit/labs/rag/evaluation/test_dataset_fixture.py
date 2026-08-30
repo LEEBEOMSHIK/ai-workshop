@@ -1,4 +1,5 @@
 import hashlib
+import json
 from pathlib import Path
 
 from ai_workshop.labs.rag.evaluation.domain import load_evaluation_dataset
@@ -33,6 +34,19 @@ def test_public_fixture_is_frozen_hashed_and_covers_required_permission_cases() 
     ]
     assert len({case.id for case in dataset.cases}) == len(dataset.cases)
     assert all(case.permission_scenario.name for case in dataset.cases)
+    assert all(case.permission_scenario.authorized_source_ids for case in dataset.cases)
+    assert all(
+        case.permission_scenario.authorized_source_ids.isdisjoint(
+            case.permission_scenario.forbidden_source_ids
+        )
+        for case in dataset.cases
+    )
+    assert all(
+        case.expected_evidence_ids.issubset(
+            case.permission_scenario.authorized_source_ids
+        )
+        for case in dataset.cases
+    )
     assert all(len(case.query_sha256) == 64 for case in dataset.cases)
     assert all(
         case.expected_evidence_ids
@@ -54,3 +68,18 @@ def test_dataset_rejects_query_hash_tampering() -> None:
         assert "query SHA-256" in str(exc)
     else:
         raise AssertionError("tampered query bytes must be rejected")
+
+
+def test_dataset_rejects_overlapping_authorized_and_forbidden_sources() -> None:
+    fixture = json.loads(FIXTURE.read_bytes())
+    scenario = fixture["cases"][0]["permission_scenario"]
+    scenario["forbidden_source_ids"] = [scenario["authorized_source_ids"][0]]
+
+    try:
+        load_evaluation_dataset(
+            json.dumps(fixture, ensure_ascii=False, separators=(",", ":")).encode()
+        )
+    except ValueError as exc:
+        assert "disjoint" in str(exc)
+    else:
+        raise AssertionError("overlapping access universes must be rejected")

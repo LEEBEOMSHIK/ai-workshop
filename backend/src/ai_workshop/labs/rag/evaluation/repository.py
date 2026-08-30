@@ -1,3 +1,6 @@
+import hashlib
+import json
+from collections.abc import Mapping
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import cast
@@ -11,6 +14,10 @@ from ai_workshop.labs.rag.configurations.models import (
     RagConfigurationRecord,
     RagConfigurationVersionRecord,
     RagConfigurationWorkspaceSubscriptionRecord,
+)
+from ai_workshop.labs.rag.documents.models import (
+    RagIndexBuildRecord,
+    RagProjectionRecord,
 )
 from ai_workshop.labs.rag.evaluation.dispatch import EvaluationDispatchClaim
 from ai_workshop.labs.rag.evaluation.domain import (
@@ -26,10 +33,12 @@ from ai_workshop.labs.rag.evaluation.metrics import (
     AccessExposure,
     BoundingBox,
     CharacterSpan,
+    HighlightObservation,
     StableObservation,
 )
 from ai_workshop.labs.rag.evaluation.models import (
     EvaluationCaseResultRecord,
+    EvaluationDatasetCaseRecord,
     EvaluationDatasetRecord,
     EvaluationDispatchRecord,
     EvaluationPolicyRecord,
@@ -38,6 +47,7 @@ from ai_workshop.labs.rag.evaluation.models import (
 )
 from ai_workshop.labs.rag.evaluation.service import (
     CandidateExecutionInput,
+    CandidateIndexBuildSnapshot,
     CaseEvaluationResult,
     EvaluationCandidateView,
     EvaluationRunClaim,
@@ -50,6 +60,7 @@ from ai_workshop.labs.rag.models.models import (
     ProfileModelBindingRecord,
     ProfileRecord,
 )
+from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecord
 from ai_workshop.platform.workspaces.models import WorkspaceMembershipRecord
 from ai_workshop.shared.errors import AppError
 
@@ -72,6 +83,8 @@ def _dataset_domain(record: EvaluationDatasetRecord) -> EvaluationDataset:
         or dataset.query_set_sha256 != record.query_set_sha256
         or len(dataset.cases) != record.case_count
         or [dict(item) for item in dataset.document_snapshot] != record.document_snapshot
+        or dataset.document_snapshot_bytes != record.document_snapshot_bytes
+        or dataset.query_set_bytes != record.query_set_bytes
     ):
         raise RuntimeError("The immutable Evaluation Dataset snapshot is corrupt.")
     return replace(dataset, id=record.id)
@@ -83,6 +96,8 @@ def _policy_domain(record: EvaluationPolicyRecord) -> EvaluationPolicy:
         owner_id=record.owner_id,
         dataset_snapshot_id=record.dataset_snapshot_id,
         version=record.version,
+        metric_definition_version=record.metric_definition_version,
+        retrieval_k=record.retrieval_k,
         recall_at_k=record.min_recall_at_k,
         mrr=record.min_mrr,
         ndcg=record.min_ndcg,
@@ -132,7 +147,9 @@ def _scenario_json(value: object) -> dict[str, object]:
         "actor": scenario.actor,
         "workspace_ids": [str(item) for item in scenario.workspace_ids],
         "folder_ids": [str(item) for item in scenario.folder_ids],
-        "allowed_source_ids": sorted(str(item) for item in scenario.allowed_source_ids),
+        "authorized_source_ids": sorted(
+            str(item) for item in scenario.authorized_source_ids
+        ),
         "forbidden_source_ids": sorted(
             str(item) for item in scenario.forbidden_source_ids
         ),
@@ -146,8 +163,8 @@ def _scenario_domain(value: dict[str, object]) -> PermissionScenario:
         actor=str(value["actor"]),
         workspace_ids=tuple(UUID(item) for item in cast(list[str], value["workspace_ids"])),
         folder_ids=tuple(UUID(item) for item in cast(list[str], value["folder_ids"])),
-        allowed_source_ids=frozenset(
-            UUID(item) for item in cast(list[str], value["allowed_source_ids"])
+        authorized_source_ids=frozenset(
+            UUID(item) for item in cast(list[str], value["authorized_source_ids"])
         ),
         forbidden_source_ids=frozenset(
             UUID(item) for item in cast(list[str], value["forbidden_source_ids"])
@@ -168,6 +185,21 @@ def _observation_json(value: SearchExecutionObservation) -> dict[str, object]:
         "highlight_spans": [[item.start, item.end] for item in stable.highlight_spans],
         "highlight_bboxes": [
             [item.x0, item.y0, item.x1, item.y1] for item in stable.highlight_bboxes
+        ],
+        "highlights": [
+            {
+                "surface": item.surface,
+                "document_id": str(item.document_id),
+                "asset_version_id": str(item.asset_version_id),
+                "evidence_unit_id": str(item.evidence_unit_id),
+                "page": item.page,
+                "kind": item.kind.value,
+                "spans": [[span.start, span.end] for span in item.spans],
+                "bboxes": [
+                    [box.x0, box.y0, box.x1, box.y1] for box in item.bboxes
+                ],
+            }
+            for item in stable.highlights
         ],
         "exposures": [
             {
@@ -208,6 +240,31 @@ def _observation_domain(value: dict[str, object]) -> SearchExecutionObservation:
             highlight_bboxes=tuple(
                 BoundingBox(*(float(coordinate) for coordinate in item))
                 for item in cast(list[list[float]], value["highlight_bboxes"])
+            ),
+            highlights=tuple(
+                HighlightObservation(
+                    surface=str(item["surface"]),
+                    document_id=UUID(str(item["document_id"])),
+                    asset_version_id=UUID(str(item["asset_version_id"])),
+                    evidence_unit_id=UUID(str(item["evidence_unit_id"])),
+                    page=(
+                        int(cast(int, item["page"]))
+                        if item.get("page") is not None
+                        else None
+                    ),
+                    kind=HighlightKind(str(item["kind"])),
+                    spans=tuple(
+                        CharacterSpan(int(span[0]), int(span[1]))
+                        for span in cast(list[list[int]], item["spans"])
+                    ),
+                    bboxes=tuple(
+                        BoundingBox(*(float(coordinate) for coordinate in box))
+                        for box in cast(list[list[float]], item["bboxes"])
+                    ),
+                )
+                for item in cast(
+                    list[dict[str, object]], value.get("highlights", [])
+                )
             ),
         ),
         exposures=tuple(
@@ -271,11 +328,52 @@ class SqlAlchemyEvaluationApplicationRepository:
             fixture_bytes=dataset.fixture_bytes,
             fixture_sha256=dataset.fixture_sha256,
             document_snapshot=[dict(item) for item in dataset.document_snapshot],
+            document_snapshot_bytes=dataset.document_snapshot_bytes,
             document_snapshot_sha256=dataset.document_snapshot_sha256,
             query_set_sha256=dataset.query_set_sha256,
+            query_set_bytes=dataset.query_set_bytes,
             case_count=len(dataset.cases),
         )
         self.session.add(record)
+        await self.session.flush()
+        fixture = cast(dict[str, object], json.loads(dataset.fixture_bytes))
+        raw_cases = cast(list[dict[str, object]], fixture["cases"])
+        for ordinal, (case, raw_case) in enumerate(
+            zip(dataset.cases, raw_cases, strict=True)
+        ):
+            canonical = json.dumps(
+                raw_case,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            expected = cast(dict[str, object], raw_case["expected"])
+            self.session.add(
+                EvaluationDatasetCaseRecord(
+                    id=case.id,
+                    dataset_snapshot_id=record_id,
+                    ordinal=ordinal,
+                    canonical_case_bytes=canonical,
+                    canonical_case_sha256=hashlib.sha256(canonical).hexdigest(),
+                    query_bytes=case.query.encode("utf-8"),
+                    query_sha256=case.query_sha256,
+                    permission_scenario=_scenario_json(case.permission_scenario),
+                    expected_evidence_ids=sorted(
+                        str(item) for item in case.expected_evidence_ids
+                    ),
+                    authorized_source_ids=sorted(
+                        str(item)
+                        for item in case.permission_scenario.authorized_source_ids
+                    ),
+                    forbidden_source_ids=sorted(
+                        str(item)
+                        for item in case.permission_scenario.forbidden_source_ids
+                    ),
+                    expected_highlight=cast(
+                        dict[str, object] | None, expected.get("highlight")
+                    ),
+                )
+            )
         await self.session.flush()
         return replace(dataset, id=record_id)
 
@@ -311,6 +409,8 @@ class SqlAlchemyEvaluationApplicationRepository:
             owner_id=actor_id,
             dataset_snapshot_id=policy.dataset_snapshot_id,
             version=policy.version,
+            metric_definition_version=policy.metric_definition_version,
+            retrieval_k=policy.retrieval_k,
             min_recall_at_k=policy.recall_at_k,
             min_mrr=policy.mrr,
             min_ndcg=policy.ndcg,
@@ -327,9 +427,9 @@ class SqlAlchemyEvaluationApplicationRepository:
         return _policy_domain(record)
 
     async def _configuration_snapshot(
-        self, version_id: UUID, actor_id: UUID
+        self, version_id: UUID, actor_id: UUID, dataset: EvaluationDataset
     ) -> tuple[RagConfigurationVersionRecord, dict[str, object]] | None:
-        row = (
+        configuration_row = (
             await self.session.execute(
                 select(RagConfigurationVersionRecord, RagConfigurationRecord)
                 .join(
@@ -346,9 +446,9 @@ class SqlAlchemyEvaluationApplicationRepository:
                 )
             )
         ).one_or_none()
-        if row is None:
+        if configuration_row is None:
             return None
-        version, identity = row
+        version, identity = configuration_row
         profiles = list(
             await self.session.scalars(
                 select(ProfileRecord).where(
@@ -395,6 +495,75 @@ class SqlAlchemyEvaluationApplicationRepository:
                 .order_by(RagConfigurationWorkspaceSubscriptionRecord.workspace_id)
             )
         )
+        document_items = tuple(
+            cast(dict[str, object], item) for item in dataset.document_snapshot
+        )
+        asset_ids = tuple(
+            UUID(str(item["asset_version_id"])) for item in document_items
+        )
+        index_rows = (
+            await self.session.execute(
+                select(
+                    AssetVersionRecord,
+                    DocumentRecord,
+                    RagProjectionRecord,
+                    RagIndexBuildRecord,
+                )
+                .join(DocumentRecord, DocumentRecord.id == AssetVersionRecord.document_id)
+                .join(
+                    RagProjectionRecord,
+                    RagProjectionRecord.asset_version_id == AssetVersionRecord.id,
+                )
+                .join(
+                    RagIndexBuildRecord,
+                    RagIndexBuildRecord.projection_id == RagProjectionRecord.id,
+                )
+                .where(
+                    AssetVersionRecord.id.in_(asset_ids),
+                    RagProjectionRecord.indexing_profile_id
+                    == version.indexing_profile_id,
+                    RagIndexBuildRecord.indexing_profile_id
+                    == version.indexing_profile_id,
+                    RagIndexBuildRecord.status == "ready",
+                )
+            )
+        ).all()
+        rows_by_asset = {row[0].id: row for row in index_rows}
+        frozen_builds: list[dict[str, object]] = []
+        for item in document_items:
+            asset_id = UUID(str(item["asset_version_id"]))
+            frozen_row = rows_by_asset.get(asset_id)
+            if frozen_row is None:
+                raise AppError(
+                    "evaluation_snapshot_drift",
+                    "Every frozen Asset Version requires an exact READY index build.",
+                    409,
+                )
+            asset, document, projection, build = frozen_row
+            expected_active = bool(item["active"])
+            if (
+                document.id != UUID(str(item["document_id"]))
+                or asset.sha256 != str(item["sha256"])
+                or expected_active != (document.active_version_id == asset.id)
+                or build.index_name is None
+                or build.vector_dimension is None
+            ):
+                raise AppError(
+                    "evaluation_snapshot_drift",
+                    "The dataset no longer matches its exact document/index snapshot.",
+                    409,
+                )
+            frozen_builds.append(
+                {
+                    "asset_version_id": str(asset.id),
+                    "projection_id": str(projection.id),
+                    "index_build_id": str(build.id),
+                    "index_name": build.index_name,
+                    "indexing_profile_id": str(build.indexing_profile_id),
+                    "vector_dimension": build.vector_dimension,
+                    "active_at_snapshot": expected_active,
+                }
+            )
         snapshot: dict[str, object] = {
             "configuration": {
                 "id": str(identity.id),
@@ -441,6 +610,7 @@ class SqlAlchemyEvaluationApplicationRepository:
                 "require_complete_provenance": policy.require_complete_provenance,
                 "conflict_mode": policy.conflict_mode,
             },
+            "index_builds": frozen_builds,
         }
         return version, snapshot
 
@@ -451,6 +621,8 @@ class SqlAlchemyEvaluationApplicationRepository:
         dataset: EvaluationDataset,
         evaluation_policy_version_id: UUID | None,
         configuration_version_ids: tuple[UUID, ...],
+        metric_definition_version: int,
+        retrieval_k: int,
         repetition_count: int,
         runtime_environment: object,
     ) -> EvaluationRunView:
@@ -481,12 +653,15 @@ class SqlAlchemyEvaluationApplicationRepository:
                     EvaluationPolicyRecord.id == evaluation_policy_version_id,
                     EvaluationPolicyRecord.owner_id == actor_id,
                     EvaluationPolicyRecord.dataset_snapshot_id == dataset.id,
+                    EvaluationPolicyRecord.metric_definition_version
+                    == metric_definition_version,
+                    EvaluationPolicyRecord.retrieval_k == retrieval_k,
                 )
             )
             if policy is None:
                 raise AppError("not_found", "The requested resource was not found.", 404)
         snapshots = [
-            await self._configuration_snapshot(version_id, actor_id)
+            await self._configuration_snapshot(version_id, actor_id, dataset)
             for version_id in configuration_version_ids
         ]
         if any(item is None for item in snapshots):
@@ -500,6 +675,9 @@ class SqlAlchemyEvaluationApplicationRepository:
             document_snapshot_sha256=dataset.document_snapshot_sha256,
             query_set_sha256=dataset.query_set_sha256,
             runtime_environment=dict(cast(dict[str, object], runtime_environment)),
+            worker_runtime_environment=None,
+            metric_definition_version=metric_definition_version,
+            retrieval_k=retrieval_k,
             repetition_count=repetition_count,
             candidate_count=len(configuration_version_ids),
         )
@@ -565,6 +743,9 @@ class SqlAlchemyEvaluationApplicationRepository:
             document_snapshot_sha256=run.document_snapshot_sha256,
             query_set_sha256=run.query_set_sha256,
             runtime_environment=run.runtime_environment,
+            worker_runtime_environment=run.worker_runtime_environment,
+            metric_definition_version=run.metric_definition_version,
+            retrieval_k=run.retrieval_k,
             repetition_count=run.repetition_count,
             failure=run.failure,
             candidates=tuple(candidate_views),
@@ -599,7 +780,9 @@ class SqlAlchemyEvaluationRepository:
     def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
         self.sessions = sessions
 
-    async def claim_run(self, run_id: UUID) -> EvaluationRunClaim | None:
+    async def claim_run(
+        self, run_id: UUID, worker_runtime_environment: Mapping[str, object]
+    ) -> EvaluationRunClaim | None:
         now = datetime.now(UTC)
         async with self.sessions.begin() as session:
             run = await session.scalar(
@@ -635,6 +818,7 @@ class SqlAlchemyEvaluationRepository:
             run.status = EvaluationRunStatus.RUNNING
             run.claim_token = token
             run.claimed_at = now
+            run.worker_runtime_environment = dict(worker_runtime_environment)
             candidates = list(
                 await session.scalars(
                     select(EvaluationRunConfigurationRecord)
@@ -659,6 +843,26 @@ class SqlAlchemyEvaluationRepository:
                         configuration_id=UUID(str(configuration_snapshot["id"])),
                         configuration_version_id=item.configuration_version_id,
                         ordinal=item.ordinal,
+                        index_builds=tuple(
+                            CandidateIndexBuildSnapshot(
+                                asset_version_id=UUID(str(build["asset_version_id"])),
+                                projection_id=UUID(str(build["projection_id"])),
+                                index_build_id=UUID(str(build["index_build_id"])),
+                                index_name=str(build["index_name"]),
+                                indexing_profile_id=UUID(
+                                    str(build["indexing_profile_id"])
+                                ),
+                                vector_dimension=int(
+                                    cast(int, build["vector_dimension"])
+                                ),
+                                active_at_snapshot=bool(build["active_at_snapshot"]),
+                            )
+                            for build in cast(
+                                list[dict[str, object]],
+                                component_snapshot["index_builds"],
+                            )
+                        ),
+                        retrieval_k=run.retrieval_k,
                         workspace_ids=tuple(
                             UUID(value)
                             for value in cast(
@@ -673,9 +877,27 @@ class SqlAlchemyEvaluationRepository:
                 claim_token=token,
                 owner_id=run.owner_id,
                 dataset=dataset,
+                metric_definition_version=run.metric_definition_version,
+                retrieval_k=run.retrieval_k,
                 repetition_count=run.repetition_count,
                 candidates=tuple(execution_candidates),
             )
+
+    async def heartbeat(self, run_id: UUID, claim_token: UUID) -> None:
+        async with self.sessions.begin() as session:
+            result = await session.execute(
+                update(EvaluationRunRecord)
+                .where(
+                    EvaluationRunRecord.id == run_id,
+                    EvaluationRunRecord.status == EvaluationRunStatus.RUNNING,
+                    EvaluationRunRecord.claim_token == claim_token,
+                )
+                .values(claimed_at=datetime.now(UTC))
+            )
+            if getattr(result, "rowcount", 0) != 1:
+                raise EvaluationRunClaimLostError(
+                    "Evaluation Run claim token is invalid."
+                )
 
     async def _candidate_with_claim(
         self, session: AsyncSession, candidate_id: UUID, claim_token: UUID
@@ -726,6 +948,16 @@ class SqlAlchemyEvaluationRepository:
     ) -> None:
         async with self.sessions.begin() as session:
             await self._candidate_with_claim(session, candidate_id, claim_token)
+            dataset_snapshot_id = await session.scalar(
+                select(EvaluationRunRecord.dataset_snapshot_id)
+                .join(
+                    EvaluationRunConfigurationRecord,
+                    EvaluationRunConfigurationRecord.run_id == EvaluationRunRecord.id,
+                )
+                .where(EvaluationRunConfigurationRecord.id == candidate_id)
+            )
+            if dataset_snapshot_id is None:
+                raise EvaluationRunClaimLostError("Evaluation candidate is unavailable.")
             existing = await session.scalar(
                 select(EvaluationCaseResultRecord).where(
                     EvaluationCaseResultRecord.run_configuration_id == candidate_id,
@@ -738,6 +970,7 @@ class SqlAlchemyEvaluationRepository:
             session.add(
                 EvaluationCaseResultRecord(
                     run_configuration_id=candidate_id,
+                    dataset_snapshot_id=dataset_snapshot_id,
                     evaluation_case_id=result.evaluation_case_id,
                     ordinal=result.ordinal,
                     query_sha256=result.query_sha256,
@@ -836,7 +1069,14 @@ class SqlAlchemyEvaluationDispatchRepository:
             records = (
                 await session.scalars(
                     select(EvaluationDispatchRecord)
+                    .join(
+                        EvaluationRunRecord,
+                        EvaluationRunRecord.id == EvaluationDispatchRecord.run_id,
+                    )
                     .where(
+                        EvaluationRunRecord.status.in_(
+                            (EvaluationRunStatus.PENDING, EvaluationRunStatus.RUNNING)
+                        ),
                         or_(
                             and_(
                                 EvaluationDispatchRecord.status == "pending",
@@ -845,6 +1085,15 @@ class SqlAlchemyEvaluationDispatchRepository:
                             and_(
                                 EvaluationDispatchRecord.status == "claimed",
                                 EvaluationDispatchRecord.claimed_at <= stale_before,
+                            ),
+                            and_(
+                                EvaluationDispatchRecord.status == "sent",
+                                EvaluationDispatchRecord.sent_at <= stale_before,
+                                or_(
+                                    EvaluationRunRecord.status
+                                    == EvaluationRunStatus.PENDING,
+                                    EvaluationRunRecord.claimed_at <= stale_before,
+                                ),
                             ),
                         )
                     )

@@ -20,6 +20,8 @@ def policy() -> EvaluationPolicy:
         owner_id=uuid4(),
         dataset_snapshot_id=uuid4(),
         version=1,
+        metric_definition_version=1,
+        retrieval_k=3,
         recall_at_k=0.60,
         mrr=0.50,
         ndcg=0.55,
@@ -53,6 +55,8 @@ def evidence() -> PromotionEvidence:
     return PromotionEvidence(
         configuration_version_id=configuration_version_id,
         evaluated_configuration_version_id=configuration_version_id,
+        metric_definition_version=1,
+        retrieval_k=3,
         run_status=EvaluationRunStatus.COMPLETED,
         candidate_status=CandidateStatus.COMPLETED,
         failure=None,
@@ -69,6 +73,10 @@ def test_policy_requires_every_finite_threshold_and_exact_security_values() -> N
         replace(policy(), max_p95_latency_ms=math.inf).validate()
     with pytest.raises(PromotionPolicyError, match="bounded"):
         replace(policy(), recall_at_k=-0.01).validate()
+    with pytest.raises(PromotionPolicyError, match="retrieval_k"):
+        replace(policy(), retrieval_k=0).validate()
+    with pytest.raises(PromotionPolicyError, match="metric definition"):
+        replace(policy(), metric_definition_version=2).validate()
 
 
 @pytest.mark.parametrize(
@@ -79,6 +87,8 @@ def test_policy_requires_every_finite_threshold_and_exact_security_values() -> N
         lambda item: replace(item, failure="embedding unavailable"),
         lambda item: replace(item, metrics=None),
         lambda item: replace(item, evaluated_configuration_version_id=uuid4()),
+        lambda item: replace(item, metric_definition_version=2),
+        lambda item: replace(item, retrieval_k=10),
     ],
 )
 def test_promotion_fails_closed_for_incomplete_failed_or_wrong_version_evidence(

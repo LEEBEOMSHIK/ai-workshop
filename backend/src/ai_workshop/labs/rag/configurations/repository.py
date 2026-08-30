@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import cast
 from uuid import UUID
 
@@ -19,6 +19,7 @@ from ai_workshop.labs.rag.configurations.models import (
 from ai_workshop.labs.rag.documents.models import RagIndexBuildRecord
 from ai_workshop.labs.rag.embeddings.contracts import (
     EmbeddingModelConfig,
+    EmbeddingPort,
     EmbeddingValidationError,
 )
 from ai_workshop.labs.rag.embeddings.sentence_transformers import (
@@ -52,7 +53,11 @@ from ai_workshop.labs.rag.models.models import (
     ProfileModelBindingRecord,
     ProfileRecord,
 )
-from ai_workshop.labs.rag.retrieval.domain import ActiveIndexAlias
+from ai_workshop.labs.rag.retrieval.domain import (
+    ActiveIndexAlias,
+    FrozenIndexTarget,
+    SearchIndexTarget,
+)
 from ai_workshop.labs.rag.search.configuration_port import ResolvedSearchConfiguration
 from ai_workshop.platform.assets.domain import VersionStatus
 from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecord
@@ -400,6 +405,8 @@ class SqlAlchemyRagConfigurationRepository:
                 owner_id=policy_record.owner_id,
                 dataset_snapshot_id=policy_record.dataset_snapshot_id,
                 version=policy_record.version,
+                metric_definition_version=policy_record.metric_definition_version,
+                retrieval_k=policy_record.retrieval_k,
                 recall_at_k=policy_record.min_recall_at_k,
                 mrr=policy_record.min_mrr,
                 ndcg=policy_record.min_ndcg,
@@ -414,6 +421,8 @@ class SqlAlchemyRagConfigurationRepository:
             evidence = PromotionEvidence(
                 configuration_version_id=version.id,
                 evaluated_configuration_version_id=candidate.configuration_version_id,
+                metric_definition_version=run.metric_definition_version,
+                retrieval_k=run.retrieval_k,
                 run_status=EvaluationRunStatus(run.status),
                 candidate_status=CandidateStatus(candidate.status),
                 failure=candidate.failure,
@@ -586,10 +595,17 @@ class SqlAlchemySearchConfigurationResolver:
         self,
         session: AsyncSession,
         settings: Settings,
+        embedding_factory: Callable[[EmbeddingModelConfig], EmbeddingPort] | None = None,
     ) -> None:
         self.session = session
         self.settings = settings
         self.repository = SqlAlchemyRagConfigurationRepository(session)
+        self.embedding_factory = embedding_factory or (
+            lambda config: SentenceTransformerEmbedding(
+                config,
+                cache_folder=self.settings.model_cache_root,
+            )
+        )
 
     async def resolve(
         self,
@@ -613,10 +629,25 @@ class SqlAlchemySearchConfigurationResolver:
             raise AppError("not_found", "The requested resource was not found.", 404)
         return await self._resolve(configuration, actor_id)
 
+    async def resolve_frozen_version(
+        self,
+        configuration_version_id: UUID,
+        actor_id: UUID,
+        target: FrozenIndexTarget,
+    ) -> ResolvedSearchConfiguration:
+        configuration = await self.repository.find_version_visible(
+            configuration_version_id, actor_id
+        )
+        if configuration is None:
+            raise AppError("not_found", "The requested resource was not found.", 404)
+        return await self._resolve(configuration, actor_id, frozen_target=target)
+
     async def _resolve(
         self,
         configuration: SavedRagConfiguration,
         actor_id: UUID,
+        *,
+        frozen_target: FrozenIndexTarget | None = None,
     ) -> ResolvedSearchConfiguration:
         indexing = await self.repository.find_profile(configuration.indexing_profile_id)
         retrieval = await self.repository.find_profile(configuration.retrieval_profile_id)
@@ -671,23 +702,37 @@ class SqlAlchemySearchConfigurationResolver:
         except EmbeddingValidationError as exc:
             raise AppError("configuration_invalid", str(exc), 409) from exc
 
-        build = await self.session.scalar(
-            select(RagIndexBuildRecord).where(
-                RagIndexBuildRecord.indexing_profile_id == indexing.id,
-                RagIndexBuildRecord.status == "ready",
-                RagIndexBuildRecord.is_active.is_(True),
+        if frozen_target is None:
+            build = await self.session.scalar(
+                select(RagIndexBuildRecord).where(
+                    RagIndexBuildRecord.indexing_profile_id == indexing.id,
+                    RagIndexBuildRecord.status == "ready",
+                    RagIndexBuildRecord.is_active.is_(True),
+                )
             )
-        )
-        if build is None or build.vector_dimension is None:
-            raise AppError(
-                "configuration_not_ready",
-                "The selected configuration has no READY active index.",
-                409,
+            if build is None or build.vector_dimension is None:
+                raise AppError(
+                    "configuration_not_ready",
+                    "The selected configuration has no READY active index.",
+                    409,
+                )
+            target: SearchIndexTarget = ActiveIndexAlias(
+                IndexDescriptor(build.vector_dimension, "cosine"),
+                self.settings.elasticsearch_index_prefix,
+                indexing.id,
             )
-        if build.vector_dimension != embedding_config.dimension:
+        else:
+            target = frozen_target
+            if target.indexing_profile_id != indexing.id:
+                raise AppError(
+                    "evaluation_snapshot_drift",
+                    "The frozen index target profile does not match the configuration.",
+                    409,
+                )
+        if target.descriptor.vector_dimension != embedding_config.dimension:
             raise AppError(
                 "configuration_invalid",
-                "The active index dimension does not match the immutable embedding.",
+                "The exact index dimension does not match the immutable embedding.",
                 409,
             )
         workspace_ids = configuration.workspace_ids
@@ -701,15 +746,8 @@ class SqlAlchemySearchConfigurationResolver:
             retrieval_profile=retrieval,
             answer_policy_version_id=configuration.answer_policy_version_id,
             answer_policy=configuration.answer_policy_version.to_answer_policy(),
-            active_index_alias=ActiveIndexAlias(
-                IndexDescriptor(build.vector_dimension, "cosine"),
-                self.settings.elasticsearch_index_prefix,
-                indexing.id,
-            ),
-            embedding=SentenceTransformerEmbedding(
-                embedding_config,
-                cache_folder=self.settings.model_cache_root,
-            ),
+            active_index_alias=target,
+            embedding=self.embedding_factory(embedding_config),
             workspace_ids=workspace_ids,
             experimental=configuration.experimental,
         )

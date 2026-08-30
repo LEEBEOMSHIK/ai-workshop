@@ -172,6 +172,8 @@ def test_default_promotion_requires_passed_and_applicable_versioned_policy() -> 
         owner_id=pending.owner_id or uuid4(),
         dataset_snapshot_id=dataset_id,
         version=1,
+        metric_definition_version=1,
+        retrieval_k=10,
         recall_at_k=0.8,
         mrr=0.8,
         ndcg=0.8,
@@ -187,6 +189,8 @@ def test_default_promotion_requires_passed_and_applicable_versioned_policy() -> 
     evidence = PromotionEvidence(
         configuration_version_id=pending.version_id,
         evaluated_configuration_version_id=pending.version_id,
+        metric_definition_version=1,
+        retrieval_k=10,
         run_status=EvaluationRunStatus.COMPLETED,
         candidate_status=CandidateStatus.COMPLETED,
         failure=None,

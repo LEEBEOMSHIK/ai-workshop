@@ -40,6 +40,8 @@ class SqlAlchemySearchSourceResolver:
         actor_id: UUID,
         indexing_profile_id: UUID,
         hits: tuple[FusedHit, ...],
+        frozen_asset_version_ids: tuple[UUID, ...] = (),
+        frozen_index_build_ids: tuple[UUID, ...] = (),
     ) -> tuple[EvidenceSource, ...]:
         usable_hits = tuple(
             hit for hit in hits if isinstance(hit.chunk_id, UUID) and hit.chunk is not None
@@ -50,6 +52,22 @@ class SqlAlchemySearchSourceResolver:
         membership_join = and_(
             WorkspaceMembershipRecord.workspace_id == WorkspaceRecord.id,
             WorkspaceMembershipRecord.user_id == actor_id,
+        )
+        exact_snapshot = bool(frozen_asset_version_ids or frozen_index_build_ids)
+        if exact_snapshot and (
+            not frozen_asset_version_ids or not frozen_index_build_ids
+        ):
+            raise ValueError("An exact source snapshot requires Asset Versions and builds.")
+        lifecycle_filters = (
+            (
+                AssetVersionRecord.id.in_(frozen_asset_version_ids),
+                RagIndexBuildRecord.id.in_(frozen_index_build_ids),
+            )
+            if exact_snapshot
+            else (
+                DocumentRecord.active_version_id == AssetVersionRecord.id,
+                RagIndexBuildRecord.is_active.is_(True),
+            )
         )
         rows = (
             await self.session.execute(
@@ -80,7 +98,6 @@ class SqlAlchemySearchSourceResolver:
                     RagProjectionRecord.indexing_profile_id == indexing_profile_id,
                     RagProjectionRecord.status == "ready",
                     AssetVersionRecord.status == VersionStatus.READY,
-                    DocumentRecord.active_version_id == AssetVersionRecord.id,
                     workspace_is_active(),
                     or_(
                         WorkspaceRecord.kind != WorkspaceKind.PERSONAL,
@@ -88,7 +105,7 @@ class SqlAlchemySearchSourceResolver:
                     ),
                     RagIndexBuildRecord.indexing_profile_id == indexing_profile_id,
                     RagIndexBuildRecord.status == "ready",
-                    RagIndexBuildRecord.is_active.is_(True),
+                    *lifecycle_filters,
                 )
             )
         ).all()

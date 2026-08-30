@@ -153,7 +153,7 @@ async def test_retrievers_reject_concrete_stale_index_before_elasticsearch() -> 
     scope = ResolvedSearchScope((uuid4(),), ())
     concrete_index = "ai-workshop-rag-profile-stale-build"
 
-    with pytest.raises(ValueError, match="resolved active index alias"):
+    with pytest.raises(ValueError, match="resolved index target"):
         await sparse.search_sparse(
             index_alias=cast(ActiveIndexAlias, concrete_index),
             query="synthetic",
@@ -161,7 +161,7 @@ async def test_retrievers_reject_concrete_stale_index_before_elasticsearch() -> 
             scope=scope,
             top_k=5,
         )
-    with pytest.raises(ValueError, match="resolved active index alias"):
+    with pytest.raises(ValueError, match="resolved index target"):
         await dense.search_dense(
             index_alias=cast(ActiveIndexAlias, concrete_index),
             query_vector=(1.0, 0.0),

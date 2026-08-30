@@ -2,8 +2,35 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from ai_workshop.labs.rag.documents.domain import EvidenceUnit
+from ai_workshop.labs.rag.indexing.contracts import IndexDescriptor
 
 type ChunkIdentifier = UUID | str
+
+
+class QueryEmbeddingUnavailableError(RuntimeError):
+    pass
+
+
+class SearchBackendUnavailableError(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class ActiveIndexAlias:
+    descriptor: IndexDescriptor
+    index_prefix: str
+    indexing_profile_id: UUID
+
+    def __post_init__(self) -> None:
+        if not self.index_prefix.strip():
+            raise ValueError("An active index alias requires a non-empty index prefix.")
+
+    @property
+    def name(self) -> str:
+        return self.descriptor.active_alias(
+            self.index_prefix,
+            self.indexing_profile_id,
+        )
 
 
 @dataclass(frozen=True, slots=True)

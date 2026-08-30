@@ -2,13 +2,15 @@ from collections.abc import Sequence
 from typing import Any, cast
 from uuid import UUID
 
-from elasticsearch import AsyncElasticsearch
+from elasticsearch import ApiError, AsyncElasticsearch, TransportError
 
 from ai_workshop.labs.rag.documents.domain import EvidenceUnit, SourceLocation
 from ai_workshop.labs.rag.retrieval.domain import (
+    ActiveIndexAlias,
     DenseHit,
     ResolvedSearchScope,
     RetrievedChunk,
+    SearchBackendUnavailableError,
     SparseHit,
 )
 
@@ -48,31 +50,36 @@ class ElasticsearchSparseRetriever:
     async def search_sparse(
         self,
         *,
-        index_alias: str,
+        index_alias: ActiveIndexAlias,
         query: str,
         actor_id: UUID,
         scope: ResolvedSearchScope,
         top_k: int,
     ) -> tuple[SparseHit, ...]:
         _validate_search(index_alias, scope, top_k)
-        response = await self.client.search(
-            index=index_alias,
-            query={
-                "bool": {
-                    "must": [
-                        {
-                            "multi_match": {
-                                "query": query,
-                                "fields": ["text", "title", "section_path"],
+        try:
+            response = await self.client.search(
+                index=index_alias.name,
+                query={
+                    "bool": {
+                        "must": [
+                            {
+                                "multi_match": {
+                                    "query": query,
+                                    "fields": ["text", "title", "section_path"],
+                                }
                             }
-                        }
-                    ],
-                    "filter": build_scope_filter(actor_id, scope),
-                }
-            },
-            size=top_k,
-            source={"includes": list(RETRIEVAL_SOURCE_FIELDS)},
-        )
+                        ],
+                        "filter": build_scope_filter(actor_id, scope),
+                    }
+                },
+                size=top_k,
+                source={"includes": list(RETRIEVAL_SOURCE_FIELDS)},
+            )
+        except (ApiError, TransportError) as exc:
+            raise SearchBackendUnavailableError(
+                "Elasticsearch sparse retrieval is unavailable."
+            ) from exc
         return tuple(
             SparseHit(_parse_chunk(hit), rank=rank, score=_score(hit))
             for rank, hit in enumerate(_raw_hits(response), start=1)
@@ -86,7 +93,7 @@ class ElasticsearchDenseRetriever:
     async def search_dense(
         self,
         *,
-        index_alias: str,
+        index_alias: ActiveIndexAlias,
         query_vector: tuple[float, ...],
         actor_id: UUID,
         scope: ResolvedSearchScope,
@@ -95,31 +102,42 @@ class ElasticsearchDenseRetriever:
         _validate_search(index_alias, scope, top_k)
         if not query_vector:
             raise ValueError("Dense retrieval requires a query vector.")
-        response = await self.client.search(
-            index=index_alias,
-            knn={
-                "field": "embedding",
-                "query_vector": list(query_vector),
-                "k": top_k,
-                "num_candidates": top_k,
-                "filter": {"bool": {"filter": build_scope_filter(actor_id, scope)}},
-            },
-            size=top_k,
-            source={"includes": list(RETRIEVAL_SOURCE_FIELDS)},
-        )
+        try:
+            response = await self.client.search(
+                index=index_alias.name,
+                knn={
+                    "field": "embedding",
+                    "query_vector": list(query_vector),
+                    "k": top_k,
+                    "num_candidates": top_k,
+                    "filter": {"bool": {"filter": build_scope_filter(actor_id, scope)}},
+                },
+                size=top_k,
+                source={"includes": list(RETRIEVAL_SOURCE_FIELDS)},
+            )
+        except (ApiError, TransportError) as exc:
+            raise SearchBackendUnavailableError(
+                "Elasticsearch dense retrieval is unavailable."
+            ) from exc
         return tuple(
             DenseHit(_parse_chunk(hit), rank=rank, score=_score(hit))
             for rank, hit in enumerate(_raw_hits(response), start=1)
         )
 
 
-def _validate_search(index_alias: str, scope: ResolvedSearchScope, top_k: int) -> None:
-    if not index_alias.strip():
-        raise ValueError("Retrieval requires an active index alias.")
+def _validate_search(
+    index_alias: ActiveIndexAlias,
+    scope: ResolvedSearchScope,
+    top_k: int,
+) -> None:
+    if not isinstance(index_alias, ActiveIndexAlias):
+        raise ValueError("Retrieval requires a resolved active index alias.")
     if not scope.workspace_ids:
         raise ValueError("Retrieval requires a non-empty authorized workspace scope.")
     if not scope.active_only:
         raise ValueError("Normal retrieval requires the active profile index alias.")
+    if not scope.ready_only:
+        raise ValueError("Normal retrieval requires READY projections.")
     if top_k < 1:
         raise ValueError("Retrieval top_k must be positive.")
 

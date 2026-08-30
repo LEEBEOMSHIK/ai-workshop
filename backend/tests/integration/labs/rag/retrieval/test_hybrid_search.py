@@ -8,7 +8,7 @@ from ai_workshop.infrastructure.search.elasticsearch import create_elasticsearch
 from ai_workshop.labs.rag.indexing.contracts import IndexDescriptor, IndexDocument
 from ai_workshop.labs.rag.indexing.elasticsearch import ElasticsearchSearchIndex
 from ai_workshop.labs.rag.indexing.service import IndexingService
-from ai_workshop.labs.rag.retrieval.domain import ResolvedSearchScope
+from ai_workshop.labs.rag.retrieval.domain import ActiveIndexAlias, ResolvedSearchScope
 from ai_workshop.labs.rag.retrieval.elasticsearch import (
     ElasticsearchDenseRetriever,
     ElasticsearchSparseRetriever,
@@ -35,7 +35,8 @@ async def test_bm25_and_knn_prefilters_exclude_private_personal_chunk() -> None:
     )
     descriptor = IndexDescriptor(vector_dimension=4, similarity="cosine")
     concrete_index = descriptor.concrete_index_name(service.index_prefix, profile_id, build_id)
-    alias = descriptor.active_alias(service.index_prefix, profile_id)
+    active_alias = ActiveIndexAlias(descriptor, service.index_prefix, profile_id)
+    alias = active_alias.name
     documents = (
         IndexDocument(
             chunk_id=company_chunk_id,
@@ -82,14 +83,14 @@ async def test_bm25_and_knn_prefilters_exclude_private_personal_chunk() -> None:
         scope = ResolvedSearchScope((company_workspace_id,), ())
 
         sparse_hits = await ElasticsearchSparseRetriever(client).search_sparse(
-            index_alias=alias,
+            index_alias=active_alias,
             query="테스트전용손실한도",
             actor_id=actor_id,
             scope=scope,
             top_k=10,
         )
         dense_hits = await ElasticsearchDenseRetriever(client).search_dense(
-            index_alias=alias,
+            index_alias=active_alias,
             query_vector=(1.0, 0.0, 0.0, 0.0),
             actor_id=actor_id,
             scope=scope,

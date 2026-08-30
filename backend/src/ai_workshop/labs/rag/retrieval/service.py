@@ -6,9 +6,12 @@ from uuid import UUID
 from ai_workshop.labs.rag.embeddings.contracts import EmbeddingPort
 from ai_workshop.labs.rag.models.domain import FrozenJsonValue, Profile, ProfileKind
 from ai_workshop.labs.rag.retrieval.domain import (
+    ActiveIndexAlias,
     DenseHit,
     FusedHit,
+    QueryEmbeddingUnavailableError,
     ResolvedSearchScope,
+    SearchBackendUnavailableError,
     SparseHit,
 )
 from ai_workshop.labs.rag.retrieval.rrf import rrf_fuse
@@ -29,7 +32,7 @@ class SparseRetrieverPort(Protocol):
     async def search_sparse(
         self,
         *,
-        index_alias: str,
+        index_alias: ActiveIndexAlias,
         query: str,
         actor_id: UUID,
         scope: ResolvedSearchScope,
@@ -41,7 +44,7 @@ class DenseRetrieverPort(Protocol):
     async def search_dense(
         self,
         *,
-        index_alias: str,
+        index_alias: ActiveIndexAlias,
         query_vector: tuple[float, ...],
         actor_id: UUID,
         scope: ResolvedSearchScope,
@@ -71,7 +74,7 @@ class HybridRetrievalService:
         workspace_ids: tuple[UUID, ...],
         folder_ids: tuple[UUID, ...],
         retrieval_profile: Profile,
-        index_alias: str,
+        index_alias: ActiveIndexAlias,
         result_limit: int,
     ) -> tuple[FusedHit, ...]:
         clean_query = query.strip()
@@ -80,6 +83,7 @@ class HybridRetrievalService:
         if result_limit < 1:
             raise AppError("invalid_result_limit", "The result limit must be positive.", 422)
         bm25_top_k, dense_top_k, rrf_k = _retrieval_settings(retrieval_profile)
+        _validate_active_alias(retrieval_profile, index_alias, dense_top_k=dense_top_k)
 
         scope = await self.scope_resolver.resolve(
             actor_id=actor_id,
@@ -96,7 +100,7 @@ class HybridRetrievalService:
                     scope=scope,
                     top_k=bm25_top_k,
                 )
-            except Exception as exc:
+            except SearchBackendUnavailableError as exc:
                 raise AppError(
                     "bm25_search_unavailable",
                     "BM25 search is temporarily unavailable.",
@@ -106,7 +110,7 @@ class HybridRetrievalService:
 
         try:
             query_vector = tuple(self.embedding.encode_query(clean_query))
-        except Exception as exc:
+        except QueryEmbeddingUnavailableError as exc:
             raise AppError(
                 "hybrid_search_unavailable",
                 "Hybrid search is temporarily unavailable.",
@@ -134,24 +138,19 @@ class HybridRetrievalService:
                     )
                 )
         except ExceptionGroup as exc:
+            if not _only_search_backend_failures(exc):
+                raise
             raise AppError(
                 "hybrid_search_unavailable",
                 "Hybrid search is temporarily unavailable.",
                 503,
             ) from exc
 
-        try:
-            return rrf_fuse(
-                sparse_task.result(),
-                dense_task.result(),
-                k=rrf_k,
-            )[:result_limit]
-        except ValueError as exc:
-            raise AppError(
-                "hybrid_search_unavailable",
-                "Hybrid search is temporarily unavailable.",
-                503,
-            ) from exc
+        return rrf_fuse(
+            sparse_task.result(),
+            dense_task.result(),
+            k=rrf_k,
+        )[:result_limit]
 
 
 def _retrieval_settings(profile: Profile) -> tuple[int, int | None, int]:
@@ -159,9 +158,9 @@ def _retrieval_settings(profile: Profile) -> tuple[int, int | None, int]:
         raise ValueError("Search requires an immutable retrieval profile version.")
     bm25 = _mapping(profile.config.get("bm25"), "bm25")
     bm25_top_k = _positive_integer(bm25.get("top_k"), "bm25.top_k")
-    dense_value = profile.config.get("dense")
-    if dense_value is None:
+    if "dense" not in profile.config:
         return bm25_top_k, None, 60
+    dense_value = profile.config["dense"]
     dense = _mapping(dense_value, "dense")
     dense_top_k = _positive_integer(dense.get("top_k"), "dense.top_k")
     rrf = _mapping(profile.config.get("rrf"), "rrf")
@@ -169,6 +168,37 @@ def _retrieval_settings(profile: Profile) -> tuple[int, int | None, int]:
     if rrf_k != 60:
         raise ValueError("The first hybrid retrieval baseline requires RRF k=60.")
     return bm25_top_k, dense_top_k, rrf_k
+
+
+def _validate_active_alias(
+    profile: Profile,
+    index_alias: ActiveIndexAlias,
+    *,
+    dense_top_k: int | None,
+) -> None:
+    if not isinstance(index_alias, ActiveIndexAlias):
+        raise ValueError("Retrieval requires a resolved active index alias.")
+    if dense_top_k is None:
+        return
+    profile_id = profile.config.get("indexing_profile_id")
+    if not isinstance(profile_id, str):
+        raise ValueError("A hybrid retrieval profile requires an indexing profile UUID.")
+    try:
+        expected_profile_id = UUID(profile_id)
+    except ValueError as exc:
+        raise ValueError(
+            "A hybrid retrieval profile requires an indexing profile UUID."
+        ) from exc
+    if index_alias.indexing_profile_id != expected_profile_id:
+        raise ValueError(
+            "The active index alias must match the retrieval profile's indexing profile."
+        )
+
+
+def _only_search_backend_failures(error: BaseException) -> bool:
+    if isinstance(error, BaseExceptionGroup):
+        return all(_only_search_backend_failures(item) for item in error.exceptions)
+    return isinstance(error, SearchBackendUnavailableError)
 
 
 def _mapping(

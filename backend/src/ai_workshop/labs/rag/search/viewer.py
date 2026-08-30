@@ -1,7 +1,7 @@
 import asyncio
 from dataclasses import dataclass
 from hashlib import sha256
-from typing import Any, NoReturn, Protocol
+from typing import Any, NoReturn, Protocol, cast
 from uuid import UUID
 
 import pymupdf
@@ -13,6 +13,12 @@ from ai_workshop.shared.errors import AppError
 
 NORMALIZED_VIEWER_MEDIA_TYPES = frozenset(
     {"text/plain", "text/markdown", "text/x-markdown", "application/pdf"}
+)
+_PDF_OPERATIONAL_ERRORS = (
+    pymupdf.FileDataError,
+    pymupdf.EmptyFileError,
+    RuntimeError,
+    OSError,
 )
 
 
@@ -153,18 +159,26 @@ class ViewerService:
 
 
 def _render_pdf_page(content: bytes, page_number: int) -> bytes:
+    document: Any | None = None
     try:
-        document: Any = pymupdf.open(stream=content, filetype="pdf")  # type: ignore[no-untyped-call]
-    except (pymupdf.FileDataError, RuntimeError) as exc:
+        document = cast(
+            Any,
+            pymupdf.open(  # type: ignore[no-untyped-call]
+                stream=content,
+                filetype="pdf",
+            ),
+        )
+        if page_number > document.page_count:
+            raise AppError("not_found", "The requested resource was not found.", 404)
+        page = document.load_page(page_number - 1)
+        pixmap = page.get_pixmap(alpha=False)
+        return bytes(pixmap.tobytes("png"))
+    except _PDF_OPERATIONAL_ERRORS as exc:
         raise AppError(
             "source_artifact_invalid",
             "The PDF source artifact could not be rendered.",
             503,
         ) from exc
-    try:
-        if page_number > document.page_count:
-            raise AppError("not_found", "The requested resource was not found.", 404)
-        page = document.load_page(page_number - 1)
-        return bytes(page.get_pixmap(alpha=False).tobytes("png"))
     finally:
-        document.close()
+        if document is not None:
+            document.close()

@@ -126,3 +126,10 @@ def test_rag_search_contract_uses_authenticated_actor_and_distinct_highlights() 
         "format": "binary",
         "type": "string",
     }
+
+    normalized_failure = schema["paths"][
+        "/api/v1/rag/sources/{asset_version_id}/normalized-text"
+    ]["get"]["responses"]["503"]
+    assert normalized_failure["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/ErrorEnvelope"
+    }

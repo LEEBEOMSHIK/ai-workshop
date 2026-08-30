@@ -33,6 +33,8 @@ class AnswerPolicy:
             raise ValueError("Minimum semantic score must be between zero and one.")
         if not 0.0 <= self.min_keyword_coverage <= 1.0:
             raise ValueError("Minimum keyword coverage must be between zero and one.")
+        if self.require_complete_provenance is not True:
+            raise ValueError("The extractive V1 policy requires complete provenance.")
         if self.conflict_mode != "separate_sources":
             raise ValueError("The extractive V1 policy requires separate source conflicts.")
 

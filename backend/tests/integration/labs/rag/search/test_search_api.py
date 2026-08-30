@@ -1,8 +1,10 @@
 from collections.abc import AsyncIterator, Sequence
+from dataclasses import replace
 from hashlib import sha256
 from uuid import UUID
 
 import pymupdf
+import pytest
 from fastapi.testclient import TestClient
 
 from ai_workshop.labs.rag.documents.domain import (
@@ -11,7 +13,10 @@ from ai_workshop.labs.rag.documents.domain import (
     SourceLocation,
     StructuralElement,
 )
-from ai_workshop.labs.rag.embeddings.contracts import EmbeddingPort
+from ai_workshop.labs.rag.embeddings.contracts import (
+    EmbeddingPort,
+    EmbeddingRuntimeUnavailableError,
+)
 from ai_workshop.labs.rag.highlighting.domain import AnswerPolicy, EvidenceSource
 from ai_workshop.labs.rag.indexing.contracts import IndexDescriptor
 from ai_workshop.labs.rag.ingestion.serialization import serialize_parsed_document
@@ -25,6 +30,7 @@ from ai_workshop.labs.rag.retrieval.domain import (
     SearchBackendUnavailableError,
     SparseHit,
 )
+from ai_workshop.labs.rag.search import viewer as viewer_module
 from ai_workshop.labs.rag.search.api import get_search_service, get_viewer_service
 from ai_workshop.labs.rag.search.configuration_port import (
     ResolvedSearchConfiguration,
@@ -43,6 +49,7 @@ from ai_workshop.main import create_app
 from ai_workshop.platform.assets.storage import StoredObject
 from ai_workshop.platform.identity.api import get_current_user
 from ai_workshop.platform.identity.domain import User, UserRole
+from ai_workshop.shared.errors import AppError
 
 ACTOR_ID = UUID("10000000-0000-0000-0000-000000000001")
 OTHER_ACTOR_ID = UUID("10000000-0000-0000-0000-000000000002")
@@ -68,8 +75,14 @@ def owner() -> User:
 class RecordingEmbedding(EmbeddingPort):
     dimension = 2
 
-    def __init__(self, vectors: dict[str, list[float]] | None = None) -> None:
+    def __init__(
+        self,
+        vectors: dict[str, list[float]] | None = None,
+        *,
+        document_error: Exception | None = None,
+    ) -> None:
         self.vectors = vectors or {}
+        self.document_error = document_error
         self.encoded_documents: list[str] = []
 
     def count_tokens(self, text: str) -> int:
@@ -83,6 +96,8 @@ class RecordingEmbedding(EmbeddingPort):
 
     def encode_documents(self, texts: Sequence[str]) -> list[list[float]]:
         self.encoded_documents.extend(texts)
+        if self.document_error is not None:
+            raise self.document_error
         return [list(self.vectors.get(text, [0.0, 1.0])) for text in texts]
 
 
@@ -232,6 +247,19 @@ def _configuration(
         ),
         embedding=embedding,
     )
+
+
+def test_resolved_configuration_rejects_a_non_fail_closed_v1_policy() -> None:
+    configuration = _configuration(RecordingEmbedding())
+    assert configuration.answer_policy is not None
+    object.__setattr__(
+        configuration.answer_policy,
+        "require_complete_provenance",
+        False,
+    )
+
+    with pytest.raises(ValueError, match="complete provenance"):
+        replace(configuration)
 
 
 def _source(
@@ -384,6 +412,21 @@ def test_conflicting_sources_are_returned_separately() -> None:
     assert response.json()["related_sources"] == []
 
 
+def test_unproven_wording_difference_remains_a_related_source() -> None:
+    first = _source(1, "최소 가입 금액은 100만원입니다.")
+    second = _source(2, "100만원이 최소 가입 금액으로 적용됩니다.")
+    service, _, _, _ = _search_service(sources=(first, second))
+
+    response = _post_search(service, query="최소 가입 금액")
+
+    assert response.status_code == 200
+    assert response.json()["conflict_state"] == "none"
+    assert response.json()["conflicts"] == []
+    assert [item["asset_version_id"] for item in response.json()["related_sources"]] == [
+        str(second.chunk.asset_version_id)
+    ]
+
+
 def test_private_and_inactive_candidates_are_removed_before_semantic_encoding() -> None:
     public = _source(1, "가입 후 해지 조건입니다.")
     private = _source(2, "비공개 개인 문서 본문", workspace_id=PRIVATE_WORKSPACE_ID)
@@ -408,6 +451,45 @@ def test_private_and_inactive_candidates_are_removed_before_semantic_encoding() 
     assert private.chunk.evidence_units[0].text not in response.text
     assert inactive.chunk.evidence_units[0].text not in response.text
     assert resolver.calls == [(CONFIGURATION_ID, ACTOR_ID)]
+
+
+def test_bm25_only_retrieval_can_select_semantic_evidence() -> None:
+    source = _source(1, "가입 후 해지 조건입니다.")
+    embedding = RecordingEmbedding(
+        {
+            "상품 유동성": [1.0, 0.0],
+            source.chunk.evidence_units[0].text: [1.0, 0.0],
+        }
+    )
+    service, _, _, _ = _search_service(sources=(source,), embedding=embedding)
+
+    response = _post_search(service, query="상품 유동성")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "supported"
+    assert response.json()["answer"]["highlights"][0]["kind"] == "semantic"
+
+
+def test_evidence_embedding_runtime_failure_is_a_typed_api_outage() -> None:
+    source = _source(1, "가입 후 해지 조건입니다.")
+    embedding = RecordingEmbedding(
+        document_error=EmbeddingRuntimeUnavailableError("model process unavailable")
+    )
+    service, _, _, _ = _search_service(sources=(source,), embedding=embedding)
+
+    response = _post_search(service, query="상품 유동성")
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "evidence_embedding_unavailable"
+
+
+def test_evidence_embedding_programming_defect_propagates() -> None:
+    source = _source(1, "가입 후 해지 조건입니다.")
+    embedding = RecordingEmbedding(document_error=ValueError("wrong vector batch"))
+    service, _, _, _ = _search_service(sources=(source,), embedding=embedding)
+
+    with pytest.raises(ValueError, match="wrong vector batch"):
+        _post_search(service, query="상품 유동성")
 
 
 def test_hybrid_branch_failure_is_an_explicit_api_failure() -> None:
@@ -508,6 +590,127 @@ def _pdf_bytes() -> bytes:
     content = document.tobytes()
     document.close()
     return content
+
+
+class _RenderDocument:
+    page_count = 1
+
+    def __init__(self, page: object | None = None, error: Exception | None = None) -> None:
+        self.page = page
+        self.error = error
+
+    def load_page(self, page_index: int) -> object:
+        assert page_index == 0
+        if self.error is not None:
+            raise self.error
+        assert self.page is not None
+        return self.page
+
+    def close(self) -> None:
+        return None
+
+
+class _RenderPage:
+    def __init__(self, pixmap: object | None = None, error: Exception | None = None) -> None:
+        self.pixmap = pixmap
+        self.error = error
+
+    def get_pixmap(self, *, alpha: bool) -> object:
+        assert alpha is False
+        if self.error is not None:
+            raise self.error
+        assert self.pixmap is not None
+        return self.pixmap
+
+
+class _RenderPixmap:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+
+    def tobytes(self, output: str) -> bytes:
+        assert output == "png"
+        if self.error is not None:
+            raise self.error
+        return b"synthetic-png"
+
+
+def _assert_pdf_render_503(error: AppError) -> None:
+    assert error.status_code == 503
+    assert error.code == "source_artifact_invalid"
+
+
+def test_pdf_open_operational_error_is_typed_503(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail_open(*, stream: bytes, filetype: str) -> object:
+        del stream, filetype
+        raise OSError("synthetic open failure")
+
+    monkeypatch.setattr(viewer_module.pymupdf, "open", fail_open)
+
+    with pytest.raises(AppError) as caught:
+        viewer_module._render_pdf_page(b"synthetic", 1)
+
+    _assert_pdf_render_503(caught.value)
+
+
+def test_pdf_load_page_operational_error_is_typed_503(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    document = _RenderDocument(error=RuntimeError("synthetic load failure"))
+    monkeypatch.setattr(viewer_module.pymupdf, "open", lambda **_kwargs: document)
+
+    with pytest.raises(AppError) as caught:
+        viewer_module._render_pdf_page(b"synthetic", 1)
+
+    _assert_pdf_render_503(caught.value)
+
+
+def test_pdf_get_pixmap_operational_error_is_typed_503(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    document = _RenderDocument(page=_RenderPage(error=OSError("synthetic raster failure")))
+    monkeypatch.setattr(viewer_module.pymupdf, "open", lambda **_kwargs: document)
+
+    with pytest.raises(AppError) as caught:
+        viewer_module._render_pdf_page(b"synthetic", 1)
+
+    _assert_pdf_render_503(caught.value)
+
+
+def test_pdf_png_conversion_operational_error_is_typed_503(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    document = _RenderDocument(
+        page=_RenderPage(pixmap=_RenderPixmap(RuntimeError("synthetic PNG failure")))
+    )
+    monkeypatch.setattr(viewer_module.pymupdf, "open", lambda **_kwargs: document)
+
+    with pytest.raises(AppError) as caught:
+        viewer_module._render_pdf_page(b"synthetic", 1)
+
+    _assert_pdf_render_503(caught.value)
+
+
+def test_pdf_page_bound_remains_nondisclosing_404(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    document = _RenderDocument(page=_RenderPage(pixmap=_RenderPixmap()))
+    monkeypatch.setattr(viewer_module.pymupdf, "open", lambda **_kwargs: document)
+
+    with pytest.raises(AppError) as caught:
+        viewer_module._render_pdf_page(b"synthetic", 2)
+
+    assert caught.value.status_code == 404
+    assert caught.value.code == "not_found"
+
+
+def test_pdf_render_programming_defect_propagates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    document = _RenderDocument(error=TypeError("synthetic programming defect"))
+    monkeypatch.setattr(viewer_module.pymupdf, "open", lambda **_kwargs: document)
+
+    with pytest.raises(TypeError, match="synthetic programming defect"):
+        viewer_module._render_pdf_page(b"synthetic", 1)
 
 
 def _viewer_resource(*, media_type: str, original: bytes, parsed: bytes) -> ViewerResource:

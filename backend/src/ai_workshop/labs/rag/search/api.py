@@ -99,7 +99,11 @@ async def search(
     return SearchResponse.from_domain(await service.search(actor_id=user.id, request=request))
 
 
-@router.get("/sources/{asset_version_id}/normalized-text", response_model=NormalizedTextResponse)
+@router.get(
+    "/sources/{asset_version_id}/normalized-text",
+    response_model=NormalizedTextResponse,
+    responses={503: {"model": ErrorEnvelope, "description": "Source object unavailable."}},
+)
 async def normalized_text(
     asset_version_id: UUID,
     projection_id: Annotated[UUID, Query()],

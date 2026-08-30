@@ -64,6 +64,29 @@ def test_keyword_normalization_maps_combining_sequence_to_complete_original_span
     ]
 
 
+def test_keyword_normalization_maps_decomposed_hangul_to_complete_original_span() -> None:
+    text = "\u1100\u1161 환매"
+    location = SourceLocation(
+        element_id=ELEMENT_ID,
+        page=None,
+        char_start=30,
+        char_end=35,
+        bbox=None,
+    )
+
+    result = find_keyword_highlights(
+        query="가",
+        text=text,
+        location=location,
+        evidence_unit_id=EVIDENCE_ID,
+    )
+
+    assert result.coverage == 1.0
+    assert [(item.char_start, item.char_end, item.text) for item in result.highlights] == [
+        (30, 32, "\u1100\u1161"),
+    ]
+
+
 def test_partial_pdf_keyword_match_does_not_fabricate_a_precise_bbox() -> None:
     location = SourceLocation(
         element_id=ELEMENT_ID,

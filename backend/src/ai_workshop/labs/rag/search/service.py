@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
+from ai_workshop.labs.rag.embeddings.contracts import EmbeddingRuntimeUnavailableError
 from ai_workshop.labs.rag.highlighting.domain import (
     EvidenceSelection,
     EvidenceSource,
@@ -98,11 +99,18 @@ class SearchApplicationService:
             indexing_profile_id=configuration.indexing_profile_id,
             hits=hits,
         )
-        selection = EvidenceSelector(configuration.embedding).select(
-            query=request.query.strip(),
-            sources=sources,
-            policy=policy,
-        )
+        try:
+            selection = EvidenceSelector(configuration.embedding).select(
+                query=request.query.strip(),
+                sources=sources,
+                policy=policy,
+            )
+        except EmbeddingRuntimeUnavailableError as exc:
+            raise AppError(
+                "evidence_embedding_unavailable",
+                "Evidence selection is temporarily unavailable.",
+                503,
+            ) from exc
         return SearchResult(
             selection=selection,
             configuration=configuration,

@@ -23,6 +23,11 @@ class ResolvedSearchConfiguration:
     def __post_init__(self) -> None:
         if self.configuration_version < 1:
             raise ValueError("A resolved search configuration requires a positive version.")
+        if (
+            self.answer_policy is not None
+            and self.answer_policy.require_complete_provenance is not True
+        ):
+            raise ValueError("The extractive V1 policy requires complete provenance.")
 
 
 class SearchConfigurationResolverPort(Protocol):

@@ -1,6 +1,8 @@
 from collections.abc import Sequence
 from uuid import UUID
 
+import pytest
+
 from ai_workshop.labs.rag.documents.domain import EvidenceUnit, SourceLocation
 from ai_workshop.labs.rag.highlighting.domain import (
     AnswerPolicy,
@@ -105,6 +107,28 @@ def _policy(
     )
 
 
+def test_v1_answer_policy_rejects_optional_provenance() -> None:
+    with pytest.raises(ValueError, match="complete provenance"):
+        AnswerPolicy(
+            min_semantic_score=0.8,
+            min_keyword_coverage=1.0,
+            require_complete_provenance=False,
+            conflict_mode="separate_sources",
+        )
+
+
+def test_selector_rejects_a_policy_mutated_outside_the_configuration_boundary() -> None:
+    policy = _policy()
+    object.__setattr__(policy, "require_complete_provenance", False)
+
+    with pytest.raises(ValueError, match="complete provenance"):
+        EvidenceSelector(RecordingEmbedding()).select(
+            query="환매 수수료",
+            sources=(_source(1, "환매 수수료는 1%입니다."),),
+            policy=policy,
+        )
+
+
 def test_exact_keyword_evidence_is_supported_without_semantic_embedding() -> None:
     embedding = RecordingEmbedding()
     selector = EvidenceSelector(embedding)
@@ -204,6 +228,37 @@ def test_missing_provenance_is_normal_insufficient_evidence() -> None:
     assert result.warnings == ("projection_provenance_incomplete",)
 
 
+def test_incomplete_pdf_location_never_supports_direct_keyword_evidence() -> None:
+    source = _source(
+        1,
+        "환매 수수료는 1%입니다.",
+        location=SourceLocation(
+            element_id=UUID("60000000-0000-0000-0000-000000000001"),
+            page=1,
+            char_start=0,
+            char_end=15,
+            bbox=None,
+        ),
+    )
+    source = EvidenceSource(
+        document_id=source.document_id,
+        asset_version_number=source.asset_version_number,
+        media_type="application/pdf",
+        chunk=source.chunk,
+        fused_score=source.fused_score,
+    )
+
+    result = EvidenceSelector(RecordingEmbedding()).select(
+        query="환매 수수료",
+        sources=(source,),
+        policy=_policy(),
+    )
+
+    assert result.status is AnswerStatus.INSUFFICIENT_EVIDENCE
+    assert result.answer is None
+    assert result.warnings == ("pdf_bbox_incomplete",)
+
+
 def test_conflicting_qualifying_sources_remain_separate() -> None:
     result = EvidenceSelector(RecordingEmbedding()).select(
         query="최소 가입 금액",
@@ -221,6 +276,74 @@ def test_conflicting_qualifying_sources_remain_separate() -> None:
     assert [item.excerpt for item in result.conflicts] == [
         "최소 가입 금액은 200만원입니다."
     ]
+
+
+def test_same_numeric_conclusion_with_different_wording_is_not_a_conflict() -> None:
+    result = EvidenceSelector(RecordingEmbedding()).select(
+        query="최소 가입 금액",
+        sources=(
+            _source(1, "최소 가입 금액은 100만원입니다."),
+            _source(2, "100만원이 최소 가입 금액으로 적용됩니다."),
+        ),
+        policy=_policy(),
+    )
+
+    assert result.status is AnswerStatus.SUPPORTED
+    assert result.conflict_state is ConflictState.NONE
+    assert result.conflicts == ()
+
+
+def test_shared_query_words_without_the_same_claim_phrase_are_not_a_conflict() -> None:
+    result = EvidenceSelector(RecordingEmbedding()).select(
+        query="최소 가입 금액",
+        sources=(
+            _source(1, "최소 가입 금액 100만원"),
+            _source(2, "최소 조건 가입 대상 금액 200만원"),
+        ),
+        policy=_policy(),
+    )
+
+    assert result.status is AnswerStatus.SUPPORTED
+    assert result.conflict_state is ConflictState.NONE
+    assert result.conflicts == ()
+
+
+def test_explicit_opposite_polarity_for_the_same_claim_is_a_conflict() -> None:
+    result = EvidenceSelector(RecordingEmbedding()).select(
+        query="중도 환매 신청",
+        sources=(
+            _source(1, "중도 환매 신청은 가능합니다."),
+            _source(2, "중도 환매 신청은 불가능합니다."),
+        ),
+        policy=_policy(),
+    )
+
+    assert result.status is AnswerStatus.SUPPORTED
+    assert result.conflict_state is ConflictState.SEPARATE_SOURCES
+    assert [item.excerpt for item in result.conflicts] == [
+        "중도 환매 신청은 불가능합니다."
+    ]
+
+
+def test_keyword_primary_is_compared_with_semantic_only_conflicting_evidence() -> None:
+    primary = _source(1, "최소 가입 금액 기준은 100만원입니다.")
+    semantic_conflict = _source(2, "최소 가입 금액은 200만원입니다.")
+    embedding = RecordingEmbedding(document_vectors=[[0.99, 0.01]])
+
+    result = EvidenceSelector(embedding).select(
+        query="최소 가입 금액 기준",
+        sources=(primary, semantic_conflict),
+        policy=_policy(min_semantic_score=0.8),
+    )
+
+    assert result.status is AnswerStatus.SUPPORTED
+    assert result.answer is not None
+    assert result.answer.excerpt == primary.chunk.evidence_units[0].text
+    assert result.answer.keyword_coverage == 1.0
+    assert [item.excerpt for item in result.conflicts] == [
+        semantic_conflict.chunk.evidence_units[0].text
+    ]
+    assert embedding.encoded_documents == [semantic_conflict.chunk.evidence_units[0].text]
 
 
 def test_related_but_subthreshold_evidence_stays_insufficient() -> None:

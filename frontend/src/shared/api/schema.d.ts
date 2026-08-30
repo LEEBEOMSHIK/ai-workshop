@@ -840,6 +840,11 @@ export interface components {
              * Format: uuid
              */
             configuration_id: string;
+            /**
+             * Experimental
+             * @default false
+             */
+            experimental: boolean;
             /** Folder Ids */
             folder_ids?: string[];
             /** Query */

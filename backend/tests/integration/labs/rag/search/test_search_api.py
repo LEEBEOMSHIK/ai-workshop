@@ -227,6 +227,7 @@ def _configuration(
     *,
     hybrid: bool = False,
     with_policy: bool = True,
+    experimental: bool = True,
 ) -> ResolvedSearchConfiguration:
     return ResolvedSearchConfiguration(
         configuration_id=CONFIGURATION_ID,
@@ -252,7 +253,7 @@ def _configuration(
         ),
         embedding=embedding,
         workspace_ids=(WORKSPACE_ID,),
-        experimental=True,
+        experimental=experimental,
     )
 
 
@@ -318,6 +319,7 @@ def _search_service(
     sparse_failure: Exception | None = None,
     hybrid: bool = False,
     with_policy: bool = True,
+    experimental: bool = True,
 ) -> tuple[
     SearchApplicationService,
     InMemorySearchConfigurationResolver,
@@ -326,7 +328,12 @@ def _search_service(
 ]:
     exact_embedding = embedding or RecordingEmbedding()
     resolver = InMemorySearchConfigurationResolver(
-        _configuration(exact_embedding, hybrid=hybrid, with_policy=with_policy)
+        _configuration(
+            exact_embedding,
+            hybrid=hybrid,
+            with_policy=with_policy,
+            experimental=experimental,
+        )
     )
     source_resolver = AuthoritativeSourceResolver(sources)
     sparse_hits = tuple(
@@ -343,21 +350,68 @@ def _search_service(
     return service, resolver, source_resolver, exact_embedding
 
 
-def _post_search(service: SearchApplicationService, query: str = "환매 수수료"):
+def _post_search(
+    service: SearchApplicationService,
+    query: str = "환매 수수료",
+    *,
+    experimental: bool | None = True,
+):
     app = create_app()
     app.dependency_overrides[get_current_user] = owner
     app.dependency_overrides[get_search_service] = lambda: service
     with TestClient(app) as client:
+        payload: dict[str, object] = {
+            "query": query,
+            "configuration_id": str(CONFIGURATION_ID),
+            "workspace_ids": [str(WORKSPACE_ID)],
+            "folder_ids": [],
+            "top_k": 10,
+        }
+        if experimental is not None:
+            payload["experimental"] = experimental
         return client.post(
             "/api/v1/rag/search",
-            json={
-                "query": query,
-                "configuration_id": str(CONFIGURATION_ID),
-                "workspace_ids": [str(WORKSPACE_ID)],
-                "folder_ids": [],
-                "top_k": 10,
-            },
+            json=payload,
         )
+
+
+def test_pending_configuration_requires_explicit_experimental_opt_in() -> None:
+    service, _, source_resolver, _ = _search_service(
+        sources=(_source(1, "환매 수수료는 1%입니다."),)
+    )
+
+    class UnexpectedScopeResolver:
+        async def resolve(self, **_values: object) -> ResolvedSearchScope:
+            raise AssertionError("Experimental gating must precede retrieval scope.")
+
+    service.scope_resolver = UnexpectedScopeResolver()
+
+    response = _post_search(service, experimental=None)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "experimental_opt_in_required"
+    assert source_resolver.calls == []
+
+
+def test_passed_default_configuration_uses_the_normal_search_path() -> None:
+    source = _source(1, "환매 수수료는 1%입니다.")
+    service, _, _, _ = _search_service(sources=(source,), experimental=False)
+
+    response = _post_search(service, experimental=None)
+
+    assert response.status_code == 200
+    assert response.json()["experimental"] is False
+
+
+def test_missing_configuration_remains_nondisclosing_before_experimental_gate() -> None:
+    service, _, source_resolver, _ = _search_service(sources=())
+    service.configuration_resolver = InMemorySearchConfigurationResolver(None)
+
+    response = _post_search(service, experimental=None)
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
+    assert source_resolver.calls == []
 
 
 def test_supported_search_returns_extractive_answer_and_authenticated_actor() -> None:
@@ -411,6 +465,7 @@ def test_configuration_workspace_subscription_is_checked_before_scope_resolution
                 "workspace_ids": [str(PRIVATE_WORKSPACE_ID)],
                 "folder_ids": [],
                 "top_k": 10,
+                "experimental": True,
             },
         )
 

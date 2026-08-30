@@ -108,6 +108,11 @@ def test_rag_search_contract_uses_authenticated_actor_and_distinct_highlights() 
         "title": "Top K",
         "type": "integer",
     }
+    assert request_schema["properties"]["experimental"] == {
+        "default": False,
+        "title": "Experimental",
+        "type": "boolean",
+    }
     assert schema["components"]["schemas"]["HighlightKind"]["enum"] == [
         "keyword",
         "semantic",

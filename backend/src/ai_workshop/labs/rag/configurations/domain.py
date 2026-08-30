@@ -1,9 +1,15 @@
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import Literal
 from uuid import UUID, uuid4
 
 from ai_workshop.labs.rag.highlighting.domain import AnswerPolicy
-from ai_workshop.labs.rag.models.domain import EvaluationState
+from ai_workshop.labs.rag.models.domain import (
+    EvaluationState,
+    ModelKind,
+    Profile,
+    ProfileKind,
+)
 
 E5_MODEL_DEFINITION_ID = UUID("00000000-0000-0000-0000-000000000101")
 E5_INDEXING_PROFILE_ID = UUID("00000000-0000-0000-0000-000000000201")
@@ -20,6 +26,32 @@ BM25_BASELINE_NAME = "BM25 기준선"
 
 class ConfigurationValidationError(ValueError):
     pass
+
+
+def validate_v1_retrieval_profile(profile: Profile) -> None:
+    if profile.kind is not ProfileKind.RETRIEVAL:
+        raise ConfigurationValidationError(
+            "A Saved RAG Configuration requires a retrieval profile."
+        )
+    if any(binding.role is ModelKind.RERANKER for binding in profile.bindings):
+        raise ConfigurationValidationError(
+            "Extractive V1 does not allow a reranker binding."
+        )
+    if any(key.startswith("reranker") and key != "reranker" for key in profile.config):
+        raise ConfigurationValidationError(
+            "Extractive V1 does not allow a reranker selection."
+        )
+    reranker = profile.config.get("reranker")
+    if reranker is None:
+        return
+    if (
+        not isinstance(reranker, Mapping)
+        or set(reranker) != {"enabled"}
+        or reranker.get("enabled") is not False
+    ):
+        raise ConfigurationValidationError(
+            "Extractive V1 accepts only disabled reranker metadata."
+        )
 
 
 @dataclass(frozen=True, slots=True)

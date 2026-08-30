@@ -8,6 +8,7 @@ from ai_workshop.labs.rag.configurations.domain import (
     AnswerPolicyVersion,
     ConfigurationValidationError,
     SavedRagConfiguration,
+    validate_v1_retrieval_profile,
 )
 from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand
 from ai_workshop.labs.rag.models.domain import EvaluationState, Profile, ProfileKind
@@ -120,6 +121,10 @@ class RagConfigurationService:
             raise AppError("not_found", "The requested resource was not found.", 404)
         if retrieval is None or retrieval.kind is not ProfileKind.RETRIEVAL:
             raise AppError("not_found", "The requested resource was not found.", 404)
+        try:
+            validate_v1_retrieval_profile(retrieval)
+        except ConfigurationValidationError as exc:
+            raise AppError("reranker_not_supported", str(exc), 422) from exc
         retrieval_indexing_profile_id = _retrieval_indexing_profile_id(retrieval)
         if retrieval_indexing_profile_id != indexing.id:
             raise AppError(

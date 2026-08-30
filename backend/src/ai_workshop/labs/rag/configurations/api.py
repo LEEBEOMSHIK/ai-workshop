@@ -1,7 +1,7 @@
-from typing import Annotated, Protocol
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_workshop.labs.rag.configurations.schemas import (
@@ -14,10 +14,6 @@ from ai_workshop.platform.identity.domain import User
 from ai_workshop.shared.db import get_session
 
 router = APIRouter(prefix="/api/v1/rag/configurations", tags=["rag-configurations"])
-
-
-class RagConfigurationDispatcherPort(Protocol):
-    def ensure_indexed(self, job_id: UUID) -> None: ...
 
 
 def get_rag_configuration_service(
@@ -38,13 +34,6 @@ def get_rag_configuration_service(
     )
 
 
-def get_rag_configuration_dispatcher() -> RagConfigurationDispatcherPort:
-    from ai_workshop.config import get_settings
-    from ai_workshop.worker import CeleryJobDispatcher
-
-    return CeleryJobDispatcher(get_settings())
-
-
 @router.get("", response_model=list[SavedRagConfigurationResponse])
 async def list_configurations(
     user: Annotated[User, Depends(get_current_user)],
@@ -59,13 +48,8 @@ async def list_configurations(
 @router.post("", response_model=SavedRagConfigurationResponse, status_code=201)
 async def create_configuration(
     request: SavedRagConfigurationCreate,
-    background_tasks: BackgroundTasks,
     user: Annotated[User, Depends(get_current_user)],
     service: Annotated[RagConfigurationService, Depends(get_rag_configuration_service)],
-    dispatcher: Annotated[
-        RagConfigurationDispatcherPort,
-        Depends(get_rag_configuration_dispatcher),
-    ],
 ) -> SavedRagConfigurationResponse:
     policy = request.answer_policy
     result = await service.create(
@@ -80,8 +64,6 @@ async def create_configuration(
         conflict_mode=policy.conflict_mode,
         workspace_ids=tuple(request.workspace_ids),
     )
-    for job_id in result.indexing_job_ids:
-        background_tasks.add_task(dispatcher.ensure_indexed, job_id)
     return SavedRagConfigurationResponse.from_domain(result.configuration)
 
 

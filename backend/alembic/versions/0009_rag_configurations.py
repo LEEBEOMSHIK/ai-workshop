@@ -128,7 +128,7 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("configuration_id", "version"),
-        sa.UniqueConstraint("configuration_id", "id"),
+        sa.UniqueConstraint("configuration_id", "id", "version"),
     )
     op.create_table(
         "rag_configuration_versions",
@@ -157,14 +157,23 @@ def upgrade() -> None:
             "NOT is_default OR evaluation_state = 'passed'",
             name="ck_rag_configuration_versions_default_passed",
         ),
+        sa.CheckConstraint(
+            "evaluation_state <> 'passed'",
+            name="ck_rag_config_versions_no_passed_pre_eval",
+        ),
+        sa.CheckConstraint(
+            "NOT is_default",
+            name="ck_rag_config_versions_no_default_pre_eval",
+        ),
         sa.ForeignKeyConstraint(
             ["configuration_id"], ["rag_configurations.id"], ondelete="CASCADE"
         ),
         sa.ForeignKeyConstraint(
-            ["configuration_id", "answer_policy_version_id"],
+            ["configuration_id", "answer_policy_version_id", "version"],
             [
                 "rag_answer_policy_versions.configuration_id",
                 "rag_answer_policy_versions.id",
+                "rag_answer_policy_versions.version",
             ],
             ondelete="RESTRICT",
         ),
@@ -204,6 +213,66 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("configuration_version_id", "workspace_id"),
     )
+    op.create_table(
+        "rag_ingestion_dispatches",
+        sa.Column("job_id", sa.Uuid(), nullable=False),
+        sa.Column(
+            "status",
+            sa.String(32),
+            server_default=sa.text("'pending'"),
+            nullable=False,
+        ),
+        sa.Column(
+            "available_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column("claimed_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("claim_token", sa.Uuid(), nullable=True),
+        sa.Column(
+            "attempt_count",
+            sa.Integer(),
+            server_default=sa.text("0"),
+            nullable=False,
+        ),
+        sa.Column("last_error", sa.String(700), nullable=True),
+        sa.Column("sent_at", sa.DateTime(timezone=True), nullable=True),
+        *timestamps(),
+        sa.CheckConstraint(
+            "status IN ('pending', 'claimed', 'sent')",
+            name="ck_rag_ing_dispatch_status",
+        ),
+        sa.CheckConstraint(
+            "attempt_count >= 0",
+            name="ck_rag_ing_dispatch_attempt",
+        ),
+        sa.CheckConstraint(
+            "(status = 'pending' AND claim_token IS NULL AND claimed_at IS NULL "
+            "AND sent_at IS NULL) OR "
+            "(status = 'claimed' AND claim_token IS NOT NULL "
+            "AND claimed_at IS NOT NULL AND sent_at IS NULL) OR "
+            "(status = 'sent' AND claim_token IS NULL AND claimed_at IS NULL "
+            "AND sent_at IS NOT NULL)",
+            name="ck_rag_ing_dispatch_state",
+        ),
+        sa.ForeignKeyConstraint(
+            ["job_id"], ["rag_ingestion_jobs.job_id"], ondelete="CASCADE"
+        ),
+        sa.PrimaryKeyConstraint("job_id"),
+    )
+    op.create_index(
+        "ix_rag_ing_dispatch_ready",
+        "rag_ingestion_dispatches",
+        ["status", "available_at"],
+    )
+    op.execute(
+        """
+        INSERT INTO rag_ingestion_dispatches (job_id, status, available_at)
+        SELECT job_id, 'pending', now() FROM rag_ingestion_jobs
+        ON CONFLICT (job_id) DO NOTHING
+        """
+    )
 
     _install_immutability_triggers()
     indexing_profile_id, retrieval_profile_id = _ensure_technical_profiles()
@@ -212,15 +281,21 @@ def upgrade() -> None:
 
 def _ensure_technical_profiles() -> tuple[UUID, UUID]:
     connection = op.get_bind()
-    model_id = connection.scalar(
+    model_rows = connection.execute(
         sa.text(
             """
-            SELECT id FROM rag_model_definitions
-            WHERE kind = 'embedding' AND name = 'multilingual-e5-base' AND version = 1
+            SELECT id, kind, name, version, config
+            FROM rag_model_definitions
+            WHERE id = :id OR (
+                kind = 'embedding'
+                AND name = 'multilingual-e5-base'
+                AND version = 1
+            )
             """
-        )
-    )
-    if model_id is None:
+        ),
+        {"id": E5_MODEL_ID},
+    ).fetchall()
+    if not model_rows:
         connection.execute(
             sa.text(
                 """
@@ -230,29 +305,47 @@ def _ensure_technical_profiles() -> tuple[UUID, UUID]:
             ),
             {"config": json.dumps(E5_MODEL_CONFIG), "id": E5_MODEL_ID},
         )
-        model_id = E5_MODEL_ID
-    elif UUID(str(model_id)) != E5_MODEL_ID:
+        model_rows = [
+            (
+                E5_MODEL_ID,
+                "embedding",
+                "multilingual-e5-base",
+                1,
+                E5_MODEL_CONFIG,
+            )
+        ]
+    if len(model_rows) != 1 or (
+        UUID(str(model_rows[0][0])),
+        *model_rows[0][1:4],
+        model_rows[0][4],
+    ) != (
+        E5_MODEL_ID,
+        "embedding",
+        "multilingual-e5-base",
+        1,
+        E5_MODEL_CONFIG,
+    ):
         raise RuntimeError(
-            "The approved E5 Model Definition has a conflicting deterministic ID."
+            "The approved E5 Model Definition has a conflicting deterministic ID "
+            "or technical shape."
         )
-    stored_model_config = connection.scalar(
-        sa.text("SELECT config FROM rag_model_definitions WHERE id = :id"),
-        {"id": model_id},
-    )
-    if stored_model_config != E5_MODEL_CONFIG:
-        raise RuntimeError(
-            "The existing E5 Model Definition conflicts with the approved revision."
-        )
+    model_id = E5_MODEL_ID
 
-    indexing_profile_id = connection.scalar(
+    indexing_rows = connection.execute(
         sa.text(
             """
-            SELECT id FROM rag_profiles
-            WHERE kind = 'indexing' AND name = 'e5-structure-aware' AND version = 2
+            SELECT id, kind, name, version, config, evaluation_state, is_default
+            FROM rag_profiles
+            WHERE id = :id OR (
+                kind = 'indexing'
+                AND name = 'e5-structure-aware'
+                AND version = 2
+            )
             """
-        )
-    )
-    if indexing_profile_id is None:
+        ),
+        {"id": E5_INDEXING_PROFILE_ID},
+    ).fetchall()
+    if not indexing_rows:
         connection.execute(
             sa.text(
                 """
@@ -279,48 +372,76 @@ def _ensure_technical_profiles() -> tuple[UUID, UUID]:
                 "id": E5_PROFILE_BINDING_ID,
             },
         )
-        indexing_profile_id = E5_INDEXING_PROFILE_ID
-    elif UUID(str(indexing_profile_id)) != E5_INDEXING_PROFILE_ID:
+        indexing_rows = [
+            (
+                E5_INDEXING_PROFILE_ID,
+                "indexing",
+                "e5-structure-aware",
+                2,
+                E5_INDEXING_CONFIG,
+                "draft",
+                False,
+            )
+        ]
+    if len(indexing_rows) != 1 or (
+        UUID(str(indexing_rows[0][0])),
+        *indexing_rows[0][1:4],
+        indexing_rows[0][4],
+        indexing_rows[0][5],
+        indexing_rows[0][6],
+    ) != (
+        E5_INDEXING_PROFILE_ID,
+        "indexing",
+        "e5-structure-aware",
+        2,
+        E5_INDEXING_CONFIG,
+        "draft",
+        False,
+    ):
         raise RuntimeError(
-            "The approved E5 Indexing Profile has a conflicting deterministic ID."
+            "The approved E5 Indexing Profile has a conflicting deterministic ID "
+            "or technical shape."
         )
-    stored_indexing_config = connection.scalar(
-        sa.text("SELECT config FROM rag_profiles WHERE id = :id"),
-        {"id": indexing_profile_id},
-    )
-    if stored_indexing_config != E5_INDEXING_CONFIG:
-        raise RuntimeError(
-            "The existing E5 Indexing Profile conflicts with the approved version."
-        )
+    indexing_profile_id = E5_INDEXING_PROFILE_ID
     binding = connection.execute(
         sa.text(
             """
-            SELECT binding.model_id, model.kind, model.name, model.version
-            FROM rag_profile_model_bindings AS binding
-            JOIN rag_model_definitions AS model ON model.id = binding.model_id
-            WHERE binding.profile_id = :profile_id AND binding.role = 'embedding'
+            SELECT id, role, model_id
+            FROM rag_profile_model_bindings
+            WHERE profile_id = :profile_id
+            ORDER BY id
             """
         ),
         {"profile_id": indexing_profile_id},
     ).fetchall()
-    if len(binding) != 1 or binding[0][1:] != (
+    if len(binding) != 1 or (
+        UUID(str(binding[0][0])),
+        binding[0][1],
+        UUID(str(binding[0][2])),
+    ) != (
+        E5_PROFILE_BINDING_ID,
         "embedding",
-        "multilingual-e5-base",
-        1,
+        E5_MODEL_ID,
     ):
         raise RuntimeError(
-            "The existing E5 Indexing Profile is not bound to the approved model version."
+            "The existing E5 Indexing Profile bindings conflict with the approved shape."
         )
 
-    retrieval_profile_id = connection.scalar(
+    retrieval_rows = connection.execute(
         sa.text(
             """
-            SELECT id FROM rag_profiles
-            WHERE kind = 'retrieval' AND name = 'bm25-baseline' AND version = 1
+            SELECT id, kind, name, version, config, evaluation_state, is_default
+            FROM rag_profiles
+            WHERE id = :id OR (
+                kind = 'retrieval'
+                AND name = 'bm25-baseline'
+                AND version = 1
+            )
             """
-        )
-    )
-    if retrieval_profile_id is None:
+        ),
+        {"id": BM25_RETRIEVAL_PROFILE_ID},
+    ).fetchall()
+    if not retrieval_rows:
         connection.execute(
             sa.text(
                 """
@@ -337,21 +458,50 @@ def _ensure_technical_profiles() -> tuple[UUID, UUID]:
                 "id": BM25_RETRIEVAL_PROFILE_ID,
             },
         )
-        retrieval_profile_id = BM25_RETRIEVAL_PROFILE_ID
-    elif UUID(str(retrieval_profile_id)) != BM25_RETRIEVAL_PROFILE_ID:
+        retrieval_rows = [
+            (
+                BM25_RETRIEVAL_PROFILE_ID,
+                "retrieval",
+                "bm25-baseline",
+                1,
+                BM25_RETRIEVAL_CONFIG,
+                "draft",
+                False,
+            )
+        ]
+    if len(retrieval_rows) != 1 or (
+        UUID(str(retrieval_rows[0][0])),
+        *retrieval_rows[0][1:4],
+        retrieval_rows[0][4],
+        retrieval_rows[0][5],
+        retrieval_rows[0][6],
+    ) != (
+        BM25_RETRIEVAL_PROFILE_ID,
+        "retrieval",
+        "bm25-baseline",
+        1,
+        BM25_RETRIEVAL_CONFIG,
+        "draft",
+        False,
+    ):
         raise RuntimeError(
-            "The approved BM25 Retrieval Profile has a conflicting deterministic ID."
+            "The approved BM25 Retrieval Profile has a conflicting deterministic ID "
+            "or technical shape."
         )
-    stored_retrieval_config = connection.scalar(
-        sa.text("SELECT config FROM rag_profiles WHERE id = :id"),
-        {"id": retrieval_profile_id},
+    retrieval_profile_id = BM25_RETRIEVAL_PROFILE_ID
+    retrieval_bindings = connection.scalar(
+        sa.text(
+            """
+            SELECT count(*) FROM rag_profile_model_bindings
+            WHERE profile_id = :profile_id
+            """
+        ),
+        {"profile_id": retrieval_profile_id},
     )
-    if not isinstance(stored_retrieval_config, dict) or stored_retrieval_config.get(
-        "indexing_profile_id"
-    ) != str(indexing_profile_id):
+    if retrieval_bindings != 0:
         raise RuntimeError(
-            "The existing BM25 Retrieval Profile does not reference the approved "
-            "Indexing Profile."
+            "The existing BM25 Retrieval Profile bindings conflict with the approved "
+            "BM25-only shape."
         )
     return UUID(str(indexing_profile_id)), UUID(str(retrieval_profile_id))
 
@@ -406,6 +556,152 @@ def _seed_baseline(indexing_profile_id: UUID, retrieval_profile_id: UUID) -> Non
 
 
 def _install_immutability_triggers() -> None:
+    op.execute(
+        """
+        CREATE FUNCTION rag_validate_configuration_version_v1()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        DECLARE
+            retrieval_config jsonb;
+        BEGIN
+            SELECT config::jsonb INTO retrieval_config
+            FROM rag_profiles
+            WHERE id = NEW.retrieval_profile_id AND kind = 'retrieval';
+            IF retrieval_config IS NULL THEN
+                RAISE EXCEPTION 'configuration retrieval profile is invalid';
+            END IF;
+            IF retrieval_config ? 'reranker'
+               AND retrieval_config -> 'reranker' <> '{"enabled": false}'::jsonb THEN
+                RAISE EXCEPTION 'extractive V1 reranker is not supported';
+            END IF;
+            IF EXISTS (
+                SELECT 1 FROM jsonb_object_keys(retrieval_config) AS key
+                WHERE key LIKE 'reranker%' AND key <> 'reranker'
+            ) THEN
+                RAISE EXCEPTION 'extractive V1 reranker selection is not supported';
+            END IF;
+            IF EXISTS (
+                SELECT 1 FROM rag_profile_model_bindings
+                WHERE profile_id = NEW.retrieval_profile_id
+                  AND role = 'reranker'
+            ) THEN
+                RAISE EXCEPTION 'extractive V1 reranker binding is not supported';
+            END IF;
+            RETURN NEW;
+        END;
+        $$
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_rag_configuration_versions_validate_v1
+        BEFORE INSERT OR UPDATE ON rag_configuration_versions
+        FOR EACH ROW EXECUTE FUNCTION rag_validate_configuration_version_v1()
+        """
+    )
+    op.execute(
+        """
+        CREATE FUNCTION rag_profile_is_referenced(candidate_profile_id uuid)
+        RETURNS boolean LANGUAGE sql STABLE AS $$
+            SELECT EXISTS (
+                SELECT 1 FROM rag_configuration_versions
+                WHERE indexing_profile_id = candidate_profile_id
+                   OR retrieval_profile_id = candidate_profile_id
+                   OR generation_profile_id = candidate_profile_id
+            )
+        $$
+        """
+    )
+    op.execute(
+        """
+        CREATE FUNCTION rag_protect_referenced_profile()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+            IF rag_profile_is_referenced(OLD.id) THEN
+                RAISE EXCEPTION 'referenced profile version is immutable';
+            END IF;
+            IF TG_OP = 'DELETE' THEN
+                RETURN OLD;
+            END IF;
+            RETURN NEW;
+        END;
+        $$
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_rag_profiles_protect_referenced
+        BEFORE UPDATE OR DELETE ON rag_profiles
+        FOR EACH ROW EXECUTE FUNCTION rag_protect_referenced_profile()
+        """
+    )
+    op.execute(
+        """
+        CREATE FUNCTION rag_protect_referenced_profile_binding()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+            IF TG_OP = 'INSERT' THEN
+                IF rag_profile_is_referenced(NEW.profile_id) THEN
+                    RAISE EXCEPTION 'referenced binding set is immutable';
+                END IF;
+                RETURN NEW;
+            ELSIF TG_OP = 'DELETE' THEN
+                IF rag_profile_is_referenced(OLD.profile_id) THEN
+                    RAISE EXCEPTION 'referenced binding set is immutable';
+                END IF;
+                RETURN OLD;
+            END IF;
+            IF rag_profile_is_referenced(OLD.profile_id)
+               OR rag_profile_is_referenced(NEW.profile_id) THEN
+                RAISE EXCEPTION 'referenced binding set is immutable';
+            END IF;
+            RETURN NEW;
+        END;
+        $$
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_rag_profile_bindings_protect_referenced
+        BEFORE INSERT OR UPDATE OR DELETE ON rag_profile_model_bindings
+        FOR EACH ROW EXECUTE FUNCTION rag_protect_referenced_profile_binding()
+        """
+    )
+    op.execute(
+        """
+        CREATE FUNCTION rag_model_is_referenced(candidate_model_id uuid)
+        RETURNS boolean LANGUAGE sql STABLE AS $$
+            SELECT EXISTS (
+                SELECT 1
+                FROM rag_profile_model_bindings AS binding
+                WHERE binding.model_id = candidate_model_id
+                  AND rag_profile_is_referenced(binding.profile_id)
+            )
+        $$
+        """
+    )
+    op.execute(
+        """
+        CREATE FUNCTION rag_protect_referenced_model()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+            IF rag_model_is_referenced(OLD.id) THEN
+                RAISE EXCEPTION 'referenced model definition version is immutable';
+            END IF;
+            IF TG_OP = 'DELETE' THEN
+                RETURN OLD;
+            END IF;
+            RETURN NEW;
+        END;
+        $$
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_rag_models_protect_referenced
+        BEFORE UPDATE OR DELETE ON rag_model_definitions
+        FOR EACH ROW EXECUTE FUNCTION rag_protect_referenced_model()
+        """
+    )
     op.execute(
         """
         CREATE FUNCTION rag_reject_immutable_row_mutation()
@@ -463,6 +759,20 @@ def _install_immutability_triggers() -> None:
 
 
 def downgrade() -> None:
+    op.execute(
+        "DROP TRIGGER trg_rag_models_protect_referenced ON rag_model_definitions"
+    )
+    op.execute(
+        "DROP TRIGGER trg_rag_profile_bindings_protect_referenced "
+        "ON rag_profile_model_bindings"
+    )
+    op.execute("DROP TRIGGER trg_rag_profiles_protect_referenced ON rag_profiles")
+    op.execute("DROP FUNCTION rag_protect_referenced_model()")
+    op.execute("DROP FUNCTION rag_model_is_referenced(uuid)")
+    op.execute("DROP FUNCTION rag_protect_referenced_profile_binding()")
+    op.execute("DROP FUNCTION rag_protect_referenced_profile()")
+    op.execute("DROP FUNCTION rag_profile_is_referenced(uuid)")
+    op.drop_table("rag_ingestion_dispatches")
     op.drop_table("rag_configuration_workspace_subscriptions")
     op.drop_index(
         "uq_rag_configuration_versions_passed_default",
@@ -476,3 +786,4 @@ def downgrade() -> None:
     op.drop_table("rag_configurations")
     op.execute("DROP FUNCTION rag_protect_configuration_version_components()")
     op.execute("DROP FUNCTION rag_reject_immutable_row_mutation()")
+    op.execute("DROP FUNCTION rag_validate_configuration_version_v1()")

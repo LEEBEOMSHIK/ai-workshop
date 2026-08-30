@@ -201,7 +201,10 @@ class SqlAlchemyModelRegistryRepository:
     async def set_default(self, profile: Profile) -> Profile:
         await self.session.execute(
             update(ProfileRecord)
-            .where(ProfileRecord.kind == profile.kind)
+            .where(
+                ProfileRecord.kind == profile.kind,
+                ProfileRecord.is_default.is_(True),
+            )
             .values(is_default=False)
         )
         record = await self.session.get(ProfileRecord, profile.id)

@@ -2,10 +2,7 @@ from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 
-from ai_workshop.labs.rag.configurations.api import (
-    get_rag_configuration_dispatcher,
-    get_rag_configuration_service,
-)
+from ai_workshop.labs.rag.configurations.api import get_rag_configuration_service
 from ai_workshop.labs.rag.configurations.domain import (
     AnswerPolicyVersion,
     SavedRagConfiguration,
@@ -102,22 +99,10 @@ class FakeConfigurationService:
         )
 
 
-class RecordingDispatcher:
-    def __init__(self) -> None:
-        self.job_ids: list[UUID] = []
-
-    def ensure_indexed(self, job_id: UUID) -> None:
-        self.job_ids.append(job_id)
-
-
-def _client(
-    service: FakeConfigurationService,
-    dispatcher: RecordingDispatcher,
-) -> TestClient:
+def _client(service: FakeConfigurationService) -> TestClient:
     app = create_app()
     app.dependency_overrides[get_current_user] = owner
     app.dependency_overrides[get_rag_configuration_service] = lambda: service
-    app.dependency_overrides[get_rag_configuration_dispatcher] = lambda: dispatcher
     return TestClient(app)
 
 
@@ -126,7 +111,7 @@ def test_list_exposes_only_the_supplied_system_baseline_and_actor_configurations
     own = _configuration()
     service = FakeConfigurationService([baseline, own])
 
-    with _client(service, RecordingDispatcher()) as client:
+    with _client(service) as client:
         response = client.get("/api/v1/rag/configurations")
 
     assert response.status_code == 200
@@ -138,15 +123,14 @@ def test_list_exposes_only_the_supplied_system_baseline_and_actor_configurations
     assert payload[0]["generation_profile_id"] is None
 
 
-def test_create_accepts_extractive_policy_and_dispatches_only_persisted_job_ids() -> None:
+def test_create_accepts_extractive_policy_and_leaves_dispatch_to_the_outbox() -> None:
     workspace_id = uuid4()
     indexing_profile_id = uuid4()
     retrieval_profile_id = uuid4()
     saved = _configuration()
     service = FakeConfigurationService([saved])
-    dispatcher = RecordingDispatcher()
 
-    with _client(service, dispatcher) as client:
+    with _client(service) as client:
         response = client.post(
             "/api/v1/rag/configurations",
             json={
@@ -178,14 +162,13 @@ def test_create_accepts_extractive_policy_and_dispatches_only_persisted_job_ids(
         "conflict_mode": "separate_sources",
         "workspace_ids": (workspace_id,),
     }
-    assert len(dispatcher.job_ids) == 2
 
 
 def test_detail_and_default_are_nondisclosing_or_fail_closed() -> None:
     saved = _configuration()
     service = FakeConfigurationService([saved])
 
-    with _client(service, RecordingDispatcher()) as client:
+    with _client(service) as client:
         detail = client.get(f"/api/v1/rag/configurations/{saved.id}")
         missing = client.get(f"/api/v1/rag/configurations/{uuid4()}")
         promotion = client.post(f"/api/v1/rag/configurations/{saved.id}/default")

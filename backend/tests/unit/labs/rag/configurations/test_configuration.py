@@ -3,11 +3,17 @@ from dataclasses import FrozenInstanceError
 from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy import CheckConstraint, ForeignKeyConstraint
 
 from ai_workshop.labs.rag.configurations.domain import (
     AnswerPolicyVersion,
     ConfigurationValidationError,
     SavedRagConfiguration,
+    validate_v1_retrieval_profile,
+)
+from ai_workshop.labs.rag.configurations.models import (
+    AnswerPolicyVersionRecord,
+    RagConfigurationVersionRecord,
 )
 from ai_workshop.labs.rag.configurations.service import RagConfigurationService
 from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand
@@ -118,6 +124,37 @@ def test_extractive_policy_is_versioned_and_fail_closed() -> None:
     assert policy.version == 3
     assert policy.mode == "extractive"
     assert policy.to_answer_policy().conflict_mode == "separate_sources"
+
+
+def test_orm_metadata_fences_task11_states_and_pairs_the_exact_policy_version() -> None:
+    configuration_table = RagConfigurationVersionRecord.__table__
+    check_names = {
+        constraint.name
+        for constraint in configuration_table.constraints
+        if isinstance(constraint, CheckConstraint)
+    }
+
+    assert "ck_rag_config_versions_no_passed_pre_eval" in check_names
+    assert "ck_rag_config_versions_no_default_pre_eval" in check_names
+
+    policy_table = AnswerPolicyVersionRecord.__table__
+    policy_foreign_key = next(
+        constraint
+        for constraint in configuration_table.constraints
+        if isinstance(constraint, ForeignKeyConstraint)
+        and "answer_policy_version_id"
+        in {element.parent.name for element in constraint.elements}
+    )
+    assert [element.parent.name for element in policy_foreign_key.elements] == [
+        "configuration_id",
+        "answer_policy_version_id",
+        "version",
+    ]
+    assert [element.target_fullname for element in policy_foreign_key.elements] == [
+        f"{policy_table.name}.configuration_id",
+        f"{policy_table.name}.id",
+        f"{policy_table.name}.version",
+    ]
 
 
 def test_default_promotion_requires_passed_and_applicable_versioned_policy() -> None:
@@ -267,6 +304,60 @@ def _technical_profiles() -> tuple[Profile, Profile]:
         bindings=(),
     )
     return indexing, retrieval
+
+
+def _retrieval_with_reranker(
+    *,
+    reranker: dict[str, object],
+    with_binding: bool,
+) -> Profile:
+    return Profile.create(
+        kind=ProfileKind.RETRIEVAL,
+        name="hybrid-disabled-v1",
+        version=1,
+        config={
+            "bm25": {"analyzer": "standard", "top_k": 30},
+            "dense": {"top_k": 30},
+            "rrf": {"k": 60},
+            "indexing_profile_id": str(uuid4()),
+            "reranker": reranker,
+        },
+        bindings=(
+            (ProfileModelBinding(ModelKind.RERANKER, uuid4()),)
+            if with_binding
+            else ()
+        ),
+    )
+
+
+def test_v1_retrieval_accepts_only_non_executable_disabled_reranker_metadata() -> None:
+    disabled = _retrieval_with_reranker(
+        reranker={"enabled": False},
+        with_binding=False,
+    )
+
+    validate_v1_retrieval_profile(disabled)
+
+    enabled = _retrieval_with_reranker(
+        reranker={"enabled": True},
+        with_binding=False,
+    )
+    with pytest.raises(ConfigurationValidationError, match="reranker"):
+        validate_v1_retrieval_profile(enabled)
+
+    selected = _retrieval_with_reranker(
+        reranker={"enabled": False, "model_id": str(uuid4())},
+        with_binding=False,
+    )
+    with pytest.raises(ConfigurationValidationError, match="reranker"):
+        validate_v1_retrieval_profile(selected)
+
+    bound = _retrieval_with_reranker(
+        reranker={"enabled": False},
+        with_binding=True,
+    )
+    with pytest.raises(ConfigurationValidationError, match="binding"):
+        validate_v1_retrieval_profile(bound)
 
 
 def _commit(events: list[str]) -> Callable[[], Awaitable[None]]:
@@ -458,3 +549,47 @@ async def test_incompatible_or_generation_profile_is_rejected_before_save() -> N
             workspace_ids=(workspace_id,),
         )
     assert generation.value.code == "generation_not_supported"
+
+
+@pytest.mark.asyncio
+async def test_enabled_or_bound_reranker_is_rejected_before_save() -> None:
+    indexing, _ = _technical_profiles()
+    workspace_id = uuid4()
+    enabled = Profile.create(
+        kind=ProfileKind.RETRIEVAL,
+        name="enabled-reranker",
+        version=1,
+        config={
+            "bm25": {"top_k": 30},
+            "indexing_profile_id": str(indexing.id),
+            "reranker": {"enabled": True},
+        },
+        bindings=(),
+    )
+    repository = MemoryConfigurationRepository(
+        profiles=(indexing, enabled),
+        accessible_workspace_ids=(workspace_id,),
+    )
+    service = RagConfigurationService(
+        repository,
+        RecordingIngestionJobs(repository.events),
+        commit=_commit(repository.events),
+    )
+
+    with pytest.raises(AppError) as caught:
+        await service.create(
+            owner_id=uuid4(),
+            name="reranker 사용",
+            indexing_profile_id=indexing.id,
+            retrieval_profile_id=enabled.id,
+            generation_profile_id=None,
+            min_semantic_score=0.8,
+            min_keyword_coverage=0.7,
+            require_complete_provenance=True,
+            conflict_mode="separate_sources",
+            workspace_ids=(workspace_id,),
+        )
+
+    assert caught.value.code == "reranker_not_supported"
+    assert repository.identities == {}
+    assert repository.events == []

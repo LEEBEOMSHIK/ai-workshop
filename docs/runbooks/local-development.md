@@ -23,7 +23,7 @@ cd ..
 
 ## 2. 권장 실행: 백엔드 컨테이너 + 호스트 프론트엔드
 
-API, worker와 migration은 모두 `backend/Dockerfile`로 만든 같은 이미지를 쓴다. API나 worker가 스키마를 자동 변경하지 않으며 migration은 매번 명시적으로 한 번 실행한다.
+API, worker, beat와 migration은 모두 `backend/Dockerfile`로 만든 같은 이미지를 쓴다. API, worker나 beat가 스키마를 자동 변경하지 않으며 migration은 매번 명시적으로 한 번 실행한다.
 
 ```powershell
 docker compose -f infrastructure/compose/compose.yaml build api
@@ -37,10 +37,10 @@ docker compose -f infrastructure/compose/compose.yaml --profile tools run --rm m
 docker compose -f infrastructure/compose/compose.yaml run --rm api ai-workshop bootstrap-owner --name "Local Owner" --email "owner@example.com"
 ```
 
-API와 worker를 시작한 뒤 별도 터미널에서 프론트엔드를 실행한다.
+API, worker와 주기적 outbox reconciler를 실행하는 beat를 시작한 뒤 별도 터미널에서 프론트엔드를 실행한다.
 
 ```powershell
-docker compose -f infrastructure/compose/compose.yaml up -d api worker
+docker compose -f infrastructure/compose/compose.yaml up -d api worker beat
 pnpm --dir frontend dev
 ```
 
@@ -70,6 +70,11 @@ cd backend
 uv run celery -A ai_workshop.worker:celery_app worker --loglevel=INFO
 ```
 
+```powershell
+cd backend
+uv run celery -A ai_workshop.worker:celery_app beat --loglevel=INFO
+```
+
 Windows ARM64에서 psycopg 바이너리를 불러오지 못하거나 `WinError 193`이 발생하면 호스트 백엔드 대신 권장 컨테이너 실행을 사용한다.
 
 ## 4. 마이그레이션
@@ -88,7 +93,7 @@ uv run alembic check
 docker compose -f infrastructure/compose/compose.yaml --profile tools run --rm migrate
 ```
 
-API와 worker를 여러 개 실행해도 migration을 자동 수행하지 않는다.
+API, worker와 beat를 여러 개 실행해도 migration을 자동 수행하지 않는다.
 
 ## 5. 테스트와 품질 검사
 
@@ -123,13 +128,14 @@ E2E 테스트는 `AI_WORKSHOP_E2E=1`과 `AI_WORKSHOP_ENVIRONMENT=test`가 모두
 
 ```powershell
 docker compose -f infrastructure/compose/compose.yaml ps
-docker compose -f infrastructure/compose/compose.yaml logs api worker postgres redis
+docker compose -f infrastructure/compose/compose.yaml logs api worker beat postgres redis
 ```
 
 - Docker 연결 오류: Docker Desktop을 시작하고 `docker info`가 성공하는지 확인한다.
 - 포트 충돌: `.env`의 `API_PORT`, `POSTGRES_PORT`, `REDIS_PORT`를 사용하지 않는 포트로 바꾼다.
 - API가 시작되지 않음: migration 명령이 성공했는지 확인하고 API 로그의 오류 코드를 본다.
 - worker가 작업을 처리하지 않음: Redis 상태와 worker health/log를 확인한다. 실패 job은 API 상태에서 오류 코드를 확인한다.
+- 저장된 RAG 작업이 worker로 전달되지 않음: beat가 실행 중인지 확인하고 beat 로그에서 `ai_workshop.rag.reconcile_dispatches` 실행 여부를 확인한다.
 - 객체 저장 권한 오류: `object-store-init` 서비스가 성공 종료했는지 `docker compose ps -a`로 확인한다.
 - owner 중복 오류: owner bootstrap은 최초 한 번만 허용된다. 기존 계정으로 로그인한다.
 - OpenAPI 타입 불일치: 백엔드 계약을 바꾼 뒤 `pnpm --dir frontend api:generate`를 실행하고 생성 파일을 함께 커밋한다.

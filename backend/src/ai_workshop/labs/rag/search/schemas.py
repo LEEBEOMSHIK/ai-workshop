@@ -19,6 +19,7 @@ class SearchRequest(BaseModel):
     workspace_ids: list[UUID] = Field(min_length=1)
     folder_ids: list[UUID] = Field(default_factory=list)
     top_k: int = Field(default=10, ge=1, le=50)
+    experimental: bool = False
 
 
 class SourceLocationResponse(BaseModel):

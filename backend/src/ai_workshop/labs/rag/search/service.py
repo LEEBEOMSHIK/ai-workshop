@@ -70,6 +70,12 @@ class SearchApplicationService:
             request.configuration_id,
             actor_id,
         )
+        if configuration.experimental and not request.experimental:
+            raise AppError(
+                "experimental_opt_in_required",
+                "The selected configuration requires explicit experimental opt-in.",
+                409,
+            )
         policy = configuration.answer_policy
         if configuration.answer_policy_version_id is None or policy is None:
             raise AppError(

@@ -79,6 +79,24 @@ services:
       timeout: 10s
       retries: 10
 
+  beat:
+    <<: *backend
+    command:
+      [
+        "celery",
+        "-A",
+        "ai_workshop.worker:celery_app",
+        "beat",
+        "--loglevel=INFO",
+      ]
+    depends_on:
+      object-store-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   migrate:
     <<: *backend
     command: ["alembic", "upgrade", "head"]
@@ -113,6 +131,8 @@ services:
         condition: service_healthy
       worker:
         condition: service_healthy
+      beat:
+        condition: service_started
 
   postgres:
     image: postgres:17-alpine

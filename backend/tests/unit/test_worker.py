@@ -9,8 +9,9 @@ from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand
 from ai_workshop.platform.jobs.models import JobRecord
 from ai_workshop.worker import (
     ASSET_VERIFICATION_TASK,
+    RAG_DISPATCH_RECONCILE_TASK,
     RAG_INGESTION_TASK,
-    CeleryJobDispatcher,
+    CeleryRagJobSender,
     VerifiedAssetSubscription,
     _rag_error,
     celery_app,
@@ -20,6 +21,11 @@ from ai_workshop.worker import (
 
 def test_celery_cli_app_is_available_without_loading_application_secrets() -> None:
     assert ASSET_VERIFICATION_TASK in celery_app.tasks
+    assert RAG_DISPATCH_RECONCILE_TASK in celery_app.tasks
+    assert celery_app.conf.beat_schedule["reconcile-rag-ingestion-dispatches"] == {
+        "task": RAG_DISPATCH_RECONCILE_TASK,
+        "schedule": 5.0,
+    }
 
 
 def test_worker_registers_every_table_referenced_by_jobs() -> None:
@@ -72,20 +78,21 @@ def test_integrity_error_is_never_classified_as_retryable() -> None:
     assert retryable is False
 
 
-def test_rag_dispatcher_sends_only_the_persisted_job_id() -> None:
+def test_reconciler_sender_sends_only_the_persisted_job_id() -> None:
     settings = Settings(
         _env_file=None,
         environment="test",
         secret_key="x" * 32,
         redis_url="redis://unused:6379/0",
     )
-    dispatcher = CeleryJobDispatcher(settings)
-    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
-    task = dispatcher.application.tasks[RAG_INGESTION_TASK]
-    task.delay = lambda *args, **kwargs: calls.append((args, kwargs))  # type: ignore[method-assign]
     job_id = uuid4()
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
-    dispatcher.ensure_indexed(job_id)
+    application = create_celery(settings)
+    task = application.tasks[RAG_INGESTION_TASK]
+    task.delay = lambda *args, **kwargs: calls.append((args, kwargs))  # type: ignore[method-assign]
+
+    CeleryRagJobSender(application).send(job_id)
 
     assert calls == [((str(job_id),), {})]
 
@@ -154,4 +161,5 @@ def test_verified_asset_enqueues_distinct_profiles_with_job_ids_only(
         first_requester,
         first_requester,
     ]
-    assert dispatched == [str(job_id) for job_id in persisted_job_ids]
+    assert len(persisted_job_ids) == 2
+    assert dispatched == []

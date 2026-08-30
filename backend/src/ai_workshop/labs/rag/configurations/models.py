@@ -45,7 +45,7 @@ class AnswerPolicyVersionRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "rag_answer_policy_versions"
     __table_args__ = (
         UniqueConstraint("configuration_id", "version"),
-        UniqueConstraint("configuration_id", "id"),
+        UniqueConstraint("configuration_id", "id", "version"),
         CheckConstraint("version > 0", name="ck_rag_answer_policy_versions_positive"),
         CheckConstraint("mode = 'extractive'", name="ck_rag_answer_policy_versions_mode"),
         CheckConstraint(
@@ -81,10 +81,11 @@ class RagConfigurationVersionRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "rag_configuration_versions"
     __table_args__ = (
         ForeignKeyConstraint(
-            ["configuration_id", "answer_policy_version_id"],
+            ["configuration_id", "answer_policy_version_id", "version"],
             [
                 "rag_answer_policy_versions.configuration_id",
                 "rag_answer_policy_versions.id",
+                "rag_answer_policy_versions.version",
             ],
             ondelete="RESTRICT",
         ),
@@ -101,6 +102,14 @@ class RagConfigurationVersionRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         CheckConstraint(
             "NOT is_default OR evaluation_state = 'passed'",
             name="ck_rag_configuration_versions_default_passed",
+        ),
+        CheckConstraint(
+            "evaluation_state <> 'passed'",
+            name="ck_rag_config_versions_no_passed_pre_eval",
+        ),
+        CheckConstraint(
+            "NOT is_default",
+            name="ck_rag_config_versions_no_default_pre_eval",
         ),
         Index(
             "uq_rag_configuration_versions_passed_default",

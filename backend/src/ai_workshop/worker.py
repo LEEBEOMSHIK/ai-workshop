@@ -13,8 +13,12 @@ from ai_workshop.config import Settings, get_settings
 from ai_workshop.labs.rag.configurations.repository import (
     SqlAlchemyRagConfigurationRepository,
 )
+from ai_workshop.labs.rag.ingestion.dispatch import RagDispatchReconciler
 from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand, RagIngestionError
-from ai_workshop.labs.rag.ingestion.repository import SqlAlchemyRagIngestionCommandRepository
+from ai_workshop.labs.rag.ingestion.repository import (
+    SqlAlchemyRagDispatchRepository,
+    SqlAlchemyRagIngestionCommandRepository,
+)
 from ai_workshop.labs.rag.ingestion.service import RagIngestionService, RagIngestionWorkflow
 from ai_workshop.labs.rag.ingestion.tasks import create_rag_ingestion_workflow
 from ai_workshop.labs.rag.parsing.contracts import ParsingError
@@ -24,6 +28,7 @@ from ai_workshop.shared.model_registry import load_models
 
 ASSET_VERIFICATION_TASK = "ai_workshop.assets.verify_stored"
 RAG_INGESTION_TASK = "ai_workshop.rag.ensure_indexed"
+RAG_DISPATCH_RECONCILE_TASK = "ai_workshop.rag.reconcile_dispatches"
 
 load_models()
 
@@ -98,6 +103,12 @@ def create_celery(
         task_eager_propagates=True,
         task_serializer="json",
         timezone="UTC",
+        beat_schedule={
+            "reconcile-rag-ingestion-dispatches": {
+                "task": RAG_DISPATCH_RECONCILE_TASK,
+                "schedule": 5.0,
+            }
+        },
     )
 
     @application.task(  # type: ignore[untyped-decorator]
@@ -119,7 +130,7 @@ def create_celery(
                 if subscription.indexing_profile_id in seen_profiles:
                     continue
                 seen_profiles.add(subscription.indexing_profile_id)
-                rag_job_id = run(
+                run(
                     _ensure_rag_job(
                         resolved_settings,
                         EnsureIndexedCommand(
@@ -129,9 +140,17 @@ def create_celery(
                         ),
                     )
                 )
-                application.tasks[RAG_INGESTION_TASK].delay(str(rag_job_id))
         except AssetTaskError as exc:
             raise RuntimeError(exc.code) from exc
+
+    @application.task(  # type: ignore[untyped-decorator]
+        name=RAG_DISPATCH_RECONCILE_TASK,
+        ignore_result=True,
+        shared=False,
+    )
+    def reconcile_dispatches() -> None:
+        resolved_settings = settings or get_settings()
+        run(_reconcile_rag_dispatches(resolved_settings, application))
 
     @application.task(  # type: ignore[untyped-decorator]
         bind=True,
@@ -173,9 +192,6 @@ class CeleryJobDispatcher:
     def verify_asset(self, job_id: UUID) -> None:
         self.application.tasks[ASSET_VERIFICATION_TASK].delay(str(job_id))
 
-    def ensure_indexed(self, job_id: UUID) -> None:
-        self.application.tasks[RAG_INGESTION_TASK].delay(str(job_id))
-
 
 def get_job_dispatcher(
     settings: Annotated[Settings, Depends(get_settings)],
@@ -191,6 +207,26 @@ async def _ensure_rag_job(settings: Settings, command: EnsureIndexedCommand) -> 
             return await RagIngestionService(
                 SqlAlchemyRagIngestionCommandRepository(session)
             ).ensure_indexed(command)
+    finally:
+        await engine.dispose()
+
+
+class CeleryRagJobSender:
+    def __init__(self, application: Celery) -> None:
+        self.application = application
+
+    def send(self, job_id: UUID) -> None:
+        self.application.tasks[RAG_INGESTION_TASK].delay(str(job_id))
+
+
+async def _reconcile_rag_dispatches(settings: Settings, application: Celery) -> None:
+    engine = create_engine(settings)
+    sessions = create_session_factory(engine)
+    try:
+        await RagDispatchReconciler(
+            SqlAlchemyRagDispatchRepository(sessions),
+            CeleryRagJobSender(application),
+        ).run_once()
     finally:
         await engine.dispose()
 

@@ -558,11 +558,143 @@ def _seed_baseline(indexing_profile_id: UUID, retrieval_profile_id: UUID) -> Non
 def _install_immutability_triggers() -> None:
     op.execute(
         """
+        CREATE FUNCTION rag_lock_technical_components(
+            candidate_profile_ids uuid[],
+            candidate_model_ids uuid[]
+        ) RETURNS void LANGUAGE plpgsql VOLATILE AS $$
+        DECLARE
+            component_id uuid;
+        BEGIN
+            -- A transaction-wide statement gate is acquired before any row trigger
+            -- can retain a partial component set across a multi-row statement.
+            PERFORM pg_advisory_xact_lock(
+                hashtextextended(
+                    'ai-workshop:rag:technical-components:statement:v1',
+                    0
+                )
+            );
+            -- All callers use the same transaction-scoped order: profiles first,
+            -- then models. Row locks precede advisory locks so DELETE/primary-key
+            -- mutations cannot invert PostgreSQL row-lock and advisory-lock order.
+            PERFORM 1
+            FROM rag_profiles
+            WHERE id IN (
+                SELECT DISTINCT candidate_id
+                FROM unnest(
+                    COALESCE(candidate_profile_ids, ARRAY[]::uuid[])
+                ) AS candidates(candidate_id)
+                WHERE candidate_id IS NOT NULL
+            )
+            ORDER BY id
+            FOR KEY SHARE;
+            FOR component_id IN
+                SELECT DISTINCT candidate_id
+                FROM unnest(
+                    COALESCE(candidate_profile_ids, ARRAY[]::uuid[])
+                ) AS candidates(candidate_id)
+                WHERE candidate_id IS NOT NULL
+                ORDER BY candidate_id
+            LOOP
+                PERFORM pg_advisory_xact_lock(
+                    hashtextextended(
+                        'ai-workshop:rag:profile:v1:' || component_id::text,
+                        0
+                    )
+                );
+            END LOOP;
+
+            PERFORM 1
+            FROM rag_model_definitions
+            WHERE id IN (
+                SELECT DISTINCT candidate_id
+                FROM unnest(
+                    COALESCE(candidate_model_ids, ARRAY[]::uuid[])
+                ) AS candidates(candidate_id)
+                WHERE candidate_id IS NOT NULL
+            )
+            ORDER BY id
+            FOR KEY SHARE;
+            FOR component_id IN
+                SELECT DISTINCT candidate_id
+                FROM unnest(
+                    COALESCE(candidate_model_ids, ARRAY[]::uuid[])
+                ) AS candidates(candidate_id)
+                WHERE candidate_id IS NOT NULL
+                ORDER BY candidate_id
+            LOOP
+                PERFORM pg_advisory_xact_lock(
+                    hashtextextended(
+                        'ai-workshop:rag:model:v1:' || component_id::text,
+                        0
+                    )
+                );
+            END LOOP;
+            -- Namespaced 64-bit hashes make unrelated component types independent;
+            -- a theoretical collision only adds safe contention.
+        END;
+        $$
+        """
+    )
+    op.execute(
+        """
+        CREATE FUNCTION rag_serialize_technical_component_statement()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+            PERFORM rag_lock_technical_components(
+                ARRAY[]::uuid[],
+                ARRAY[]::uuid[]
+            );
+            RETURN NULL;
+        END;
+        $$
+        """
+    )
+    for table, events in (
+        ("rag_configuration_versions", "INSERT OR UPDATE OR DELETE"),
+        ("rag_profiles", "UPDATE OR DELETE"),
+        ("rag_profile_model_bindings", "INSERT OR UPDATE OR DELETE"),
+        ("rag_model_definitions", "UPDATE OR DELETE"),
+    ):
+        op.execute(
+            f"""
+            CREATE TRIGGER trg_{table}_serialize_technical
+            BEFORE {events} ON {table}
+            FOR EACH STATEMENT
+            EXECUTE FUNCTION rag_serialize_technical_component_statement()
+            """
+        )
+    op.execute(
+        """
         CREATE FUNCTION rag_validate_configuration_version_v1()
         RETURNS trigger LANGUAGE plpgsql AS $$
         DECLARE
+            selected_profile_ids uuid[];
+            bound_model_ids uuid[];
             retrieval_config jsonb;
         BEGIN
+            selected_profile_ids := array_remove(
+                ARRAY[
+                    NEW.indexing_profile_id,
+                    NEW.retrieval_profile_id,
+                    NEW.generation_profile_id
+                ],
+                NULL
+            );
+            PERFORM rag_lock_technical_components(
+                selected_profile_ids,
+                ARRAY[]::uuid[]
+            );
+            SELECT COALESCE(
+                array_agg(DISTINCT model_id ORDER BY model_id),
+                ARRAY[]::uuid[]
+            ) INTO bound_model_ids
+            FROM rag_profile_model_bindings
+            WHERE profile_id = ANY(selected_profile_ids);
+            PERFORM rag_lock_technical_components(
+                ARRAY[]::uuid[],
+                bound_model_ids
+            );
+
             SELECT config::jsonb INTO retrieval_config
             FROM rag_profiles
             WHERE id = NEW.retrieval_profile_id AND kind = 'retrieval';
@@ -616,6 +748,17 @@ def _install_immutability_triggers() -> None:
         CREATE FUNCTION rag_protect_referenced_profile()
         RETURNS trigger LANGUAGE plpgsql AS $$
         BEGIN
+            IF TG_OP = 'DELETE' THEN
+                PERFORM rag_lock_technical_components(
+                    ARRAY[OLD.id],
+                    ARRAY[]::uuid[]
+                );
+            ELSE
+                PERFORM rag_lock_technical_components(
+                    ARRAY[OLD.id, NEW.id],
+                    ARRAY[]::uuid[]
+                );
+            END IF;
             IF rag_profile_is_referenced(OLD.id) THEN
                 RAISE EXCEPTION 'referenced profile version is immutable';
             END IF;
@@ -638,18 +781,39 @@ def _install_immutability_triggers() -> None:
         """
         CREATE FUNCTION rag_protect_referenced_profile_binding()
         RETURNS trigger LANGUAGE plpgsql AS $$
+        DECLARE
+            affected_profile_ids uuid[];
+            affected_model_ids uuid[];
         BEGIN
             IF TG_OP = 'INSERT' THEN
+                affected_profile_ids := ARRAY[NEW.profile_id];
+                affected_model_ids := ARRAY[NEW.model_id];
+                PERFORM rag_lock_technical_components(
+                    affected_profile_ids,
+                    affected_model_ids
+                );
                 IF rag_profile_is_referenced(NEW.profile_id) THEN
                     RAISE EXCEPTION 'referenced binding set is immutable';
                 END IF;
                 RETURN NEW;
             ELSIF TG_OP = 'DELETE' THEN
+                affected_profile_ids := ARRAY[OLD.profile_id];
+                affected_model_ids := ARRAY[OLD.model_id];
+                PERFORM rag_lock_technical_components(
+                    affected_profile_ids,
+                    affected_model_ids
+                );
                 IF rag_profile_is_referenced(OLD.profile_id) THEN
                     RAISE EXCEPTION 'referenced binding set is immutable';
                 END IF;
                 RETURN OLD;
             END IF;
+            affected_profile_ids := ARRAY[OLD.profile_id, NEW.profile_id];
+            affected_model_ids := ARRAY[OLD.model_id, NEW.model_id];
+            PERFORM rag_lock_technical_components(
+                affected_profile_ids,
+                affected_model_ids
+            );
             IF rag_profile_is_referenced(OLD.profile_id)
                OR rag_profile_is_referenced(NEW.profile_id) THEN
                 RAISE EXCEPTION 'referenced binding set is immutable';
@@ -684,6 +848,17 @@ def _install_immutability_triggers() -> None:
         CREATE FUNCTION rag_protect_referenced_model()
         RETURNS trigger LANGUAGE plpgsql AS $$
         BEGIN
+            IF TG_OP = 'DELETE' THEN
+                PERFORM rag_lock_technical_components(
+                    ARRAY[]::uuid[],
+                    ARRAY[OLD.id]
+                );
+            ELSE
+                PERFORM rag_lock_technical_components(
+                    ARRAY[]::uuid[],
+                    ARRAY[OLD.id, NEW.id]
+                );
+            END IF;
             IF rag_model_is_referenced(OLD.id) THEN
                 RAISE EXCEPTION 'referenced model definition version is immutable';
             END IF;
@@ -760,6 +935,22 @@ def _install_immutability_triggers() -> None:
 
 def downgrade() -> None:
     op.execute(
+        "DROP TRIGGER trg_rag_configuration_versions_serialize_technical "
+        "ON rag_configuration_versions"
+    )
+    op.execute(
+        "DROP TRIGGER trg_rag_profiles_serialize_technical ON rag_profiles"
+    )
+    op.execute(
+        "DROP TRIGGER trg_rag_profile_model_bindings_serialize_technical "
+        "ON rag_profile_model_bindings"
+    )
+    op.execute(
+        "DROP TRIGGER trg_rag_model_definitions_serialize_technical "
+        "ON rag_model_definitions"
+    )
+    op.execute("DROP FUNCTION rag_serialize_technical_component_statement()")
+    op.execute(
         "DROP TRIGGER trg_rag_models_protect_referenced ON rag_model_definitions"
     )
     op.execute(
@@ -787,3 +978,4 @@ def downgrade() -> None:
     op.execute("DROP FUNCTION rag_protect_configuration_version_components()")
     op.execute("DROP FUNCTION rag_reject_immutable_row_mutation()")
     op.execute("DROP FUNCTION rag_validate_configuration_version_v1()")
+    op.execute("DROP FUNCTION rag_lock_technical_components(uuid[], uuid[])")

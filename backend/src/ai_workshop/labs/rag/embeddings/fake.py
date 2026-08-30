@@ -36,4 +36,7 @@ class DeterministicFakeEmbedding:
             vector[first] += 1.0 if digest[8] & 1 else -1.0
             vector[second] += (digest[9] + 1) / 256.0
         norm = math.sqrt(sum(value * value for value in vector))
+        if norm == 0.0:
+            vector[0] = 1.0
+            norm = 1.0
         return [value / norm for value in vector]

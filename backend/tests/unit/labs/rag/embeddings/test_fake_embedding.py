@@ -30,3 +30,13 @@ def test_fake_hashes_query_and_document_prefixes_differently() -> None:
 
     assert embedding.encode_query("same text") != embedding.encode_documents(["same text"])[0]
     assert embedding.count_tokens("one two  three") == 3
+
+
+def test_fake_one_dimension_vectors_never_divide_by_a_zero_hash_bucket() -> None:
+    embedding = DeterministicFakeEmbedding(
+        dimension=1,
+        query_prefix="",
+        document_prefix="",
+    )
+
+    assert embedding.encode_documents(["token-415"])[0] == [1.0]

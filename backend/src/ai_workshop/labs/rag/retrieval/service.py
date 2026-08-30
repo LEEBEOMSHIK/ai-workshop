@@ -14,6 +14,7 @@ from ai_workshop.labs.rag.retrieval.domain import (
     SearchBackendUnavailableError,
     SparseHit,
 )
+from ai_workshop.labs.rag.retrieval.query_embedding import RetrievalQueryEmbedding
 from ai_workshop.labs.rag.retrieval.rrf import rrf_fuse
 from ai_workshop.shared.errors import AppError
 
@@ -62,7 +63,7 @@ class HybridRetrievalService:
         dense_retriever: DenseRetrieverPort,
     ) -> None:
         self.scope_resolver = scope_resolver
-        self.embedding = embedding
+        self.embedding = RetrievalQueryEmbedding(embedding)
         self.sparse_retriever = sparse_retriever
         self.dense_retriever = dense_retriever
 
@@ -73,6 +74,7 @@ class HybridRetrievalService:
         query: str,
         workspace_ids: tuple[UUID, ...],
         folder_ids: tuple[UUID, ...],
+        indexing_profile_id: UUID,
         retrieval_profile: Profile,
         index_alias: ActiveIndexAlias,
         result_limit: int,
@@ -83,7 +85,12 @@ class HybridRetrievalService:
         if result_limit < 1:
             raise AppError("invalid_result_limit", "The result limit must be positive.", 422)
         bm25_top_k, dense_top_k, rrf_k = _retrieval_settings(retrieval_profile)
-        _validate_active_alias(retrieval_profile, index_alias, dense_top_k=dense_top_k)
+        _validate_active_alias(
+            retrieval_profile,
+            indexing_profile_id,
+            index_alias,
+            dense_top_k=dense_top_k,
+        )
 
         scope = await self.scope_resolver.resolve(
             actor_id=actor_id,
@@ -172,26 +179,31 @@ def _retrieval_settings(profile: Profile) -> tuple[int, int | None, int]:
 
 def _validate_active_alias(
     profile: Profile,
+    indexing_profile_id: UUID,
     index_alias: ActiveIndexAlias,
     *,
     dense_top_k: int | None,
 ) -> None:
     if not isinstance(index_alias, ActiveIndexAlias):
         raise ValueError("Retrieval requires a resolved active index alias.")
-    if dense_top_k is None:
-        return
+    if index_alias.indexing_profile_id != indexing_profile_id:
+        raise ValueError(
+            "The active index alias must match the selected indexing profile."
+        )
     profile_id = profile.config.get("indexing_profile_id")
+    if profile_id is None and dense_top_k is None:
+        return
     if not isinstance(profile_id, str):
-        raise ValueError("A hybrid retrieval profile requires an indexing profile UUID.")
+        raise ValueError("A retrieval profile requires a valid indexing profile UUID.")
     try:
         expected_profile_id = UUID(profile_id)
     except ValueError as exc:
         raise ValueError(
-            "A hybrid retrieval profile requires an indexing profile UUID."
+            "A retrieval profile requires a valid indexing profile UUID."
         ) from exc
-    if index_alias.indexing_profile_id != expected_profile_id:
+    if indexing_profile_id != expected_profile_id:
         raise ValueError(
-            "The active index alias must match the retrieval profile's indexing profile."
+            "The selected indexing profile must match the retrieval profile reference."
         )
 
 

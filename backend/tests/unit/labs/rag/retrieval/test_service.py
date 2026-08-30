@@ -310,6 +310,7 @@ async def test_hybrid_resolves_scope_and_embedding_before_concurrent_branches() 
         query=" query ",
         workspace_ids=scope.workspace_ids,
         folder_ids=(),
+        indexing_profile_id=INDEXING_PROFILE_ID,
         retrieval_profile=_hybrid_profile(),
         index_alias=_active_alias(),
         result_limit=10,
@@ -349,6 +350,7 @@ async def test_hybrid_branch_failure_is_not_a_dense_only_fallback() -> None:
             query="query",
             workspace_ids=scope.workspace_ids,
             folder_ids=(),
+            indexing_profile_id=INDEXING_PROFILE_ID,
             retrieval_profile=_hybrid_profile(),
             index_alias=_active_alias(),
             result_limit=10,
@@ -381,6 +383,7 @@ async def test_dense_operational_failure_makes_whole_hybrid_unavailable() -> Non
             query="query",
             workspace_ids=scope.workspace_ids,
             folder_ids=(),
+            indexing_profile_id=INDEXING_PROFILE_ID,
             retrieval_profile=_hybrid_profile(),
             index_alias=_active_alias(),
             result_limit=10,
@@ -410,6 +413,7 @@ async def test_bm25_profile_never_embeds_or_invokes_dense_retrieval() -> None:
         query="query",
         workspace_ids=scope.workspace_ids,
         folder_ids=(),
+        indexing_profile_id=INDEXING_PROFILE_ID,
         retrieval_profile=_bm25_profile(),
         index_alias=_active_alias(),
         result_limit=10,
@@ -441,6 +445,7 @@ async def test_present_invalid_dense_configuration_is_not_bm25_only(
             query="query",
             workspace_ids=scope.workspace_ids,
             folder_ids=(),
+            indexing_profile_id=INDEXING_PROFILE_ID,
             retrieval_profile=_profile_with_dense(dense_value),
             index_alias=_active_alias(),
             result_limit=10,
@@ -468,7 +473,36 @@ async def test_hybrid_rejects_alias_for_a_different_indexing_profile() -> None:
             query="query",
             workspace_ids=scope.workspace_ids,
             folder_ids=(),
+            indexing_profile_id=INDEXING_PROFILE_ID,
             retrieval_profile=_hybrid_profile(uuid4()),
+            index_alias=_active_alias(),
+            result_limit=10,
+        )
+
+    assert events == []
+    assert sparse.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_bm25_rejects_alias_for_a_different_selected_indexing_profile() -> None:
+    events: list[str] = []
+    scope = ResolvedSearchScope((uuid4(),), ())
+    sparse = RecordingSparseRetriever(events, ())
+    service = HybridRetrievalService(
+        scope_resolver=RecordingScopeResolver(events, scope),
+        embedding=RecordingEmbedding(events),
+        sparse_retriever=sparse,
+        dense_retriever=RecordingDenseRetriever(events, ()),
+    )
+
+    with pytest.raises(ValueError, match="indexing profile"):
+        await service.search(
+            actor_id=uuid4(),
+            query="query",
+            workspace_ids=scope.workspace_ids,
+            folder_ids=(),
+            indexing_profile_id=INDEXING_PROFILE_ID,
+            retrieval_profile=_bm25_profile(),
             index_alias=_active_alias(uuid4()),
             result_limit=10,
         )
@@ -497,6 +531,7 @@ async def test_operational_embedding_failure_makes_hybrid_unavailable() -> None:
             query="query",
             workspace_ids=scope.workspace_ids,
             folder_ids=(),
+            indexing_profile_id=INDEXING_PROFILE_ID,
             retrieval_profile=_hybrid_profile(),
             index_alias=_active_alias(),
             result_limit=10,
@@ -508,7 +543,12 @@ async def test_operational_embedding_failure_makes_hybrid_unavailable() -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "failure",
-    [AssertionError("assert defect"), TypeError("type defect"), ValueError("value defect")],
+    [
+        AssertionError("assert defect"),
+        TypeError("type defect"),
+        ValueError("value defect"),
+        RuntimeError("untyped runtime defect"),
+    ],
 )
 async def test_embedding_programming_defects_propagate_unchanged(
     failure: Exception,
@@ -528,6 +568,7 @@ async def test_embedding_programming_defects_propagate_unchanged(
             query="query",
             workspace_ids=scope.workspace_ids,
             folder_ids=(),
+            indexing_profile_id=INDEXING_PROFILE_ID,
             retrieval_profile=_hybrid_profile(),
             index_alias=_active_alias(),
             result_limit=10,
@@ -559,6 +600,7 @@ async def test_hybrid_branch_programming_defects_remain_in_exception_group(
             query="query",
             workspace_ids=scope.workspace_ids,
             folder_ids=(),
+            indexing_profile_id=INDEXING_PROFILE_ID,
             retrieval_profile=_hybrid_profile(),
             index_alias=_active_alias(),
             result_limit=10,
@@ -587,6 +629,7 @@ async def test_mixed_operational_and_programming_exception_group_propagates() ->
             query="query",
             workspace_ids=scope.workspace_ids,
             folder_ids=(),
+            indexing_profile_id=INDEXING_PROFILE_ID,
             retrieval_profile=_hybrid_profile(),
             index_alias=_active_alias(),
             result_limit=10,
@@ -615,6 +658,7 @@ async def test_bm25_programming_defect_propagates_unchanged() -> None:
             query="query",
             workspace_ids=scope.workspace_ids,
             folder_ids=(),
+            indexing_profile_id=INDEXING_PROFILE_ID,
             retrieval_profile=_bm25_profile(),
             index_alias=_active_alias(),
             result_limit=10,
@@ -648,6 +692,7 @@ async def test_rrf_provenance_defect_propagates_as_value_error() -> None:
             query="query",
             workspace_ids=scope.workspace_ids,
             folder_ids=(),
+            indexing_profile_id=INDEXING_PROFILE_ID,
             retrieval_profile=_hybrid_profile(),
             index_alias=_active_alias(),
             result_limit=10,
@@ -676,6 +721,7 @@ async def test_operational_branch_failure_cancels_taskgroup_sibling() -> None:
             query="query",
             workspace_ids=scope.workspace_ids,
             folder_ids=(),
+            indexing_profile_id=INDEXING_PROFILE_ID,
             retrieval_profile=_hybrid_profile(),
             index_alias=_active_alias(),
             result_limit=10,
@@ -704,6 +750,7 @@ async def test_caller_cancellation_propagates_unchanged() -> None:
             query="query",
             workspace_ids=scope.workspace_ids,
             folder_ids=(),
+            indexing_profile_id=INDEXING_PROFILE_ID,
             retrieval_profile=_hybrid_profile(),
             index_alias=_active_alias(),
             result_limit=10,

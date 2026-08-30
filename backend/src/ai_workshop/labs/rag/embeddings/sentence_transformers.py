@@ -5,6 +5,7 @@ from typing import Any, Protocol, cast
 
 from ai_workshop.labs.rag.embeddings.contracts import (
     EmbeddingModelConfig,
+    EmbeddingRuntimeUnavailableError,
     EmbeddingValidationError,
 )
 
@@ -57,7 +58,14 @@ class SentenceTransformerEmbedding:
         return self._encode([self._document_input(text) for text in texts])
 
     def encode_query(self, text: str) -> list[float]:
-        vectors = self._encode([self._query_input(text)])
+        try:
+            vectors = self._encode([self._query_input(text)])
+        except EmbeddingRuntimeUnavailableError:
+            raise
+        except (OSError, RuntimeError) as exc:
+            raise EmbeddingRuntimeUnavailableError(
+                "The local embedding model runtime is unavailable."
+            ) from exc
         return vectors[0]
 
     def _document_input(self, text: str) -> str:

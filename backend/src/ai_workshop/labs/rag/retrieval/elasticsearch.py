@@ -77,6 +77,8 @@ class ElasticsearchSparseRetriever:
                 source={"includes": list(RETRIEVAL_SOURCE_FIELDS)},
             )
         except (ApiError, TransportError) as exc:
+            if not _is_operational_backend_error(exc):
+                raise
             raise SearchBackendUnavailableError(
                 "Elasticsearch sparse retrieval is unavailable."
             ) from exc
@@ -116,6 +118,8 @@ class ElasticsearchDenseRetriever:
                 source={"includes": list(RETRIEVAL_SOURCE_FIELDS)},
             )
         except (ApiError, TransportError) as exc:
+            if not _is_operational_backend_error(exc):
+                raise
             raise SearchBackendUnavailableError(
                 "Elasticsearch dense retrieval is unavailable."
             ) from exc
@@ -140,6 +144,13 @@ def _validate_search(
         raise ValueError("Normal retrieval requires READY projections.")
     if top_k < 1:
         raise ValueError("Retrieval top_k must be positive.")
+
+
+def _is_operational_backend_error(error: ApiError | TransportError) -> bool:
+    if isinstance(error, TransportError):
+        return True
+    status = error.meta.status
+    return status == 429 or 500 <= status < 600
 
 
 def _raw_hits(response: Any) -> Sequence[dict[str, Any]]:

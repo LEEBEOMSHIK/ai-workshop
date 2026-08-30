@@ -11,6 +11,10 @@ class EmbeddingValidationError(ValueError):
     pass
 
 
+class EmbeddingRuntimeUnavailableError(RuntimeError):
+    pass
+
+
 class EmbeddingPort(Protocol):
     dimension: int
 

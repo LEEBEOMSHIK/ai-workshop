@@ -2,7 +2,8 @@ from typing import Any, cast
 from uuid import UUID, uuid4
 
 import pytest
-from elasticsearch import AsyncElasticsearch, TransportError
+from elastic_transport import ApiResponseMeta, HttpHeaders, NodeConfig
+from elasticsearch import ApiError, AsyncElasticsearch, BadRequestError, TransportError
 
 from ai_workshop.labs.rag.indexing.contracts import IndexDescriptor
 from ai_workshop.labs.rag.retrieval.domain import (
@@ -78,6 +79,21 @@ def _active_alias(profile_id: UUID | None = None) -> ActiveIndexAlias:
         descriptor=IndexDescriptor(vector_dimension=2, similarity="cosine"),
         index_prefix="ai-workshop-rag",
         indexing_profile_id=profile_id or uuid4(),
+    )
+
+
+def _api_error(status: int) -> ApiError:
+    error_type = BadRequestError if status == 400 else ApiError
+    return error_type(
+        f"Elasticsearch status {status}",
+        meta=ApiResponseMeta(
+            status=status,
+            http_version="1.1",
+            headers=HttpHeaders(),
+            duration=0.01,
+            node=NodeConfig("http", "localhost", 9200),
+        ),
+        body={"error": {"type": "synthetic_test_error"}},
     )
 
 
@@ -213,6 +229,55 @@ async def test_retrievers_wrap_elasticsearch_transport_failures_as_operational()
 
     assert sparse_error.value.__cause__ is failure
     assert dense_error.value.__cause__ is failure
+
+
+@pytest.mark.asyncio
+async def test_retrievers_propagate_deterministic_bad_request_unchanged() -> None:
+    failure = _api_error(400)
+    client = RecordingClient(_response(), failure=failure)
+    sparse = ElasticsearchSparseRetriever(cast(AsyncElasticsearch, client))
+    dense = ElasticsearchDenseRetriever(cast(AsyncElasticsearch, client))
+    alias = _active_alias()
+    scope = ResolvedSearchScope((uuid4(),), ())
+
+    with pytest.raises(BadRequestError) as sparse_error:
+        await sparse.search_sparse(
+            index_alias=alias,
+            query="synthetic",
+            actor_id=uuid4(),
+            scope=scope,
+            top_k=5,
+        )
+    with pytest.raises(BadRequestError) as dense_error:
+        await dense.search_dense(
+            index_alias=alias,
+            query_vector=(1.0, 0.0),
+            actor_id=uuid4(),
+            scope=scope,
+            top_k=5,
+        )
+
+    assert sparse_error.value is failure
+    assert dense_error.value is failure
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [429, 500, 503])
+async def test_retryable_elasticsearch_status_is_operational(status: int) -> None:
+    failure = _api_error(status)
+    client = RecordingClient(_response(), failure=failure)
+    sparse = ElasticsearchSparseRetriever(cast(AsyncElasticsearch, client))
+
+    with pytest.raises(SearchBackendUnavailableError) as error:
+        await sparse.search_sparse(
+            index_alias=_active_alias(),
+            query="synthetic",
+            actor_id=uuid4(),
+            scope=ResolvedSearchScope((uuid4(),), ()),
+            top_k=5,
+        )
+
+    assert error.value.__cause__ is failure
 
 
 @pytest.mark.asyncio

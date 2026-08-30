@@ -170,10 +170,14 @@ def _seed_run(database_url: str) -> UUID:
             INSERT INTO rag_evaluation_runs (
                 owner_id, dataset_snapshot_id, evaluation_policy_version_id,
                 status, fixture_sha256, document_snapshot_sha256,
-                query_set_sha256, runtime_environment,
+                query_set_sha256, execution_snapshot,
+                execution_snapshot_bytes, execution_snapshot_sha256,
+                runtime_environment,
                 metric_definition_version, retrieval_k,
                 repetition_count, candidate_count, id
             ) VALUES (%s, %s, NULL, 'pending', %s, %s, %s,
+                      '{}'::jsonb, '{}'::bytea,
+                      '44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a',
                       '{"runtime":"test"}', 1, 10, 2, 1, %s)
             """,
             (

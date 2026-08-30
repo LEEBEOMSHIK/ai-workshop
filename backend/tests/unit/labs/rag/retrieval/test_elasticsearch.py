@@ -8,12 +8,14 @@ from elasticsearch import ApiError, AsyncElasticsearch, BadRequestError, Transpo
 from ai_workshop.labs.rag.indexing.contracts import IndexDescriptor
 from ai_workshop.labs.rag.retrieval.domain import (
     ActiveIndexAlias,
+    FrozenIndexTarget,
     ResolvedSearchScope,
     SearchBackendUnavailableError,
 )
 from ai_workshop.labs.rag.retrieval.elasticsearch import (
     ElasticsearchDenseRetriever,
     ElasticsearchSparseRetriever,
+    require_concrete_frozen_indices,
 )
 
 
@@ -33,6 +35,21 @@ class RecordingClient:
         if self.failure is not None:
             raise self.failure
         return self.response
+
+
+class ResolvingIndices:
+    def __init__(self, response: dict[str, object]) -> None:
+        self.response = response
+        self.calls: list[dict[str, object]] = []
+
+    async def resolve_index(self, **kwargs: object) -> dict[str, object]:
+        self.calls.append(kwargs)
+        return self.response
+
+
+class ResolvingClient:
+    def __init__(self, response: dict[str, object]) -> None:
+        self.indices = ResolvingIndices(response)
 
 
 def _response() -> dict[str, object]:
@@ -143,6 +160,128 @@ async def test_sparse_and_dense_use_equivalent_acl_prefilters_and_hide_vectors()
     assert evidence.location.char_start == 10
     assert evidence.projection_id == sparse_hits[0].chunk.projection_id
     assert [call["index"] for call in client.calls] == [alias.name, alias.name]
+
+
+@pytest.mark.asyncio
+async def test_frozen_target_searches_each_validated_physical_index_separately() -> None:
+    profile_id = uuid4()
+    build_ids = (uuid4(), uuid4())
+    descriptor = IndexDescriptor(vector_dimension=2, similarity="cosine")
+    target = FrozenIndexTarget(
+        descriptor=descriptor,
+        index_prefix="task11-evaluation",
+        indexing_profile_id=profile_id,
+        index_names=tuple(
+            descriptor.concrete_index_name(
+                "task11-evaluation", profile_id, build_id
+            )
+            for build_id in build_ids
+        ),
+        index_build_ids=build_ids,
+        asset_version_ids=(UUID("00000000-0000-0000-0000-000000000803"),),
+    )
+    client = RecordingClient(_response())
+    sparse = ElasticsearchSparseRetriever(cast(AsyncElasticsearch, client))
+    dense = ElasticsearchDenseRetriever(cast(AsyncElasticsearch, client))
+    scope = ResolvedSearchScope(
+        (UUID("00000000-0000-0000-0000-000000000804"),),
+        (),
+        active_only=False,
+        asset_version_ids=target.asset_version_ids,
+        index_build_ids=target.index_build_ids,
+    )
+
+    await sparse.search_sparse(
+        index_alias=target,
+        query="synthetic",
+        actor_id=uuid4(),
+        scope=scope,
+        top_k=5,
+    )
+    await dense.search_dense(
+        index_alias=target,
+        query_vector=(1.0, 0.0),
+        actor_id=uuid4(),
+        scope=scope,
+        top_k=5,
+    )
+
+    assert [call["index"] for call in client.calls] == [
+        target.index_names[0],
+        target.index_names[1],
+        target.index_names[0],
+        target.index_names[1],
+    ]
+    assert all("," not in cast(str, call["index"]) for call in client.calls)
+
+
+@pytest.mark.asyncio
+async def test_frozen_target_resolution_rejects_exact_name_alias_before_search() -> None:
+    profile_id = uuid4()
+    build_id = uuid4()
+    descriptor = IndexDescriptor(vector_dimension=2, similarity="cosine")
+    target = FrozenIndexTarget(
+        descriptor=descriptor,
+        index_prefix="task11-evaluation",
+        indexing_profile_id=profile_id,
+        index_names=(
+            descriptor.concrete_index_name(
+                "task11-evaluation", profile_id, build_id
+            ),
+        ),
+        index_build_ids=(build_id,),
+        asset_version_ids=(uuid4(),),
+    )
+    client = ResolvingClient(
+        {
+            "indices": [],
+            "aliases": [
+                {"name": target.index_names[0], "indices": ["redirected-index"]}
+            ],
+            "data_streams": [],
+        }
+    )
+
+    with pytest.raises(ValueError, match="concrete physical index"):
+        await require_concrete_frozen_indices(
+            cast(AsyncElasticsearch, client), target
+        )
+
+    assert client.indices.calls == [
+        {"name": target.index_names[0], "expand_wildcards": "open"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_frozen_target_resolution_accepts_only_its_exact_concrete_index() -> None:
+    profile_id = uuid4()
+    build_id = uuid4()
+    descriptor = IndexDescriptor(vector_dimension=2, similarity="cosine")
+    target = FrozenIndexTarget(
+        descriptor=descriptor,
+        index_prefix="task11-evaluation",
+        indexing_profile_id=profile_id,
+        index_names=(
+            descriptor.concrete_index_name(
+                "task11-evaluation", profile_id, build_id
+            ),
+        ),
+        index_build_ids=(build_id,),
+        asset_version_ids=(uuid4(),),
+    )
+    client = ResolvingClient(
+        {
+            "indices": [{"name": target.index_names[0], "aliases": []}],
+            "aliases": [],
+            "data_streams": [],
+        }
+    )
+
+    await require_concrete_frozen_indices(cast(AsyncElasticsearch, client), target)
+
+    assert client.indices.calls == [
+        {"name": target.index_names[0], "expand_wildcards": "open"}
+    ]
 
 
 @pytest.mark.asyncio

@@ -732,6 +732,8 @@ export interface components {
             document_snapshot_sha256: string;
             /** Evaluation Policy Version Id */
             evaluation_policy_version_id: string | null;
+            /** Execution Snapshot Sha256 */
+            execution_snapshot_sha256: string;
             /** Failure */
             failure: string | null;
             /** Fixture Sha256 */

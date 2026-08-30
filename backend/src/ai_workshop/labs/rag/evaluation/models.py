@@ -163,6 +163,10 @@ class EvaluationRunRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             name="ck_rag_eval_runs_metric_definition",
         ),
         CheckConstraint(
+            "length(execution_snapshot_sha256) = 64",
+            name="ck_rag_eval_runs_execution_snapshot_hash",
+        ),
+        CheckConstraint(
             "(status = 'pending' AND claim_token IS NULL AND claimed_at IS NULL "
             "AND finished_at IS NULL) OR "
             "(status = 'running' AND claim_token IS NOT NULL AND claimed_at IS NOT NULL "
@@ -189,6 +193,9 @@ class EvaluationRunRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     fixture_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     document_snapshot_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     query_set_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    execution_snapshot: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    execution_snapshot_bytes: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    execution_snapshot_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     runtime_environment: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
     worker_runtime_environment: Mapped[dict[str, object] | None] = mapped_column(JSON)
     metric_definition_version: Mapped[int] = mapped_column(Integer, nullable=False)

@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -36,12 +37,18 @@ class ActiveIndexAlias:
 @dataclass(frozen=True, slots=True)
 class FrozenIndexTarget:
     descriptor: IndexDescriptor
+    index_prefix: str
     indexing_profile_id: UUID
     index_names: tuple[str, ...]
     index_build_ids: tuple[UUID, ...]
     asset_version_ids: tuple[UUID, ...]
 
     def __post_init__(self) -> None:
+        if (
+            re.fullmatch(r"[a-z0-9][a-z0-9._-]*", self.index_prefix) is None
+            or self.index_prefix in {".", ".."}
+        ):
+            raise ValueError("A frozen target requires a safe physical index prefix.")
         if not self.index_names or any(not item.strip() for item in self.index_names):
             raise ValueError("A frozen index target requires concrete index names.")
         if len(self.index_names) != len(self.index_build_ids):
@@ -54,10 +61,18 @@ class FrozenIndexTarget:
             set(self.asset_version_ids)
         ):
             raise ValueError("A frozen target requires unique Asset Versions.")
-
-    @property
-    def name(self) -> str:
-        return ",".join(self.index_names)
+        expected_names = tuple(
+            self.descriptor.concrete_index_name(
+                self.index_prefix,
+                self.indexing_profile_id,
+                build_id,
+            )
+            for build_id in self.index_build_ids
+        )
+        if self.index_names != expected_names:
+            raise ValueError(
+                "A frozen target must use the exact physical index for its profile/build."
+            )
 
 
 type SearchIndexTarget = ActiveIndexAlias | FrozenIndexTarget

@@ -269,6 +269,7 @@ class EvaluationRunResponse(BaseModel):
     fixture_sha256: str
     document_snapshot_sha256: str
     query_set_sha256: str
+    execution_snapshot_sha256: str
     runtime_environment: dict[str, object]
     worker_runtime_environment: dict[str, object] | None
     metric_definition_version: Literal[1]
@@ -288,6 +289,7 @@ class EvaluationRunResponse(BaseModel):
             fixture_sha256=run.fixture_sha256,
             document_snapshot_sha256=run.document_snapshot_sha256,
             query_set_sha256=run.query_set_sha256,
+            execution_snapshot_sha256=run.execution_snapshot_sha256,
             runtime_environment=dict(run.runtime_environment),
             worker_runtime_environment=(
                 dict(run.worker_runtime_environment)

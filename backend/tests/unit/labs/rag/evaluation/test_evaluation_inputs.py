@@ -1,3 +1,6 @@
+import json
+from types import SimpleNamespace
+from typing import cast
 from uuid import uuid4
 
 import pytest
@@ -5,6 +8,7 @@ import pytest
 from ai_workshop.labs.rag.configurations.domain import (
     BM25_BASELINE_CONFIGURATION_VERSION_ID,
 )
+from ai_workshop.labs.rag.evaluation import service as evaluation_service
 from ai_workshop.labs.rag.evaluation.service import (
     CandidateExecutionInput,
     CandidateIndexBuildSnapshot,
@@ -46,6 +50,51 @@ def test_worker_runtime_requires_build_revision_in_production(
 
     assert runtime["application_revision"] == "release-abc123"
     assert runtime["execution_role"] == "celery-worker"
+    assert len(cast(str, runtime["application_source_sha256"])) == 64
+    assert set(
+        cast(dict[str, str], runtime["packages"])
+    ).issuperset({"numpy", "tokenizers", "torch", "transformers"})
+    assert "cuda_runtime" in cast(dict[str, object], runtime["model_runtime"])
+
+
+def test_development_worker_revision_is_bound_to_the_source_digest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AI_WORKSHOP_BUILD_REVISION", raising=False)
+
+    runtime = capture_worker_runtime(environment="test")
+
+    source_sha256 = cast(str, runtime["application_source_sha256"])
+    assert runtime["application_revision"] == f"source-sha256:{source_sha256}"
+
+
+def test_cuda_worker_fingerprint_is_json_native_for_exact_resume_comparison(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_cuda = SimpleNamespace(
+        is_available=lambda: True,
+        device_count=lambda: 1,
+        current_device=lambda: 0,
+        get_device_name=lambda _index: "synthetic-cuda-device",
+        get_device_capability=lambda _index: (8, 9),
+    )
+    fake_torch = SimpleNamespace(
+        __version__="2.test",
+        cuda=fake_cuda,
+        version=SimpleNamespace(cuda="12.test"),
+        backends=SimpleNamespace(cudnn=SimpleNamespace(version=lambda: 9010)),
+    )
+    monkeypatch.setattr(
+        evaluation_service,
+        "import_module",
+        lambda _package: fake_torch,
+    )
+
+    runtime = capture_worker_runtime(environment="test")
+
+    assert json.loads(json.dumps(runtime)) == runtime
+    model_runtime = cast(dict[str, object], runtime["model_runtime"])
+    assert model_runtime["active_cuda_device_capability"] == [8, 9]
 
 
 def test_candidate_execution_input_requires_complete_concrete_build_manifest() -> None:

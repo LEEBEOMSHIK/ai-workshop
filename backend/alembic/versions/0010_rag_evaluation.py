@@ -323,6 +323,9 @@ def upgrade() -> None:
         sa.Column("fixture_sha256", sa.String(64), nullable=False),
         sa.Column("document_snapshot_sha256", sa.String(64), nullable=False),
         sa.Column("query_set_sha256", sa.String(64), nullable=False),
+        sa.Column("execution_snapshot", sa.JSON(), nullable=False),
+        sa.Column("execution_snapshot_bytes", sa.LargeBinary(), nullable=False),
+        sa.Column("execution_snapshot_sha256", sa.String(64), nullable=False),
         sa.Column("runtime_environment", sa.JSON(), nullable=False),
         sa.Column("worker_runtime_environment", sa.JSON(), nullable=True),
         sa.Column("metric_definition_version", sa.Integer(), nullable=False),
@@ -344,6 +347,10 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "metric_definition_version = 1 AND retrieval_k BETWEEN 1 AND 50",
             name="ck_rag_eval_runs_metric_definition",
+        ),
+        sa.CheckConstraint(
+            "length(execution_snapshot_sha256) = 64",
+            name="ck_rag_eval_runs_execution_snapshot_hash",
         ),
         sa.CheckConstraint(
             "(status = 'pending' AND claim_token IS NULL AND claimed_at IS NULL "
@@ -658,6 +665,13 @@ def upgrade() -> None:
                    WHERE d.id = NEW.dataset_snapshot_id) THEN
                 RAISE EXCEPTION 'evaluation dataset cases are incomplete';
             END IF;
+            IF jsonb_typeof(NEW.execution_snapshot::jsonb) <> 'object'
+               OR convert_from(NEW.execution_snapshot_bytes, 'UTF8')::jsonb
+                    <> NEW.execution_snapshot::jsonb
+               OR encode(digest(NEW.execution_snapshot_bytes, 'sha256'), 'hex')
+                    <> NEW.execution_snapshot_sha256 THEN
+                RAISE EXCEPTION 'invalid immutable evaluation execution snapshot';
+            END IF;
             RETURN NEW;
         END;
         $$;
@@ -665,21 +679,158 @@ def upgrade() -> None:
         BEFORE INSERT ON rag_evaluation_runs
         FOR EACH ROW EXECUTE FUNCTION rag_require_complete_evaluation_dataset();
 
+        CREATE FUNCTION rag_evaluation_span_iou(expected jsonb, actual jsonb)
+        RETURNS float8 LANGUAGE sql IMMUTABLE AS $$
+            WITH expected_spans AS (
+                SELECT (value->>0)::float8 AS start_value,
+                       (value->>1)::float8 AS end_value
+                  FROM jsonb_array_elements(expected)
+            ),
+            actual_spans AS (
+                SELECT (value->>0)::float8 AS start_value,
+                       (value->>1)::float8 AS end_value
+                  FROM jsonb_array_elements(actual)
+            ),
+            points AS (
+                SELECT start_value AS point FROM expected_spans
+                UNION SELECT end_value FROM expected_spans
+                UNION SELECT start_value FROM actual_spans
+                UNION SELECT end_value FROM actual_spans
+            ),
+            segments AS (
+                SELECT point AS start_value,
+                       lead(point) OVER (ORDER BY point) AS end_value
+                  FROM points
+            ),
+            coverage AS (
+                SELECT segment.end_value - segment.start_value AS length,
+                       EXISTS (
+                           SELECT 1 FROM expected_spans AS span
+                            WHERE span.start_value <= segment.start_value
+                              AND span.end_value >= segment.end_value
+                       ) AS in_expected,
+                       EXISTS (
+                           SELECT 1 FROM actual_spans AS span
+                            WHERE span.start_value <= segment.start_value
+                              AND span.end_value >= segment.end_value
+                       ) AS in_actual
+                  FROM segments AS segment
+                 WHERE segment.end_value > segment.start_value
+            ),
+            areas AS (
+                SELECT coalesce(sum(length) FILTER (
+                           WHERE in_expected AND in_actual
+                       ), 0.0) AS intersection,
+                       coalesce(sum(length) FILTER (
+                           WHERE in_expected OR in_actual
+                       ), 0.0) AS union_length
+                  FROM coverage
+            )
+            SELECT CASE WHEN union_length = 0 THEN NULL
+                        ELSE intersection / union_length END
+              FROM areas
+        $$;
+
+        CREATE FUNCTION rag_evaluation_bbox_iou(expected jsonb, actual jsonb)
+        RETURNS float8 LANGUAGE sql IMMUTABLE AS $$
+            WITH expected_boxes AS (
+                SELECT (value->>0)::float8 AS x0, (value->>1)::float8 AS y0,
+                       (value->>2)::float8 AS x1, (value->>3)::float8 AS y1
+                  FROM jsonb_array_elements(expected)
+            ),
+            actual_boxes AS (
+                SELECT (value->>0)::float8 AS x0, (value->>1)::float8 AS y0,
+                       (value->>2)::float8 AS x1, (value->>3)::float8 AS y1
+                  FROM jsonb_array_elements(actual)
+            ),
+            xs AS (
+                SELECT x0 AS point FROM expected_boxes UNION SELECT x1 FROM expected_boxes
+                UNION SELECT x0 FROM actual_boxes UNION SELECT x1 FROM actual_boxes
+            ),
+            ys AS (
+                SELECT y0 AS point FROM expected_boxes UNION SELECT y1 FROM expected_boxes
+                UNION SELECT y0 FROM actual_boxes UNION SELECT y1 FROM actual_boxes
+            ),
+            x_segments AS (
+                SELECT point AS start_value,
+                       lead(point) OVER (ORDER BY point) AS end_value FROM xs
+            ),
+            y_segments AS (
+                SELECT point AS start_value,
+                       lead(point) OVER (ORDER BY point) AS end_value FROM ys
+            ),
+            cells AS (
+                SELECT (x.end_value - x.start_value)
+                           * (y.end_value - y.start_value) AS area,
+                       (x.start_value + x.end_value) / 2.0 AS x_mid,
+                       (y.start_value + y.end_value) / 2.0 AS y_mid
+                  FROM x_segments AS x CROSS JOIN y_segments AS y
+                 WHERE x.end_value > x.start_value
+                   AND y.end_value > y.start_value
+            ),
+            coverage AS (
+                SELECT area,
+                       EXISTS (
+                           SELECT 1 FROM expected_boxes AS box
+                            WHERE box.x0 <= x_mid AND x_mid < box.x1
+                              AND box.y0 <= y_mid AND y_mid < box.y1
+                       ) AS in_expected,
+                       EXISTS (
+                           SELECT 1 FROM actual_boxes AS box
+                            WHERE box.x0 <= x_mid AND x_mid < box.x1
+                              AND box.y0 <= y_mid AND y_mid < box.y1
+                       ) AS in_actual
+                  FROM cells
+            ),
+            areas AS (
+                SELECT coalesce(sum(area) FILTER (
+                           WHERE in_expected AND in_actual
+                       ), 0.0) AS intersection,
+                       coalesce(sum(area) FILTER (
+                           WHERE in_expected OR in_actual
+                       ), 0.0) AS union_area
+                  FROM coverage
+            )
+            SELECT CASE WHEN union_area = 0 THEN NULL
+                        ELSE intersection / union_area END
+              FROM areas
+        $$;
+
         CREATE FUNCTION rag_verify_evaluation_case_result()
         RETURNS trigger LANGUAGE plpgsql AS $$
         DECLARE
             frozen rag_evaluation_dataset_cases%ROWTYPE;
             expected_dataset uuid;
             expected_repetitions integer;
+            retrieval_k integer;
             observation jsonb;
             exposure jsonb;
             highlight jsonb;
+            coordinate jsonb;
+            ranked_item jsonb;
+            ranked_ordinal integer;
+            first_observation jsonb;
+            expected_count integer;
+            selected_count integer;
+            selected_subset boolean;
+            expected_status text;
+            calculated_recall float8;
+            calculated_rr float8;
+            calculated_ndcg float8;
+            calculated_correct boolean;
+            calculated_grounding boolean;
+            calculated_highlight float8;
+            actual_spans jsonb;
+            actual_bboxes jsonb;
+            dcg float8;
+            ideal_dcg float8;
+            first_relevant_rank integer;
             calculated_duration float8;
             calculated_leaks integer;
             calculated_reproducible boolean;
         BEGIN
-            SELECT run.dataset_snapshot_id, run.repetition_count
-              INTO expected_dataset, expected_repetitions
+            SELECT run.dataset_snapshot_id, run.repetition_count, run.retrieval_k
+              INTO expected_dataset, expected_repetitions, retrieval_k
               FROM rag_evaluation_run_configurations AS candidate
               JOIN rag_evaluation_runs AS run ON run.id = candidate.run_id
              WHERE candidate.id = NEW.run_configuration_id;
@@ -704,12 +855,17 @@ def upgrade() -> None:
                 IF jsonb_typeof(observation) <> 'object'
                    OR NOT observation ?& ARRAY[
                        'retrieved_evidence_ids', 'answer_status',
+                       'retrieved_ranked',
                        'answer_evidence_ids', 'conflict_evidence_ids',
                        'related_evidence_ids', 'highlight_kind',
                        'highlight_spans', 'highlight_bboxes', 'highlights',
-                       'exposures', 'duration_ms'
+                       'exposures', 'duration_ms',
+                       'repetition_signature_sha256'
                    ]
                    OR jsonb_typeof(observation->'retrieved_evidence_ids') <> 'array'
+                   OR jsonb_typeof(observation->'retrieved_ranked') <> 'array'
+                   OR jsonb_array_length(observation->'retrieved_ranked') <>
+                      jsonb_array_length(observation->'retrieved_evidence_ids')
                    OR jsonb_typeof(observation->'answer_status') <> 'string'
                    OR observation->>'answer_status' NOT IN (
                        'supported', 'conflicting_evidence', 'insufficient_evidence'
@@ -720,18 +876,42 @@ def upgrade() -> None:
                    OR jsonb_typeof(observation->'highlight_spans') <> 'array'
                    OR jsonb_typeof(observation->'highlight_bboxes') <> 'array'
                    OR jsonb_typeof(observation->'highlights') <> 'array'
+                   OR (jsonb_typeof(observation->'highlight_kind')
+                       NOT IN ('string', 'null'))
+                   OR (jsonb_typeof(observation->'highlight_kind') = 'string'
+                       AND observation->>'highlight_kind' NOT IN (
+                           'keyword', 'semantic'
+                       ))
                    OR jsonb_typeof(observation->'exposures') <> 'array'
                    OR jsonb_typeof(observation->'duration_ms') <> 'number'
                    OR (observation->>'duration_ms')::float8 < 0
                    OR (observation->>'duration_ms')::float8 IN (
                        'NaN'::float8, 'Infinity'::float8, '-Infinity'::float8
-                   ) THEN
+                   )
+                   OR coalesce(observation->>'repetition_signature_sha256', '')
+                      !~ '^[0-9a-f]{64}$' THEN
                     RAISE EXCEPTION 'invalid evaluation raw observation';
                 END IF;
                 PERFORM value::uuid
                   FROM jsonb_array_elements_text(
                       observation->'retrieved_evidence_ids'
-                  );
+                );
+                ranked_ordinal := 0;
+                FOR ranked_item IN
+                    SELECT value
+                      FROM jsonb_array_elements(observation->'retrieved_ranked')
+                LOOP
+                    ranked_ordinal := ranked_ordinal + 1;
+                    IF jsonb_typeof(ranked_item) <> 'object'
+                       OR jsonb_typeof(ranked_item->'rank') <> 'number'
+                       OR jsonb_typeof(ranked_item->'evidence_id') <> 'string'
+                       OR (ranked_item->>'rank')::integer <> ranked_ordinal
+                       OR ranked_item->>'evidence_id' <>
+                          observation->'retrieved_evidence_ids'->>(ranked_ordinal - 1) THEN
+                        RAISE EXCEPTION 'invalid evaluation raw observation rank';
+                    END IF;
+                    PERFORM (ranked_item->>'evidence_id')::uuid;
+                END LOOP;
                 PERFORM value::uuid
                   FROM jsonb_array_elements_text(observation->'answer_evidence_ids');
                 PERFORM value::uuid
@@ -766,16 +946,194 @@ def upgrade() -> None:
                        OR jsonb_typeof(highlight->'asset_version_id') <> 'string'
                        OR jsonb_typeof(highlight->'evidence_unit_id') <> 'string'
                        OR jsonb_typeof(highlight->'kind') <> 'string'
+                       OR highlight->>'kind' NOT IN ('keyword', 'semantic')
                        OR jsonb_typeof(highlight->'spans') <> 'array'
                        OR jsonb_typeof(highlight->'bboxes') <> 'array'
-                       OR (jsonb_typeof(highlight->'page') NOT IN ('number', 'null')) THEN
+                       OR jsonb_typeof(highlight->'page') NOT IN ('number', 'null')
+                       OR (jsonb_array_length(highlight->'spans') = 0
+                           AND jsonb_array_length(highlight->'bboxes') = 0) THEN
                         RAISE EXCEPTION 'invalid evaluation raw observation highlight';
                     END IF;
                     PERFORM (highlight->>'document_id')::uuid,
                             (highlight->>'asset_version_id')::uuid,
                             (highlight->>'evidence_unit_id')::uuid;
+                    IF jsonb_typeof(highlight->'page') = 'number'
+                       AND ((highlight->>'page') !~ '^[0-9]+$'
+                            OR (highlight->>'page')::integer < 0) THEN
+                        RAISE EXCEPTION 'invalid evaluation raw observation highlight';
+                    END IF;
+                    FOR coordinate IN
+                        SELECT value FROM jsonb_array_elements(highlight->'spans')
+                    LOOP
+                        IF jsonb_typeof(coordinate) <> 'array'
+                           OR jsonb_array_length(coordinate) <> 2
+                           OR jsonb_typeof(coordinate->0) <> 'number'
+                           OR jsonb_typeof(coordinate->1) <> 'number'
+                           OR (coordinate->>0) !~ '^[0-9]+$'
+                           OR (coordinate->>1) !~ '^[0-9]+$'
+                           OR (coordinate->>1)::bigint <= (coordinate->>0)::bigint THEN
+                            RAISE EXCEPTION 'invalid evaluation raw observation highlight';
+                        END IF;
+                    END LOOP;
+                    FOR coordinate IN
+                        SELECT value FROM jsonb_array_elements(highlight->'bboxes')
+                    LOOP
+                        IF jsonb_typeof(coordinate) <> 'array'
+                           OR jsonb_array_length(coordinate) <> 4
+                           OR jsonb_typeof(coordinate->0) <> 'number'
+                           OR jsonb_typeof(coordinate->1) <> 'number'
+                           OR jsonb_typeof(coordinate->2) <> 'number'
+                           OR jsonb_typeof(coordinate->3) <> 'number' THEN
+                            RAISE EXCEPTION 'invalid evaluation raw observation highlight';
+                        END IF;
+                        IF (coordinate->>0)::float8 IN (
+                               'NaN'::float8, 'Infinity'::float8, '-Infinity'::float8
+                           )
+                           OR (coordinate->>1)::float8 IN (
+                               'NaN'::float8, 'Infinity'::float8, '-Infinity'::float8
+                           )
+                           OR (coordinate->>2)::float8 IN (
+                               'NaN'::float8, 'Infinity'::float8, '-Infinity'::float8
+                           )
+                           OR (coordinate->>3)::float8 IN (
+                               'NaN'::float8, 'Infinity'::float8, '-Infinity'::float8
+                           )
+                           OR (coordinate->>2)::float8 <= (coordinate->>0)::float8
+                           OR (coordinate->>3)::float8 <= (coordinate->>1)::float8 THEN
+                            RAISE EXCEPTION 'invalid evaluation raw observation highlight';
+                        END IF;
+                    END LOOP;
+                    IF (highlight->>'surface' = 'answer'
+                        AND NOT observation->'answer_evidence_ids' ?
+                            (highlight->>'evidence_unit_id'))
+                       OR (highlight->>'surface' = 'conflict'
+                           AND NOT observation->'conflict_evidence_ids' ?
+                               (highlight->>'evidence_unit_id')) THEN
+                        RAISE EXCEPTION 'invalid evaluation raw observation highlight';
+                    END IF;
                 END LOOP;
+                IF (observation->>'answer_status' = 'supported'
+                    AND (jsonb_array_length(observation->'answer_evidence_ids') = 0
+                         OR jsonb_array_length(
+                                observation->'conflict_evidence_ids'
+                            ) <> 0))
+                   OR (observation->>'answer_status' = 'conflicting_evidence'
+                       AND (jsonb_array_length(
+                                observation->'answer_evidence_ids'
+                            ) <> 0
+                            OR jsonb_array_length(
+                                   observation->'conflict_evidence_ids'
+                               ) = 0))
+                   OR (observation->>'answer_status' = 'insufficient_evidence'
+                       AND (jsonb_array_length(
+                                observation->'answer_evidence_ids'
+                            ) <> 0
+                            OR jsonb_array_length(
+                                   observation->'conflict_evidence_ids'
+                               ) <> 0)) THEN
+                    RAISE EXCEPTION 'invalid evaluation raw observation answer';
+                END IF;
             END LOOP;
+            first_observation := NEW.raw_observations::jsonb->0;
+            SELECT count(*) INTO expected_count
+              FROM jsonb_array_elements_text(frozen.expected_evidence_ids::jsonb);
+            IF expected_count = 0 THEN
+                calculated_recall := NULL;
+                calculated_rr := NULL;
+                calculated_ndcg := NULL;
+            ELSE
+                WITH deduplicated AS (
+                    SELECT evidence_id, min(rank) AS first_rank
+                      FROM (
+                          SELECT value::uuid AS evidence_id, ordinality::integer AS rank
+                            FROM jsonb_array_elements_text(
+                                     first_observation->'retrieved_evidence_ids'
+                                 ) WITH ORDINALITY AS item(value, ordinality)
+                      ) AS raw_ranked
+                     GROUP BY evidence_id
+                ),
+                unique_ranked AS (
+                    SELECT evidence_id,
+                           row_number() OVER (ORDER BY first_rank)::integer AS rank
+                      FROM deduplicated
+                )
+                SELECT count(*) FILTER (
+                           WHERE rank <= retrieval_k
+                             AND frozen.expected_evidence_ids::jsonb ? evidence_id::text
+                       ),
+                       min(rank) FILTER (
+                           WHERE frozen.expected_evidence_ids::jsonb ? evidence_id::text
+                       ),
+                       coalesce(sum(ln(2.0) / ln(rank + 1.0)) FILTER (
+                           WHERE rank <= retrieval_k
+                             AND frozen.expected_evidence_ids::jsonb ? evidence_id::text
+                       ), 0.0)
+                  INTO selected_count, first_relevant_rank, dcg
+                  FROM unique_ranked;
+                SELECT sum(ln(2.0) / ln(rank + 1.0))
+                  INTO ideal_dcg
+                  FROM generate_series(
+                           1, least(expected_count, retrieval_k)
+                       ) AS ideal(rank);
+                calculated_recall := selected_count::float8 / expected_count;
+                calculated_rr := CASE WHEN first_relevant_rank IS NULL THEN 0.0
+                                      ELSE 1.0 / first_relevant_rank END;
+                calculated_ndcg := dcg / ideal_dcg;
+            END IF;
+            expected_status := convert_from(
+                frozen.canonical_case_bytes, 'UTF8'
+            )::jsonb->'expected'->>'answer_status';
+            IF first_observation->>'answer_status' = 'supported' THEN
+                SELECT count(*), coalesce(bool_and(
+                           frozen.expected_evidence_ids::jsonb ? value
+                       ), false)
+                  INTO selected_count, selected_subset
+                  FROM jsonb_array_elements_text(
+                           first_observation->'answer_evidence_ids'
+                       );
+                calculated_correct := expected_status = 'supported'
+                                      AND selected_count > 0 AND selected_subset;
+                calculated_grounding := NOT calculated_correct;
+            ELSE
+                calculated_correct := NULL;
+                calculated_grounding := NULL;
+            END IF;
+            IF frozen.expected_highlight IS NULL
+               OR jsonb_typeof(frozen.expected_highlight::jsonb) = 'null' THEN
+                calculated_highlight := NULL;
+            ELSE
+                SELECT coalesce(jsonb_agg(span.value), '[]'::jsonb)
+                  INTO actual_spans
+                  FROM jsonb_array_elements(first_observation->'highlights') AS h(item)
+                  CROSS JOIN LATERAL jsonb_array_elements(item->'spans') AS span(value)
+                 WHERE item->>'surface' = frozen.expected_highlight::jsonb->>'surface'
+                   AND item->>'document_id' = frozen.expected_highlight::jsonb->>'document_id'
+                   AND item->>'asset_version_id' = frozen.expected_highlight::jsonb->>'asset_version_id'
+                   AND item->>'evidence_unit_id' = frozen.expected_highlight::jsonb->>'evidence_unit_id'
+                   AND item->'page' = frozen.expected_highlight::jsonb->'page'
+                   AND item->>'kind' = frozen.expected_highlight::jsonb->>'kind';
+                SELECT coalesce(jsonb_agg(box.value), '[]'::jsonb)
+                  INTO actual_bboxes
+                  FROM jsonb_array_elements(first_observation->'highlights') AS h(item)
+                  CROSS JOIN LATERAL jsonb_array_elements(item->'bboxes') AS box(value)
+                 WHERE item->>'surface' = frozen.expected_highlight::jsonb->>'surface'
+                   AND item->>'document_id' = frozen.expected_highlight::jsonb->>'document_id'
+                   AND item->>'asset_version_id' = frozen.expected_highlight::jsonb->>'asset_version_id'
+                   AND item->>'evidence_unit_id' = frozen.expected_highlight::jsonb->>'evidence_unit_id'
+                   AND item->'page' = frozen.expected_highlight::jsonb->'page'
+                   AND item->>'kind' = frozen.expected_highlight::jsonb->>'kind';
+                IF jsonb_array_length(
+                       frozen.expected_highlight::jsonb->'spans'
+                   ) > 0 THEN
+                    calculated_highlight := coalesce(rag_evaluation_span_iou(
+                        frozen.expected_highlight::jsonb->'spans', actual_spans
+                    ), 0.0);
+                ELSE
+                    calculated_highlight := coalesce(rag_evaluation_bbox_iou(
+                        frozen.expected_highlight::jsonb->'bboxes', actual_bboxes
+                    ), 0.0);
+                END IF;
+            END IF;
             SELECT sum((item->>'duration_ms')::float8)
               INTO calculated_duration
               FROM jsonb_array_elements(NEW.raw_observations::jsonb) AS raw(item);
@@ -785,12 +1143,37 @@ def upgrade() -> None:
               CROSS JOIN LATERAL jsonb_array_elements(item->'exposures') AS e(exposed)
              WHERE frozen.forbidden_source_ids::jsonb ? (exposed->>'source_id')
                 OR NOT frozen.authorized_source_ids::jsonb ? (exposed->>'source_id');
-            SELECT count(DISTINCT item - 'duration_ms' - 'exposures') = 1
+            SELECT count(DISTINCT item - 'duration_ms' - 'exposures'
+                                      - 'repetition_signature_sha256') = 1
+                   AND count(DISTINCT item->>'repetition_signature_sha256') = 1
               INTO calculated_reproducible
               FROM jsonb_array_elements(NEW.raw_observations::jsonb) AS raw(item);
-            NEW.duration_ms := calculated_duration;
-            NEW.access_leaks := calculated_leaks;
-            NEW.reproducible := calculated_reproducible;
+            IF (NEW.recall_at_k IS NULL) <> (calculated_recall IS NULL)
+               OR (NEW.recall_at_k IS NOT NULL
+                   AND abs(NEW.recall_at_k - calculated_recall) > 0.000000000001)
+               OR (NEW.reciprocal_rank IS NULL) <> (calculated_rr IS NULL)
+               OR (NEW.reciprocal_rank IS NOT NULL
+                   AND abs(NEW.reciprocal_rank - calculated_rr) > 0.000000000001)
+               OR (NEW.ndcg IS NULL) <> (calculated_ndcg IS NULL)
+               OR (NEW.ndcg IS NOT NULL
+                   AND abs(NEW.ndcg - calculated_ndcg) > 0.000000000001)
+               OR NEW.correct_supported IS DISTINCT FROM calculated_correct
+               OR NEW.false_grounding IS DISTINCT FROM calculated_grounding
+               OR (NEW.highlight_iou IS NULL) <> (calculated_highlight IS NULL)
+               OR (NEW.highlight_iou IS NOT NULL
+                   AND abs(NEW.highlight_iou - calculated_highlight) > 0.000000000001)
+               OR abs(NEW.duration_ms - calculated_duration) > 0.000000001
+               OR NEW.access_leaks <> calculated_leaks
+               OR NEW.reproducible <> calculated_reproducible THEN
+                RAISE EXCEPTION
+                    'evaluation case supplied scalars do not match derived metrics: supplied=(%,%,%,%,%,%,%,%,%) calculated=(%,%,%,%,%,%,%,%,%)',
+                    NEW.recall_at_k, NEW.reciprocal_rank, NEW.ndcg,
+                    NEW.correct_supported, NEW.false_grounding, NEW.highlight_iou,
+                    NEW.duration_ms, NEW.access_leaks, NEW.reproducible,
+                    calculated_recall, calculated_rr, calculated_ndcg,
+                    calculated_correct, calculated_grounding, calculated_highlight,
+                    calculated_duration, calculated_leaks, calculated_reproducible;
+            END IF;
             RETURN NEW;
         END;
         $$;
@@ -798,7 +1181,7 @@ def upgrade() -> None:
         BEFORE INSERT ON rag_evaluation_case_results
         FOR EACH ROW EXECUTE FUNCTION rag_verify_evaluation_case_result();
         COMMENT ON FUNCTION rag_verify_evaluation_case_result() IS
-            'Trust boundary: authenticated workers attest retrieval and highlight outputs; PostgreSQL validates their complete structured shape and derives duration, access leaks, reproducibility, exact case binding, and repetition count.';
+            'Trust boundary: authenticated workers attest only structured raw retrieval, answer, highlight, exposure, latency, and repetition observations; PostgreSQL verifies all supplied case scalars from the frozen expected case and raw observations.';
         """
     )
     op.execute(
@@ -839,12 +1222,21 @@ def upgrade() -> None:
                OR NEW.fixture_sha256 <> OLD.fixture_sha256
                OR NEW.document_snapshot_sha256 <> OLD.document_snapshot_sha256
                OR NEW.query_set_sha256 <> OLD.query_set_sha256
+               OR NEW.execution_snapshot::jsonb <> OLD.execution_snapshot::jsonb
+               OR NEW.execution_snapshot_bytes <> OLD.execution_snapshot_bytes
+               OR NEW.execution_snapshot_sha256 <> OLD.execution_snapshot_sha256
                OR NEW.runtime_environment::jsonb <> OLD.runtime_environment::jsonb
                OR NEW.metric_definition_version <> OLD.metric_definition_version
                OR NEW.retrieval_k <> OLD.retrieval_k
                OR NEW.repetition_count <> OLD.repetition_count
                OR NEW.candidate_count <> OLD.candidate_count THEN
                 RAISE EXCEPTION 'immutable RAG evaluation run inputs';
+            END IF;
+            IF OLD.worker_runtime_environment IS NOT NULL
+               AND jsonb_typeof(OLD.worker_runtime_environment::jsonb) <> 'null'
+               AND NEW.worker_runtime_environment::jsonb IS DISTINCT FROM
+                   OLD.worker_runtime_environment::jsonb THEN
+                RAISE EXCEPTION 'immutable RAG evaluation worker runtime fingerprint';
             END IF;
             RETURN NEW;
         END;
@@ -911,6 +1303,7 @@ def upgrade() -> None:
             expected_cases integer;
             actual_cases integer;
             expected_repetitions integer;
+            expected_execution_snapshot_sha256 text;
             calculated_recall float8;
             calculated_mrr float8;
             calculated_ndcg float8;
@@ -920,6 +1313,14 @@ def upgrade() -> None:
             calculated_leaks bigint;
             calculated_reproducibility float8;
         BEGIN
+            SELECT execution_snapshot_sha256
+              INTO expected_execution_snapshot_sha256
+              FROM rag_evaluation_runs WHERE id = NEW.run_id;
+            IF expected_execution_snapshot_sha256 IS NULL
+               OR NEW.component_snapshot::jsonb->>'execution_snapshot_sha256'
+                    IS DISTINCT FROM expected_execution_snapshot_sha256 THEN
+                RAISE EXCEPTION 'evaluation candidate execution snapshot mismatch';
+            END IF;
             IF NEW.status <> 'completed'
                OR (TG_OP = 'UPDATE' AND OLD.status = 'completed') THEN
                 RETURN NEW;
@@ -993,11 +1394,14 @@ def upgrade() -> None:
         CREATE FUNCTION rag_require_qualifying_evaluation_for_promotion()
         RETURNS trigger LANGUAGE plpgsql AS $$
         BEGIN
-            IF OLD.evaluation_state = 'passed' AND NEW.evaluation_state <> 'passed' THEN
+            IF TG_OP = 'UPDATE'
+               AND OLD.evaluation_state = 'passed'
+               AND NEW.evaluation_state <> 'passed' THEN
                 RAISE EXCEPTION 'passed evaluation state is evidence-backed and immutable';
             END IF;
-            IF (NEW.evaluation_state = 'passed' AND OLD.evaluation_state <> 'passed')
-               OR (NEW.is_default AND NOT OLD.is_default) THEN
+            IF (NEW.evaluation_state = 'passed'
+                AND (TG_OP = 'INSERT' OR OLD.evaluation_state <> 'passed'))
+               OR (NEW.is_default AND (TG_OP = 'INSERT' OR NOT OLD.is_default)) THEN
                 IF NOT EXISTS (
                     SELECT 1
                     FROM rag_evaluation_run_configurations AS candidate
@@ -1084,7 +1488,8 @@ def upgrade() -> None:
     op.execute(
         """
         CREATE TRIGGER trg_rag_configuration_versions_evaluation_gate
-        BEFORE UPDATE OF evaluation_state, is_default ON rag_configuration_versions
+        BEFORE INSERT OR UPDATE OF evaluation_state, is_default
+        ON rag_configuration_versions
         FOR EACH ROW EXECUTE FUNCTION rag_require_qualifying_evaluation_for_promotion()
         """
     )
@@ -1133,6 +1538,8 @@ def downgrade() -> None:
         "ON rag_evaluation_case_results"
     )
     op.execute("DROP FUNCTION rag_verify_evaluation_case_result")
+    op.execute("DROP FUNCTION rag_evaluation_bbox_iou(jsonb, jsonb)")
+    op.execute("DROP FUNCTION rag_evaluation_span_iou(jsonb, jsonb)")
     op.execute(
         "DROP TRIGGER trg_rag_evaluation_runs_complete_dataset "
         "ON rag_evaluation_runs"
@@ -1169,23 +1576,89 @@ def downgrade() -> None:
     op.drop_table("rag_evaluation_datasets")
     op.execute(
         f"""
+        DELETE FROM rag_profiles
+         WHERE id = '{BGE_RETRIEVAL_PROFILE_ID}'::uuid
+           AND EXISTS (
+               SELECT 1 FROM rag_evaluation_seed_ownership AS owned
+                WHERE owned.seed_kind = 'profile' AND owned.seed_id = rag_profiles.id
+           )
+           AND NOT EXISTS (
+               SELECT 1 FROM rag_configuration_versions AS version
+                WHERE version.indexing_profile_id = rag_profiles.id
+                   OR version.retrieval_profile_id = rag_profiles.id
+                   OR version.generation_profile_id = rag_profiles.id
+           )
+           AND NOT EXISTS (
+               SELECT 1 FROM rag_profile_model_bindings AS binding
+                WHERE binding.profile_id = rag_profiles.id
+           );
+
         DELETE FROM rag_profile_model_bindings
          WHERE id = '{BGE_PROFILE_BINDING_ID}'::uuid
            AND EXISTS (
                SELECT 1 FROM rag_evaluation_seed_ownership
-                WHERE seed_kind = 'binding' AND seed_id = '{BGE_PROFILE_BINDING_ID}'::uuid
+                WHERE seed_kind = 'binding'
+                  AND seed_id = '{BGE_PROFILE_BINDING_ID}'::uuid
+           )
+           AND NOT EXISTS (
+               SELECT 1 FROM rag_configuration_versions AS version
+                WHERE version.indexing_profile_id = '{BGE_INDEXING_PROFILE_ID}'::uuid
+                   OR version.retrieval_profile_id = '{BGE_INDEXING_PROFILE_ID}'::uuid
+                   OR version.generation_profile_id = '{BGE_INDEXING_PROFILE_ID}'::uuid
+           )
+           AND NOT EXISTS (
+               SELECT 1 FROM rag_document_projections
+                WHERE indexing_profile_id = '{BGE_INDEXING_PROFILE_ID}'::uuid
+           )
+           AND NOT EXISTS (
+               SELECT 1 FROM rag_index_builds
+                WHERE indexing_profile_id = '{BGE_INDEXING_PROFILE_ID}'::uuid
+           )
+           AND NOT EXISTS (
+               SELECT 1 FROM rag_profiles AS profile
+                WHERE profile.config::jsonb->>'indexing_profile_id'
+                      = '{BGE_INDEXING_PROFILE_ID}'::text
            );
+
         DELETE FROM rag_profiles
-         WHERE id IN ('{BGE_INDEXING_PROFILE_ID}'::uuid, '{BGE_RETRIEVAL_PROFILE_ID}'::uuid)
+         WHERE id = '{BGE_INDEXING_PROFILE_ID}'::uuid
            AND EXISTS (
                SELECT 1 FROM rag_evaluation_seed_ownership AS owned
                 WHERE owned.seed_kind = 'profile' AND owned.seed_id = rag_profiles.id
+           )
+           AND NOT EXISTS (
+               SELECT 1 FROM rag_configuration_versions AS version
+                WHERE version.indexing_profile_id = rag_profiles.id
+                   OR version.retrieval_profile_id = rag_profiles.id
+                   OR version.generation_profile_id = rag_profiles.id
+           )
+           AND NOT EXISTS (
+               SELECT 1 FROM rag_document_projections
+                WHERE indexing_profile_id = rag_profiles.id
+           )
+           AND NOT EXISTS (
+               SELECT 1 FROM rag_index_builds
+                WHERE indexing_profile_id = rag_profiles.id
+           )
+           AND NOT EXISTS (
+               SELECT 1 FROM rag_profiles AS profile
+                WHERE profile.config::jsonb->>'indexing_profile_id'
+                      = rag_profiles.id::text
+           )
+           AND NOT EXISTS (
+               SELECT 1 FROM rag_profile_model_bindings AS binding
+                WHERE binding.profile_id = rag_profiles.id
            );
+
         DELETE FROM rag_model_definitions
          WHERE id = '{BGE_MODEL_ID}'::uuid
            AND EXISTS (
                SELECT 1 FROM rag_evaluation_seed_ownership
                 WHERE seed_kind = 'model' AND seed_id = '{BGE_MODEL_ID}'::uuid
+           )
+           AND NOT EXISTS (
+               SELECT 1 FROM rag_profile_model_bindings AS binding
+                WHERE binding.model_id = rag_model_definitions.id
            );
         """
     )

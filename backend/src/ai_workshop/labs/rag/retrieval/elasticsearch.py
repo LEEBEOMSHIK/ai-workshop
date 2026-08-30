@@ -30,6 +30,47 @@ RETRIEVAL_SOURCE_FIELDS = (
 )
 
 
+async def require_concrete_frozen_indices(
+    client: AsyncElasticsearch,
+    target: FrozenIndexTarget,
+) -> None:
+    """Fail closed unless every frozen target resolves as its one concrete index."""
+
+    for index_name in target.index_names:
+        try:
+            response = cast(
+                dict[str, Any],
+                await client.indices.resolve_index(
+                    name=index_name,
+                    expand_wildcards="open",
+                ),
+            )
+        except ApiError as exc:
+            if exc.meta.status == 404:
+                raise ValueError("A frozen concrete physical index is missing.") from exc
+            if not _is_operational_backend_error(exc):
+                raise
+            raise SearchBackendUnavailableError(
+                "Elasticsearch frozen-index resolution is unavailable."
+            ) from exc
+        except TransportError as exc:
+            raise SearchBackendUnavailableError(
+                "Elasticsearch frozen-index resolution is unavailable."
+            ) from exc
+        indices = cast(list[dict[str, Any]], response.get("indices", []))
+        aliases = cast(list[dict[str, Any]], response.get("aliases", []))
+        data_streams = cast(list[dict[str, Any]], response.get("data_streams", []))
+        if (
+            aliases
+            or data_streams
+            or len(indices) != 1
+            or str(indices[0].get("name")) != index_name
+        ):
+            raise ValueError(
+                "A frozen target must resolve to one exact concrete physical index."
+            )
+
+
 def build_scope_filter(
     actor_id: UUID,
     scope: ResolvedSearchScope,
@@ -76,33 +117,41 @@ class ElasticsearchSparseRetriever:
     ) -> tuple[SparseHit, ...]:
         _validate_search(index_alias, scope, top_k)
         try:
-            response = await self.client.search(
-                index=index_alias.name,
-                query={
-                    "bool": {
-                        "must": [
-                            {
-                                "multi_match": {
-                                    "query": query,
-                                    "fields": ["text", "title", "section_path"],
+            responses = [
+                await self.client.search(
+                    index=index_name,
+                    query={
+                        "bool": {
+                            "must": [
+                                {
+                                    "multi_match": {
+                                        "query": query,
+                                        "fields": ["text", "title", "section_path"],
+                                    }
                                 }
-                            }
-                        ],
-                        "filter": build_scope_filter(actor_id, scope),
-                    }
-                },
-                size=top_k,
-                source={"includes": list(RETRIEVAL_SOURCE_FIELDS)},
-            )
+                            ],
+                            "filter": build_scope_filter(actor_id, scope),
+                        }
+                    },
+                    size=top_k,
+                    source={"includes": list(RETRIEVAL_SOURCE_FIELDS)},
+                )
+                for index_name in _exact_index_names(index_alias)
+            ]
         except (ApiError, TransportError) as exc:
             if not _is_operational_backend_error(exc):
                 raise
             raise SearchBackendUnavailableError(
                 "Elasticsearch sparse retrieval is unavailable."
             ) from exc
+        raw_hits = sorted(
+            (hit for response in responses for hit in _raw_hits(response)),
+            key=_score,
+            reverse=True,
+        )[:top_k]
         return tuple(
             SparseHit(_parse_chunk(hit), rank=rank, score=_score(hit))
-            for rank, hit in enumerate(_raw_hits(response), start=1)
+            for rank, hit in enumerate(raw_hits, start=1)
         )
 
 
@@ -123,27 +172,37 @@ class ElasticsearchDenseRetriever:
         if not query_vector:
             raise ValueError("Dense retrieval requires a query vector.")
         try:
-            response = await self.client.search(
-                index=index_alias.name,
-                knn={
-                    "field": "embedding",
-                    "query_vector": list(query_vector),
-                    "k": top_k,
-                    "num_candidates": top_k,
-                    "filter": {"bool": {"filter": build_scope_filter(actor_id, scope)}},
-                },
-                size=top_k,
-                source={"includes": list(RETRIEVAL_SOURCE_FIELDS)},
-            )
+            responses = [
+                await self.client.search(
+                    index=index_name,
+                    knn={
+                        "field": "embedding",
+                        "query_vector": list(query_vector),
+                        "k": top_k,
+                        "num_candidates": top_k,
+                        "filter": {
+                            "bool": {"filter": build_scope_filter(actor_id, scope)}
+                        },
+                    },
+                    size=top_k,
+                    source={"includes": list(RETRIEVAL_SOURCE_FIELDS)},
+                )
+                for index_name in _exact_index_names(index_alias)
+            ]
         except (ApiError, TransportError) as exc:
             if not _is_operational_backend_error(exc):
                 raise
             raise SearchBackendUnavailableError(
                 "Elasticsearch dense retrieval is unavailable."
             ) from exc
+        raw_hits = sorted(
+            (hit for response in responses for hit in _raw_hits(response)),
+            key=_score,
+            reverse=True,
+        )[:top_k]
         return tuple(
             DenseHit(_parse_chunk(hit), rank=rank, score=_score(hit))
-            for rank, hit in enumerate(_raw_hits(response), start=1)
+            for rank, hit in enumerate(raw_hits, start=1)
         )
 
 
@@ -164,6 +223,12 @@ def _validate_search(
         raise ValueError("Normal retrieval requires READY projections.")
     if top_k < 1:
         raise ValueError("Retrieval top_k must be positive.")
+
+
+def _exact_index_names(index_target: SearchIndexTarget) -> tuple[str, ...]:
+    if isinstance(index_target, FrozenIndexTarget):
+        return index_target.index_names
+    return (index_target.name,)
 
 
 def _is_operational_backend_error(error: ApiError | TransportError) -> bool:

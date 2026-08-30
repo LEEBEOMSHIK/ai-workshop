@@ -5,7 +5,10 @@ import platform
 import sys
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
+from hashlib import sha256
+from importlib import import_module
 from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 from typing import Protocol
 from uuid import UUID
 
@@ -66,6 +69,8 @@ class CandidateExecutionInput:
     retrieval_k: int = 10
     workspace_ids: tuple[UUID, ...] = ()
     is_system: bool = False
+    component_snapshot: Mapping[str, object] | None = None
+    execution_snapshot: Mapping[str, object] | None = None
 
     def __post_init__(self) -> None:
         if not self.index_builds:
@@ -141,6 +146,7 @@ class EvaluationRunView:
     fixture_sha256: str
     document_snapshot_sha256: str
     query_set_sha256: str
+    execution_snapshot_sha256: str
     runtime_environment: Mapping[str, object]
     worker_runtime_environment: Mapping[str, object] | None
     metric_definition_version: int
@@ -193,34 +199,82 @@ async def _no_op_commit() -> None:
     return None
 
 
+def _application_source_sha256() -> str:
+    package_root = Path(__file__).resolve().parents[3]
+    digest = sha256()
+    for source in sorted(package_root.rglob("*.py")):
+        digest.update(source.relative_to(package_root).as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(source.read_bytes())
+    return digest.hexdigest()
+
+
+def _capture_model_runtime() -> dict[str, object]:
+    captured: dict[str, object] = {
+        "configured_device": os.environ.get("AI_WORKSHOP_MODEL_DEVICE", "cpu"),
+        "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
+        "cuda_runtime": None,
+        "cudnn_runtime": None,
+        "cuda_available": False,
+        "cuda_device_count": 0,
+    }
+    try:
+        torch = import_module("torch")
+        cuda = torch.cuda
+        captured["torch_runtime"] = str(torch.__version__)
+        captured["cuda_runtime"] = getattr(torch.version, "cuda", None)
+        captured["cudnn_runtime"] = torch.backends.cudnn.version()
+        captured["cuda_available"] = bool(cuda.is_available())
+        captured["cuda_device_count"] = int(cuda.device_count())
+        if captured["cuda_available"]:
+            device_index = int(cuda.current_device())
+            captured["active_cuda_device"] = device_index
+            captured["active_cuda_device_name"] = str(
+                cuda.get_device_name(device_index)
+            )
+            captured["active_cuda_device_capability"] = [
+                int(value) for value in cuda.get_device_capability(device_index)
+            ]
+    except (ImportError, OSError, RuntimeError, AttributeError) as exc:
+        captured["torch_runtime_error"] = type(exc).__name__
+    return captured
+
+
 def capture_worker_runtime(*, environment: str) -> dict[str, object]:
     packages: dict[str, str] = {}
     for package in (
         "celery",
         "elasticsearch",
         "fastapi",
+        "numpy",
         "sentence-transformers",
         "sqlalchemy",
+        "tokenizers",
+        "torch",
+        "transformers",
     ):
         try:
             packages[package] = version(package)
         except PackageNotFoundError:
             packages[package] = "unavailable"
     revision = os.environ.get("AI_WORKSHOP_BUILD_REVISION")
+    if not revision and environment not in {"local", "test"}:
+        raise RuntimeError("A non-development evaluation worker requires a build revision.")
+    source_sha256 = _application_source_sha256()
     if not revision:
-        if environment == "production":
-            raise RuntimeError("A production evaluation worker requires a build revision.")
-        revision = "development-worktree"
+        revision = f"source-sha256:{source_sha256}"
     return {
         "python": platform.python_version(),
         "implementation": platform.python_implementation(),
         "platform": sys.platform,
         "application": "ai-workshop",
         "application_revision": revision,
+        "application_source_sha256": source_sha256,
         "execution_role": "celery-worker",
         "device": os.environ.get("AI_WORKSHOP_MODEL_DEVICE", "cpu"),
         "model_cache_root": os.environ.get("AI_WORKSHOP_MODEL_CACHE_ROOT"),
         "packages": packages,
+        "model_runtime": _capture_model_runtime(),
     }
 
 

@@ -1,5 +1,6 @@
 import hashlib
 import json
+import math
 from asyncio import to_thread
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -69,6 +70,10 @@ def _raw_observations(raw_case: dict[str, object]) -> str:
         highlights = [highlight]
     observation = {
         "retrieved_evidence_ids": evidence_ids,
+        "retrieved_ranked": [
+            {"rank": rank, "evidence_id": evidence_id}
+            for rank, evidence_id in enumerate(evidence_ids, start=1)
+        ],
         "answer_status": answer_status,
         "answer_evidence_ids": answer_ids,
         "conflict_evidence_ids": (
@@ -84,6 +89,7 @@ def _raw_observations(raw_case: dict[str, object]) -> str:
             for evidence_id in evidence_ids
         ],
         "duration_ms": 10,
+        "repetition_signature_sha256": "a" * 64,
     }
     return json.dumps([observation, observation])
 
@@ -227,10 +233,15 @@ def _seed_qualifying_evidence(database_url: str) -> tuple[UUID, UUID]:
             INSERT INTO rag_evaluation_runs (
                 owner_id, dataset_snapshot_id, evaluation_policy_version_id,
                 status, fixture_sha256, document_snapshot_sha256,
-                query_set_sha256, runtime_environment,
+                query_set_sha256, execution_snapshot,
+                execution_snapshot_bytes, execution_snapshot_sha256,
+                runtime_environment,
                 worker_runtime_environment, metric_definition_version,
                 retrieval_k, repetition_count, candidate_count, finished_at, id
             ) VALUES (%s, %s, %s, 'completed', %s, %s, %s,
+                      '{}'::jsonb, '{}'::bytea,
+                      '44136fa355b3678a1146ad16f7e8649e'
+                          || '94fb4fc21fe77e8310c060f61caaff8a',
                       '{"python":"3.13","runtime":"test"}'::jsonb,
                       '{"revision":"test-worker"}'::jsonb,
                       1, 10, 2, 1, now(), %s)
@@ -260,7 +271,8 @@ def _seed_qualifying_evidence(database_url: str) -> tuple[UUID, UUID]:
             SELECT %s, version.id, 0,
                    version.indexing_profile_id, version.retrieval_profile_id,
                    version.answer_policy_version_id, version.generation_profile_id,
-                   '{"models":[]}'::jsonb, 'pending', NULL,
+                   '{"models":[],"execution_snapshot_sha256":"44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"}'::jsonb,
+                   'pending', NULL,
                    NULL, NULL, NULL, NULL, NULL, NULL,
                    NULL, NULL, NULL, NULL, NULL, %s
             FROM rag_configuration_versions AS version
@@ -295,12 +307,12 @@ def _seed_qualifying_evidence(database_url: str) -> tuple[UUID, UUID]:
                     json.dumps(raw_case["permission_scenario"]),
                     json.dumps(expected["evidence_unit_ids"]),
                     _raw_observations(raw_case),
-                    0.6 if expected["evidence_unit_ids"] else None,
-                    0.5 if expected["evidence_unit_ids"] else None,
-                    0.55 if expected["evidence_unit_ids"] else None,
+                    1.0 if expected["evidence_unit_ids"] else None,
+                    1.0 if expected["evidence_unit_ids"] else None,
+                    1.0 if expected["evidence_unit_ids"] else None,
                     supported if supported else None,
                     False if supported else None,
-                    0.7 if expected["highlight"] else None,
+                    1.0 if expected["highlight"] else None,
                     uuid4(),
                 ),
             )
@@ -321,6 +333,11 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
 ) -> None:
     base_settings = get_settings()
     database = f"ai_workshop_t11_migration_{uuid4().hex}"
+    caller_bge_configuration_id = uuid4()
+    caller_bge_policy_id = uuid4()
+    caller_bge_version_id = uuid4()
+    shared_bge_profile_id = uuid4()
+    shared_bge_binding_id = uuid4()
     isolated_url = _database_url(base_settings.database_url, database)
     _create_database(base_settings.database_url, database)
     try:
@@ -342,9 +359,83 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
                         (BM25_BASELINE_CONFIGURATION_VERSION_ID,),
                     )
 
+                inserted_configuration_id = uuid4()
+                inserted_policy_id = uuid4()
+                connection.execute(
+                    """
+                    INSERT INTO rag_configurations (name, is_system, id)
+                    VALUES ('direct insert gate fixture', true, %s)
+                    """,
+                    (inserted_configuration_id,),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO rag_answer_policy_versions (
+                        configuration_id, version, mode, min_semantic_score,
+                        min_keyword_coverage, require_complete_provenance,
+                        conflict_mode, id
+                    )
+                    SELECT %s, 1, mode, min_semantic_score,
+                           min_keyword_coverage, require_complete_provenance,
+                           conflict_mode, %s
+                      FROM rag_answer_policy_versions
+                     WHERE configuration_id = (
+                         SELECT configuration_id
+                           FROM rag_configuration_versions
+                          WHERE id = %s
+                     )
+                    """,
+                    (
+                        inserted_configuration_id,
+                        inserted_policy_id,
+                        BM25_BASELINE_CONFIGURATION_VERSION_ID,
+                    ),
+                )
+                with pytest.raises(psycopg.errors.RaiseException, match="qualifying"):
+                    connection.execute(
+                        """
+                        INSERT INTO rag_configuration_versions (
+                            configuration_id, version, indexing_profile_id,
+                            retrieval_profile_id, generation_profile_id,
+                            answer_policy_version_id, evaluation_state,
+                            is_default, id
+                        )
+                        SELECT %s, 1, indexing_profile_id, retrieval_profile_id,
+                               NULL, %s, 'passed', true, %s
+                          FROM rag_configuration_versions
+                         WHERE id = %s
+                        """,
+                        (
+                            inserted_configuration_id,
+                            inserted_policy_id,
+                            uuid4(),
+                            BM25_BASELINE_CONFIGURATION_VERSION_ID,
+                        ),
+                    )
+                connection.execute(
+                    """
+                    INSERT INTO rag_configuration_versions (
+                        configuration_id, version, indexing_profile_id,
+                        retrieval_profile_id, generation_profile_id,
+                        answer_policy_version_id, evaluation_state,
+                        is_default, id
+                    )
+                    SELECT %s, 1, indexing_profile_id, retrieval_profile_id,
+                           NULL, %s, 'pending', false, %s
+                      FROM rag_configuration_versions
+                     WHERE id = %s
+                    """,
+                    (
+                        inserted_configuration_id,
+                        inserted_policy_id,
+                        uuid4(),
+                        BM25_BASELINE_CONFIGURATION_VERSION_ID,
+                    ),
+                )
+
                 assert connection.execute(
                     "SELECT count(*) FROM rag_configurations"
-                ).fetchone() == (1,)
+                ).fetchone() == (2,)
                 assert connection.execute(
                     "SELECT count(*) FROM rag_configurations WHERE name ILIKE '%bge%'"
                 ).fetchone() == (0,)
@@ -370,7 +461,70 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
                 assert bge[0]["colbert_enabled"] is False
                 assert bge[2]["indexing_profile_id"] == str(BGE_INDEXING_PROFILE_ID)
 
-            owner_id, policy_id = _seed_qualifying_evidence(isolated_url)
+                connection.execute(
+                    """
+                    INSERT INTO rag_profiles (
+                        kind, name, version, config, evaluation_state,
+                        is_default, id
+                    )
+                    SELECT kind, 'caller shared BGE consumer', 1, config,
+                           'draft', false, %s
+                      FROM rag_profiles WHERE id = %s
+                    """,
+                    (shared_bge_profile_id, BGE_INDEXING_PROFILE_ID),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO rag_profile_model_bindings (
+                        profile_id, role, model_id, id
+                    ) VALUES (%s, 'embedding', %s, %s)
+                    """,
+                    (shared_bge_profile_id, BGE_MODEL_ID, shared_bge_binding_id),
+                )
+
+                await to_thread(command.downgrade, config, REVISION_0009)
+                with psycopg.connect(
+                    _sync_url(isolated_url), autocommit=True
+                ) as connection:
+                    assert connection.execute(
+                        "SELECT count(*) FROM rag_profiles WHERE id IN (%s, %s)",
+                        (BGE_INDEXING_PROFILE_ID, BGE_RETRIEVAL_PROFILE_ID),
+                    ).fetchone() == (0,)
+                    assert connection.execute(
+                        "SELECT count(*) FROM rag_model_definitions WHERE id = %s",
+                        (BGE_MODEL_ID,),
+                    ).fetchone() == (1,)
+                    assert connection.execute(
+                        """
+                        SELECT count(*) FROM rag_profile_model_bindings
+                         WHERE id = %s AND profile_id = %s AND model_id = %s
+                        """,
+                        (shared_bge_binding_id, shared_bge_profile_id, BGE_MODEL_ID),
+                    ).fetchone() == (1,)
+                    connection.execute(
+                        "DELETE FROM rag_profiles WHERE id = %s",
+                        (shared_bge_profile_id,),
+                    )
+                    connection.execute(
+                        "DELETE FROM rag_model_definitions WHERE id = %s",
+                        (BGE_MODEL_ID,),
+                    )
+                await to_thread(command.upgrade, config, REVISION_0010)
+                await to_thread(command.downgrade, config, REVISION_0009)
+                with psycopg.connect(
+                    _sync_url(isolated_url), autocommit=True
+                ) as connection:
+                    assert connection.execute(
+                        "SELECT count(*) FROM rag_profiles WHERE id IN (%s, %s)",
+                        (BGE_INDEXING_PROFILE_ID, BGE_RETRIEVAL_PROFILE_ID),
+                    ).fetchone() == (0,)
+                    assert connection.execute(
+                        "SELECT count(*) FROM rag_model_definitions WHERE id = %s",
+                        (BGE_MODEL_ID,),
+                    ).fetchone() == (0,)
+                await to_thread(command.upgrade, config, REVISION_0010)
+
+                owner_id, policy_id = _seed_qualifying_evidence(isolated_url)
             with psycopg.connect(_sync_url(isolated_url), autocommit=True) as connection:
                 dataset_id = connection.execute(
                     "SELECT dataset_snapshot_id FROM rag_evaluation_policies WHERE id = %s",
@@ -386,10 +540,15 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
                             owner_id, dataset_snapshot_id,
                             evaluation_policy_version_id, status,
                             fixture_sha256, document_snapshot_sha256,
-                            query_set_sha256, runtime_environment,
+                            query_set_sha256, execution_snapshot,
+                            execution_snapshot_bytes, execution_snapshot_sha256,
+                            runtime_environment,
                             metric_definition_version, retrieval_k,
                             repetition_count, candidate_count, id
                         ) VALUES (%s, %s, NULL, 'pending', %s, %s, %s,
+                                  '{}'::jsonb, '{}'::bytea,
+                                  '44136fa355b3678a1146ad16f7e8649e'
+                                      || '94fb4fc21fe77e8310c060f61caaff8a',
                                   '{}'::jsonb, 1, 10, 2, 1, %s)
                         """,
                         (
@@ -473,6 +632,148 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
                         """,
                         (uuid4(), dataset_id),
                     )
+                first_result = connection.execute(
+                    """
+                    SELECT raw_observations, expected_evidence_ids
+                      FROM rag_evaluation_case_results
+                     WHERE dataset_snapshot_id = %s
+                       AND recall_at_k IS NOT NULL
+                     ORDER BY ordinal LIMIT 1
+                    """,
+                    (dataset_id,),
+                ).fetchone()
+                assert first_result is not None
+                missing_rank = json.loads(json.dumps(first_result[0]))
+                missing_rank[0]["retrieved_ranked"].pop()
+                extra_rank = json.loads(json.dumps(first_result[0]))
+                extra_rank[0]["retrieved_ranked"].append(
+                    {
+                        "rank": len(extra_rank[0]["retrieved_ranked"]) + 1,
+                        "evidence_id": extra_rank[0]["retrieved_evidence_ids"][0],
+                    }
+                )
+                malformed_highlight = json.loads(json.dumps(first_result[0]))
+                malformed_highlight[0]["highlights"][0]["spans"] = [[9, 1]]
+                inconsistent_answer = json.loads(json.dumps(first_result[0]))
+                inconsistent_answer[0]["answer_status"] = "insufficient_evidence"
+                for malformed_raw in (
+                    missing_rank,
+                    extra_rank,
+                    malformed_highlight,
+                    inconsistent_answer,
+                ):
+                    with pytest.raises(
+                        psycopg.errors.RaiseException, match="raw observation"
+                    ):
+                        connection.execute(
+                            """
+                            INSERT INTO rag_evaluation_case_results (
+                                run_configuration_id, dataset_snapshot_id,
+                                evaluation_case_id, ordinal, query_sha256,
+                                permission_scenario, expected_evidence_ids,
+                                raw_observations, duration_ms, recall_at_k,
+                                reciprocal_rank, ndcg, correct_supported,
+                                false_grounding, highlight_iou, access_leaks,
+                                reproducible, id
+                            ) SELECT run_configuration_id, dataset_snapshot_id,
+                                     evaluation_case_id, ordinal, query_sha256,
+                                     permission_scenario, expected_evidence_ids,
+                                     %s::jsonb, duration_ms, recall_at_k,
+                                     reciprocal_rank, ndcg, correct_supported,
+                                     false_grounding, highlight_iou, access_leaks,
+                                     reproducible, %s
+                                FROM rag_evaluation_case_results
+                               WHERE dataset_snapshot_id = %s
+                                 AND recall_at_k IS NOT NULL
+                               ORDER BY ordinal LIMIT 1
+                            """,
+                            (
+                                json.dumps(malformed_raw),
+                                uuid4(),
+                                dataset_id,
+                            ),
+                        )
+                duplicate_raw = json.loads(json.dumps(first_result[0]))
+                irrelevant_id = str(uuid4())
+                relevant_id = str(first_result[1][0])
+                for observation in duplicate_raw:
+                    observation["retrieved_evidence_ids"] = [
+                        irrelevant_id,
+                        irrelevant_id,
+                        relevant_id,
+                    ]
+                    observation["retrieved_ranked"] = [
+                        {"rank": 1, "evidence_id": irrelevant_id},
+                        {"rank": 2, "evidence_id": irrelevant_id},
+                        {"rank": 3, "evidence_id": relevant_id},
+                    ]
+                    observation["repetition_signature_sha256"] = "c" * 64
+                expected_count = len(first_result[1])
+                ideal_dcg = sum(
+                    1.0 / math.log2(rank + 1)
+                    for rank in range(1, min(expected_count, 10) + 1)
+                )
+                with pytest.raises(psycopg.errors.UniqueViolation):
+                    connection.execute(
+                        """
+                        INSERT INTO rag_evaluation_case_results (
+                            run_configuration_id, dataset_snapshot_id,
+                            evaluation_case_id, ordinal, query_sha256,
+                            permission_scenario, expected_evidence_ids,
+                            raw_observations, duration_ms, recall_at_k,
+                            reciprocal_rank, ndcg, correct_supported,
+                            false_grounding, highlight_iou, access_leaks,
+                            reproducible, id
+                        ) SELECT run_configuration_id, dataset_snapshot_id,
+                                 evaluation_case_id, ordinal, query_sha256,
+                                 permission_scenario, expected_evidence_ids,
+                                 %s::jsonb, duration_ms, %s, 0.5, %s,
+                                 correct_supported, false_grounding,
+                                 highlight_iou, access_leaks, reproducible, %s
+                            FROM rag_evaluation_case_results
+                           WHERE dataset_snapshot_id = %s
+                             AND recall_at_k IS NOT NULL
+                           ORDER BY ordinal LIMIT 1
+                        """,
+                        (
+                            json.dumps(duplicate_raw),
+                            1.0 / expected_count,
+                            (1.0 / math.log2(3)) / ideal_dcg,
+                            uuid4(),
+                            dataset_id,
+                        ),
+                    )
+                forged_raw = first_result[0]
+                for observation in forged_raw:
+                    observation["retrieved_evidence_ids"] = []
+                    observation["retrieved_ranked"] = []
+                    observation["repetition_signature_sha256"] = "b" * 64
+                with pytest.raises(
+                    psycopg.errors.RaiseException, match="derived metrics"
+                ):
+                    connection.execute(
+                        """
+                        INSERT INTO rag_evaluation_case_results (
+                            run_configuration_id, dataset_snapshot_id,
+                            evaluation_case_id, ordinal, query_sha256,
+                            permission_scenario, expected_evidence_ids,
+                            raw_observations, duration_ms, recall_at_k,
+                            reciprocal_rank, ndcg, correct_supported,
+                            false_grounding, highlight_iou, access_leaks,
+                            reproducible, id
+                        ) SELECT run_configuration_id, dataset_snapshot_id,
+                                 evaluation_case_id, ordinal, query_sha256,
+                                 permission_scenario, expected_evidence_ids,
+                                 %s::jsonb, duration_ms, 1.0, 1.0, 1.0,
+                                 correct_supported, false_grounding,
+                                 highlight_iou, access_leaks, reproducible, %s
+                            FROM rag_evaluation_case_results
+                           WHERE dataset_snapshot_id = %s
+                             AND recall_at_k IS NOT NULL
+                           ORDER BY ordinal LIMIT 1
+                        """,
+                        (json.dumps(forged_raw), uuid4(), dataset_id),
+                    )
                 with pytest.raises(psycopg.errors.RaiseException, match="terminal"):
                     connection.execute(
                         """
@@ -524,6 +825,43 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
                     """,
                     (BM25_BASELINE_CONFIGURATION_VERSION_ID,),
                 )
+                connection.execute(
+                    """
+                    INSERT INTO rag_configurations (owner_id, name, is_system, id)
+                    VALUES (%s, 'caller BGE downgrade fixture', false, %s)
+                    """,
+                    (owner_id, caller_bge_configuration_id),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO rag_answer_policy_versions (
+                        configuration_id, version, mode, min_semantic_score,
+                        min_keyword_coverage, require_complete_provenance,
+                        conflict_mode, id
+                    ) VALUES (
+                        %s, 1, 'extractive', 0.0, 0.0, true,
+                        'separate_sources', %s
+                    )
+                    """,
+                    (caller_bge_configuration_id, caller_bge_policy_id),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO rag_configuration_versions (
+                        configuration_id, version, indexing_profile_id,
+                        retrieval_profile_id, generation_profile_id,
+                        answer_policy_version_id, evaluation_state,
+                        is_default, id
+                    ) VALUES (%s, 1, %s, %s, NULL, %s, 'pending', false, %s)
+                    """,
+                    (
+                        caller_bge_configuration_id,
+                        BGE_INDEXING_PROFILE_ID,
+                        BGE_RETRIEVAL_PROFILE_ID,
+                        caller_bge_policy_id,
+                        caller_bge_version_id,
+                    ),
+                )
                 assert connection.execute(
                     """
                     SELECT evaluation_state, is_default
@@ -552,11 +890,18 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
                 assert connection.execute(
                     "SELECT count(*) FROM rag_profiles WHERE id IN (%s, %s)",
                     (BGE_INDEXING_PROFILE_ID, BGE_RETRIEVAL_PROFILE_ID),
-                ).fetchone() == (0,)
+                ).fetchone() == (2,)
                 assert connection.execute(
                     "SELECT count(*) FROM rag_model_definitions WHERE id = %s",
                     (BGE_MODEL_ID,),
-                ).fetchone() == (0,)
+                ).fetchone() == (1,)
+                assert connection.execute(
+                    """
+                    SELECT evaluation_state, is_default
+                      FROM rag_configuration_versions WHERE id = %s
+                    """,
+                    (caller_bge_version_id,),
+                ).fetchone() == ("pending", False)
                 with pytest.raises(psycopg.errors.CheckViolation, match="no_passed"):
                     connection.execute(
                         """
@@ -569,6 +914,19 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
             await to_thread(command.upgrade, config, "head")
             await to_thread(command.current, config, check_heads=True)
             await to_thread(command.check, config)
+            with psycopg.connect(_sync_url(isolated_url), autocommit=True) as connection:
+                assert connection.execute(
+                    """
+                    SELECT count(*)
+                      FROM rag_profile_model_bindings
+                     WHERE profile_id = %s AND model_id = %s
+                    """,
+                    (BGE_INDEXING_PROFILE_ID, BGE_MODEL_ID),
+                ).fetchone() == (1,)
+                assert connection.execute(
+                    "SELECT count(*) FROM rag_configuration_versions WHERE id = %s",
+                    (caller_bge_version_id,),
+                ).fetchone() == (1,)
     finally:
         get_settings.cache_clear()
         _drop_database(base_settings.database_url, database)

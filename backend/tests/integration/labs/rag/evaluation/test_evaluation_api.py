@@ -88,6 +88,7 @@ class FakeEvaluationService:
             fixture_sha256="1" * 64,
             document_snapshot_sha256="2" * 64,
             query_set_sha256="3" * 64,
+            execution_snapshot_sha256="4" * 64,
             runtime_environment={"python": "3.13"},
             worker_runtime_environment={"execution_role": "celery-worker"},
             metric_definition_version=1,
@@ -204,6 +205,7 @@ def test_run_create_detail_and_list_keep_candidate_identity_and_round_only_respo
     assert payload["candidates"][0]["metrics"]["p50_latency_ms"] == 12.345679
     assert payload["metric_definition_version"] == 1
     assert payload["retrieval_k"] == 3
+    assert payload["execution_snapshot_sha256"] == "4" * 64
     assert payload["worker_runtime_environment"]["execution_role"] == "celery-worker"
     assert service.candidate.metrics is not None
     assert service.candidate.metrics.recall_at_k == 1 / 3

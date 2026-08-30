@@ -1,6 +1,6 @@
 import json
 from collections.abc import Iterator, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 from typing import cast
@@ -10,7 +10,7 @@ import psycopg
 import pytest
 from alembic.config import Config
 from psycopg import sql
-from sqlalchemy import make_url, select
+from sqlalchemy import delete, make_url, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from ai_workshop.config import Settings, get_settings
@@ -48,6 +48,7 @@ from ai_workshop.labs.rag.evaluation.repository import (
 from ai_workshop.labs.rag.evaluation.service import (
     EvaluationApplicationService,
     EvaluationWorkflow,
+    evaluate_case,
 )
 from ai_workshop.labs.rag.evaluation.tasks import ProductionEvaluationSearch
 from ai_workshop.labs.rag.indexing.contracts import IndexDescriptor, IndexDocument
@@ -56,7 +57,11 @@ from ai_workshop.labs.rag.indexing.service import IndexingService
 from ai_workshop.labs.rag.models.domain import EvaluationState, ProfileKind
 from ai_workshop.labs.rag.models.repository import SqlAlchemyModelRegistryRepository
 from ai_workshop.labs.rag.models.service import RagModelRegistryService
-from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecord
+from ai_workshop.platform.assets.models import (
+    AssetVersionRecord,
+    DocumentRecord,
+    FolderRecord,
+)
 from ai_workshop.platform.identity.models import UserRecord
 from ai_workshop.platform.workspaces.models import (
     WorkspaceMembershipRecord,
@@ -423,7 +428,7 @@ async def test_real_bm25_e5_bge_compare_the_same_snapshot_with_caller_saved_conf
         _env_file=None,
         secret_key="task11-real-search-secret-key-value",
         database_url=isolated_evaluation_database_url,
-        elasticsearch_url="http://host.docker.internal:9200",
+        elasticsearch_url="http://127.0.0.1:9200",
         elasticsearch_index_prefix=f"task11-{uuid4().hex}",
     )
     engine = create_async_engine(isolated_evaluation_database_url)
@@ -576,9 +581,145 @@ async def test_real_bm25_e5_bge_compare_the_same_snapshot_with_caller_saved_conf
                 retrieval_k=10,
                 repetition_count=2,
             )
+            runtime_mismatch_run = await EvaluationApplicationService(
+                repository, commit=session.commit
+            ).start_run(
+                actor_id=actor_id,
+                dataset_fixture=None,
+                dataset_snapshot_id=dataset.id,
+                evaluation_policy_version_id=None,
+                configuration_version_ids=(configurations[0].version_id,),
+                metric_definition_version=1,
+                retrieval_k=10,
+                repetition_count=2,
+            )
+            execution_repository = SqlAlchemyEvaluationRepository(sessions)
+            first_runtime = {
+                "application_revision": "worker-a",
+                "device": "cpu",
+                "packages": {"sentence-transformers": "6.0.0"},
+            }
+            first_claim = await execution_repository.claim_run(
+                runtime_mismatch_run.id, first_runtime
+            )
+            assert first_claim is not None
+            partial_candidate = first_claim.candidates[0]
+            partial_case = first_claim.dataset.cases[0]
+            await execution_repository.mark_candidate_running(
+                partial_candidate.id, first_claim.claim_token
+            )
+            partial_search = ProductionEvaluationSearch(
+                settings,
+                embedding_factory=lambda config: DeterministicDenseEmbedding(
+                    config.dimension
+                ),
+            )
+            try:
+                partial_observations = tuple(
+                    [
+                        await partial_search.execute(
+                            actor_id=actor_id,
+                            candidate=partial_candidate,
+                            case=partial_case,
+                        )
+                        for _ in range(first_claim.repetition_count)
+                    ]
+                )
+            finally:
+                await partial_search.close()
+            await execution_repository.add_case_result(
+                partial_candidate.id,
+                first_claim.claim_token,
+                evaluate_case(
+                    partial_case,
+                    0,
+                    partial_observations,
+                    retrieval_k=first_claim.retrieval_k,
+                ),
+            )
+            await session.execute(
+                update(EvaluationRunRecord)
+                .where(EvaluationRunRecord.id == runtime_mismatch_run.id)
+                .values(claimed_at=datetime.now(UTC) - timedelta(minutes=31))
+            )
+            await session.commit()
+            same_runtime_claim = await execution_repository.claim_run(
+                runtime_mismatch_run.id, first_runtime
+            )
+            assert same_runtime_claim is not None
+            assert await execution_repository.find_case_result(
+                partial_candidate.id, partial_case.id
+            ) is not None
+            await session.execute(
+                update(EvaluationRunRecord)
+                .where(EvaluationRunRecord.id == runtime_mismatch_run.id)
+                .values(claimed_at=datetime.now(UTC) - timedelta(minutes=31))
+            )
+            await session.commit()
+            mismatched_claim = await execution_repository.claim_run(
+                runtime_mismatch_run.id,
+                {
+                    "application_revision": "worker-b",
+                    "device": "cuda",
+                    "packages": {"sentence-transformers": "6.1.0"},
+                },
+            )
+            assert mismatched_claim is None
+            mismatched_run = await session.get(
+                EvaluationRunRecord, runtime_mismatch_run.id
+            )
+            assert mismatched_run is not None
+            await session.refresh(mismatched_run)
+            assert mismatched_run.worker_runtime_environment == first_runtime
+            assert mismatched_run.status == "failed"
+            assert mismatched_run.failure == "runtime_fingerprint_mismatch"
+            mismatched_candidates = list(
+                await session.scalars(
+                    select(EvaluationRunConfigurationRecord).where(
+                        EvaluationRunConfigurationRecord.run_id
+                        == runtime_mismatch_run.id
+                    )
+                )
+            )
+            assert mismatched_candidates
+            assert all(item.status == "failed" for item in mismatched_candidates)
+            assert len(
+                list(
+                    await session.scalars(
+                        select(EvaluationCaseResultRecord)
+                        .join(EvaluationRunConfigurationRecord)
+                        .where(
+                            EvaluationRunConfigurationRecord.run_id
+                            == runtime_mismatch_run.id
+                        )
+                    )
+                )
+            ) == 1
             document = await session.get(DocumentRecord, DOCUMENT_ID)
             assert document is not None
             document.active_version_id = None
+            document.name = "mutated after evaluation snapshot.pdf"
+            replacement_folder = FolderRecord(
+                workspace_id=COMPANY_ID,
+                parent_id=None,
+                name="post-snapshot-folder",
+            )
+            session.add(replacement_folder)
+            await session.flush()
+            document.folder_id = replacement_folder.id
+            await session.execute(
+                delete(WorkspaceMembershipRecord).where(
+                    WorkspaceMembershipRecord.workspace_id == COMPANY_ID,
+                    WorkspaceMembershipRecord.user_id == actor_id,
+                )
+            )
+            for chunk in await session.scalars(select(RetrievalChunkRecord)):
+                chunk.text = "mutated chunk bytes after run creation"
+                chunk.section_path = ["mutated"]
+            for evidence in await session.scalars(select(EvidenceUnitRecord)):
+                evidence.text = "mutated evidence bytes after run creation"
+                evidence.char_start = 1
+                evidence.char_end = 8
             for build in await session.scalars(select(RagIndexBuildRecord)):
                 build.is_active = False
             await session.commit()
@@ -644,6 +785,13 @@ async def test_real_bm25_e5_bge_compare_the_same_snapshot_with_caller_saved_conf
             }
             stored_run = await session.get(EvaluationRunRecord, run.id)
             assert stored_run is not None
+            assert len(stored_run.execution_snapshot_sha256) == 64
+            assert stored_run.execution_snapshot_bytes
+            assert all(
+                item.component_snapshot["execution_snapshot_sha256"]
+                == stored_run.execution_snapshot_sha256
+                for item in candidates
+            )
             assert stored_run.worker_runtime_environment == {
                 "application_revision": "task11-integration",
                 "device": "cpu",

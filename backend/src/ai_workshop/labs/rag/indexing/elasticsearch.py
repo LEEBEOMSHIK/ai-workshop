@@ -26,6 +26,8 @@ def build_mapping(descriptor: IndexDescriptor) -> dict[str, Any]:
                     "type": "nested",
                     "properties": {
                         "id": {"type": "keyword"},
+                        "chunk_id": {"type": "keyword"},
+                        "projection_id": {"type": "keyword"},
                         "ordinal": {"type": "integer"},
                         "text": {"type": "text"},
                         "element_id": {"type": "keyword"},
@@ -84,7 +86,7 @@ class ElasticsearchSearchIndex:
         )
         return int(response["count"])
 
-    async def activate(self, alias: str, index_name: str) -> None:
+    async def activate(self, alias: str, index_name: str) -> bool:
         try:
             current_indices = list(await self.client.indices.get_alias(name=alias))
         except NotFoundError:
@@ -94,4 +96,12 @@ class ElasticsearchSearchIndex:
             for existing_index in current_indices
         ]
         actions.append({"add": {"index": index_name, "alias": alias}})
-        await self.client.indices.update_aliases(actions=actions)
+        response = await self.client.indices.update_aliases(actions=actions)
+        return bool(response.get("acknowledged", False))
+
+    async def active_targets(self, alias: str) -> tuple[str, ...]:
+        try:
+            response = await self.client.indices.get_alias(name=alias)
+        except NotFoundError:
+            return ()
+        return tuple(response)

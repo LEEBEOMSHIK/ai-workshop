@@ -54,6 +54,8 @@ def test_projection_document_preserves_provenance_and_optional_embedding() -> No
     assert projection["evidence_units"] == [
         {
             "id": "00000000-0000-0000-0000-000000000404",
+            "chunk_id": "00000000-0000-0000-0000-000000000402",
+            "projection_id": "00000000-0000-0000-0000-000000000403",
             "ordinal": 0,
             "text": "한국상품",
             "element_id": "00000000-0000-0000-0000-000000000401",

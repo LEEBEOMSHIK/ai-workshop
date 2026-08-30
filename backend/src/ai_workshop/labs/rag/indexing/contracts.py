@@ -59,6 +59,8 @@ class IndexDocument:
             "evidence_units": [
                 {
                     "id": str(evidence.id),
+                    "chunk_id": str(evidence.chunk_id),
+                    "projection_id": str(evidence.projection_id),
                     "ordinal": evidence.ordinal,
                     "text": evidence.text,
                     "element_id": str(evidence.location.element_id),
@@ -86,5 +88,8 @@ class SearchIndexPort(Protocol):
     async def count_projection(self, index_name: str, projection_id: UUID) -> int:
         raise NotImplementedError
 
-    async def activate(self, alias: str, index_name: str) -> None:
+    async def activate(self, alias: str, index_name: str) -> bool:
+        raise NotImplementedError
+
+    async def active_targets(self, alias: str) -> tuple[str, ...]:
         raise NotImplementedError

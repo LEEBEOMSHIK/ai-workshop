@@ -16,6 +16,8 @@
         "type": "nested",
         "properties": {
           "id": { "type": "keyword" },
+          "chunk_id": { "type": "keyword" },
+          "projection_id": { "type": "keyword" },
           "ordinal": { "type": "integer" },
           "text": { "type": "text" },
           "element_id": { "type": "keyword" },

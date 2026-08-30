@@ -13,6 +13,7 @@ class JobStatus(StrEnum):
 
 class JobType(StrEnum):
     VERIFY_ASSET = "verify_asset"
+    RAG_INGESTION = "rag_ingestion"
 
 
 class InvalidJobTransition(ValueError):
@@ -66,6 +67,10 @@ class Job:
         self.status = JobStatus.SUCCEEDED
         self.stage = stage
         self.finished_at = at or datetime.now(UTC)
+
+    def advance(self, *, stage: str) -> None:
+        self._require_status(JobStatus.RUNNING)
+        self.stage = stage
 
     def fail(
         self,

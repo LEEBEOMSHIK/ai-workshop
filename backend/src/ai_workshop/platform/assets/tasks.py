@@ -22,6 +22,8 @@ class AssetTaskError(Exception):
 class AssetVerificationLifecycle(Protocol):
     async def begin(self, job_id: UUID) -> AssetVersion | None: ...
 
+    async def verified_asset_version_id(self, job_id: UUID) -> UUID: ...
+
     async def succeed(self, job_id: UUID) -> None: ...
 
     async def fail(
@@ -42,10 +44,10 @@ class AssetVerificationWorkflow:
         self.lifecycle = lifecycle
         self.object_store = object_store
 
-    async def run(self, job_id: UUID) -> None:
+    async def run(self, job_id: UUID) -> UUID:
         version = await self.lifecycle.begin(job_id)
         if version is None:
-            return
+            return await self.lifecycle.verified_asset_version_id(job_id)
         try:
             await verify_stored_asset(self.object_store, version)
         except AssetTaskError as exc:
@@ -56,6 +58,7 @@ class AssetVerificationWorkflow:
             )
             raise
         await self.lifecycle.succeed(job_id)
+        return version.id
 
 
 class SqlAlchemyAssetVerificationLifecycle:
@@ -108,6 +111,28 @@ class SqlAlchemyAssetVerificationLifecycle:
         if error is not None:
             raise error
         return version
+
+    async def verified_asset_version_id(self, job_id: UUID) -> UUID:
+        engine = create_engine(self.settings)
+        session_factory = create_session_factory(engine)
+        try:
+            async with session_factory() as session:
+                job = await SqlAlchemyJobRepository(session).find_by_id(job_id)
+                if job is None:
+                    raise AssetTaskError(
+                        "job_not_found",
+                        "The background job does not exist.",
+                        retryable=False,
+                    )
+                if job.status is not JobStatus.SUCCEEDED:
+                    raise AssetTaskError(
+                        "job_not_verified",
+                        "The background job has not verified an asset version.",
+                        retryable=False,
+                    )
+                return job.asset_version_id
+        finally:
+            await engine.dispose()
 
     async def succeed(self, job_id: UUID) -> None:
         engine = create_engine(self.settings)

@@ -43,3 +43,20 @@ def test_terminal_job_cannot_transition_again() -> None:
 
     with pytest.raises(InvalidJobTransition):
         job.start(stage="verifying_object")
+
+
+def test_running_rag_job_advances_stage_without_starting_another_attempt() -> None:
+    job = Job.create(
+        user_id=uuid4(),
+        workspace_id=uuid4(),
+        asset_version_id=uuid4(),
+        type=JobType.RAG_INGESTION,
+        idempotency_key="asset:profile:rag_ingestion",
+    )
+
+    job.start(stage="parsing")
+    job.advance(stage="chunking")
+
+    assert job.status is JobStatus.RUNNING
+    assert job.stage == "chunking"
+    assert job.attempt == 1

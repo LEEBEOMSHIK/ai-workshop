@@ -34,8 +34,14 @@ class MemoryLifecycle(AssetVerificationLifecycle):
 
 
 class CompletedLifecycle(AssetVerificationLifecycle):
+    def __init__(self, asset_version_id) -> None:
+        self.asset_version_id = asset_version_id
+
     async def begin(self, job_id):
         return None
+
+    async def verified_asset_version_id(self, job_id):
+        return self.asset_version_id
 
     async def succeed(self, job_id) -> None:
         raise AssertionError("A completed job must not run again.")
@@ -130,8 +136,11 @@ async def test_asset_workflow_persists_successful_terminal_state(tmp_path) -> No
         idempotency_key=f"asset-version:{version.id}",
     )
 
-    await AssetVerificationWorkflow(MemoryLifecycle(job, version), store).run(job.id)
+    verified_asset_version_id = await AssetVerificationWorkflow(
+        MemoryLifecycle(job, version), store
+    ).run(job.id)
 
+    assert verified_asset_version_id == version.id
     assert job.status is JobStatus.SUCCEEDED
     assert job.stage == "stored"
 
@@ -167,4 +176,10 @@ async def test_asset_workflow_persists_stable_failure_code(tmp_path) -> None:
 
 @pytest.mark.asyncio
 async def test_asset_workflow_does_not_repeat_a_completed_job(tmp_path) -> None:
-    await AssetVerificationWorkflow(CompletedLifecycle(), LocalObjectStore(tmp_path)).run(uuid4())
+    asset_version_id = uuid4()
+
+    returned_id = await AssetVerificationWorkflow(
+        CompletedLifecycle(asset_version_id), LocalObjectStore(tmp_path)
+    ).run(uuid4())
+
+    assert returned_id == asset_version_id

@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://ai_workshop:ai_workshop@127.0.0.1:5432/ai_workshop"
     redis_url: str = "redis://127.0.0.1:6379/0"
     object_store_root: Path = Path(".local-data/objects")
+    elasticsearch_url: str = "http://127.0.0.1:9200"
+    elasticsearch_index_prefix: str = "ai-workshop-rag"
+    model_cache_root: Path = Path(".local-data/models")
 
     @property
     def secure_cookies(self) -> bool:

@@ -11,6 +11,7 @@ x-backend: &backend
     AI_WORKSHOP_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-ai_workshop}:${POSTGRES_PASSWORD:-ai_workshop}@postgres:5432/${POSTGRES_DB:-ai_workshop}
     AI_WORKSHOP_REDIS_URL: redis://redis:6379/0
     AI_WORKSHOP_OBJECT_STORE_ROOT: /data/objects
+    AI_WORKSHOP_ELASTICSEARCH_URL: http://elasticsearch:9200
   volumes:
     - object-data:/data/objects
 
@@ -136,7 +137,24 @@ services:
       timeout: 3s
       retries: 10
 
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.2
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms1g -Xmx1g
+    ports:
+      - "127.0.0.1:${ELASTICSEARCH_PORT:-9200}:9200"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=1s"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+
 volumes:
   object-data:
   postgres-data:
   redis-data:
+  elasticsearch-data:

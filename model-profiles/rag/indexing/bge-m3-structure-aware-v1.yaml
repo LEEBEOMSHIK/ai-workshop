@@ -1,0 +1,16 @@
+kind: indexing
+name: bge-m3-structure-aware
+version: 1
+evaluation_state: draft
+config:
+  chunker:
+    name: structure-aware
+    version: 1
+    target_tokens: 380
+    overlap_tokens: 60
+  embedding:
+    batch_size: 8
+    similarity: cosine
+bindings:
+  - role: embedding
+    model_id: 00000000-0000-0000-0000-000000000102

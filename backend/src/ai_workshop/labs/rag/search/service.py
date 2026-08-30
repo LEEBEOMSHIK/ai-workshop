@@ -47,6 +47,7 @@ class SearchResult:
     selection: EvidenceSelection
     configuration: ResolvedSearchConfiguration
     related_sources: tuple[RelatedSource, ...]
+    retrieved_evidence_ids: tuple[UUID, ...] = ()
 
 
 class SearchApplicationService:
@@ -70,6 +71,30 @@ class SearchApplicationService:
             request.configuration_id,
             actor_id,
         )
+        return await self._search(actor_id=actor_id, request=request, configuration=configuration)
+
+    async def search_exact(
+        self,
+        *,
+        actor_id: UUID,
+        configuration_version_id: UUID,
+        request: SearchRequest,
+    ) -> SearchResult:
+        configuration = await self.configuration_resolver.resolve_version(
+            configuration_version_id,
+            actor_id,
+        )
+        if request.configuration_id != configuration.configuration_id:
+            raise AppError("not_found", "The requested resource was not found.", 404)
+        return await self._search(actor_id=actor_id, request=request, configuration=configuration)
+
+    async def _search(
+        self,
+        *,
+        actor_id: UUID,
+        request: SearchRequest,
+        configuration: ResolvedSearchConfiguration,
+    ) -> SearchResult:
         if configuration.experimental and not request.experimental:
             raise AppError(
                 "experimental_opt_in_required",
@@ -123,6 +148,11 @@ class SearchApplicationService:
             selection=selection,
             configuration=configuration,
             related_sources=_related_sources(sources, selection),
+            retrieved_evidence_ids=tuple(
+                evidence.id
+                for source in sources
+                for evidence in source.chunk.evidence_units
+            ),
         )
 
 

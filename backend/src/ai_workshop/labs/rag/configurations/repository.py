@@ -2,7 +2,7 @@ from collections.abc import Mapping
 from typing import cast
 from uuid import UUID
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_workshop.config import Settings
@@ -23,6 +23,18 @@ from ai_workshop.labs.rag.embeddings.contracts import (
 )
 from ai_workshop.labs.rag.embeddings.sentence_transformers import (
     SentenceTransformerEmbedding,
+)
+from ai_workshop.labs.rag.evaluation.domain import (
+    CandidateStatus,
+    EvaluationMetrics,
+    EvaluationPolicy,
+    EvaluationRunStatus,
+    PromotionEvidence,
+)
+from ai_workshop.labs.rag.evaluation.models import (
+    EvaluationPolicyRecord,
+    EvaluationRunConfigurationRecord,
+    EvaluationRunRecord,
 )
 from ai_workshop.labs.rag.indexing.contracts import IndexDescriptor
 from ai_workshop.labs.rag.models.domain import (
@@ -273,6 +285,164 @@ class SqlAlchemyRagConfigurationRepository:
         )
         return await self._latest(record) if record is not None else None
 
+    async def find_version_visible(
+        self,
+        configuration_version_id: UUID,
+        actor_id: UUID,
+    ) -> SavedRagConfiguration | None:
+        row = (
+            await self.session.execute(
+                select(RagConfigurationRecord, RagConfigurationVersionRecord)
+                .join(
+                    RagConfigurationVersionRecord,
+                    RagConfigurationVersionRecord.configuration_id
+                    == RagConfigurationRecord.id,
+                )
+                .where(
+                    RagConfigurationVersionRecord.id == configuration_version_id,
+                    or_(
+                        RagConfigurationRecord.is_system.is_(True),
+                        RagConfigurationRecord.owner_id == actor_id,
+                    ),
+                )
+            )
+        ).one_or_none()
+        if row is None:
+            return None
+        return await self._from_version(row[0], row[1])
+
+    async def promote_default(
+        self,
+        configuration_id: UUID,
+        actor_id: UUID,
+    ) -> SavedRagConfiguration:
+        identity = await self.session.scalar(
+            select(RagConfigurationRecord)
+            .where(
+                RagConfigurationRecord.id == configuration_id,
+                or_(
+                    RagConfigurationRecord.is_system.is_(True),
+                    RagConfigurationRecord.owner_id == actor_id,
+                ),
+            )
+            .with_for_update()
+        )
+        if identity is None:
+            raise AppError("not_found", "The requested resource was not found.", 404)
+        version = await self.session.scalar(
+            select(RagConfigurationVersionRecord)
+            .where(RagConfigurationVersionRecord.configuration_id == identity.id)
+            .order_by(RagConfigurationVersionRecord.version.desc())
+            .limit(1)
+            .with_for_update()
+        )
+        if version is None:
+            raise RuntimeError("A Saved RAG Configuration identity has no version.")
+        evidence_rows = (
+            await self.session.execute(
+                select(
+                    EvaluationRunConfigurationRecord,
+                    EvaluationRunRecord,
+                    EvaluationPolicyRecord,
+                )
+                .join(
+                    EvaluationRunRecord,
+                    EvaluationRunRecord.id
+                    == EvaluationRunConfigurationRecord.run_id,
+                )
+                .join(
+                    EvaluationPolicyRecord,
+                    EvaluationPolicyRecord.id
+                    == EvaluationRunRecord.evaluation_policy_version_id,
+                )
+                .where(
+                    EvaluationRunConfigurationRecord.configuration_version_id
+                    == version.id,
+                    EvaluationRunRecord.owner_id == actor_id,
+                    EvaluationPolicyRecord.owner_id == actor_id,
+                    EvaluationPolicyRecord.dataset_snapshot_id
+                    == EvaluationRunRecord.dataset_snapshot_id,
+                )
+                .order_by(EvaluationRunRecord.finished_at.desc().nullslast())
+            )
+        ).all()
+        current = await self._from_version(identity, version)
+        promoted: SavedRagConfiguration | None = None
+        for candidate, run, policy_record in evidence_rows:
+            metric_values = (
+                candidate.recall_at_k,
+                candidate.mrr,
+                candidate.ndcg,
+                candidate.supported_precision,
+                candidate.false_grounding_rate,
+                candidate.highlight_iou,
+                candidate.p50_latency_ms,
+                candidate.p95_latency_ms,
+                candidate.access_leaks,
+                candidate.reproducibility,
+            )
+            metrics = None
+            if all(value is not None for value in metric_values):
+                metrics = EvaluationMetrics(
+                    recall_at_k=cast(float, candidate.recall_at_k),
+                    mrr=cast(float, candidate.mrr),
+                    ndcg=cast(float, candidate.ndcg),
+                    supported_precision=cast(float, candidate.supported_precision),
+                    false_grounding_rate=cast(float, candidate.false_grounding_rate),
+                    highlight_iou=cast(float, candidate.highlight_iou),
+                    p50_latency_ms=cast(float, candidate.p50_latency_ms),
+                    p95_latency_ms=cast(float, candidate.p95_latency_ms),
+                    access_leaks=cast(int, candidate.access_leaks),
+                    reproducibility=cast(float, candidate.reproducibility),
+                )
+            policy = EvaluationPolicy(
+                id=policy_record.id,
+                owner_id=policy_record.owner_id,
+                dataset_snapshot_id=policy_record.dataset_snapshot_id,
+                version=policy_record.version,
+                recall_at_k=policy_record.min_recall_at_k,
+                mrr=policy_record.min_mrr,
+                ndcg=policy_record.min_ndcg,
+                supported_precision=policy_record.min_supported_precision,
+                max_false_grounding_rate=policy_record.max_false_grounding_rate,
+                min_highlight_iou=policy_record.min_highlight_iou,
+                max_p50_latency_ms=policy_record.max_p50_latency_ms,
+                max_p95_latency_ms=policy_record.max_p95_latency_ms,
+                max_access_leaks=policy_record.max_access_leaks,
+                required_reproducibility=policy_record.required_reproducibility,
+            ).validate()
+            evidence = PromotionEvidence(
+                configuration_version_id=version.id,
+                evaluated_configuration_version_id=candidate.configuration_version_id,
+                run_status=EvaluationRunStatus(run.status),
+                candidate_status=CandidateStatus(candidate.status),
+                failure=candidate.failure,
+                metrics=metrics,
+            )
+            try:
+                promoted = current.as_default(policy=policy, evidence=evidence)
+            except ValueError:
+                continue
+            break
+        if promoted is None:
+            raise AppError(
+                "evaluation_policy_required",
+                "An exact versioned Evaluation Policy and passing result are required.",
+                409,
+            )
+        await self.session.execute(
+            update(RagConfigurationVersionRecord)
+            .where(
+                RagConfigurationVersionRecord.is_default.is_(True),
+                RagConfigurationVersionRecord.id != version.id,
+            )
+            .values(is_default=False)
+        )
+        version.evaluation_state = EvaluationState.PASSED
+        version.is_default = True
+        await self.session.flush()
+        return promoted
+
     async def _latest(
         self,
         identity: RagConfigurationRecord,
@@ -285,6 +455,13 @@ class SqlAlchemyRagConfigurationRepository:
         )
         if version is None:
             raise RuntimeError("A Saved RAG Configuration identity has no version.")
+        return await self._from_version(identity, version)
+
+    async def _from_version(
+        self,
+        identity: RagConfigurationRecord,
+        version: RagConfigurationVersionRecord,
+    ) -> SavedRagConfiguration:
         policy = await self.session.get(
             AnswerPolicyVersionRecord,
             version.answer_policy_version_id,
@@ -422,6 +599,25 @@ class SqlAlchemySearchConfigurationResolver:
         configuration = await self.repository.find_visible(configuration_id, actor_id)
         if configuration is None:
             raise AppError("not_found", "The requested resource was not found.", 404)
+        return await self._resolve(configuration, actor_id)
+
+    async def resolve_version(
+        self,
+        configuration_version_id: UUID,
+        actor_id: UUID,
+    ) -> ResolvedSearchConfiguration:
+        configuration = await self.repository.find_version_visible(
+            configuration_version_id, actor_id
+        )
+        if configuration is None:
+            raise AppError("not_found", "The requested resource was not found.", 404)
+        return await self._resolve(configuration, actor_id)
+
+    async def _resolve(
+        self,
+        configuration: SavedRagConfiguration,
+        actor_id: UUID,
+    ) -> ResolvedSearchConfiguration:
         indexing = await self.repository.find_profile(configuration.indexing_profile_id)
         retrieval = await self.repository.find_profile(configuration.retrieval_profile_id)
         if (

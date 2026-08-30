@@ -295,6 +295,9 @@ async def test_postgres_versions_visibility_jobs_subscriptions_and_exact_resolve
 
             resolver = SqlAlchemySearchConfigurationResolver(session, settings)
             resolved = await resolver.resolve(first.configuration.id, owner_id)
+            exact_first = await resolver.resolve_version(
+                first.configuration.version_id, owner_id
+            )
 
             assert resolved.configuration_version_id == second.configuration.version_id
             assert resolved.configuration_version == 2
@@ -309,11 +312,18 @@ async def test_postgres_versions_visibility_jobs_subscriptions_and_exact_resolve
             assert resolved.experimental is True
             assert resolved.active_index_alias.indexing_profile_id == E5_INDEXING_PROFILE_ID
             assert resolved.embedding.dimension == 768
+            assert exact_first.configuration_version_id == first.configuration.version_id
+            assert exact_first.configuration_version == 1
+            assert exact_first.answer_policy is not None
+            assert exact_first.answer_policy.min_semantic_score == 0.81
 
             with pytest.raises(AppError) as hidden:
                 await resolver.resolve(first.configuration.id, other_id)
             assert hidden.value.status_code == 404
             assert hidden.value.code == "not_found"
+            with pytest.raises(AppError) as hidden_version:
+                await resolver.resolve_version(first.configuration.version_id, other_id)
+            assert hidden_version.value.status_code == 404
 
         await transaction.rollback()
     await engine.dispose()

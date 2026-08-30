@@ -103,14 +103,6 @@ class RagConfigurationVersionRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "NOT is_default OR evaluation_state = 'passed'",
             name="ck_rag_configuration_versions_default_passed",
         ),
-        CheckConstraint(
-            "evaluation_state <> 'passed'",
-            name="ck_rag_config_versions_no_passed_pre_eval",
-        ),
-        CheckConstraint(
-            "NOT is_default",
-            name="ck_rag_config_versions_no_default_pre_eval",
-        ),
         Index(
             "uq_rag_configuration_versions_passed_default",
             "is_default",

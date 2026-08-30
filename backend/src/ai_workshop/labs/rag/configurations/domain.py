@@ -3,6 +3,11 @@ from dataclasses import dataclass, replace
 from typing import Literal
 from uuid import UUID, uuid4
 
+from ai_workshop.labs.rag.evaluation.domain import (
+    EvaluationPolicy,
+    PromotionEvidence,
+    PromotionGate,
+)
 from ai_workshop.labs.rag.highlighting.domain import AnswerPolicy
 from ai_workshop.labs.rag.models.domain import (
     EvaluationState,
@@ -210,19 +215,13 @@ class SavedRagConfiguration:
     def as_default(
         self,
         *,
-        evaluation_policy_version_id: UUID | None,
-        access_leaks: int,
+        policy: EvaluationPolicy | None,
+        evidence: PromotionEvidence,
     ) -> "SavedRagConfiguration":
-        if self.evaluation_state is not EvaluationState.PASSED:
+        if evidence.configuration_version_id != self.version_id or not PromotionGate.qualifies(
+            policy, evidence
+        ):
             raise ConfigurationValidationError(
-                "A passed evaluation is required for default promotion."
+                "An exact policy-backed passing evaluation is required for promotion."
             )
-        if evaluation_policy_version_id is None:
-            raise ConfigurationValidationError(
-                "An applicable versioned Evaluation Policy is required for promotion."
-            )
-        if access_leaks != 0:
-            raise ConfigurationValidationError(
-                "Default promotion requires zero permission leaks."
-            )
-        return replace(self, is_default=True)
+        return replace(self, evaluation_state=EvaluationState.PASSED, is_default=True)

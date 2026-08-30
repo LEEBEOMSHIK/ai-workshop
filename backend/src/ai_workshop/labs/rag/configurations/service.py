@@ -48,6 +48,12 @@ class RagConfigurationRepository(Protocol):
         actor_id: UUID,
     ) -> SavedRagConfiguration | None: ...
 
+    async def promote_default(
+        self,
+        configuration_id: UUID,
+        actor_id: UUID,
+    ) -> SavedRagConfiguration: ...
+
 
 class IngestionJobCreatorPort(Protocol):
     async def ensure_indexed(self, command: EnsureIndexedCommand) -> UUID: ...
@@ -203,12 +209,9 @@ class RagConfigurationService:
         configuration_id: UUID,
         actor_id: UUID,
     ) -> SavedRagConfiguration:
-        await self.detail(configuration_id, actor_id)
-        raise AppError(
-            "evaluation_policy_required",
-            "An applicable versioned Evaluation Policy and passing result are required.",
-            409,
-        )
+        promoted = await self.repository.promote_default(configuration_id, actor_id)
+        await self.commit()
+        return promoted
 
 
 def _retrieval_indexing_profile_id(profile: Profile) -> UUID:

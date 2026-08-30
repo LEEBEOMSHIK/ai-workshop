@@ -102,6 +102,8 @@ class EmbeddingModelConfig:
     output_mode: str
     data_policy: str
     batch_size: int
+    sparse_enabled: bool = False
+    colbert_enabled: bool = False
 
     def __post_init__(self) -> None:
         if not self.repo_id.strip():
@@ -122,6 +124,10 @@ class EmbeddingModelConfig:
             raise EmbeddingValidationError("dtype must be an explicitly supported floating type.")
         if self.output_mode != "dense":
             raise EmbeddingValidationError("Only dense output_mode is supported.")
+        if self.sparse_enabled:
+            raise EmbeddingValidationError("sparse_enabled must remain false in V1.")
+        if self.colbert_enabled:
+            raise EmbeddingValidationError("colbert_enabled must remain false in V1.")
         if self.data_policy != "local_only":
             raise EmbeddingValidationError("Embedding data_policy must be local_only.")
         if self.batch_size < 1:
@@ -175,6 +181,8 @@ class EmbeddingModelConfig:
             output_mode=_string(values["output_mode"], "output_mode"),
             data_policy=_string(values["data_policy"], "data_policy"),
             batch_size=batch_size,
+            sparse_enabled=_optional_boolean(values.get("sparse_enabled"), "sparse_enabled"),
+            colbert_enabled=_optional_boolean(values.get("colbert_enabled"), "colbert_enabled"),
         )
 
 
@@ -194,3 +202,9 @@ def _boolean(value: object, name: str) -> bool:
     if not isinstance(value, bool):
         raise EmbeddingValidationError(f"{name} must be a boolean.")
     return value
+
+
+def _optional_boolean(value: object | None, name: str) -> bool:
+    if value is None:
+        return False
+    return _boolean(value, name)

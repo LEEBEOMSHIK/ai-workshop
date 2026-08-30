@@ -1,5 +1,5 @@
 from collections.abc import Awaitable, Callable
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from uuid import UUID, uuid4
 
 import pytest
@@ -16,6 +16,13 @@ from ai_workshop.labs.rag.configurations.models import (
     RagConfigurationVersionRecord,
 )
 from ai_workshop.labs.rag.configurations.service import RagConfigurationService
+from ai_workshop.labs.rag.evaluation.domain import (
+    CandidateStatus,
+    EvaluationMetrics,
+    EvaluationPolicy,
+    EvaluationRunStatus,
+    PromotionEvidence,
+)
 from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand
 from ai_workshop.labs.rag.models.domain import (
     EvaluationState,
@@ -126,7 +133,7 @@ def test_extractive_policy_is_versioned_and_fail_closed() -> None:
     assert policy.to_answer_policy().conflict_mode == "separate_sources"
 
 
-def test_orm_metadata_fences_task11_states_and_pairs_the_exact_policy_version() -> None:
+def test_orm_metadata_pairs_the_exact_policy_version_for_task11_promotion() -> None:
     configuration_table = RagConfigurationVersionRecord.__table__
     check_names = {
         constraint.name
@@ -134,8 +141,9 @@ def test_orm_metadata_fences_task11_states_and_pairs_the_exact_policy_version() 
         if isinstance(constraint, CheckConstraint)
     }
 
-    assert "ck_rag_config_versions_no_passed_pre_eval" in check_names
-    assert "ck_rag_config_versions_no_default_pre_eval" in check_names
+    assert "ck_rag_configuration_versions_default_passed" in check_names
+    assert "ck_rag_config_versions_no_passed_pre_eval" not in check_names
+    assert "ck_rag_config_versions_no_default_pre_eval" not in check_names
 
     policy_table = AnswerPolicyVersionRecord.__table__
     policy_foreign_key = next(
@@ -159,21 +167,52 @@ def test_orm_metadata_fences_task11_states_and_pairs_the_exact_policy_version() 
 
 def test_default_promotion_requires_passed_and_applicable_versioned_policy() -> None:
     pending = _configuration()
-    with pytest.raises(ConfigurationValidationError, match="passed"):
-        pending.as_default(evaluation_policy_version_id=uuid4(), access_leaks=0)
+    dataset_id = uuid4()
+    policy = EvaluationPolicy.create(
+        owner_id=pending.owner_id or uuid4(),
+        dataset_snapshot_id=dataset_id,
+        version=1,
+        recall_at_k=0.8,
+        mrr=0.8,
+        ndcg=0.8,
+        supported_precision=0.8,
+        max_false_grounding_rate=0.0,
+        min_highlight_iou=0.8,
+        max_p50_latency_ms=100,
+        max_p95_latency_ms=200,
+        max_access_leaks=0,
+        required_reproducibility=1.0,
+    )
+    metrics = EvaluationMetrics(0.9, 0.9, 0.9, 1.0, 0.0, 0.9, 50, 100, 0, 1.0)
+    evidence = PromotionEvidence(
+        configuration_version_id=pending.version_id,
+        evaluated_configuration_version_id=pending.version_id,
+        run_status=EvaluationRunStatus.COMPLETED,
+        candidate_status=CandidateStatus.COMPLETED,
+        failure=None,
+        metrics=metrics,
+    )
 
-    passed = _configuration(evaluation_state=EvaluationState.PASSED)
-    with pytest.raises(ConfigurationValidationError, match="Evaluation Policy"):
-        passed.as_default(evaluation_policy_version_id=None, access_leaks=0)
-    with pytest.raises(ConfigurationValidationError, match="permission leaks"):
-        passed.as_default(evaluation_policy_version_id=uuid4(), access_leaks=1)
+    with pytest.raises(ConfigurationValidationError, match="passing"):
+        pending.as_default(policy=None, evidence=evidence)
+    with pytest.raises(ConfigurationValidationError, match="passing"):
+        pending.as_default(
+            policy=policy,
+            evidence=replace(
+                evidence,
+                metrics=EvaluationMetrics(
+                    0.7, 0.9, 0.9, 1.0, 0.0, 0.9, 50, 100, 0, 1.0
+                ),
+            ),
+        )
 
-    promoted = passed.as_default(
-        evaluation_policy_version_id=uuid4(),
-        access_leaks=0,
+    promoted = pending.as_default(
+        policy=policy,
+        evidence=evidence,
     )
 
     assert promoted.is_default is True
+    assert promoted.evaluation_state is EvaluationState.PASSED
 
 
 def test_configuration_requires_a_nonempty_unique_workspace_subscription() -> None:

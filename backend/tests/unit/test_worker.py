@@ -10,7 +10,10 @@ from ai_workshop.platform.jobs.models import JobRecord
 from ai_workshop.worker import (
     ASSET_VERIFICATION_TASK,
     RAG_DISPATCH_RECONCILE_TASK,
+    RAG_EVALUATION_DISPATCH_RECONCILE_TASK,
+    RAG_EVALUATION_TASK,
     RAG_INGESTION_TASK,
+    CeleryEvaluationRunSender,
     CeleryRagJobSender,
     VerifiedAssetSubscription,
     _rag_error,
@@ -22,8 +25,14 @@ from ai_workshop.worker import (
 def test_celery_cli_app_is_available_without_loading_application_secrets() -> None:
     assert ASSET_VERIFICATION_TASK in celery_app.tasks
     assert RAG_DISPATCH_RECONCILE_TASK in celery_app.tasks
+    assert RAG_EVALUATION_TASK in celery_app.tasks
+    assert RAG_EVALUATION_DISPATCH_RECONCILE_TASK in celery_app.tasks
     assert celery_app.conf.beat_schedule["reconcile-rag-ingestion-dispatches"] == {
         "task": RAG_DISPATCH_RECONCILE_TASK,
+        "schedule": 5.0,
+    }
+    assert celery_app.conf.beat_schedule["reconcile-rag-evaluation-dispatches"] == {
+        "task": RAG_EVALUATION_DISPATCH_RECONCILE_TASK,
         "schedule": 5.0,
     }
 
@@ -95,6 +104,49 @@ def test_reconciler_sender_sends_only_the_persisted_job_id() -> None:
     CeleryRagJobSender(application).send(job_id)
 
     assert calls == [((str(job_id),), {})]
+
+
+def test_evaluation_sender_sends_only_the_persisted_run_id() -> None:
+    settings = Settings(
+        _env_file=None,
+        environment="test",
+        secret_key="x" * 32,
+        redis_url="redis://unused:6379/0",
+    )
+    run_id = uuid4()
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    application = create_celery(settings)
+    task = application.tasks[RAG_EVALUATION_TASK]
+    task.delay = lambda *args, **kwargs: calls.append((args, kwargs))  # type: ignore[method-assign]
+
+    CeleryEvaluationRunSender(application).send(run_id)
+
+    assert calls == [((str(run_id),), {})]
+
+
+def test_evaluation_task_reloads_the_persisted_run_id_only() -> None:
+    settings = Settings(
+        _env_file=None,
+        environment="test",
+        secret_key="x" * 32,
+        redis_url="redis://unused:6379/0",
+    )
+    run_id = uuid4()
+    calls: list[UUID] = []
+
+    class Workflow:
+        async def run(self, persisted_run_id: UUID) -> None:
+            calls.append(persisted_run_id)
+
+    app = create_celery(
+        settings,
+        evaluation_workflow_factory=lambda _settings: Workflow(),  # type: ignore[arg-type]
+    )
+
+    result = app.tasks[RAG_EVALUATION_TASK].delay(str(run_id))
+
+    assert result.get() is None
+    assert calls == [run_id]
 
 
 def test_verified_asset_enqueues_distinct_profiles_with_job_ids_only(

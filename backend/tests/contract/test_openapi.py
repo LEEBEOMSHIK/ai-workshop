@@ -18,6 +18,9 @@ EXPECTED_PATHS = {
     "/api/v1/rag/configurations",
     "/api/v1/rag/configurations/{configuration_id}",
     "/api/v1/rag/configurations/{configuration_id}/default",
+    "/api/v1/rag/evaluation-policies",
+    "/api/v1/rag/evaluation-runs",
+    "/api/v1/rag/evaluation-runs/{run_id}",
     "/api/v1/rag/profiles/{kind}",
     "/api/v1/rag/profiles/{kind}/yaml",
     "/api/v1/rag/profiles/{profile_id}/default",
@@ -171,3 +174,16 @@ def test_saved_rag_configuration_contract_is_versioned_and_experimental() -> Non
         "experimental",
     } <= set(response["required"])
     assert "experimental" in components["SearchResponse"]["required"]
+
+
+def test_evaluation_contract_requires_exact_security_and_reproducibility_thresholds() -> None:
+    schema = create_app().openapi()
+    components = schema["components"]["schemas"]
+    policy = components["EvaluationPolicyCreate"]
+
+    assert policy["properties"]["max_access_leaks"]["const"] == 0
+    assert policy["properties"]["required_reproducibility"]["minimum"] == 1.0
+    assert policy["properties"]["required_reproducibility"]["maximum"] == 1.0
+    run = components["EvaluationRunCreate"]
+    assert run["properties"]["configuration_version_ids"]["minItems"] == 1
+    assert run["properties"]["repetition_count"]["minimum"] == 2

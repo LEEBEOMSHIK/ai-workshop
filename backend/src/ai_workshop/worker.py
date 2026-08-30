@@ -13,6 +13,12 @@ from ai_workshop.config import Settings, get_settings
 from ai_workshop.labs.rag.configurations.repository import (
     SqlAlchemyRagConfigurationRepository,
 )
+from ai_workshop.labs.rag.evaluation.dispatch import EvaluationDispatchReconciler
+from ai_workshop.labs.rag.evaluation.repository import (
+    SqlAlchemyEvaluationDispatchRepository,
+)
+from ai_workshop.labs.rag.evaluation.service import EvaluationWorkflow
+from ai_workshop.labs.rag.evaluation.tasks import create_evaluation_workflow
 from ai_workshop.labs.rag.ingestion.dispatch import RagDispatchReconciler
 from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand, RagIngestionError
 from ai_workshop.labs.rag.ingestion.repository import (
@@ -29,6 +35,10 @@ from ai_workshop.shared.model_registry import load_models
 ASSET_VERIFICATION_TASK = "ai_workshop.assets.verify_stored"
 RAG_INGESTION_TASK = "ai_workshop.rag.ensure_indexed"
 RAG_DISPATCH_RECONCILE_TASK = "ai_workshop.rag.reconcile_dispatches"
+RAG_EVALUATION_TASK = "ai_workshop.rag.evaluate_configuration_run"
+RAG_EVALUATION_DISPATCH_RECONCILE_TASK = (
+    "ai_workshop.rag.reconcile_evaluation_dispatches"
+)
 
 load_models()
 
@@ -81,6 +91,9 @@ def create_celery(
         create_rag_ingestion_workflow
     ),
     rag_subscriptions: VerifiedAssetSubscriptionPort | None = None,
+    evaluation_workflow_factory: Callable[[Settings], EvaluationWorkflow] = (
+        create_evaluation_workflow
+    ),
 ) -> Celery:
     broker_url = (
         settings.redis_url
@@ -107,7 +120,11 @@ def create_celery(
             "reconcile-rag-ingestion-dispatches": {
                 "task": RAG_DISPATCH_RECONCILE_TASK,
                 "schedule": 5.0,
-            }
+            },
+            "reconcile-rag-evaluation-dispatches": {
+                "task": RAG_EVALUATION_DISPATCH_RECONCILE_TASK,
+                "schedule": 5.0,
+            },
         },
     )
 
@@ -151,6 +168,24 @@ def create_celery(
     def reconcile_dispatches() -> None:
         resolved_settings = settings or get_settings()
         run(_reconcile_rag_dispatches(resolved_settings, application))
+
+    @application.task(  # type: ignore[untyped-decorator]
+        name=RAG_EVALUATION_DISPATCH_RECONCILE_TASK,
+        ignore_result=True,
+        shared=False,
+    )
+    def reconcile_evaluation_dispatches() -> None:
+        resolved_settings = settings or get_settings()
+        run(_reconcile_evaluation_dispatches(resolved_settings, application))
+
+    @application.task(  # type: ignore[untyped-decorator]
+        name=RAG_EVALUATION_TASK,
+        ignore_result=True,
+        shared=False,
+    )
+    def evaluate_configuration_run(run_id: str) -> None:
+        resolved_settings = settings or get_settings()
+        run(evaluation_workflow_factory(resolved_settings).run(UUID(run_id)))
 
     @application.task(  # type: ignore[untyped-decorator]
         bind=True,
@@ -219,6 +254,14 @@ class CeleryRagJobSender:
         self.application.tasks[RAG_INGESTION_TASK].delay(str(job_id))
 
 
+class CeleryEvaluationRunSender:
+    def __init__(self, application: Celery) -> None:
+        self.application = application
+
+    def send(self, run_id: UUID) -> None:
+        self.application.tasks[RAG_EVALUATION_TASK].delay(str(run_id))
+
+
 async def _reconcile_rag_dispatches(settings: Settings, application: Celery) -> None:
     engine = create_engine(settings)
     sessions = create_session_factory(engine)
@@ -226,6 +269,20 @@ async def _reconcile_rag_dispatches(settings: Settings, application: Celery) -> 
         await RagDispatchReconciler(
             SqlAlchemyRagDispatchRepository(sessions),
             CeleryRagJobSender(application),
+        ).run_once()
+    finally:
+        await engine.dispose()
+
+
+async def _reconcile_evaluation_dispatches(
+    settings: Settings, application: Celery
+) -> None:
+    engine = create_engine(settings)
+    sessions = create_session_factory(engine)
+    try:
+        await EvaluationDispatchReconciler(
+            SqlAlchemyEvaluationDispatchRepository(sessions),
+            CeleryEvaluationRunSender(application),
         ).run_once()
     finally:
         await engine.dispose()

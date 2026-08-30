@@ -123,6 +123,20 @@ class InMemorySearchConfigurationResolver(SearchConfigurationResolverPort):
             raise AppError("not_found", "The requested resource was not found.", 404)
         return self.configuration
 
+    async def resolve_version(
+        self,
+        configuration_version_id: UUID,
+        actor_id: UUID,
+    ) -> ResolvedSearchConfiguration:
+        if (
+            self.configuration is None
+            or configuration_version_id
+            != self.configuration.configuration_version_id
+        ):
+            raise AppError("not_found", "The requested resource was not found.", 404)
+        self.calls.append((configuration_version_id, actor_id))
+        return self.configuration
+
 
 class RecordingScopeResolver:
     async def resolve(

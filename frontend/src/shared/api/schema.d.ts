@@ -159,6 +159,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/rag/evaluation-policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Evaluation Policy */
+        post: operations["create_evaluation_policy_api_v1_rag_evaluation_policies_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/evaluation-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Evaluation Runs */
+        get: operations["list_evaluation_runs_api_v1_rag_evaluation_runs_get"];
+        put?: never;
+        /** Start Evaluation Run */
+        post: operations["start_evaluation_run_api_v1_rag_evaluation_runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/evaluation-runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Evaluation Run Detail */
+        get: operations["evaluation_run_detail_api_v1_rag_evaluation_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/rag/models": {
         parameters: {
             query?: never;
@@ -418,6 +470,11 @@ export interface components {
             /** File */
             file: string;
         };
+        /**
+         * CandidateStatus
+         * @enum {string}
+         */
+        CandidateStatus: "pending" | "running" | "completed" | "failed";
         /** ConfigurationVersionResponse */
         ConfigurationVersionResponse: {
             /**
@@ -466,6 +523,220 @@ export interface components {
         ErrorEnvelope: {
             error: components["schemas"]["ErrorDetail"];
         };
+        /** EvaluationCandidateResponse */
+        EvaluationCandidateResponse: {
+            /** Case Results */
+            case_results: components["schemas"]["EvaluationCaseResponse"][];
+            /**
+             * Configuration Version Id
+             * Format: uuid
+             */
+            configuration_version_id: string;
+            /** Failure */
+            failure: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            metrics: components["schemas"]["EvaluationMetricsResponse"] | null;
+            /** Ordinal */
+            ordinal: number;
+            status: components["schemas"]["CandidateStatus"];
+        };
+        /** EvaluationCaseResponse */
+        EvaluationCaseResponse: {
+            /** Access Leaks */
+            access_leaks: number;
+            /** Correct Supported */
+            correct_supported: boolean | null;
+            /** Duration Ms */
+            duration_ms: number;
+            /**
+             * Evaluation Case Id
+             * Format: uuid
+             */
+            evaluation_case_id: string;
+            /** Expected Evidence Ids */
+            expected_evidence_ids: string[];
+            /** False Grounding */
+            false_grounding: boolean | null;
+            /** Highlight Iou */
+            highlight_iou: number | null;
+            /** Ndcg */
+            ndcg: number | null;
+            /** Ordinal */
+            ordinal: number;
+            /** Query Sha256 */
+            query_sha256: string;
+            /** Raw Observations */
+            raw_observations: {
+                [key: string]: unknown;
+            }[];
+            /** Recall At K */
+            recall_at_k: number | null;
+            /** Reciprocal Rank */
+            reciprocal_rank: number | null;
+            /** Reproducible */
+            reproducible: boolean;
+        };
+        /** EvaluationMetricsResponse */
+        EvaluationMetricsResponse: {
+            /** Access Leaks */
+            access_leaks: number;
+            /** False Grounding Rate */
+            false_grounding_rate: number;
+            /** Highlight Iou */
+            highlight_iou: number;
+            /** Mrr */
+            mrr: number;
+            /** Ndcg */
+            ndcg: number;
+            /** P50 Latency Ms */
+            p50_latency_ms: number;
+            /** P95 Latency Ms */
+            p95_latency_ms: number;
+            /** Recall At K */
+            recall_at_k: number;
+            /** Reproducibility */
+            reproducibility: number;
+            /** Supported Precision */
+            supported_precision: number;
+        };
+        /** EvaluationPolicyCreate */
+        EvaluationPolicyCreate: {
+            /**
+             * Dataset Snapshot Id
+             * Format: uuid
+             */
+            dataset_snapshot_id: string;
+            /**
+             * Max Access Leaks
+             * @constant
+             */
+            max_access_leaks: 0;
+            /** Max False Grounding Rate */
+            max_false_grounding_rate: number;
+            /** Max P50 Latency Ms */
+            max_p50_latency_ms: number;
+            /** Max P95 Latency Ms */
+            max_p95_latency_ms: number;
+            /** Min Highlight Iou */
+            min_highlight_iou: number;
+            /** Min Mrr */
+            min_mrr: number;
+            /** Min Ndcg */
+            min_ndcg: number;
+            /** Min Recall At K */
+            min_recall_at_k: number;
+            /** Min Supported Precision */
+            min_supported_precision: number;
+            /** Required Reproducibility */
+            required_reproducibility: number;
+        };
+        /** EvaluationPolicyResponse */
+        EvaluationPolicyResponse: {
+            /**
+             * Dataset Snapshot Id
+             * Format: uuid
+             */
+            dataset_snapshot_id: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Max Access Leaks
+             * @constant
+             */
+            max_access_leaks: 0;
+            /** Max False Grounding Rate */
+            max_false_grounding_rate: number;
+            /** Max P50 Latency Ms */
+            max_p50_latency_ms: number;
+            /** Max P95 Latency Ms */
+            max_p95_latency_ms: number;
+            /** Min Highlight Iou */
+            min_highlight_iou: number;
+            /** Min Mrr */
+            min_mrr: number;
+            /** Min Ndcg */
+            min_ndcg: number;
+            /** Min Recall At K */
+            min_recall_at_k: number;
+            /** Min Supported Precision */
+            min_supported_precision: number;
+            /**
+             * Owner Id
+             * Format: uuid
+             */
+            owner_id: string;
+            /** Required Reproducibility */
+            required_reproducibility: number;
+            /** Version */
+            version: number;
+        };
+        /** EvaluationRunCreate */
+        EvaluationRunCreate: {
+            /** Configuration Version Ids */
+            configuration_version_ids: string[];
+            /** Dataset Fixture */
+            dataset_fixture?: {
+                [key: string]: unknown;
+            } | null;
+            /** Dataset Snapshot Id */
+            dataset_snapshot_id?: string | null;
+            /** Evaluation Policy Version Id */
+            evaluation_policy_version_id?: string | null;
+            /**
+             * Repetition Count
+             * @default 2
+             */
+            repetition_count: number;
+        };
+        /** EvaluationRunResponse */
+        EvaluationRunResponse: {
+            /** Candidates */
+            candidates: components["schemas"]["EvaluationCandidateResponse"][];
+            /**
+             * Dataset Snapshot Id
+             * Format: uuid
+             */
+            dataset_snapshot_id: string;
+            /** Document Snapshot Sha256 */
+            document_snapshot_sha256: string;
+            /** Evaluation Policy Version Id */
+            evaluation_policy_version_id: string | null;
+            /** Failure */
+            failure: string | null;
+            /** Fixture Sha256 */
+            fixture_sha256: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Owner Id
+             * Format: uuid
+             */
+            owner_id: string;
+            /** Query Set Sha256 */
+            query_set_sha256: string;
+            /** Repetition Count */
+            repetition_count: number;
+            /** Runtime Environment */
+            runtime_environment: {
+                [key: string]: unknown;
+            };
+            status: components["schemas"]["EvaluationRunStatus"];
+        };
+        /**
+         * EvaluationRunStatus
+         * @enum {string}
+         */
+        EvaluationRunStatus: "pending" | "running" | "completed" | "failed";
         /**
          * EvaluationState
          * @enum {string}
@@ -1598,6 +1869,242 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SavedRagConfigurationResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    create_evaluation_policy_api_v1_rag_evaluation_policies_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvaluationPolicyCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationPolicyResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    list_evaluation_runs_api_v1_rag_evaluation_runs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationRunResponse"][];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    start_evaluation_run_api_v1_rag_evaluation_runs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvaluationRunCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationRunResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    evaluation_run_detail_api_v1_rag_evaluation_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationRunResponse"];
                 };
             };
             /** @description Authentication required. */

@@ -48,6 +48,21 @@ def test_embedding_config_preserves_pinned_local_definition_and_profile_batch_si
     assert config.output_mode == "dense"
     assert config.data_policy == "local_only"
     assert config.batch_size == 24
+    assert config.sparse_enabled is False
+    assert config.colbert_enabled is False
+
+
+def test_bge_auxiliary_outputs_must_remain_explicitly_disabled() -> None:
+    with pytest.raises(EmbeddingValidationError, match="sparse_enabled"):
+        EmbeddingModelConfig.from_definition(
+            model_definition(sparse_enabled=True, colbert_enabled=False),
+            profile_config={"batch_size": 8},
+        )
+    with pytest.raises(EmbeddingValidationError, match="colbert_enabled"):
+        EmbeddingModelConfig.from_definition(
+            model_definition(sparse_enabled=False, colbert_enabled=True),
+            profile_config={"batch_size": 8},
+        )
 
 
 @pytest.mark.parametrize(

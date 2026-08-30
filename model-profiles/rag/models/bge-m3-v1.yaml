@@ -13,4 +13,6 @@ config:
   device: cpu
   dtype: float32
   output_mode: dense
+  sparse_enabled: false
+  colbert_enabled: false
   data_policy: local_only

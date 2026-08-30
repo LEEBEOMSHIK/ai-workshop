@@ -68,6 +68,8 @@ def test_builtin_catalog_has_exact_fixed_ids_revisions_and_dense_local_contracts
     assert by_id[BGE_ID].config["dimension"] == 1024
     assert by_id[BGE_ID].config["max_tokens"] == 8192
     assert by_id[BGE_ID].config["output_mode"] == "dense"
+    assert by_id[BGE_ID].config["sparse_enabled"] is False
+    assert by_id[BGE_ID].config["colbert_enabled"] is False
     assert by_id[BGE_ID].config["data_policy"] == "local_only"
 
 

@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "id": "00000000-0000-0000-0000-000000000600",
+  "name": "자산운용 검색 평가",
+  "version": 1,
+  "document_snapshot": [
+    {"asset_version_id": "00000000-0000-0000-0000-000000000701", "sha256": "1111111111111111111111111111111111111111111111111111111111111111", "active": true},
+    {"asset_version_id": "00000000-0000-0000-0000-000000000702", "sha256": "2222222222222222222222222222222222222222222222222222222222222222", "active": true},
+    {"asset_version_id": "00000000-0000-0000-0000-000000000703", "sha256": "3333333333333333333333333333333333333333333333333333333333333333", "active": false},
+    {"asset_version_id": "00000000-0000-0000-0000-000000000704", "sha256": "4444444444444444444444444444444444444444444444444444444444444444", "active": true}
+  ],
+  "cases": [
+    {
+      "id": "00000000-0000-0000-0000-000000000901", "kind": "exact_code",
+      "query": "위험등급 코드 A-17의 의미는?", "query_sha256": "a90e13a3c22e040742d714945612d74c6a0d8e3bac1fb6f78820f14e1bcb509d",
+      "permission_scenario": {"name": "company-owner", "actor": "caller", "workspace_ids": ["00000000-0000-0000-0000-000000000801"], "folder_ids": [], "allowed_source_ids": ["00000000-0000-0000-0000-000000000901"], "forbidden_source_ids": [], "as_of": "2026-08-31T00:00:00Z"},
+      "expected": {"answer_status": "supported", "evidence_unit_ids": ["00000000-0000-0000-0000-000000000901"], "highlight": {"kind": "keyword", "spans": [[8, 12]], "bboxes": []}}
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000902", "kind": "korean_paraphrase",
+      "query": "환매를 미리 알려야 하는 기간은?", "query_sha256": "f2e2fd63c4a33e71d7dee8e5a2a16dc6a98e52ecdfc7149c924e47ef420fe63b",
+      "permission_scenario": {"name": "company-owner", "actor": "caller", "workspace_ids": ["00000000-0000-0000-0000-000000000801"], "folder_ids": [], "allowed_source_ids": ["00000000-0000-0000-0000-000000000902"], "forbidden_source_ids": [], "as_of": "2026-08-31T00:00:00Z"},
+      "expected": {"answer_status": "supported", "evidence_unit_ids": ["00000000-0000-0000-0000-000000000902"], "highlight": {"kind": "semantic", "spans": [[0, 27]], "bboxes": []}}
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000903", "kind": "numeric_clause",
+      "query": "제12조의 3% 한도는 무엇인가?", "query_sha256": "9ab87daffa69f8296a6cb3de23d43822095a6cedb6a5ff26a3fc7c4ede37b459",
+      "permission_scenario": {"name": "company-owner", "actor": "caller", "workspace_ids": ["00000000-0000-0000-0000-000000000801"], "folder_ids": [], "allowed_source_ids": ["00000000-0000-0000-0000-000000000903"], "forbidden_source_ids": [], "as_of": "2026-08-31T00:00:00Z"},
+      "expected": {"answer_status": "supported", "evidence_unit_ids": ["00000000-0000-0000-0000-000000000903"], "highlight": {"kind": "keyword", "spans": [[0, 8]], "bboxes": []}}
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000904", "kind": "table_cell",
+      "query": "펀드 수수료 표에서 클래스 C의 총보수는?", "query_sha256": "d3c09d886ec4d1492b3bf848a098aa91fb369847c05737df8a13bf6f27ee6fff",
+      "permission_scenario": {"name": "company-owner", "actor": "caller", "workspace_ids": ["00000000-0000-0000-0000-000000000801"], "folder_ids": [], "allowed_source_ids": ["00000000-0000-0000-0000-000000000904"], "forbidden_source_ids": [], "as_of": "2026-08-31T00:00:00Z"},
+      "expected": {"answer_status": "supported", "evidence_unit_ids": ["00000000-0000-0000-0000-000000000904"], "highlight": {"kind": "semantic", "spans": [], "bboxes": [[100, 120, 180, 145]]}}
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000905", "kind": "insufficient_evidence",
+      "query": "문서에 없는 미래 수익률은?", "query_sha256": "d36ee092b8973716003c47a33edfe9408f03369042b7acabd1b8f0e8cdf26041",
+      "permission_scenario": {"name": "company-owner", "actor": "caller", "workspace_ids": ["00000000-0000-0000-0000-000000000801"], "folder_ids": [], "allowed_source_ids": [], "forbidden_source_ids": [], "as_of": "2026-08-31T00:00:00Z"},
+      "expected": {"answer_status": "insufficient_evidence", "evidence_unit_ids": [], "highlight": null}
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000906", "kind": "conflicting_sources",
+      "query": "서로 다른 문서의 환매 기한이 충돌하는가?", "query_sha256": "9832cfff7574d33e974e14e211a782e28c6cfe98e1f7bd35d56e808dd6e072c0",
+      "permission_scenario": {"name": "company-owner", "actor": "caller", "workspace_ids": ["00000000-0000-0000-0000-000000000801"], "folder_ids": [], "allowed_source_ids": ["00000000-0000-0000-0000-000000000906", "00000000-0000-0000-0000-000000000916"], "forbidden_source_ids": [], "as_of": "2026-08-31T00:00:00Z"},
+      "expected": {"answer_status": "supported", "evidence_unit_ids": ["00000000-0000-0000-0000-000000000906", "00000000-0000-0000-0000-000000000916"], "highlight": {"kind": "semantic", "spans": [[0, 24]], "bboxes": []}}
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000907", "kind": "company_access",
+      "query": "전사 운용지침의 위험 한도는?", "query_sha256": "28bb646bc62011e26dead4584dbac6ad16678c41295f7b399dd61204f7c212c6",
+      "permission_scenario": {"name": "company-member", "actor": "caller", "workspace_ids": ["00000000-0000-0000-0000-000000000801"], "folder_ids": [], "allowed_source_ids": ["00000000-0000-0000-0000-000000000907"], "forbidden_source_ids": ["00000000-0000-0000-0000-000000000997"], "as_of": "2026-08-31T00:00:00Z"},
+      "expected": {"answer_status": "supported", "evidence_unit_ids": ["00000000-0000-0000-0000-000000000907"], "highlight": {"kind": "semantic", "spans": [[0, 18]], "bboxes": []}}
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000908", "kind": "personal_isolation",
+      "query": "다른 사용자의 개인 메모는 검색되는가?", "query_sha256": "fbac0347499c91943c3c39a2d56c145a5b4abbcc68bc03c656ec2cdc5576e728",
+      "permission_scenario": {"name": "personal-owner-only", "actor": "caller", "workspace_ids": ["00000000-0000-0000-0000-000000000802"], "folder_ids": [], "allowed_source_ids": [], "forbidden_source_ids": ["00000000-0000-0000-0000-000000000998"], "as_of": "2026-08-31T00:00:00Z"},
+      "expected": {"answer_status": "insufficient_evidence", "evidence_unit_ids": [], "highlight": null}
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000909", "kind": "temporary_expiry",
+      "query": "만료된 임시 공간의 첨부 조건은?", "query_sha256": "9bb65b5a786d89fcb98c5f78c2bddfb25ab935de8824b8e69b0bf0320842625e",
+      "permission_scenario": {"name": "expired-temporary", "actor": "caller", "workspace_ids": ["00000000-0000-0000-0000-000000000804"], "folder_ids": [], "allowed_source_ids": [], "forbidden_source_ids": ["00000000-0000-0000-0000-000000000999"], "as_of": "2026-08-31T00:00:00Z"},
+      "expected": {"answer_status": "insufficient_evidence", "evidence_unit_ids": [], "highlight": null}
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000910", "kind": "inactive_version",
+      "query": "비활성 이전 버전의 한도는?", "query_sha256": "a4471adcf51bbd48ce31c99652f25f51690e5a75b7a13ac2ef4106fc9230dff7",
+      "permission_scenario": {"name": "active-version-only", "actor": "caller", "workspace_ids": ["00000000-0000-0000-0000-000000000801"], "folder_ids": [], "allowed_source_ids": [], "forbidden_source_ids": ["00000000-0000-0000-0000-000000000990"], "as_of": "2026-08-31T00:00:00Z"},
+      "expected": {"answer_status": "insufficient_evidence", "evidence_unit_ids": [], "highlight": null}
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000911", "kind": "semantic_highlight",
+      "query": "환매 신청을 앞서 통보하는 규칙은?", "query_sha256": "471d1a8154138a032a83eb8d49b8d077302530190e317c25f50f3e7fe952d293",
+      "permission_scenario": {"name": "company-owner", "actor": "caller", "workspace_ids": ["00000000-0000-0000-0000-000000000801"], "folder_ids": [], "allowed_source_ids": ["00000000-0000-0000-0000-000000000911"], "forbidden_source_ids": [], "as_of": "2026-08-31T00:00:00Z"},
+      "expected": {"answer_status": "supported", "evidence_unit_ids": ["00000000-0000-0000-0000-000000000911"], "highlight": {"kind": "semantic", "spans": [[0, 31]], "bboxes": []}}
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000912", "kind": "keyword_highlight",
+      "query": "A-17 코드를 정확히 강조해줘", "query_sha256": "d16354a1fdc41766a2b19cff7795e37c1d8e651d125c02ddebbc0e24e19f9aab",
+      "permission_scenario": {"name": "company-owner", "actor": "caller", "workspace_ids": ["00000000-0000-0000-0000-000000000801"], "folder_ids": [], "allowed_source_ids": ["00000000-0000-0000-0000-000000000912"], "forbidden_source_ids": [], "as_of": "2026-08-31T00:00:00Z"},
+      "expected": {"answer_status": "supported", "evidence_unit_ids": ["00000000-0000-0000-0000-000000000912"], "highlight": {"kind": "keyword", "spans": [[0, 4]], "bboxes": []}}
+    }
+  ]
+}

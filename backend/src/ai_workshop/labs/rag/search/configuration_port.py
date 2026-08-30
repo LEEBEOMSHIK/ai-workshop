@@ -38,3 +38,9 @@ class SearchConfigurationResolverPort(Protocol):
         configuration_id: UUID,
         actor_id: UUID,
     ) -> ResolvedSearchConfiguration: ...
+
+    async def resolve_version(
+        self,
+        configuration_version_id: UUID,
+        actor_id: UUID,
+    ) -> ResolvedSearchConfiguration: ...

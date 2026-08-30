@@ -488,6 +488,7 @@ def test_0009_upgrades_populated_database_and_reseeds_idempotently(
 
             command.upgrade(config, REVISION_0009)
             _assert_seed(isolated_url, existing_email=existing_email)
+            command.upgrade(config, "head")
             command.current(config, check_heads=True)
             command.check(config)
     finally:

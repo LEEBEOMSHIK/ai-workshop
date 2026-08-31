@@ -47,8 +47,10 @@ def test_projection_document_preserves_provenance_and_optional_embedding() -> No
         "text",
         "evidence_units",
         "embedding",
-        "index_build_id",
-    }
+            "index_build_id",
+            "indexing_profile_id",
+            "rag_mapping_version",
+        }
     assert projection["chunk_id"] == str(chunk_id)
     assert projection["embedding"] is None
     assert projection["evidence_units"] == [

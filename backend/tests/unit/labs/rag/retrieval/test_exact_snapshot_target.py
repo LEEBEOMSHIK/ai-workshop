@@ -4,6 +4,7 @@ import pytest
 
 from ai_workshop.labs.rag.indexing.contracts import IndexDescriptor
 from ai_workshop.labs.rag.retrieval.domain import (
+    FrozenIndexIdentity,
     FrozenIndexTarget,
     ResolvedSearchScope,
 )
@@ -19,11 +20,18 @@ def test_exact_snapshot_target_filters_concrete_builds_and_asset_versions() -> N
         descriptor=descriptor,
         index_prefix="ai-workshop-rag",
         indexing_profile_id=profile_id,
-        index_names=tuple(
-            descriptor.concrete_index_name("ai-workshop-rag", profile_id, build_id)
-            for build_id in build_ids
+        identities=tuple(
+            FrozenIndexIdentity(
+                descriptor.concrete_index_name("ai-workshop-rag", profile_id, build_id),
+                f"uuid-{ordinal}",
+                build_id,
+                uuid4(),
+                profile_id,
+                768,
+                1,
+            )
+            for ordinal, build_id in enumerate(build_ids)
         ),
-        index_build_ids=build_ids,
         asset_version_ids=asset_version_ids,
     )
     scope = ResolvedSearchScope(
@@ -66,8 +74,11 @@ def test_frozen_target_rejects_non_physical_or_injected_index_name(
             descriptor=IndexDescriptor(1024, "cosine"),
             index_prefix="ai-workshop-rag",
             indexing_profile_id=profile_id,
-            index_names=(corrupted_name,),
-            index_build_ids=(build_id,),
+            identities=(
+                FrozenIndexIdentity(
+                    corrupted_name, "index-uuid", build_id, uuid4(), profile_id, 1024, 1
+                ),
+            ),
             asset_version_ids=(uuid4(),),
         )
 
@@ -86,7 +97,16 @@ def test_frozen_target_rejects_cross_profile_or_wrong_build_name() -> None:
                 descriptor=descriptor,
                 index_prefix="ai-workshop-rag",
                 indexing_profile_id=profile_id,
-                index_names=(corrupted_name,),
-                index_build_ids=(build_id,),
+                identities=(
+                    FrozenIndexIdentity(
+                        corrupted_name,
+                        "index-uuid",
+                        build_id,
+                        uuid4(),
+                        profile_id,
+                        1024,
+                        1,
+                    ),
+                ),
                 asset_version_ids=(uuid4(),),
             )

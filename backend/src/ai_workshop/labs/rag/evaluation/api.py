@@ -1,9 +1,12 @@
+from collections.abc import AsyncIterator
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_workshop.config import get_settings
+from ai_workshop.infrastructure.search.elasticsearch import create_elasticsearch
 from ai_workshop.labs.rag.evaluation.schemas import (
     EvaluationPolicyCreate,
     EvaluationPolicyResponse,
@@ -11,6 +14,9 @@ from ai_workshop.labs.rag.evaluation.schemas import (
     EvaluationRunResponse,
 )
 from ai_workshop.labs.rag.evaluation.service import EvaluationApplicationService
+from ai_workshop.labs.rag.retrieval.elasticsearch import (
+    ElasticsearchFrozenIndexInspector,
+)
 from ai_workshop.platform.identity.api import get_current_user
 from ai_workshop.platform.identity.domain import User
 from ai_workshop.shared.db import get_session
@@ -18,16 +24,24 @@ from ai_workshop.shared.db import get_session
 router = APIRouter(prefix="/api/v1/rag", tags=["rag-evaluation"])
 
 
-def get_evaluation_service(
+async def get_evaluation_service(
     session: Annotated[AsyncSession, Depends(get_session)],
-) -> EvaluationApplicationService:
+) -> AsyncIterator[EvaluationApplicationService]:
     from ai_workshop.labs.rag.evaluation.repository import (
         SqlAlchemyEvaluationApplicationRepository,
     )
 
-    return EvaluationApplicationService(
-        SqlAlchemyEvaluationApplicationRepository(session), commit=session.commit
-    )
+    elasticsearch = create_elasticsearch(get_settings())
+    try:
+        yield EvaluationApplicationService(
+            SqlAlchemyEvaluationApplicationRepository(
+                session,
+                index_inspector=ElasticsearchFrozenIndexInspector(elasticsearch),
+            ),
+            commit=session.commit,
+        )
+    finally:
+        await elasticsearch.close()
 
 
 @router.post(

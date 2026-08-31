@@ -73,8 +73,23 @@ class IndexingService:
         self._validate_documents(documents, projection_id, build_id, descriptor.vector_dimension)
         index_name = descriptor.concrete_index_name(self.index_prefix, profile_id, build_id)
         alias = descriptor.active_alias(self.index_prefix, profile_id)
-        await self.search_index.create(descriptor.for_index(index_name))
-        written_count = await self.search_index.bulk_upsert(index_name, documents)
+        await self.search_index.create(
+            descriptor.for_index(
+                index_name,
+                indexing_profile_id=profile_id,
+                index_build_id=build_id,
+                projection_id=projection_id,
+            )
+        )
+        physical_documents = tuple(
+            replace(
+                document,
+                indexing_profile_id=profile_id,
+                rag_mapping_version=descriptor.mapping_version,
+            )
+            for document in documents
+        )
+        written_count = await self.search_index.bulk_upsert(index_name, physical_documents)
         if written_count != len(documents):
             raise ValueError("Elasticsearch bulk indexing did not write every supplied chunk.")
         indexed_document_count = await self.search_index.count_projection(index_name, projection_id)

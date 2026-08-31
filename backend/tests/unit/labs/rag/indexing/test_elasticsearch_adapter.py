@@ -4,8 +4,11 @@ from uuid import UUID
 import pytest
 from elasticsearch import AsyncElasticsearch
 
-from ai_workshop.labs.rag.indexing.contracts import IndexDocument
-from ai_workshop.labs.rag.indexing.elasticsearch import ElasticsearchSearchIndex
+from ai_workshop.labs.rag.indexing.contracts import IndexDescriptor, IndexDocument
+from ai_workshop.labs.rag.indexing.elasticsearch import (
+    ElasticsearchSearchIndex,
+    build_mapping,
+)
 
 
 class BulkClient:
@@ -33,6 +36,33 @@ class AliasIndices:
 class AliasClient:
     def __init__(self, *, acknowledged: bool) -> None:
         self.indices = AliasIndices(acknowledged=acknowledged)
+
+
+def test_mapping_carries_immutable_rag_descriptor_metadata() -> None:
+    profile_id = UUID("00000000-0000-0000-0000-000000000504")
+    build_id = UUID("00000000-0000-0000-0000-000000000505")
+    projection_id = UUID("00000000-0000-0000-0000-000000000506")
+    descriptor = IndexDescriptor(vector_dimension=1024, similarity="cosine").for_index(
+        "rag-profile-build",
+        indexing_profile_id=profile_id,
+        index_build_id=build_id,
+        projection_id=projection_id,
+    )
+
+    mapping = build_mapping(descriptor)
+
+    assert mapping["mappings"]["_meta"] == {
+        "rag": {
+            "mapping_version": 1,
+            "index_build_id": str(build_id),
+            "projection_id": str(projection_id),
+            "indexing_profile_id": str(profile_id),
+            "vector_dimension": 1024,
+        }
+    }
+    properties = mapping["mappings"]["properties"]
+    assert properties["indexing_profile_id"] == {"type": "keyword"}
+    assert properties["rag_mapping_version"] == {"type": "integer"}
 
 
 def _document() -> IndexDocument:

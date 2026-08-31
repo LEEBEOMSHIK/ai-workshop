@@ -50,6 +50,8 @@ class CandidateIndexBuildSnapshot:
     index_name: str
     indexing_profile_id: UUID
     vector_dimension: int
+    index_uuid: str
+    mapping_version: int
     active_at_snapshot: bool
 
     def __post_init__(self) -> None:
@@ -57,6 +59,8 @@ class CandidateIndexBuildSnapshot:
             raise ValueError("An Evaluation candidate requires a concrete index name.")
         if self.vector_dimension < 1:
             raise ValueError("An Evaluation candidate requires a positive dimension.")
+        if not self.index_uuid.strip() or self.mapping_version < 1:
+            raise ValueError("An Evaluation candidate requires an immutable index identity.")
 
 
 @dataclass(frozen=True, slots=True)

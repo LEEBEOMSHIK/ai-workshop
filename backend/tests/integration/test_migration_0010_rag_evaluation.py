@@ -34,7 +34,9 @@ def _database_url(base_url: str, database: str) -> str:
 
 
 def _sync_url(database_url: str) -> str:
-    return database_url.replace("postgresql+psycopg://", "postgresql://", 1)
+    return database_url.replace("postgresql+psycopg://", "postgresql://", 1).replace(
+        "postgresql+asyncpg://", "postgresql://", 1
+    )
 
 
 def _create_database(base_url: str, database: str) -> None:
@@ -645,6 +647,22 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
                 assert first_result is not None
                 missing_rank = json.loads(json.dumps(first_result[0]))
                 missing_rank[0]["retrieved_ranked"].pop()
+                empty_rank_item = json.loads(json.dumps(first_result[0]))
+                empty_rank_item[0]["retrieved_ranked"][0] = {}
+                null_rank_key = json.loads(json.dumps(first_result[0]))
+                null_rank_key[0]["retrieved_ranked"][0]["rank"] = None
+                missing_evidence_key = json.loads(json.dumps(first_result[0]))
+                missing_evidence_key[0]["retrieved_ranked"][0].pop("evidence_id")
+                extra_rank_key = json.loads(json.dumps(first_result[0]))
+                extra_rank_key[0]["retrieved_ranked"][0]["score"] = 1.0
+                null_retrieved_id = json.loads(json.dumps(first_result[0]))
+                null_retrieved_id[0]["retrieved_evidence_ids"][0] = None
+                empty_exposure = json.loads(json.dumps(first_result[0]))
+                empty_exposure[0]["exposures"] = [{}]
+                null_answer_id = json.loads(json.dumps(first_result[0]))
+                null_answer_id[0]["answer_evidence_ids"] = [None]
+                missing_highlight_identity = json.loads(json.dumps(first_result[0]))
+                missing_highlight_identity[0]["highlights"][0].pop("kind")
                 extra_rank = json.loads(json.dumps(first_result[0]))
                 extra_rank[0]["retrieved_ranked"].append(
                     {
@@ -658,6 +676,14 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
                 inconsistent_answer[0]["answer_status"] = "insufficient_evidence"
                 for malformed_raw in (
                     missing_rank,
+                    empty_rank_item,
+                    null_rank_key,
+                    missing_evidence_key,
+                    extra_rank_key,
+                    null_retrieved_id,
+                    empty_exposure,
+                    null_answer_id,
+                    missing_highlight_identity,
                     extra_rank,
                     malformed_highlight,
                     inconsistent_answer,
@@ -713,7 +739,9 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
                     1.0 / math.log2(rank + 1)
                     for rank in range(1, min(expected_count, 10) + 1)
                 )
-                with pytest.raises(psycopg.errors.UniqueViolation):
+                with pytest.raises(
+                    psycopg.errors.RaiseException, match="raw observation"
+                ):
                     connection.execute(
                         """
                         INSERT INTO rag_evaluation_case_results (

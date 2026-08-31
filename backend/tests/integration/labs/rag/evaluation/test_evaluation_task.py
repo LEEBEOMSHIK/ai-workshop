@@ -3,7 +3,7 @@ from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
-from typing import cast
+from typing import Never, cast
 from uuid import UUID, uuid4
 
 import psycopg
@@ -57,6 +57,10 @@ from ai_workshop.labs.rag.indexing.service import IndexingService
 from ai_workshop.labs.rag.models.domain import EvaluationState, ProfileKind
 from ai_workshop.labs.rag.models.repository import SqlAlchemyModelRegistryRepository
 from ai_workshop.labs.rag.models.service import RagModelRegistryService
+from ai_workshop.labs.rag.retrieval.elasticsearch import (
+    ElasticsearchFrozenIndexInspector,
+    FrozenIndexReindexRequiredError,
+)
 from ai_workshop.platform.assets.models import (
     AssetVersionRecord,
     DocumentRecord,
@@ -67,6 +71,7 @@ from ai_workshop.platform.workspaces.models import (
     WorkspaceMembershipRecord,
     WorkspaceRecord,
 )
+from ai_workshop.shared.errors import AppError
 from alembic import command
 
 pytestmark = pytest.mark.integration
@@ -126,6 +131,13 @@ class NoIngestionJobs:
     async def ensure_indexed(self, command: object) -> UUID:
         del command
         raise AssertionError("No active assets are seeded for this test.")
+
+
+class LegacyIndexInspector:
+    async def describe(self, index_name: str) -> Never:
+        raise FrozenIndexReindexRequiredError(
+            f"Frozen index {index_name} has no immutable RAG metadata; reindex required."
+        )
 
 
 async def _seed_actor_and_workspaces(session: AsyncSession) -> UUID:
@@ -562,11 +574,32 @@ async def test_real_bm25_e5_bge_compare_the_same_snapshot_with_caller_saved_conf
                 )
                 assert indexed.index_name == index_name
                 concrete_indices.append(index_name)
-            repository = SqlAlchemyEvaluationApplicationRepository(session)
+            repository = SqlAlchemyEvaluationApplicationRepository(
+                session,
+                index_inspector=ElasticsearchFrozenIndexInspector(client),
+            )
             dataset = await repository.add_or_get_dataset(
                 actor_id, load_evaluation_dataset(_mini_fixture())
             )
             await session.commit()
+            legacy_repository = SqlAlchemyEvaluationApplicationRepository(
+                session,
+                index_inspector=LegacyIndexInspector(),
+            )
+            with pytest.raises(AppError) as legacy_error:
+                await EvaluationApplicationService(
+                    legacy_repository, commit=session.commit
+                ).start_run(
+                    actor_id=actor_id,
+                    dataset_fixture=None,
+                    dataset_snapshot_id=dataset.id,
+                    evaluation_policy_version_id=None,
+                    configuration_version_ids=(configurations[0].version_id,),
+                    metric_definition_version=1,
+                    retrieval_k=10,
+                    repetition_count=2,
+                )
+            assert legacy_error.value.code == "evaluation_index_reindex_required"
             run = await EvaluationApplicationService(
                 repository, commit=session.commit
             ).start_run(

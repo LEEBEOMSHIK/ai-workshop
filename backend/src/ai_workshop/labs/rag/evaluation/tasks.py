@@ -43,6 +43,7 @@ from ai_workshop.labs.rag.models.domain import (
     freeze_json,
 )
 from ai_workshop.labs.rag.retrieval.domain import (
+    FrozenIndexIdentity,
     FrozenIndexTarget,
     FusedHit,
     ResolvedSearchScope,
@@ -211,14 +212,29 @@ class ProductionEvaluationSearch(EvaluationSearchPort):
         started = perf_counter()
         dimensions = {item.vector_dimension for item in candidate.index_builds}
         profile_ids = {item.indexing_profile_id for item in candidate.index_builds}
-        if len(dimensions) != 1 or len(profile_ids) != 1:
+        mapping_versions = {item.mapping_version for item in candidate.index_builds}
+        if len(dimensions) != 1 or len(profile_ids) != 1 or len(mapping_versions) != 1:
             raise RuntimeError("The frozen Evaluation index manifest is incompatible.")
         target = FrozenIndexTarget(
-            descriptor=IndexDescriptor(next(iter(dimensions)), "cosine"),
+            descriptor=IndexDescriptor(
+                next(iter(dimensions)),
+                "cosine",
+                mapping_version=next(iter(mapping_versions)),
+            ),
             index_prefix=self.settings.elasticsearch_index_prefix,
             indexing_profile_id=next(iter(profile_ids)),
-            index_names=tuple(item.index_name for item in candidate.index_builds),
-            index_build_ids=tuple(item.index_build_id for item in candidate.index_builds),
+            identities=tuple(
+                FrozenIndexIdentity(
+                    index_name=item.index_name,
+                    index_uuid=item.index_uuid,
+                    index_build_id=item.index_build_id,
+                    projection_id=item.projection_id,
+                    indexing_profile_id=item.indexing_profile_id,
+                    vector_dimension=item.vector_dimension,
+                    mapping_version=item.mapping_version,
+                )
+                for item in candidate.index_builds
+            ),
             asset_version_ids=tuple(
                 item.asset_version_id
                 for item in candidate.index_builds

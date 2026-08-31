@@ -8,9 +8,19 @@ from ai_workshop.labs.rag.indexing.contracts import IndexDescriptor, IndexDocume
 
 
 def build_mapping(descriptor: IndexDescriptor) -> dict[str, Any]:
+    profile_id, build_id, projection_id = descriptor.require_physical_metadata()
     return {
         "mappings": {
             "dynamic": "strict",
+            "_meta": {
+                "rag": {
+                    "mapping_version": descriptor.mapping_version,
+                    "index_build_id": str(build_id),
+                    "projection_id": str(projection_id),
+                    "indexing_profile_id": str(profile_id),
+                    "vector_dimension": descriptor.vector_dimension,
+                }
+            },
             "properties": {
                 "chunk_id": {"type": "keyword"},
                 "projection_id": {"type": "keyword"},
@@ -43,6 +53,8 @@ def build_mapping(descriptor: IndexDescriptor) -> dict[str, Any]:
                     "similarity": descriptor.similarity,
                 },
                 "index_build_id": {"type": "keyword"},
+                "indexing_profile_id": {"type": "keyword"},
+                "rag_mapping_version": {"type": "integer"},
             },
         }
     }

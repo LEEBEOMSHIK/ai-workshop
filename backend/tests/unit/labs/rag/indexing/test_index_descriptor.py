@@ -117,7 +117,14 @@ def test_descriptor_generates_immutable_concrete_name_and_active_alias() -> None
 
 @pytest.mark.parametrize("dimension", [768, 1024])
 def test_mapping_uses_descriptor_dimension_and_cosine_similarity(dimension: int) -> None:
-    mapping = build_mapping(IndexDescriptor(vector_dimension=dimension, similarity="cosine"))
+    mapping = build_mapping(
+        IndexDescriptor(vector_dimension=dimension, similarity="cosine").for_index(
+            "physical-index",
+            indexing_profile_id=PROFILE_ID,
+            index_build_id=BUILD_ID,
+            projection_id=PROJECTION_ID,
+        )
+    )
 
     assert mapping["mappings"]["properties"]["embedding"] == {
         "type": "dense_vector",

@@ -11,6 +11,10 @@ class IndexDescriptor:
     vector_dimension: int
     similarity: str
     index_name: str | None = None
+    indexing_profile_id: UUID | None = None
+    index_build_id: UUID | None = None
+    projection_id: UUID | None = None
+    mapping_version: int = 1
 
     def __post_init__(self) -> None:
         if self.vector_dimension < 1:
@@ -24,8 +28,30 @@ class IndexDescriptor:
     def active_alias(self, prefix: str, profile_id: UUID) -> str:
         return f"{prefix}-{profile_id}-active"
 
-    def for_index(self, index_name: str) -> "IndexDescriptor":
-        return replace(self, index_name=index_name)
+    def for_index(
+        self,
+        index_name: str,
+        *,
+        indexing_profile_id: UUID | None = None,
+        index_build_id: UUID | None = None,
+        projection_id: UUID | None = None,
+    ) -> "IndexDescriptor":
+        return replace(
+            self,
+            index_name=index_name,
+            indexing_profile_id=indexing_profile_id,
+            index_build_id=index_build_id,
+            projection_id=projection_id,
+        )
+
+    def require_physical_metadata(self) -> tuple[UUID, UUID, UUID]:
+        if (
+            self.indexing_profile_id is None
+            or self.index_build_id is None
+            or self.projection_id is None
+        ):
+            raise ValueError("A physical RAG index requires immutable descriptor metadata.")
+        return self.indexing_profile_id, self.index_build_id, self.projection_id
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +69,8 @@ class IndexDocument:
     evidence_units: tuple[EvidenceUnit, ...]
     embedding: tuple[float, ...] | None
     index_build_id: UUID
+    indexing_profile_id: UUID | None = None
+    rag_mapping_version: int = 1
 
     def to_projection(self) -> dict[str, object]:
         return {
@@ -75,6 +103,12 @@ class IndexDocument:
             ],
             "embedding": list(self.embedding) if self.embedding is not None else None,
             "index_build_id": str(self.index_build_id),
+            "indexing_profile_id": (
+                str(self.indexing_profile_id)
+                if self.indexing_profile_id is not None
+                else None
+            ),
+            "rag_mapping_version": self.rag_mapping_version,
         }
 
 

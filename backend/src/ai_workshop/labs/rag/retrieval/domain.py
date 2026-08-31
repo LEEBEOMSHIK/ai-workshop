@@ -35,12 +35,28 @@ class ActiveIndexAlias:
 
 
 @dataclass(frozen=True, slots=True)
+class FrozenIndexIdentity:
+    index_name: str
+    index_uuid: str
+    index_build_id: UUID
+    projection_id: UUID
+    indexing_profile_id: UUID
+    vector_dimension: int
+    mapping_version: int
+
+    def __post_init__(self) -> None:
+        if not self.index_name.strip() or not self.index_uuid.strip():
+            raise ValueError("A frozen index identity requires its physical name and UUID.")
+        if self.vector_dimension < 1 or self.mapping_version < 1:
+            raise ValueError("A frozen index identity requires a valid immutable descriptor.")
+
+
+@dataclass(frozen=True, slots=True)
 class FrozenIndexTarget:
     descriptor: IndexDescriptor
     index_prefix: str
     indexing_profile_id: UUID
-    index_names: tuple[str, ...]
-    index_build_ids: tuple[UUID, ...]
+    identities: tuple[FrozenIndexIdentity, ...]
     asset_version_ids: tuple[UUID, ...]
 
     def __post_init__(self) -> None:
@@ -49,13 +65,13 @@ class FrozenIndexTarget:
             or self.index_prefix in {".", ".."}
         ):
             raise ValueError("A frozen target requires a safe physical index prefix.")
-        if not self.index_names or any(not item.strip() for item in self.index_names):
-            raise ValueError("A frozen index target requires concrete index names.")
-        if len(self.index_names) != len(self.index_build_ids):
-            raise ValueError("Concrete index names and build IDs must align.")
-        if len(self.index_names) != len(set(self.index_names)):
+        if not self.identities:
+            raise ValueError("A frozen index target requires concrete index identities.")
+        index_names = self.index_names
+        index_build_ids = self.index_build_ids
+        if len(index_names) != len(set(index_names)):
             raise ValueError("Concrete index names must be unique.")
-        if len(self.index_build_ids) != len(set(self.index_build_ids)):
+        if len(index_build_ids) != len(set(index_build_ids)):
             raise ValueError("Concrete index build IDs must be unique.")
         if not self.asset_version_ids or len(self.asset_version_ids) != len(
             set(self.asset_version_ids)
@@ -67,12 +83,31 @@ class FrozenIndexTarget:
                 self.indexing_profile_id,
                 build_id,
             )
-            for build_id in self.index_build_ids
+            for build_id in index_build_ids
         )
-        if self.index_names != expected_names:
+        if index_names != expected_names:
             raise ValueError(
                 "A frozen target must use the exact physical index for its profile/build."
             )
+        if any(
+            identity.indexing_profile_id != self.indexing_profile_id
+            or identity.vector_dimension != self.descriptor.vector_dimension
+            or identity.mapping_version != self.descriptor.mapping_version
+            for identity in self.identities
+        ):
+            raise ValueError("A frozen target descriptor must match every index identity.")
+
+    @property
+    def index_names(self) -> tuple[str, ...]:
+        return tuple(item.index_name for item in self.identities)
+
+    @property
+    def index_build_ids(self) -> tuple[UUID, ...]:
+        return tuple(item.index_build_id for item in self.identities)
+
+    @property
+    def projection_ids(self) -> tuple[UUID, ...]:
+        return tuple(item.projection_id for item in self.identities)
 
 
 type SearchIndexTarget = ActiveIndexAlias | FrozenIndexTarget

@@ -106,6 +106,8 @@ def test_candidate_execution_input_requires_complete_concrete_build_manifest() -
         index_name="rag-profile-build-a",
         indexing_profile_id=profile_id,
         vector_dimension=768,
+        index_uuid="index-uuid",
+        mapping_version=1,
         active_at_snapshot=True,
     )
     candidate = CandidateExecutionInput(

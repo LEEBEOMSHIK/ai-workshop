@@ -3,7 +3,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from typing import cast
+from typing import Protocol, cast
 from uuid import UUID, uuid4
 
 from sqlalchemy import and_, func, or_, select, update
@@ -61,6 +61,11 @@ from ai_workshop.labs.rag.models.models import (
     ModelDefinitionRecord,
     ProfileModelBindingRecord,
     ProfileRecord,
+)
+from ai_workshop.labs.rag.retrieval.domain import FrozenIndexIdentity
+from ai_workshop.labs.rag.retrieval.elasticsearch import (
+    FrozenIndexDriftError,
+    FrozenIndexReindexRequiredError,
 )
 from ai_workshop.platform.assets.models import (
     AssetVersionRecord,
@@ -325,9 +330,19 @@ def _case_domain(record: EvaluationCaseResultRecord) -> CaseEvaluationResult:
     )
 
 
+class FrozenIndexInspectorPort(Protocol):
+    async def describe(self, index_name: str) -> FrozenIndexIdentity: ...
+
+
 class SqlAlchemyEvaluationApplicationRepository:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        index_inspector: FrozenIndexInspectorPort | None = None,
+    ) -> None:
         self.session = session
+        self.index_inspector = index_inspector
 
     async def add_or_get_dataset(
         self, actor_id: UUID, dataset: EvaluationDataset
@@ -578,6 +593,38 @@ class SqlAlchemyEvaluationApplicationRepository:
                     "The dataset no longer matches its exact document/index snapshot.",
                     409,
                 )
+            if self.index_inspector is None:
+                raise AppError(
+                    "evaluation_index_reindex_required",
+                    "Evaluation run creation requires an exact Elasticsearch index identity.",
+                    409,
+                )
+            try:
+                es_identity = await self.index_inspector.describe(build.index_name)
+            except FrozenIndexReindexRequiredError as exc:
+                raise AppError(
+                    "evaluation_index_reindex_required",
+                    "The exact physical index must be reindexed with immutable RAG metadata.",
+                    409,
+                ) from exc
+            except FrozenIndexDriftError as exc:
+                raise AppError(
+                    "evaluation_snapshot_drift",
+                    "The exact physical index no longer matches the database build.",
+                    409,
+                ) from exc
+            if (
+                es_identity.index_name != build.index_name
+                or es_identity.index_build_id != build.id
+                or es_identity.projection_id != projection.id
+                or es_identity.indexing_profile_id != build.indexing_profile_id
+                or es_identity.vector_dimension != build.vector_dimension
+            ):
+                raise AppError(
+                    "evaluation_snapshot_drift",
+                    "The physical index descriptor does not match the exact database build.",
+                    409,
+                )
             frozen_builds.append(
                 {
                     "asset_version_id": str(asset.id),
@@ -586,6 +633,8 @@ class SqlAlchemyEvaluationApplicationRepository:
                     "index_name": build.index_name,
                     "indexing_profile_id": str(build.indexing_profile_id),
                     "vector_dimension": build.vector_dimension,
+                    "index_uuid": es_identity.index_uuid,
+                    "mapping_version": es_identity.mapping_version,
                     "active_at_snapshot": expected_active,
                 }
             )
@@ -1090,6 +1139,8 @@ class SqlAlchemyEvaluationRepository:
                                 vector_dimension=int(
                                     cast(int, build["vector_dimension"])
                                 ),
+                                index_uuid=str(build["index_uuid"]),
+                                mapping_version=int(cast(int, build["mapping_version"])),
                                 active_at_snapshot=bool(build["active_at_snapshot"]),
                             )
                             for build in cast(

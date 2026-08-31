@@ -234,6 +234,8 @@ async def test_stale_worker_resume_skips_durable_cases_without_duplicates() -> N
         index_name="frozen-index",
         indexing_profile_id=uuid4(),
         vector_dimension=1024,
+        index_uuid="index-uuid",
+        mapping_version=1,
         active_at_snapshot=True,
     )
     candidate = CandidateExecutionInput(uuid4(), uuid4(), uuid4(), 0, (build,))
@@ -278,6 +280,8 @@ async def test_workflow_keeps_failed_candidate_and_completes_stable_comparison()
         index_name="frozen-index",
         indexing_profile_id=profile_id,
         vector_dimension=1024,
+        index_uuid="index-uuid",
+        mapping_version=1,
         active_at_snapshot=True,
     )
     first = CandidateExecutionInput(uuid4(), uuid4(), uuid4(), 0, (build,))

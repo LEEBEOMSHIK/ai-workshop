@@ -8,6 +8,7 @@ from elasticsearch import ApiError, AsyncElasticsearch, BadRequestError, Transpo
 from ai_workshop.labs.rag.indexing.contracts import IndexDescriptor
 from ai_workshop.labs.rag.retrieval.domain import (
     ActiveIndexAlias,
+    FrozenIndexIdentity,
     FrozenIndexTarget,
     ResolvedSearchScope,
     SearchBackendUnavailableError,
@@ -29,27 +30,109 @@ class RecordingClient:
         self.response = response
         self.failure = failure
         self.calls: list[dict[str, object]] = []
+        self.frozen_identity: FrozenIndexIdentity | None = None
+        self.indices = RecordingIndices(self)
 
     async def search(self, **kwargs: Any) -> dict[str, object]:
         self.calls.append(kwargs)
         if self.failure is not None:
             raise self.failure
+        if self.frozen_identity is not None:
+            raw_hits = cast(
+                list[dict[str, Any]],
+                cast(dict[str, Any], self.response["hits"])["hits"],
+            )
+            source = cast(dict[str, Any], raw_hits[0]["_source"])
+            source["projection_id"] = str(self.frozen_identity.projection_id)
+            source["index_build_id"] = str(self.frozen_identity.index_build_id)
+            source["indexing_profile_id"] = str(
+                self.frozen_identity.indexing_profile_id
+            )
+            source["rag_mapping_version"] = self.frozen_identity.mapping_version
         return self.response
+
+    async def open_point_in_time(self, **kwargs: Any) -> dict[str, str]:
+        return {"id": "pit-id"}
+
+    async def close_point_in_time(self, **kwargs: Any) -> dict[str, bool]:
+        return {"succeeded": True}
+
+
+class RecordingIndices:
+    def __init__(self, owner: RecordingClient) -> None:
+        self.owner = owner
+
+    async def resolve_index(self, **kwargs: Any) -> dict[str, Any]:
+        return {
+            "indices": [{"name": kwargs["name"], "aliases": []}],
+            "aliases": [],
+            "data_streams": [],
+        }
+
+    async def get(self, **kwargs: Any) -> dict[str, Any]:
+        identity = self.owner.frozen_identity
+        assert identity is not None
+        return {
+            identity.index_name: {
+                "settings": {"index": {"uuid": identity.index_uuid}},
+                "mappings": {
+                    "_meta": {
+                        "rag": {
+                            "mapping_version": identity.mapping_version,
+                            "index_build_id": str(identity.index_build_id),
+                            "projection_id": str(identity.projection_id),
+                            "indexing_profile_id": str(identity.indexing_profile_id),
+                            "vector_dimension": identity.vector_dimension,
+                        }
+                    }
+                },
+            }
+        }
 
 
 class ResolvingIndices:
-    def __init__(self, response: dict[str, object]) -> None:
+    def __init__(
+        self,
+        response: dict[str, object],
+        identity: FrozenIndexIdentity | None,
+    ) -> None:
         self.response = response
+        self.identity = identity
         self.calls: list[dict[str, object]] = []
 
     async def resolve_index(self, **kwargs: object) -> dict[str, object]:
         self.calls.append(kwargs)
         return self.response
 
+    async def get(self, **kwargs: object) -> dict[str, object]:
+        assert self.identity is not None
+        return {
+            self.identity.index_name: {
+                "settings": {"index": {"uuid": self.identity.index_uuid}},
+                "mappings": {
+                    "_meta": {
+                        "rag": {
+                            "mapping_version": self.identity.mapping_version,
+                            "index_build_id": str(self.identity.index_build_id),
+                            "projection_id": str(self.identity.projection_id),
+                            "indexing_profile_id": str(
+                                self.identity.indexing_profile_id
+                            ),
+                            "vector_dimension": self.identity.vector_dimension,
+                        }
+                    }
+                },
+            }
+        }
+
 
 class ResolvingClient:
-    def __init__(self, response: dict[str, object]) -> None:
-        self.indices = ResolvingIndices(response)
+    def __init__(
+        self,
+        response: dict[str, object],
+        identity: FrozenIndexIdentity | None = None,
+    ) -> None:
+        self.indices = ResolvingIndices(response, identity)
 
 
 def _response() -> dict[str, object]:
@@ -165,22 +248,29 @@ async def test_sparse_and_dense_use_equivalent_acl_prefilters_and_hide_vectors()
 @pytest.mark.asyncio
 async def test_frozen_target_searches_each_validated_physical_index_separately() -> None:
     profile_id = uuid4()
-    build_ids = (uuid4(), uuid4())
+    build_ids = (UUID("00000000-0000-0000-0000-000000000806"),)
+    projection_id = UUID("00000000-0000-0000-0000-000000000802")
     descriptor = IndexDescriptor(vector_dimension=2, similarity="cosine")
+    identity = FrozenIndexIdentity(
+        descriptor.concrete_index_name(
+            "task11-evaluation", profile_id, build_ids[0]
+        ),
+        "index-uuid",
+        build_ids[0],
+        projection_id,
+        profile_id,
+        2,
+        1,
+    )
     target = FrozenIndexTarget(
         descriptor=descriptor,
         index_prefix="task11-evaluation",
         indexing_profile_id=profile_id,
-        index_names=tuple(
-            descriptor.concrete_index_name(
-                "task11-evaluation", profile_id, build_id
-            )
-            for build_id in build_ids
-        ),
-        index_build_ids=build_ids,
+        identities=(identity,),
         asset_version_ids=(UUID("00000000-0000-0000-0000-000000000803"),),
     )
     client = RecordingClient(_response())
+    client.frozen_identity = identity
     sparse = ElasticsearchSparseRetriever(cast(AsyncElasticsearch, client))
     dense = ElasticsearchDenseRetriever(cast(AsyncElasticsearch, client))
     scope = ResolvedSearchScope(
@@ -206,13 +296,8 @@ async def test_frozen_target_searches_each_validated_physical_index_separately()
         top_k=5,
     )
 
-    assert [call["index"] for call in client.calls] == [
-        target.index_names[0],
-        target.index_names[1],
-        target.index_names[0],
-        target.index_names[1],
-    ]
-    assert all("," not in cast(str, call["index"]) for call in client.calls)
+    assert len(client.calls) == 2
+    assert all("index" not in call and "pit" in call for call in client.calls)
 
 
 @pytest.mark.asyncio
@@ -224,12 +309,19 @@ async def test_frozen_target_resolution_rejects_exact_name_alias_before_search()
         descriptor=descriptor,
         index_prefix="task11-evaluation",
         indexing_profile_id=profile_id,
-        index_names=(
-            descriptor.concrete_index_name(
-                "task11-evaluation", profile_id, build_id
+        identities=(
+            FrozenIndexIdentity(
+                descriptor.concrete_index_name(
+                    "task11-evaluation", profile_id, build_id
+                ),
+                "index-uuid",
+                build_id,
+                uuid4(),
+                profile_id,
+                2,
+                1,
             ),
         ),
-        index_build_ids=(build_id,),
         asset_version_ids=(uuid4(),),
     )
     client = ResolvingClient(
@@ -261,12 +353,19 @@ async def test_frozen_target_resolution_accepts_only_its_exact_concrete_index() 
         descriptor=descriptor,
         index_prefix="task11-evaluation",
         indexing_profile_id=profile_id,
-        index_names=(
-            descriptor.concrete_index_name(
-                "task11-evaluation", profile_id, build_id
+        identities=(
+            FrozenIndexIdentity(
+                descriptor.concrete_index_name(
+                    "task11-evaluation", profile_id, build_id
+                ),
+                "index-uuid",
+                build_id,
+                uuid4(),
+                profile_id,
+                2,
+                1,
             ),
         ),
-        index_build_ids=(build_id,),
         asset_version_ids=(uuid4(),),
     )
     client = ResolvingClient(
@@ -274,7 +373,8 @@ async def test_frozen_target_resolution_accepts_only_its_exact_concrete_index() 
             "indices": [{"name": target.index_names[0], "aliases": []}],
             "aliases": [],
             "data_streams": [],
-        }
+        },
+        target.identities[0],
     )
 
     await require_concrete_frozen_indices(cast(AsyncElasticsearch, client), target)

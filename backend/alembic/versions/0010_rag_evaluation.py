@@ -828,6 +828,8 @@ def upgrade() -> None:
             calculated_duration float8;
             calculated_leaks integer;
             calculated_reproducible boolean;
+            evidence_array_name text;
+            evidence_array jsonb;
         BEGIN
             SELECT run.dataset_snapshot_id, run.repetition_count, run.retrieval_k
               INTO expected_dataset, expected_repetitions, retrieval_k
@@ -852,7 +854,7 @@ def upgrade() -> None:
             FOR observation IN
                 SELECT value FROM jsonb_array_elements(NEW.raw_observations::jsonb)
             LOOP
-                IF jsonb_typeof(observation) <> 'object'
+                IF jsonb_typeof(observation) IS DISTINCT FROM 'object'
                    OR NOT observation ?& ARRAY[
                        'retrieved_evidence_ids', 'answer_status',
                        'retrieved_ranked',
@@ -860,30 +862,37 @@ def upgrade() -> None:
                        'related_evidence_ids', 'highlight_kind',
                        'highlight_spans', 'highlight_bboxes', 'highlights',
                        'exposures', 'duration_ms',
-                       'repetition_signature_sha256'
-                   ]
-                   OR jsonb_typeof(observation->'retrieved_evidence_ids') <> 'array'
-                   OR jsonb_typeof(observation->'retrieved_ranked') <> 'array'
+                        'repetition_signature_sha256'
+                    ]
+                   OR observation - ARRAY[
+                        'retrieved_evidence_ids', 'answer_status', 'retrieved_ranked',
+                        'answer_evidence_ids', 'conflict_evidence_ids',
+                        'related_evidence_ids', 'highlight_kind', 'highlight_spans',
+                        'highlight_bboxes', 'highlights', 'exposures', 'duration_ms',
+                        'repetition_signature_sha256'
+                   ] <> '{}'::jsonb
+                   OR jsonb_typeof(observation->'retrieved_evidence_ids') IS DISTINCT FROM 'array'
+                   OR jsonb_typeof(observation->'retrieved_ranked') IS DISTINCT FROM 'array'
                    OR jsonb_array_length(observation->'retrieved_ranked') <>
                       jsonb_array_length(observation->'retrieved_evidence_ids')
-                   OR jsonb_typeof(observation->'answer_status') <> 'string'
+                   OR jsonb_array_length(observation->'retrieved_ranked') > retrieval_k
+                   OR jsonb_typeof(observation->'answer_status') IS DISTINCT FROM 'string'
                    OR observation->>'answer_status' NOT IN (
-                       'supported', 'conflicting_evidence', 'insufficient_evidence'
-                   )
-                   OR jsonb_typeof(observation->'answer_evidence_ids') <> 'array'
-                   OR jsonb_typeof(observation->'conflict_evidence_ids') <> 'array'
-                   OR jsonb_typeof(observation->'related_evidence_ids') <> 'array'
-                   OR jsonb_typeof(observation->'highlight_spans') <> 'array'
-                   OR jsonb_typeof(observation->'highlight_bboxes') <> 'array'
-                   OR jsonb_typeof(observation->'highlights') <> 'array'
-                   OR (jsonb_typeof(observation->'highlight_kind')
-                       NOT IN ('string', 'null'))
+                        'supported', 'conflicting_evidence', 'insufficient_evidence'
+                    )
+                   OR jsonb_typeof(observation->'answer_evidence_ids') IS DISTINCT FROM 'array'
+                   OR jsonb_typeof(observation->'conflict_evidence_ids') IS DISTINCT FROM 'array'
+                   OR jsonb_typeof(observation->'related_evidence_ids') IS DISTINCT FROM 'array'
+                   OR jsonb_typeof(observation->'highlight_spans') IS DISTINCT FROM 'array'
+                   OR jsonb_typeof(observation->'highlight_bboxes') IS DISTINCT FROM 'array'
+                   OR jsonb_typeof(observation->'highlights') IS DISTINCT FROM 'array'
+                   OR NOT (jsonb_typeof(observation->'highlight_kind') IN ('string', 'null'))
                    OR (jsonb_typeof(observation->'highlight_kind') = 'string'
                        AND observation->>'highlight_kind' NOT IN (
-                           'keyword', 'semantic'
-                       ))
-                   OR jsonb_typeof(observation->'exposures') <> 'array'
-                   OR jsonb_typeof(observation->'duration_ms') <> 'number'
+                            'keyword', 'semantic'
+                        ))
+                   OR jsonb_typeof(observation->'exposures') IS DISTINCT FROM 'array'
+                   OR jsonb_typeof(observation->'duration_ms') IS DISTINCT FROM 'number'
                    OR (observation->>'duration_ms')::float8 < 0
                    OR (observation->>'duration_ms')::float8 IN (
                        'NaN'::float8, 'Infinity'::float8, '-Infinity'::float8
@@ -892,71 +901,92 @@ def upgrade() -> None:
                       !~ '^[0-9a-f]{64}$' THEN
                     RAISE EXCEPTION 'invalid evaluation raw observation';
                 END IF;
-                PERFORM value::uuid
-                  FROM jsonb_array_elements_text(
-                      observation->'retrieved_evidence_ids'
-                );
+                FOREACH evidence_array_name IN ARRAY ARRAY[
+                    'retrieved_evidence_ids', 'answer_evidence_ids',
+                    'conflict_evidence_ids', 'related_evidence_ids'
+                ]
+                LOOP
+                    evidence_array := observation->evidence_array_name;
+                    IF EXISTS (
+                        SELECT 1 FROM jsonb_array_elements(evidence_array) AS item(value)
+                         WHERE jsonb_typeof(value) IS DISTINCT FROM 'string'
+                            OR coalesce(value #>> '{}', '') !~
+                               '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+                    ) OR EXISTS (
+                        SELECT 1
+                          FROM jsonb_array_elements_text(evidence_array) AS item(value)
+                         GROUP BY value HAVING count(*) > 1
+                    ) THEN
+                        RAISE EXCEPTION 'invalid evaluation raw observation evidence ids';
+                    END IF;
+                END LOOP;
                 ranked_ordinal := 0;
                 FOR ranked_item IN
                     SELECT value
                       FROM jsonb_array_elements(observation->'retrieved_ranked')
                 LOOP
                     ranked_ordinal := ranked_ordinal + 1;
-                    IF jsonb_typeof(ranked_item) <> 'object'
-                       OR jsonb_typeof(ranked_item->'rank') <> 'number'
-                       OR jsonb_typeof(ranked_item->'evidence_id') <> 'string'
-                       OR (ranked_item->>'rank')::integer <> ranked_ordinal
-                       OR ranked_item->>'evidence_id' <>
-                          observation->'retrieved_evidence_ids'->>(ranked_ordinal - 1) THEN
+                    IF jsonb_typeof(ranked_item) IS DISTINCT FROM 'object'
+                       OR NOT ranked_item ?& ARRAY['rank', 'evidence_id']
+                       OR ranked_item - ARRAY['rank', 'evidence_id'] <> '{}'::jsonb
+                       OR jsonb_typeof(ranked_item->'rank') IS DISTINCT FROM 'number'
+                       OR jsonb_typeof(ranked_item->'evidence_id') IS DISTINCT FROM 'string'
+                       OR coalesce(ranked_item->>'rank', '') !~ '^[1-9][0-9]{0,8}$'
+                       OR coalesce(ranked_item->>'evidence_id', '') !~
+                          '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' THEN
                         RAISE EXCEPTION 'invalid evaluation raw observation rank';
                     END IF;
-                    PERFORM (ranked_item->>'evidence_id')::uuid;
+                    IF (ranked_item->>'rank')::integer <> ranked_ordinal
+                       OR ranked_item->>'evidence_id' <>
+                           observation->'retrieved_evidence_ids'->>(ranked_ordinal - 1) THEN
+                        RAISE EXCEPTION 'invalid evaluation raw observation rank';
+                    END IF;
                 END LOOP;
-                PERFORM value::uuid
-                  FROM jsonb_array_elements_text(observation->'answer_evidence_ids');
-                PERFORM value::uuid
-                  FROM jsonb_array_elements_text(
-                      observation->'conflict_evidence_ids'
-                  );
-                PERFORM value::uuid
-                  FROM jsonb_array_elements_text(
-                      observation->'related_evidence_ids'
-                  );
                 FOR exposure IN
                     SELECT value FROM jsonb_array_elements(observation->'exposures')
                 LOOP
-                    IF jsonb_typeof(exposure) <> 'object'
-                       OR jsonb_typeof(exposure->'surface') <> 'string'
+                    IF jsonb_typeof(exposure) IS DISTINCT FROM 'object'
+                       OR NOT exposure ?& ARRAY['surface', 'source_id']
+                       OR exposure - ARRAY['surface', 'source_id'] <> '{}'::jsonb
+                       OR jsonb_typeof(exposure->'surface') IS DISTINCT FROM 'string'
                        OR coalesce(exposure->>'surface', '') = ''
-                       OR jsonb_typeof(exposure->'source_id') <> 'string' THEN
+                       OR jsonb_typeof(exposure->'source_id') IS DISTINCT FROM 'string'
+                       OR coalesce(exposure->>'source_id', '') !~
+                          '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' THEN
                         RAISE EXCEPTION 'invalid evaluation raw observation exposure';
                     END IF;
-                    PERFORM (exposure->>'source_id')::uuid;
                 END LOOP;
                 FOR highlight IN
                     SELECT value FROM jsonb_array_elements(observation->'highlights')
                 LOOP
-                    IF jsonb_typeof(highlight) <> 'object'
+                    IF jsonb_typeof(highlight) IS DISTINCT FROM 'object'
                        OR NOT highlight ?& ARRAY[
                            'surface', 'document_id', 'asset_version_id',
-                           'evidence_unit_id', 'page', 'kind', 'spans', 'bboxes'
-                       ]
+                            'evidence_unit_id', 'page', 'kind', 'spans', 'bboxes'
+                        ]
+                       OR highlight - ARRAY[
+                            'surface', 'document_id', 'asset_version_id',
+                            'evidence_unit_id', 'page', 'kind', 'spans', 'bboxes'
+                       ] <> '{}'::jsonb
                        OR highlight->>'surface' NOT IN ('answer', 'conflict')
-                       OR jsonb_typeof(highlight->'document_id') <> 'string'
-                       OR jsonb_typeof(highlight->'asset_version_id') <> 'string'
-                       OR jsonb_typeof(highlight->'evidence_unit_id') <> 'string'
-                       OR jsonb_typeof(highlight->'kind') <> 'string'
+                       OR jsonb_typeof(highlight->'document_id') IS DISTINCT FROM 'string'
+                       OR jsonb_typeof(highlight->'asset_version_id') IS DISTINCT FROM 'string'
+                       OR jsonb_typeof(highlight->'evidence_unit_id') IS DISTINCT FROM 'string'
+                       OR jsonb_typeof(highlight->'kind') IS DISTINCT FROM 'string'
                        OR highlight->>'kind' NOT IN ('keyword', 'semantic')
-                       OR jsonb_typeof(highlight->'spans') <> 'array'
-                       OR jsonb_typeof(highlight->'bboxes') <> 'array'
-                       OR jsonb_typeof(highlight->'page') NOT IN ('number', 'null')
+                       OR jsonb_typeof(highlight->'spans') IS DISTINCT FROM 'array'
+                       OR jsonb_typeof(highlight->'bboxes') IS DISTINCT FROM 'array'
+                       OR NOT (jsonb_typeof(highlight->'page') IN ('number', 'null'))
+                       OR coalesce(highlight->>'document_id', '') !~
+                          '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+                       OR coalesce(highlight->>'asset_version_id', '') !~
+                          '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+                       OR coalesce(highlight->>'evidence_unit_id', '') !~
+                          '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
                        OR (jsonb_array_length(highlight->'spans') = 0
                            AND jsonb_array_length(highlight->'bboxes') = 0) THEN
                         RAISE EXCEPTION 'invalid evaluation raw observation highlight';
                     END IF;
-                    PERFORM (highlight->>'document_id')::uuid,
-                            (highlight->>'asset_version_id')::uuid,
-                            (highlight->>'evidence_unit_id')::uuid;
                     IF jsonb_typeof(highlight->'page') = 'number'
                        AND ((highlight->>'page') !~ '^[0-9]+$'
                             OR (highlight->>'page')::integer < 0) THEN

@@ -1,14 +1,14 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-01
-- 현재 단계: 첫 RAG AI 검색 수직 슬라이스 완료
-- 전체 상태: Markdown·TXT·텍스트 PDF의 ingestion부터 검색·근거·평가까지 실제 스택 검증 완료
+- 현재 단계: 첫 RAG AI 검색 수직 슬라이스 완료, DOCX 확장 준비
+- 전체 상태: 최종 리뷰 강화와 실제 스택 검증을 완료했고 다음 작업은 DOCX 구조·뷰어 계약이다.
 
 ## 현재 작업
 
 ### 목표
 
-첫 RAG 검색 수직 슬라이스를 안정적인 기준선으로 유지하고 다음 형식 확장을 준비한다.
+완료된 첫 RAG 검색 수직 슬라이스를 재현 가능한 기준선으로 인계하고 다음 형식 확장을 준비한다.
 
 ### 진행 상태
 
@@ -16,7 +16,8 @@
 - 자산 READY 활성화, 구독별 ingestion handoff, 다중 활성 build alias와 PostgreSQL-authoritative 검색 수명주기를 구현했다.
 - newline-terminated TXT와 빈 parse/chunk 경계를 명시적으로 처리하며, 실패 시 parser나 모델을 조용히 바꾸지 않는다.
 - 보호 Compose smoke에서 원본 세 형식, 기존·신규 검색, keyword·semantic highlight, 원문 뷰어, BM25/E5 평가, 승격 거절과 두 사용자 권한 비노출을 실제 API·worker·Elasticsearch로 검증했다.
-- Task 14 강화 E2E는 live runtime 밖의 격리 DB·Redis·Elasticsearch reset, foundation/RAG API·worker phase와 beat-only phase를 분리한 보호 프로젝트에서 RAG `15 passed in 81.61s`, `15 passed in 73.66s`로 두 cold/default 실행 모두 첫 시도에 통과했다. 각 실행은 컨테이너·네트워크만 정리하고 named volume을 보존했다.
+- Task 14 강화 E2E는 live runtime 밖의 격리 DB·Redis·Elasticsearch reset, foundation/RAG API·worker phase와 beat-only phase를 분리한 보호 프로젝트에서 두 cold/default 실행과 최종 리뷰 실행 모두 통과했다. 최종 실행은 foundation `2 passed`, RAG `17 passed in 110.70s`, beat-only liveness와 post-reset을 검증하고 컨테이너·네트워크만 정리했다.
+- 문장 단위 정확한 provenance와 PDF bbox 제한, ingestion redelivery·오류 위생, system BM25 독립 색인 구독, 검색 tie-break, 고정 모델 tokenizer 기반 청킹·질의 한도를 구현·검증했다.
 - 루트 `surface`, 잠긴 pytest 임시 디렉터리와 개발 Docker 볼륨은 보존했다.
 
 ### 완료 기준
@@ -30,11 +31,11 @@
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. 첫 RAG 검색 수직 슬라이스의 실제 API·worker·Elasticsearch E2E, smoke와 로컬 실행 인계를 완료했다.
-2. newline-terminated TXT와 빈 parse/chunk ingestion 경계를 구현하고 검증했다. 관련 커밋: `b7fbbff`
-3. 검증된 자산의 READY 활성화와 RAG handoff 재시도·격리 수명주기를 구현하고 검증했다. 관련 커밋: `f51b3b9`
-4. RAG 구성 스튜디오, 평가 비교와 승격 UI의 상태·경쟁 조건을 구현하고 검증했다. 관련 커밋: `5b108e5`
-5. 근거 우선 검색, 관련 출처와 원문 뷰어 UI를 구현하고 검증했다. 관련 커밋: `441a76a`
+1. 첫 RAG 검색의 provenance, worker redelivery, system BM25 색인, 결정적 검색과 모델 tokenizer 경계를 최종 리뷰 기준으로 강화하고 실제 스택에서 검증했다. 관련 커밋: `b6a2074..fda000b`
+2. 첫 RAG 검색 수직 슬라이스의 실제 API·worker·Elasticsearch E2E, smoke와 로컬 실행 인계를 완료했다. 관련 커밋: `a559c2d..a041ab6`
+3. newline-terminated TXT와 빈 parse/chunk ingestion 경계를 구현하고 검증했다. 관련 커밋: `b7fbbff`
+4. 검증된 자산의 READY 활성화와 RAG handoff 재시도·격리 수명주기를 구현하고 검증했다. 관련 커밋: `f51b3b9`
+5. RAG 구성 스튜디오, 평가 비교와 승격 UI의 상태·경쟁 조건을 구현하고 검증했다. 관련 커밋: `5b108e5`
 
 ## 다음 작업
 

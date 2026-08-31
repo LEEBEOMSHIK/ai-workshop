@@ -64,6 +64,12 @@ reconciler가 복구한다. 누락된 `(Asset Version, Indexing Profile)`만 기
 만들고, 그 뒤 broker 전달은 기존 RAG ingestion outbox가 담당한다. 일부 프로파일 생성만
 실패해도 성공한 job은 유지되고 다음 주기에 누락 프로파일만 수렴한다.
 
+시스템 BM25 기준선은 사용자 Workspace 구독과 별개의 불변 system indexing 구독으로
+모든 활성 `READY` 자산에 색인 수요를 만든다. requester는 해당 Workspace 생성자를
+사용하고, 같은 Indexing Profile에 사용자 구독도 있으면 `(Asset Version, Indexing
+Profile)`당 하나의 멱등 job으로 합친다. 이 구독은 기준선을 검색 가능하게 할 뿐 평가 전
+구성을 운영 기본값으로 승격하지 않는다.
+
 ```text
 Asset Version READY
   -> 형식별 파싱 또는 OCR
@@ -85,6 +91,9 @@ PENDING -> PARSING -> CHUNKING -> EMBEDDING -> INDEXING -> READY
 RAG Projection `READY`는 Platform Asset `READY`와 별개다. 필요한 파싱과 색인이 모두
 완성되고 개수, provenance와 alias를 검증한 뒤에만 검색 projection을 활성화한다. 이전
 projection은 감사와 실험 재현을 위해 보존 정책에 따라 유지한다.
+RAG ingestion worker도 late ack와 worker-loss rejection을 사용한다. redelivery는 같은
+영속 job을 재개하며 broker 전달 실패에는 allowlist된 예외 class만 저장하고 예외 본문,
+URL 또는 credential을 남기지 않는다.
 
 ## 4. 공통 문서 모델
 
@@ -109,6 +118,10 @@ Document
 - 사용할 수 있는 경우 원문 좌표
 - 파서, OCR 엔진과 버전
 - 파싱 또는 OCR 신뢰도
+
+텍스트 Evidence Unit의 문자 범위는 원문 요소 안의 문장 상대 offset에서 정확히 파생한다.
+PDF 요소에 페이지와 요소 bbox만 있을 때는 픽셀 단위 문장 bbox를 추측하지 않고 그 요소를
+하나의 Evidence Unit으로 유지한다.
 
 ## 5. 문서 형식과 뷰어
 
@@ -137,6 +150,10 @@ Document
 ```
 
 BM25는 조항, 상품명, 종목명, 코드와 수치처럼 정확한 표현을 찾는다. Bi-encoder는 원문과 표현이 다른 의미 질의를 찾는다. 초기 검색 순위에는 LLM을 사용하지 않는다.
+
+Elasticsearch sparse/dense 요청과 애플리케이션 병합은 점수가 같을 때 불변 `chunk_id`
+오름차순을 2차 순서로 사용한다. RRF 최종 점수 동률에도 같은 규칙을 적용해 PIT,
+search-after, 다중 색인 경계에서 결과가 실행 순서에 흔들리지 않게 한다.
 
 ## 7. 의미 하이라이트
 

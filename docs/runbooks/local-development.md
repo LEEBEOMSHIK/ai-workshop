@@ -104,12 +104,22 @@ Windows ARM64에서 psycopg 바이너리를 불러오지 못하거나 `WinError 
 
 업로드가 검증되면 Platform Asset Version이 `stored`에서 `ready`로 전이되고 Document의 active version이 원자적으로 교체된다. 구독된 indexing profile마다 RAG Projection은 `pending → parsing → chunking → embedding → indexing → ready`를 거친다. Job과 Projection이 `failed`이면 오류 코드를 확인하며, READY가 되기 전에는 검색 alias에 포함되지 않는다.
 
+system BM25 기준선은 별도의 불변 indexing 구독으로 모든 활성 `ready` 자산에 기준선
+projection 수요를 만든다. 같은 Indexing Profile의 사용자 구독과 겹치면 자산·프로파일당
+job 하나만 만든다. migration은 승인된 baseline seed가 전부 없는 기존 DB만 exact seed로
+복구하며, 일부만 남았거나 충돌하면 임의로 덮어쓰지 않고 실패한다.
+
 1. `/rag/configurations`에서 indexing·retrieval profile을 조합한 저장 구성을 만들고 대상 workspace를 명시한다.
 2. `/rag/search`에서 BM25 기준선 또는 접근 가능한 저장 구성을 선택하고 workspace·folder 범위를 직접 지정한다.
 3. 검색 결과의 keyword highlight와 semantic highlight를 구분하고, 원문 뷰어가 같은 immutable Asset Version과 Projection을 가리키는지 확인한다.
 4. 구성 스튜디오에서 Evaluation Run을 시작한다. 비교에는 system BM25 기준선이 항상 포함되며 저장 구성의 정확한 version을 평가한다. 통과한 정책 결과가 없으면 기본 승격은 거절된다.
 
 Evaluation과 ingestion은 worker가 처리하고 beat가 영속 outbox·handoff를 재조정한다. 진행 중에는 API의 run/job 상태와 아래 로그를 함께 본다. DB 레코드나 Elasticsearch alias를 수동 수정해 성공 상태를 만들지 않는다.
+
+검색 질의가 고정 embedding model의 token 한도를 넘으면 API는
+`query_token_limit_exceeded`, tokenizer가 준비되지 않으면
+`query_tokenizer_unavailable` 오류 코드를 반환한다. 질의를 조용히 truncate하거나 다른
+tokenizer로 대체하지 말고 선택 Configuration Version과 model cache를 확인한다.
 
 ## 5. 마이그레이션
 

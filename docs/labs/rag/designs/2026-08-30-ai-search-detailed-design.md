@@ -149,6 +149,9 @@ provenance·alias 검증까지 마친 `READY` RAG Projection과 활성 색인 �
       -> RAG Projection READY 및 색인 버전 원자적 활성화
 
 Celery 메시지에는 원문 본문을 넣지 않고 job_id와 최소 라우팅 정보만 넣는다. 영속 상태와 오류는 PostgreSQL에 기록한다.
+ingestion task는 late ack와 worker-loss rejection을 사용해 broker redelivery가 같은 영속
+job으로 수렴하게 한다. broker 전달 실패에는 allowlist된 예외 class만 저장하고 예외
+본문, URL 또는 credential을 오류 필드에 복사하지 않는다.
 
 각 단계는 다음 멱등 키를 기준으로 중복 실행을 막는다.
 
@@ -182,6 +185,8 @@ Celery 메시지에는 원문 본문을 넣지 않고 job_id와 최소 라우팅
 - 원본 콘텐츠 해시
 
 파서 출력은 형식별 객체를 직접 검색 계층에 넘기지 않고 공통 문서 모델로 변환한다.
+Markdown fenced block은 여는 fence의 문자와 최소 길이를 기억하고, 같은 문자로 그 길이
+이상인 fence만 닫기로 인정한다. 혼합된 backtick/tilde나 더 짧은 fence는 본문이다.
 
 ## 7. 검색 청크와 근거 단위
 
@@ -201,6 +206,14 @@ Celery 메시지에는 원문 본문을 넣지 않고 job_id와 최소 라우팅
 - 부모 Retrieval Chunk와 원문 구조 요소를 모두 참조한다.
 
 청크만 저장하고 나중에 원문 위치를 추측하지 않는다. 청크와 Evidence Unit을 만들 때 원문 범위와 좌표를 함께 확정한다.
+텍스트 문장 분할은 반복 문장, 공백·newline과 Unicode를 포함해 요소 안의 안정적인 상대
+offset을 반환하고 이를 요소의 `char_start`에 더해 정확한 절대 범위를 만든다. PDF에서
+페이지와 요소 bbox만 제공되면 픽셀 단위 문장 bbox를 만들지 않고 요소를 분할하지 않는다.
+
+청크 token 수는 해당 Indexing Profile에 고정된 embedding model adapter의 tokenizer로
+계산한다. 같은 workflow에서 token count와 embedding은 config/cache key로 캐시한 동일
+adapter를 공유하며 모델을 반복 로드하지 않는다. tokenizer 실패와 단일 요소의 모델 한도
+초과는 embedding 전에 각각 typed 실패로 기록한다.
 
 ## 8. 색인 버전과 Elasticsearch projection
 
@@ -267,7 +280,7 @@ BM25와 dense 양쪽에 전달해 순위 후보 생성 전에 필터링한다. �
 
 1. 호출 사용자와 검색 범위 확정
 2. 허용 Workspace, Folder와 선택 Indexing Profile에서 정본 활성 Asset Version 및 Index Build 필터 확정
-3. 질의 정규화
+3. 질의 정규화와 고정 모델 tokenizer 기반 길이 검증
 4. 선택 구성에 필요한 경우 질의 임베딩 생성
 5. Elasticsearch에서 BM25와 dense 검색 병렬 실행
 6. Python 애플리케이션 계층에서 RRF 결합
@@ -281,6 +294,10 @@ BM25와 dense 양쪽에 전달해 순위 후보 생성 전에 필터링한다. �
     RRF score(item) = Σ 1 / (k + rank)
 
 초기 프로파일은 k=60을 사용하고 평가 결과에 따라 새 Retrieval Profile Version으로 조정한다.
+
+Elasticsearch sparse/dense 후보는 `_score DESC, chunk_id ASC`로 정렬하고 애플리케이션의
+다중 응답 병합과 RRF 최종 동률에도 `chunk_id ASC`를 적용한다. 이 불변 2차 순서는
+PIT/search-after와 다중 색인 경계에서도 같은 근거 순서를 보장한다.
 
 Elasticsearch의 유료 내장 RRF 기능에 의존하지 않는다. BM25와 벡터 검색 결과를 애플리케이션이 결합해 로컬 개발과 배포 라이선스의 예측 가능성을 유지한다.
 
@@ -331,6 +348,8 @@ PDF는 원본 페이지 좌표를 사용한다. Markdown, TXT와 DOCX는 통합 
 - 최대 입력 512 tokens
 - 초기 Retrieval Chunk 목표 약 380 tokens
 - 모델 등록 시 저장소와 리비전, pooling, normalization, query/document prefix, device와 dtype을 고정
+- 문서 청킹과 질의 한도 검사는 이 고정 adapter의 tokenizer를 사용하며 임의 whitespace
+  단어나 다른 tokenizer로 대체하지 않는다.
 
 현재 저장소의 baseline Indexing Profile Version 1에 있는 600-token 설정은 1단계 기반 예시다. 첫 AI 검색 구현은 이를 수정하지 않고 약 380-token 목표를 가진 새 Indexing Profile Version을 만든다.
 
@@ -364,6 +383,10 @@ PDF는 원본 페이지 좌표를 사용한다. Markdown, TXT와 DOCX는 통합 
 ### 저장 규칙
 
 - 시스템이 미리 제공하는 목록은 BM25 기준선 하나뿐이다.
+- BM25 기준선의 불변 system indexing 구독은 활성 `READY` 자산마다 기준선 Indexing
+  Profile 수요를 만들고 Workspace 생성자를 requester로 사용한다.
+- 같은 자산·Indexing Profile의 사용자 구독과 system 구독은 하나의 멱등 ingestion job으로
+  합치며, system 구독은 평가 상태나 운영 기본값을 바꾸지 않는다.
 - E5, BGE-M3와 이후 모델 조합은 사용자가 실제로 저장한 뒤 목록에 나타난다.
 - 편집 중인 초안은 운영 검색과 평가에 사용하지 않는다.
 - 저장은 불변 Configuration Version을 생성한다.
@@ -437,6 +460,9 @@ BM25 기준선도 파서와 청킹을 재현하기 위해 Indexing Profile Versi
 - 청크, 벡터와 provenance 개수 검증이 실패하면 READY로 전환하지 않는다.
 - 일반 검색에서 권한 필터를 만들 수 없으면 검색을 실행하지 않는다.
 - hybrid의 한 경로 실패를 정상 검색 결과처럼 반환하지 않는다.
+- 질의가 고정 embedding model의 최대 token 수를 넘으면 `query_token_limit_exceeded`로
+  거부하고 truncate하지 않는다. tokenizer를 실행할 수 없으면
+  `query_tokenizer_unavailable`로 실패한다.
 - INSUFFICIENT_EVIDENCE는 시스템 오류가 아니라 정상적인 근거 부족 결과다.
 
 ## 17. 검증 전략

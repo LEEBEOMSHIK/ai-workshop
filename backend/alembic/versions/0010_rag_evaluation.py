@@ -796,6 +796,92 @@ def upgrade() -> None:
               FROM areas
         $$;
 
+        CREATE FUNCTION rag_evaluation_is_canonical_uuid(value jsonb)
+        RETURNS boolean LANGUAGE plpgsql IMMUTABLE AS $$
+        DECLARE
+            raw text;
+        BEGIN
+            IF jsonb_typeof(value) IS DISTINCT FROM 'string' THEN
+                RETURN false;
+            END IF;
+            raw := value #>> '{}';
+            IF raw IS NULL OR raw !~
+               '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+                RETURN false;
+            END IF;
+            RETURN raw::uuid::text IS NOT DISTINCT FROM raw;
+        END;
+        $$;
+
+        CREATE FUNCTION rag_evaluation_is_span(value jsonb)
+        RETURNS boolean LANGUAGE plpgsql IMMUTABLE AS $$
+        BEGIN
+            IF jsonb_typeof(value) IS DISTINCT FROM 'array'
+               OR jsonb_array_length(value) IS DISTINCT FROM 2 THEN
+                RETURN false;
+            END IF;
+            IF jsonb_typeof(value->0) IS DISTINCT FROM 'number'
+               OR jsonb_typeof(value->1) IS DISTINCT FROM 'number'
+               OR coalesce(value->>0, '') !~ '^(0|[1-9][0-9]*)$'
+               OR coalesce(value->>1, '') !~ '^(0|[1-9][0-9]*)$' THEN
+                RETURN false;
+            END IF;
+            RETURN (value->>0)::numeric <= 2147483647::numeric
+               AND (value->>1)::numeric <= 2147483647::numeric
+               AND (value->>1)::numeric > (value->>0)::numeric;
+        END;
+        $$;
+
+        CREATE FUNCTION rag_evaluation_is_bbox(value jsonb)
+        RETURNS boolean LANGUAGE plpgsql IMMUTABLE AS $$
+        DECLARE
+            max_float constant numeric :=
+                1.7976931348623157e308::numeric;
+        BEGIN
+            IF jsonb_typeof(value) IS DISTINCT FROM 'array'
+               OR jsonb_array_length(value) IS DISTINCT FROM 4 THEN
+                RETURN false;
+            END IF;
+            IF jsonb_typeof(value->0) IS DISTINCT FROM 'number'
+               OR jsonb_typeof(value->1) IS DISTINCT FROM 'number'
+               OR jsonb_typeof(value->2) IS DISTINCT FROM 'number'
+               OR jsonb_typeof(value->3) IS DISTINCT FROM 'number' THEN
+                RETURN false;
+            END IF;
+            RETURN abs((value->>0)::numeric) <= max_float
+               AND abs((value->>1)::numeric) <= max_float
+               AND abs((value->>2)::numeric) <= max_float
+               AND abs((value->>3)::numeric) <= max_float
+               AND (value->>2)::numeric > (value->>0)::numeric
+               AND (value->>3)::numeric > (value->>1)::numeric;
+        END;
+        $$;
+
+        CREATE FUNCTION rag_evaluation_is_nonnegative_finite_float(value jsonb)
+        RETURNS boolean LANGUAGE plpgsql IMMUTABLE AS $$
+        DECLARE
+            parsed numeric;
+        BEGIN
+            IF jsonb_typeof(value) IS DISTINCT FROM 'number' THEN
+                RETURN false;
+            END IF;
+            parsed := (value #>> '{}')::numeric;
+            RETURN parsed >= 0
+               AND parsed <= 1.7976931348623157e308::numeric;
+        END;
+        $$;
+
+        CREATE FUNCTION rag_evaluation_is_nonnegative_integer(value jsonb)
+        RETURNS boolean LANGUAGE plpgsql IMMUTABLE AS $$
+        BEGIN
+            IF jsonb_typeof(value) IS DISTINCT FROM 'number'
+               OR coalesce(value #>> '{}', '') !~ '^(0|[1-9][0-9]*)$' THEN
+                RETURN false;
+            END IF;
+            RETURN (value #>> '{}')::numeric <= 2147483647::numeric;
+        END;
+        $$;
+
         CREATE FUNCTION rag_verify_evaluation_case_result()
         RETURNS trigger LANGUAGE plpgsql AS $$
         DECLARE
@@ -841,65 +927,99 @@ def upgrade() -> None:
              WHERE dataset_snapshot_id = NEW.dataset_snapshot_id
                AND id = NEW.evaluation_case_id;
             IF expected_dataset IS NULL
-               OR NEW.dataset_snapshot_id <> expected_dataset
+               OR NEW.dataset_snapshot_id IS DISTINCT FROM expected_dataset
                OR frozen.id IS NULL
-               OR NEW.ordinal <> frozen.ordinal
-               OR NEW.query_sha256 <> frozen.query_sha256
-               OR NEW.permission_scenario::jsonb <> frozen.permission_scenario::jsonb
-               OR NEW.expected_evidence_ids::jsonb <> frozen.expected_evidence_ids::jsonb
-               OR jsonb_typeof(NEW.raw_observations::jsonb) <> 'array'
-               OR jsonb_array_length(NEW.raw_observations::jsonb) <> expected_repetitions THEN
+               OR NEW.ordinal IS DISTINCT FROM frozen.ordinal
+               OR NEW.query_sha256 IS DISTINCT FROM frozen.query_sha256
+               OR NEW.permission_scenario::jsonb IS DISTINCT FROM
+                  frozen.permission_scenario::jsonb
+               OR NEW.expected_evidence_ids::jsonb IS DISTINCT FROM
+                  frozen.expected_evidence_ids::jsonb
+               OR jsonb_typeof(NEW.raw_observations::jsonb) IS DISTINCT FROM 'array' THEN
+                RAISE EXCEPTION 'evaluation case result does not match the frozen case';
+            END IF;
+            IF jsonb_array_length(NEW.raw_observations::jsonb)
+               IS DISTINCT FROM expected_repetitions THEN
                 RAISE EXCEPTION 'evaluation case result does not match the frozen case';
             END IF;
             FOR observation IN
                 SELECT value FROM jsonb_array_elements(NEW.raw_observations::jsonb)
             LOOP
                 IF jsonb_typeof(observation) IS DISTINCT FROM 'object'
-                   OR NOT observation ?& ARRAY[
-                       'retrieved_evidence_ids', 'answer_status',
-                       'retrieved_ranked',
-                       'answer_evidence_ids', 'conflict_evidence_ids',
-                       'related_evidence_ids', 'highlight_kind',
-                       'highlight_spans', 'highlight_bboxes', 'highlights',
-                       'exposures', 'duration_ms',
-                        'repetition_signature_sha256'
-                    ]
+                THEN
+                    RAISE EXCEPTION 'invalid evaluation raw observation';
+                END IF;
+                IF NOT observation ?& ARRAY[
+                        'retrieved_evidence_ids', 'answer_status',
+                        'retrieved_ranked', 'answer_evidence_ids',
+                        'conflict_evidence_ids', 'related_evidence_ids',
+                        'highlight_kind', 'highlight_spans',
+                        'highlight_bboxes', 'highlights', 'exposures',
+                        'duration_ms', 'repetition_signature_sha256'
+                   ]
                    OR observation - ARRAY[
                         'retrieved_evidence_ids', 'answer_status', 'retrieved_ranked',
                         'answer_evidence_ids', 'conflict_evidence_ids',
                         'related_evidence_ids', 'highlight_kind', 'highlight_spans',
                         'highlight_bboxes', 'highlights', 'exposures', 'duration_ms',
                         'repetition_signature_sha256'
-                   ] <> '{}'::jsonb
-                   OR jsonb_typeof(observation->'retrieved_evidence_ids') IS DISTINCT FROM 'array'
-                   OR jsonb_typeof(observation->'retrieved_ranked') IS DISTINCT FROM 'array'
-                   OR jsonb_array_length(observation->'retrieved_ranked') <>
+                   ] IS DISTINCT FROM '{}'::jsonb THEN
+                    RAISE EXCEPTION 'invalid evaluation raw observation';
+                END IF;
+                IF jsonb_typeof(observation->'retrieved_evidence_ids')
+                      IS DISTINCT FROM 'array'
+                   OR jsonb_typeof(observation->'retrieved_ranked')
+                      IS DISTINCT FROM 'array'
+                   OR jsonb_typeof(observation->'answer_evidence_ids')
+                      IS DISTINCT FROM 'array'
+                   OR jsonb_typeof(observation->'conflict_evidence_ids')
+                      IS DISTINCT FROM 'array'
+                   OR jsonb_typeof(observation->'related_evidence_ids')
+                      IS DISTINCT FROM 'array'
+                   OR jsonb_typeof(observation->'highlight_spans')
+                      IS DISTINCT FROM 'array'
+                   OR jsonb_typeof(observation->'highlight_bboxes')
+                      IS DISTINCT FROM 'array'
+                   OR jsonb_typeof(observation->'highlights')
+                      IS DISTINCT FROM 'array'
+                   OR jsonb_typeof(observation->'exposures') IS DISTINCT FROM 'array'
+                THEN
+                    RAISE EXCEPTION 'invalid evaluation raw observation';
+                END IF;
+                IF jsonb_array_length(observation->'retrieved_ranked')
+                      IS DISTINCT FROM
                       jsonb_array_length(observation->'retrieved_evidence_ids')
                    OR jsonb_array_length(observation->'retrieved_ranked') > retrieval_k
-                   OR jsonb_typeof(observation->'answer_status') IS DISTINCT FROM 'string'
-                   OR observation->>'answer_status' NOT IN (
-                        'supported', 'conflicting_evidence', 'insufficient_evidence'
-                    )
-                   OR jsonb_typeof(observation->'answer_evidence_ids') IS DISTINCT FROM 'array'
-                   OR jsonb_typeof(observation->'conflict_evidence_ids') IS DISTINCT FROM 'array'
-                   OR jsonb_typeof(observation->'related_evidence_ids') IS DISTINCT FROM 'array'
-                   OR jsonb_typeof(observation->'highlight_spans') IS DISTINCT FROM 'array'
-                   OR jsonb_typeof(observation->'highlight_bboxes') IS DISTINCT FROM 'array'
-                   OR jsonb_typeof(observation->'highlights') IS DISTINCT FROM 'array'
-                   OR NOT (jsonb_typeof(observation->'highlight_kind') IN ('string', 'null'))
-                   OR (jsonb_typeof(observation->'highlight_kind') = 'string'
-                       AND observation->>'highlight_kind' NOT IN (
-                            'keyword', 'semantic'
-                        ))
-                   OR jsonb_typeof(observation->'exposures') IS DISTINCT FROM 'array'
-                   OR jsonb_typeof(observation->'duration_ms') IS DISTINCT FROM 'number'
-                   OR (observation->>'duration_ms')::float8 < 0
-                   OR (observation->>'duration_ms')::float8 IN (
-                       'NaN'::float8, 'Infinity'::float8, '-Infinity'::float8
-                   )
+                THEN
+                    RAISE EXCEPTION 'invalid evaluation raw observation rank';
+                END IF;
+                IF jsonb_typeof(observation->'answer_status')
+                      IS DISTINCT FROM 'string'
+                THEN
+                    RAISE EXCEPTION 'invalid evaluation raw observation answer';
+                END IF;
+                IF observation->>'answer_status' NOT IN (
+                    'supported', 'conflicting_evidence', 'insufficient_evidence'
+                ) THEN
+                    RAISE EXCEPTION 'invalid evaluation raw observation answer';
+                END IF;
+                IF jsonb_typeof(observation->'highlight_kind') = 'null' THEN
+                    NULL;
+                ELSIF jsonb_typeof(observation->'highlight_kind')
+                      IS DISTINCT FROM 'string'
+                   OR observation->>'highlight_kind' NOT IN ('keyword', 'semantic') THEN
+                    RAISE EXCEPTION 'invalid evaluation raw observation highlight';
+                END IF;
+                IF NOT rag_evaluation_is_nonnegative_finite_float(
+                    observation->'duration_ms'
+                ) THEN
+                    RAISE EXCEPTION 'invalid evaluation raw observation latency';
+                END IF;
+                IF jsonb_typeof(observation->'repetition_signature_sha256')
+                      IS DISTINCT FROM 'string'
                    OR coalesce(observation->>'repetition_signature_sha256', '')
                       !~ '^[0-9a-f]{64}$' THEN
-                    RAISE EXCEPTION 'invalid evaluation raw observation';
+                    RAISE EXCEPTION 'invalid evaluation raw observation signature';
                 END IF;
                 FOREACH evidence_array_name IN ARRAY ARRAY[
                     'retrieved_evidence_ids', 'answer_evidence_ids',
@@ -909,13 +1029,14 @@ def upgrade() -> None:
                     evidence_array := observation->evidence_array_name;
                     IF EXISTS (
                         SELECT 1 FROM jsonb_array_elements(evidence_array) AS item(value)
-                         WHERE jsonb_typeof(value) IS DISTINCT FROM 'string'
-                            OR coalesce(value #>> '{}', '') !~
-                               '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-                    ) OR EXISTS (
+                         WHERE NOT rag_evaluation_is_canonical_uuid(value)
+                    ) THEN
+                        RAISE EXCEPTION 'invalid evaluation raw observation evidence ids';
+                    END IF;
+                    IF EXISTS (
                         SELECT 1
-                          FROM jsonb_array_elements_text(evidence_array) AS item(value)
-                         GROUP BY value HAVING count(*) > 1
+                          FROM jsonb_array_elements(evidence_array) AS item(value)
+                         GROUP BY (value #>> '{}')::uuid HAVING count(*) > 1
                     ) THEN
                         RAISE EXCEPTION 'invalid evaluation raw observation evidence ids';
                     END IF;
@@ -926,143 +1047,172 @@ def upgrade() -> None:
                       FROM jsonb_array_elements(observation->'retrieved_ranked')
                 LOOP
                     ranked_ordinal := ranked_ordinal + 1;
-                    IF jsonb_typeof(ranked_item) IS DISTINCT FROM 'object'
-                       OR NOT ranked_item ?& ARRAY['rank', 'evidence_id']
-                       OR ranked_item - ARRAY['rank', 'evidence_id'] <> '{}'::jsonb
-                       OR jsonb_typeof(ranked_item->'rank') IS DISTINCT FROM 'number'
-                       OR jsonb_typeof(ranked_item->'evidence_id') IS DISTINCT FROM 'string'
-                       OR coalesce(ranked_item->>'rank', '') !~ '^[1-9][0-9]{0,8}$'
-                       OR coalesce(ranked_item->>'evidence_id', '') !~
-                          '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' THEN
+                    IF jsonb_typeof(ranked_item) IS DISTINCT FROM 'object' THEN
                         RAISE EXCEPTION 'invalid evaluation raw observation rank';
                     END IF;
-                    IF (ranked_item->>'rank')::integer <> ranked_ordinal
-                       OR ranked_item->>'evidence_id' <>
-                           observation->'retrieved_evidence_ids'->>(ranked_ordinal - 1) THEN
+                    IF NOT ranked_item ?& ARRAY['rank', 'evidence_id']
+                       OR ranked_item - ARRAY['rank', 'evidence_id']
+                          IS DISTINCT FROM '{}'::jsonb
+                    THEN
                         RAISE EXCEPTION 'invalid evaluation raw observation rank';
+                    END IF;
+                    IF jsonb_typeof(ranked_item->'rank') IS DISTINCT FROM 'number'
+                       OR coalesce(ranked_item->>'rank', '') !~ '^[1-9][0-9]*$'
+                       OR NOT rag_evaluation_is_canonical_uuid(
+                           ranked_item->'evidence_id'
+                       ) THEN
+                        RAISE EXCEPTION 'invalid evaluation raw observation rank';
+                    END IF;
+                    IF (ranked_item->>'rank')::numeric
+                          IS DISTINCT FROM ranked_ordinal::numeric
+                       OR (ranked_item->>'rank')::numeric > retrieval_k::numeric
+                       OR (ranked_item->>'evidence_id')::uuid IS DISTINCT FROM
+                          (observation->'retrieved_evidence_ids'
+                              ->>(ranked_ordinal - 1))::uuid THEN
+                        RAISE EXCEPTION 'invalid evaluation raw observation rank';
+                    END IF;
+                END LOOP;
+                FOR coordinate IN
+                    SELECT value
+                      FROM jsonb_array_elements(observation->'highlight_spans')
+                LOOP
+                    IF NOT rag_evaluation_is_span(coordinate) THEN
+                        RAISE EXCEPTION 'invalid evaluation raw observation highlight';
+                    END IF;
+                END LOOP;
+                FOR coordinate IN
+                    SELECT value
+                      FROM jsonb_array_elements(observation->'highlight_bboxes')
+                LOOP
+                    IF NOT rag_evaluation_is_bbox(coordinate) THEN
+                        RAISE EXCEPTION 'invalid evaluation raw observation highlight';
                     END IF;
                 END LOOP;
                 FOR exposure IN
                     SELECT value FROM jsonb_array_elements(observation->'exposures')
                 LOOP
-                    IF jsonb_typeof(exposure) IS DISTINCT FROM 'object'
-                       OR NOT exposure ?& ARRAY['surface', 'source_id']
-                       OR exposure - ARRAY['surface', 'source_id'] <> '{}'::jsonb
-                       OR jsonb_typeof(exposure->'surface') IS DISTINCT FROM 'string'
-                       OR coalesce(exposure->>'surface', '') = ''
-                       OR jsonb_typeof(exposure->'source_id') IS DISTINCT FROM 'string'
-                       OR coalesce(exposure->>'source_id', '') !~
-                          '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' THEN
+                    IF jsonb_typeof(exposure) IS DISTINCT FROM 'object' THEN
+                        RAISE EXCEPTION 'invalid evaluation raw observation exposure';
+                    END IF;
+                    IF NOT exposure ?& ARRAY['surface', 'source_id']
+                       OR exposure - ARRAY['surface', 'source_id']
+                          IS DISTINCT FROM '{}'::jsonb
+                    THEN
+                        RAISE EXCEPTION 'invalid evaluation raw observation exposure';
+                    END IF;
+                    IF jsonb_typeof(exposure->'surface') IS DISTINCT FROM 'string'
+                       OR btrim(coalesce(exposure->>'surface', '')) = ''
+                       OR NOT rag_evaluation_is_canonical_uuid(exposure->'source_id') THEN
                         RAISE EXCEPTION 'invalid evaluation raw observation exposure';
                     END IF;
                 END LOOP;
                 FOR highlight IN
                     SELECT value FROM jsonb_array_elements(observation->'highlights')
                 LOOP
-                    IF jsonb_typeof(highlight) IS DISTINCT FROM 'object'
-                       OR NOT highlight ?& ARRAY[
+                    IF jsonb_typeof(highlight) IS DISTINCT FROM 'object' THEN
+                        RAISE EXCEPTION 'invalid evaluation raw observation highlight';
+                    END IF;
+                    IF NOT highlight ?& ARRAY[
                            'surface', 'document_id', 'asset_version_id',
                             'evidence_unit_id', 'page', 'kind', 'spans', 'bboxes'
                         ]
                        OR highlight - ARRAY[
                             'surface', 'document_id', 'asset_version_id',
                             'evidence_unit_id', 'page', 'kind', 'spans', 'bboxes'
-                       ] <> '{}'::jsonb
-                       OR highlight->>'surface' NOT IN ('answer', 'conflict')
-                       OR jsonb_typeof(highlight->'document_id') IS DISTINCT FROM 'string'
-                       OR jsonb_typeof(highlight->'asset_version_id') IS DISTINCT FROM 'string'
-                       OR jsonb_typeof(highlight->'evidence_unit_id') IS DISTINCT FROM 'string'
-                       OR jsonb_typeof(highlight->'kind') IS DISTINCT FROM 'string'
-                       OR highlight->>'kind' NOT IN ('keyword', 'semantic')
-                       OR jsonb_typeof(highlight->'spans') IS DISTINCT FROM 'array'
-                       OR jsonb_typeof(highlight->'bboxes') IS DISTINCT FROM 'array'
-                       OR NOT (jsonb_typeof(highlight->'page') IN ('number', 'null'))
-                       OR coalesce(highlight->>'document_id', '') !~
-                          '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-                       OR coalesce(highlight->>'asset_version_id', '') !~
-                          '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-                       OR coalesce(highlight->>'evidence_unit_id', '') !~
-                          '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
-                       OR (jsonb_array_length(highlight->'spans') = 0
-                           AND jsonb_array_length(highlight->'bboxes') = 0) THEN
+                       ] IS DISTINCT FROM '{}'::jsonb THEN
                         RAISE EXCEPTION 'invalid evaluation raw observation highlight';
                     END IF;
-                    IF jsonb_typeof(highlight->'page') = 'number'
-                       AND ((highlight->>'page') !~ '^[0-9]+$'
-                            OR (highlight->>'page')::integer < 0) THEN
+                    IF jsonb_typeof(highlight->'surface') IS DISTINCT FROM 'string'
+                       OR highlight->>'surface' NOT IN ('answer', 'conflict')
+                       OR NOT rag_evaluation_is_canonical_uuid(
+                           highlight->'document_id'
+                       )
+                       OR NOT rag_evaluation_is_canonical_uuid(
+                           highlight->'asset_version_id'
+                       )
+                       OR NOT rag_evaluation_is_canonical_uuid(
+                           highlight->'evidence_unit_id'
+                       )
+                       OR jsonb_typeof(highlight->'kind') IS DISTINCT FROM 'string'
+                       OR highlight->>'kind' NOT IN ('keyword', 'semantic') THEN
+                        RAISE EXCEPTION 'invalid evaluation raw observation highlight';
+                    END IF;
+                    IF jsonb_typeof(highlight->'page') = 'null' THEN
+                        NULL;
+                    ELSIF NOT rag_evaluation_is_nonnegative_integer(
+                        highlight->'page'
+                    ) THEN
+                        RAISE EXCEPTION 'invalid evaluation raw observation highlight';
+                    END IF;
+                    IF jsonb_typeof(highlight->'spans') IS DISTINCT FROM 'array'
+                       OR jsonb_typeof(highlight->'bboxes') IS DISTINCT FROM 'array'
+                    THEN
+                        RAISE EXCEPTION 'invalid evaluation raw observation highlight';
+                    END IF;
+                    IF jsonb_array_length(highlight->'spans') = 0
+                       AND jsonb_array_length(highlight->'bboxes') = 0 THEN
                         RAISE EXCEPTION 'invalid evaluation raw observation highlight';
                     END IF;
                     FOR coordinate IN
                         SELECT value FROM jsonb_array_elements(highlight->'spans')
                     LOOP
-                        IF jsonb_typeof(coordinate) <> 'array'
-                           OR jsonb_array_length(coordinate) <> 2
-                           OR jsonb_typeof(coordinate->0) <> 'number'
-                           OR jsonb_typeof(coordinate->1) <> 'number'
-                           OR (coordinate->>0) !~ '^[0-9]+$'
-                           OR (coordinate->>1) !~ '^[0-9]+$'
-                           OR (coordinate->>1)::bigint <= (coordinate->>0)::bigint THEN
+                        IF NOT rag_evaluation_is_span(coordinate) THEN
                             RAISE EXCEPTION 'invalid evaluation raw observation highlight';
                         END IF;
                     END LOOP;
                     FOR coordinate IN
                         SELECT value FROM jsonb_array_elements(highlight->'bboxes')
                     LOOP
-                        IF jsonb_typeof(coordinate) <> 'array'
-                           OR jsonb_array_length(coordinate) <> 4
-                           OR jsonb_typeof(coordinate->0) <> 'number'
-                           OR jsonb_typeof(coordinate->1) <> 'number'
-                           OR jsonb_typeof(coordinate->2) <> 'number'
-                           OR jsonb_typeof(coordinate->3) <> 'number' THEN
-                            RAISE EXCEPTION 'invalid evaluation raw observation highlight';
-                        END IF;
-                        IF (coordinate->>0)::float8 IN (
-                               'NaN'::float8, 'Infinity'::float8, '-Infinity'::float8
-                           )
-                           OR (coordinate->>1)::float8 IN (
-                               'NaN'::float8, 'Infinity'::float8, '-Infinity'::float8
-                           )
-                           OR (coordinate->>2)::float8 IN (
-                               'NaN'::float8, 'Infinity'::float8, '-Infinity'::float8
-                           )
-                           OR (coordinate->>3)::float8 IN (
-                               'NaN'::float8, 'Infinity'::float8, '-Infinity'::float8
-                           )
-                           OR (coordinate->>2)::float8 <= (coordinate->>0)::float8
-                           OR (coordinate->>3)::float8 <= (coordinate->>1)::float8 THEN
+                        IF NOT rag_evaluation_is_bbox(coordinate) THEN
                             RAISE EXCEPTION 'invalid evaluation raw observation highlight';
                         END IF;
                     END LOOP;
                     IF (highlight->>'surface' = 'answer'
-                        AND NOT observation->'answer_evidence_ids' ?
-                            (highlight->>'evidence_unit_id'))
+                        AND NOT EXISTS (
+                            SELECT 1
+                              FROM jsonb_array_elements(
+                                  observation->'answer_evidence_ids'
+                              ) AS answer(value)
+                             WHERE (value #>> '{}')::uuid =
+                                   (highlight->>'evidence_unit_id')::uuid
+                        ))
                        OR (highlight->>'surface' = 'conflict'
-                           AND NOT observation->'conflict_evidence_ids' ?
-                               (highlight->>'evidence_unit_id')) THEN
+                           AND NOT EXISTS (
+                               SELECT 1
+                                 FROM jsonb_array_elements(
+                                     observation->'conflict_evidence_ids'
+                                 ) AS conflict(value)
+                                WHERE (value #>> '{}')::uuid =
+                                      (highlight->>'evidence_unit_id')::uuid
+                           )) THEN
                         RAISE EXCEPTION 'invalid evaluation raw observation highlight';
                     END IF;
                 END LOOP;
-                IF (observation->>'answer_status' = 'supported'
-                    AND (jsonb_array_length(observation->'answer_evidence_ids') = 0
-                         OR jsonb_array_length(
-                                observation->'conflict_evidence_ids'
-                            ) <> 0))
-                   OR (observation->>'answer_status' = 'conflicting_evidence'
-                       AND (jsonb_array_length(
-                                observation->'answer_evidence_ids'
-                            ) <> 0
-                            OR jsonb_array_length(
-                                   observation->'conflict_evidence_ids'
-                               ) = 0))
-                   OR (observation->>'answer_status' = 'insufficient_evidence'
-                       AND (jsonb_array_length(
-                                observation->'answer_evidence_ids'
-                            ) <> 0
-                            OR jsonb_array_length(
-                                   observation->'conflict_evidence_ids'
-                               ) <> 0)) THEN
-                    RAISE EXCEPTION 'invalid evaluation raw observation answer';
-                END IF;
+                CASE observation->>'answer_status'
+                    WHEN 'supported' THEN
+                        IF jsonb_array_length(observation->'answer_evidence_ids') = 0
+                           OR jsonb_array_length(
+                               observation->'conflict_evidence_ids'
+                           ) <> 0 THEN
+                            RAISE EXCEPTION 'invalid evaluation raw observation answer';
+                        END IF;
+                    WHEN 'conflicting_evidence' THEN
+                        IF jsonb_array_length(observation->'answer_evidence_ids') <> 0
+                           OR jsonb_array_length(
+                               observation->'conflict_evidence_ids'
+                           ) = 0 THEN
+                            RAISE EXCEPTION 'invalid evaluation raw observation answer';
+                        END IF;
+                    WHEN 'insufficient_evidence' THEN
+                        IF jsonb_array_length(observation->'answer_evidence_ids') <> 0
+                           OR jsonb_array_length(
+                               observation->'conflict_evidence_ids'
+                           ) <> 0 THEN
+                            RAISE EXCEPTION 'invalid evaluation raw observation answer';
+                        END IF;
+                    ELSE
+                        RAISE EXCEPTION 'invalid evaluation raw observation answer';
+                END CASE;
             END LOOP;
             first_observation := NEW.raw_observations::jsonb->0;
             SELECT count(*) INTO expected_count
@@ -1568,6 +1718,11 @@ def downgrade() -> None:
         "ON rag_evaluation_case_results"
     )
     op.execute("DROP FUNCTION rag_verify_evaluation_case_result")
+    op.execute("DROP FUNCTION rag_evaluation_is_nonnegative_integer(jsonb)")
+    op.execute("DROP FUNCTION rag_evaluation_is_nonnegative_finite_float(jsonb)")
+    op.execute("DROP FUNCTION rag_evaluation_is_bbox(jsonb)")
+    op.execute("DROP FUNCTION rag_evaluation_is_span(jsonb)")
+    op.execute("DROP FUNCTION rag_evaluation_is_canonical_uuid(jsonb)")
     op.execute("DROP FUNCTION rag_evaluation_bbox_iou(jsonb, jsonb)")
     op.execute("DROP FUNCTION rag_evaluation_span_iou(jsonb, jsonb)")
     op.execute(

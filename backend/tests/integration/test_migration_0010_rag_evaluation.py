@@ -2,7 +2,9 @@ import hashlib
 import json
 import math
 from asyncio import to_thread
+from copy import deepcopy
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 
 import psycopg
@@ -27,6 +29,7 @@ BGE_MODEL_ID = UUID("00000000-0000-0000-0000-000000000102")
 BGE_INDEXING_PROFILE_ID = UUID("00000000-0000-0000-0000-000000000204")
 BGE_RETRIEVAL_PROFILE_ID = UUID("00000000-0000-0000-0000-000000000205")
 FIXTURE_PATH = BACKEND_ROOT.parent / "sample-data/public/rag/evaluation/search-v1.json"
+DELETE = object()
 
 
 def _database_url(base_url: str, database: str) -> str:
@@ -94,6 +97,24 @@ def _raw_observations(raw_case: dict[str, object]) -> str:
         "repetition_signature_sha256": "a" * 64,
     }
     return json.dumps([observation, observation])
+
+
+def _mutate_all_observations(
+    raw: list[dict[str, Any]],
+    path: tuple[str | int, ...],
+    value: object = DELETE,
+) -> list[dict[str, Any]]:
+    mutated = deepcopy(raw)
+    for observation in mutated:
+        target: Any = observation
+        for part in path[:-1]:
+            target = target[part]
+        final = path[-1]
+        if value is DELETE:
+            del target[final]
+        else:
+            target[final] = deepcopy(value)
+    return mutated
 
 
 def _insert_incomplete_dataset(
@@ -340,6 +361,9 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
     caller_bge_version_id = uuid4()
     shared_bge_profile_id = uuid4()
     shared_bge_binding_id = uuid4()
+    inserted_pending_version_id = uuid4()
+    raw_validation_run_id = uuid4()
+    raw_validation_candidate_id = uuid4()
     isolated_url = _database_url(base_settings.database_url, database)
     _create_database(base_settings.database_url, database)
     try:
@@ -430,7 +454,7 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
                     (
                         inserted_configuration_id,
                         inserted_policy_id,
-                        uuid4(),
+                        inserted_pending_version_id,
                         BM25_BASELINE_CONFIGURATION_VERSION_ID,
                     ),
                 )
@@ -532,6 +556,52 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
                     "SELECT dataset_snapshot_id FROM rag_evaluation_policies WHERE id = %s",
                     (policy_id,),
                 ).fetchone()[0]
+                connection.execute(
+                    """
+                    INSERT INTO rag_evaluation_runs (
+                        owner_id, dataset_snapshot_id, evaluation_policy_version_id,
+                        status, fixture_sha256, document_snapshot_sha256,
+                        query_set_sha256, execution_snapshot,
+                        execution_snapshot_bytes, execution_snapshot_sha256,
+                        runtime_environment, worker_runtime_environment,
+                        metric_definition_version, retrieval_k,
+                        repetition_count, candidate_count, id
+                    )
+                    SELECT owner_id, dataset_snapshot_id, %s, 'pending',
+                           fixture_sha256, document_snapshot_sha256,
+                           query_set_sha256, '{}'::jsonb, '{}'::bytea,
+                           '44136fa355b3678a1146ad16f7e8649e'
+                               || '94fb4fc21fe77e8310c060f61caaff8a',
+                           '{}'::jsonb, NULL, 1, 10, 2, 1, %s
+                      FROM rag_evaluation_runs
+                     WHERE dataset_snapshot_id = %s
+                     ORDER BY created_at LIMIT 1
+                    """,
+                    (policy_id, raw_validation_run_id, dataset_id),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO rag_evaluation_run_configurations (
+                        run_id, configuration_version_id, ordinal,
+                        indexing_profile_id, retrieval_profile_id,
+                        answer_policy_version_id, generation_profile_id,
+                        component_snapshot, status, id
+                    )
+                    SELECT %s, version.id, 0, version.indexing_profile_id,
+                           version.retrieval_profile_id,
+                           version.answer_policy_version_id,
+                           version.generation_profile_id,
+                           '{"models":[],"execution_snapshot_sha256":"44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"}'::jsonb,
+                           'pending', %s
+                      FROM rag_configuration_versions AS version
+                     WHERE version.id = %s
+                    """,
+                    (
+                        raw_validation_run_id,
+                        raw_validation_candidate_id,
+                        inserted_pending_version_id,
+                    ),
+                )
                 incomplete_id, incomplete = _insert_incomplete_dataset(
                     connection, owner_id
                 )
@@ -645,52 +715,323 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
                     (dataset_id,),
                 ).fetchone()
                 assert first_result is not None
-                missing_rank = json.loads(json.dumps(first_result[0]))
-                missing_rank[0]["retrieved_ranked"].pop()
-                empty_rank_item = json.loads(json.dumps(first_result[0]))
-                empty_rank_item[0]["retrieved_ranked"][0] = {}
-                null_rank_key = json.loads(json.dumps(first_result[0]))
-                null_rank_key[0]["retrieved_ranked"][0]["rank"] = None
-                missing_evidence_key = json.loads(json.dumps(first_result[0]))
-                missing_evidence_key[0]["retrieved_ranked"][0].pop("evidence_id")
-                extra_rank_key = json.loads(json.dumps(first_result[0]))
-                extra_rank_key[0]["retrieved_ranked"][0]["score"] = 1.0
-                null_retrieved_id = json.loads(json.dumps(first_result[0]))
-                null_retrieved_id[0]["retrieved_evidence_ids"][0] = None
-                empty_exposure = json.loads(json.dumps(first_result[0]))
-                empty_exposure[0]["exposures"] = [{}]
-                null_answer_id = json.loads(json.dumps(first_result[0]))
-                null_answer_id[0]["answer_evidence_ids"] = [None]
-                missing_highlight_identity = json.loads(json.dumps(first_result[0]))
-                missing_highlight_identity[0]["highlights"][0].pop("kind")
-                extra_rank = json.loads(json.dumps(first_result[0]))
-                extra_rank[0]["retrieved_ranked"].append(
-                    {
-                        "rank": len(extra_rank[0]["retrieved_ranked"]) + 1,
-                        "evidence_id": extra_rank[0]["retrieved_evidence_ids"][0],
-                    }
-                )
-                malformed_highlight = json.loads(json.dumps(first_result[0]))
-                malformed_highlight[0]["highlights"][0]["spans"] = [[9, 1]]
-                inconsistent_answer = json.loads(json.dumps(first_result[0]))
-                inconsistent_answer[0]["answer_status"] = "insufficient_evidence"
-                for malformed_raw in (
-                    missing_rank,
-                    empty_rank_item,
-                    null_rank_key,
-                    missing_evidence_key,
-                    extra_rank_key,
-                    null_retrieved_id,
-                    empty_exposure,
-                    null_answer_id,
-                    missing_highlight_identity,
-                    extra_rank,
-                    malformed_highlight,
-                    inconsistent_answer,
-                ):
-                    with pytest.raises(
-                        psycopg.errors.RaiseException, match="raw observation"
-                    ):
+                canonical_raw = json.loads(json.dumps(first_result[0]))
+                canonical_variant_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+                malformed_raw_by_name = {
+                    "observation extra key": _mutate_all_observations(
+                        canonical_raw, ("unexpected",), True
+                    ),
+                    "retrieved ids null": _mutate_all_observations(
+                        canonical_raw, ("retrieved_evidence_ids",), None
+                    ),
+                    "retrieved ids missing": _mutate_all_observations(
+                        canonical_raw, ("retrieved_evidence_ids",)
+                    ),
+                    "retrieved ids wrong type": _mutate_all_observations(
+                        canonical_raw, ("retrieved_evidence_ids",), {}
+                    ),
+                    "retrieved ids noncanonical UUID": _mutate_all_observations(
+                        canonical_raw,
+                        ("retrieved_evidence_ids",),
+                        [canonical_variant_id.upper()],
+                    ),
+                    "retrieved ids normalized duplicate": _mutate_all_observations(
+                        canonical_raw,
+                        ("retrieved_evidence_ids",),
+                        [canonical_variant_id, canonical_variant_id.upper()],
+                    ),
+                    "rank container null": _mutate_all_observations(
+                        canonical_raw, ("retrieved_ranked",), None
+                    ),
+                    "rank container missing": _mutate_all_observations(
+                        canonical_raw, ("retrieved_ranked",)
+                    ),
+                    "rank container wrong type": _mutate_all_observations(
+                        canonical_raw, ("retrieved_ranked",), {}
+                    ),
+                    "rank null item": _mutate_all_observations(
+                        canonical_raw, ("retrieved_ranked", 0), None
+                    ),
+                    "rank missing field": _mutate_all_observations(
+                        canonical_raw, ("retrieved_ranked", 0, "rank")
+                    ),
+                    "rank wrong type": _mutate_all_observations(
+                        canonical_raw, ("retrieved_ranked", 0, "rank"), "1"
+                    ),
+                    "rank missing evidence ID": _mutate_all_observations(
+                        canonical_raw, ("retrieved_ranked", 0, "evidence_id")
+                    ),
+                    "rank null evidence ID": _mutate_all_observations(
+                        canonical_raw, ("retrieved_ranked", 0, "evidence_id"), None
+                    ),
+                    "rank wrong evidence ID type": _mutate_all_observations(
+                        canonical_raw, ("retrieved_ranked", 0, "evidence_id"), 1
+                    ),
+                    "rank extra field": _mutate_all_observations(
+                        canonical_raw, ("retrieved_ranked", 0, "score"), 1.0
+                    ),
+                    "answer null": _mutate_all_observations(
+                        canonical_raw, ("answer_status",), None
+                    ),
+                    "answer missing": _mutate_all_observations(
+                        canonical_raw, ("answer_status",)
+                    ),
+                    "answer wrong type": _mutate_all_observations(
+                        canonical_raw, ("answer_status",), 7
+                    ),
+                    "answer invalid enum": _mutate_all_observations(
+                        canonical_raw, ("answer_status",), "extra_status"
+                    ),
+                    "answer evidence null": _mutate_all_observations(
+                        canonical_raw, ("answer_evidence_ids",), None
+                    ),
+                    "answer evidence missing": _mutate_all_observations(
+                        canonical_raw, ("answer_evidence_ids",)
+                    ),
+                    "answer evidence wrong type": _mutate_all_observations(
+                        canonical_raw, ("answer_evidence_ids",), {}
+                    ),
+                    "answer evidence null item": _mutate_all_observations(
+                        canonical_raw, ("answer_evidence_ids", 0), None
+                    ),
+                    "conflict null": _mutate_all_observations(
+                        canonical_raw, ("conflict_evidence_ids",), None
+                    ),
+                    "conflict missing": _mutate_all_observations(
+                        canonical_raw, ("conflict_evidence_ids",)
+                    ),
+                    "conflict wrong type": _mutate_all_observations(
+                        canonical_raw, ("conflict_evidence_ids",), "[]"
+                    ),
+                    "conflict invalid item": _mutate_all_observations(
+                        canonical_raw, ("conflict_evidence_ids",), ["not-a-uuid"]
+                    ),
+                    "related null": _mutate_all_observations(
+                        canonical_raw, ("related_evidence_ids",), None
+                    ),
+                    "related missing": _mutate_all_observations(
+                        canonical_raw, ("related_evidence_ids",)
+                    ),
+                    "related wrong type": _mutate_all_observations(
+                        canonical_raw, ("related_evidence_ids",), {}
+                    ),
+                    "related noncanonical UUID": _mutate_all_observations(
+                        canonical_raw,
+                        ("related_evidence_ids",),
+                        [canonical_variant_id.upper()],
+                    ),
+                    "related normalized duplicate": _mutate_all_observations(
+                        canonical_raw,
+                        ("related_evidence_ids",),
+                        [canonical_variant_id, canonical_variant_id.upper()],
+                    ),
+                    "exposure container null": _mutate_all_observations(
+                        canonical_raw, ("exposures",), None
+                    ),
+                    "exposure container missing": _mutate_all_observations(
+                        canonical_raw, ("exposures",)
+                    ),
+                    "exposure container wrong type": _mutate_all_observations(
+                        canonical_raw, ("exposures",), {}
+                    ),
+                    "exposure null item": _mutate_all_observations(
+                        canonical_raw, ("exposures", 0), None
+                    ),
+                    "exposure missing field": _mutate_all_observations(
+                        canonical_raw, ("exposures", 0, "surface")
+                    ),
+                    "exposure null field": _mutate_all_observations(
+                        canonical_raw, ("exposures", 0, "surface"), None
+                    ),
+                    "exposure wrong surface type": _mutate_all_observations(
+                        canonical_raw, ("exposures", 0, "surface"), 1
+                    ),
+                    "exposure wrong type": _mutate_all_observations(
+                        canonical_raw, ("exposures", 0, "source_id"), 3
+                    ),
+                    "exposure extra field": _mutate_all_observations(
+                        canonical_raw, ("exposures", 0, "extra"), True
+                    ),
+                    "exposure noncanonical UUID": _mutate_all_observations(
+                        canonical_raw,
+                        ("exposures", 0, "source_id"),
+                        canonical_variant_id.upper(),
+                    ),
+                    "top spans null": _mutate_all_observations(
+                        canonical_raw, ("highlight_spans",), None
+                    ),
+                    "top spans missing": _mutate_all_observations(
+                        canonical_raw, ("highlight_spans",)
+                    ),
+                    "top spans wrong container": _mutate_all_observations(
+                        canonical_raw, ("highlight_spans",), {}
+                    ),
+                    "top span null item": _mutate_all_observations(
+                        canonical_raw, ("highlight_spans", 0), None
+                    ),
+                    "top span wrong length": _mutate_all_observations(
+                        canonical_raw, ("highlight_spans", 0), [0]
+                    ),
+                    "top span wrong type": _mutate_all_observations(
+                        canonical_raw, ("highlight_spans", 0), [0, "4"]
+                    ),
+                    "top span invalid order": _mutate_all_observations(
+                        canonical_raw, ("highlight_spans", 0), [4, 4]
+                    ),
+                    "top span out of integer range": _mutate_all_observations(
+                        canonical_raw, ("highlight_spans", 0), [0, 2_147_483_648]
+                    ),
+                    "top bboxes null": _mutate_all_observations(
+                        canonical_raw, ("highlight_bboxes",), None
+                    ),
+                    "top bboxes missing": _mutate_all_observations(
+                        canonical_raw, ("highlight_bboxes",)
+                    ),
+                    "top bboxes wrong container": _mutate_all_observations(
+                        canonical_raw, ("highlight_bboxes",), {}
+                    ),
+                    "top bbox null item": _mutate_all_observations(
+                        canonical_raw, ("highlight_bboxes",), [None]
+                    ),
+                    "top bbox wrong length": _mutate_all_observations(
+                        canonical_raw, ("highlight_bboxes",), [[0, 0, 1]]
+                    ),
+                    "top bbox wrong type": _mutate_all_observations(
+                        canonical_raw, ("highlight_bboxes",), [[0, 0, "1", 1]]
+                    ),
+                    "top bbox invalid order": _mutate_all_observations(
+                        canonical_raw, ("highlight_bboxes",), [[1, 0, 1, 1]]
+                    ),
+                    "top bbox nonfinite range": _mutate_all_observations(
+                        canonical_raw,
+                        ("highlight_bboxes",),
+                        [[0, 0, int("1" + "0" * 309), 1]],
+                    ),
+                    "top highlight kind missing": _mutate_all_observations(
+                        canonical_raw, ("highlight_kind",)
+                    ),
+                    "top highlight kind wrong type": _mutate_all_observations(
+                        canonical_raw, ("highlight_kind",), 1
+                    ),
+                    "top highlight kind invalid": _mutate_all_observations(
+                        canonical_raw, ("highlight_kind",), "other"
+                    ),
+                    "highlight container null": _mutate_all_observations(
+                        canonical_raw, ("highlights",), None
+                    ),
+                    "highlight container missing": _mutate_all_observations(
+                        canonical_raw, ("highlights",)
+                    ),
+                    "highlight container wrong type": _mutate_all_observations(
+                        canonical_raw, ("highlights",), {}
+                    ),
+                    "highlight null item": _mutate_all_observations(
+                        canonical_raw, ("highlights", 0), None
+                    ),
+                    "highlight missing identity": _mutate_all_observations(
+                        canonical_raw, ("highlights", 0, "surface")
+                    ),
+                    "highlight null identity": _mutate_all_observations(
+                        canonical_raw, ("highlights", 0, "surface"), None
+                    ),
+                    "highlight wrong identity type": _mutate_all_observations(
+                        canonical_raw, ("highlights", 0, "surface"), 1
+                    ),
+                    "highlight extra identity": _mutate_all_observations(
+                        canonical_raw, ("highlights", 0, "extra"), True
+                    ),
+                    "highlight invalid page": _mutate_all_observations(
+                        canonical_raw, ("highlights", 0, "page"), 1.5
+                    ),
+                    "highlight wrong page type": _mutate_all_observations(
+                        canonical_raw, ("highlights", 0, "page"), "1"
+                    ),
+                    "highlight page out of integer range": _mutate_all_observations(
+                        canonical_raw, ("highlights", 0, "page"), 2_147_483_648
+                    ),
+                    "highlight missing kind": _mutate_all_observations(
+                        canonical_raw, ("highlights", 0, "kind")
+                    ),
+                    "highlight null kind": _mutate_all_observations(
+                        canonical_raw, ("highlights", 0, "kind"), None
+                    ),
+                    "highlight invalid kind": _mutate_all_observations(
+                        canonical_raw, ("highlights", 0, "kind"), "other"
+                    ),
+                    "highlight noncanonical document UUID": _mutate_all_observations(
+                        canonical_raw,
+                        ("highlights", 0, "document_id"),
+                        canonical_variant_id.upper(),
+                    ),
+                    "nested spans null": _mutate_all_observations(
+                        canonical_raw, ("highlights", 0, "spans"), None
+                    ),
+                    "nested spans missing": _mutate_all_observations(
+                        canonical_raw, ("highlights", 0, "spans")
+                    ),
+                    "nested spans wrong container": _mutate_all_observations(
+                        canonical_raw, ("highlights", 0, "spans"), {}
+                    ),
+                    "nested span null item": _mutate_all_observations(
+                        canonical_raw, ("highlights", 0, "spans", 0), None
+                    ),
+                    "nested span wrong type": _mutate_all_observations(
+                        canonical_raw, ("highlights", 0, "spans", 0), [0, "4"]
+                    ),
+                    "nested span out of integer range": _mutate_all_observations(
+                        canonical_raw,
+                        ("highlights", 0, "spans", 0),
+                        [0, 2_147_483_648],
+                    ),
+                    "nested bboxes null": _mutate_all_observations(
+                        canonical_raw, ("highlights", 0, "bboxes"), None
+                    ),
+                    "nested bboxes missing": _mutate_all_observations(
+                        canonical_raw, ("highlights", 0, "bboxes")
+                    ),
+                    "nested bboxes wrong container": _mutate_all_observations(
+                        canonical_raw, ("highlights", 0, "bboxes"), {}
+                    ),
+                    "nested bbox null item": _mutate_all_observations(
+                        canonical_raw, ("highlights", 0, "bboxes"), [None]
+                    ),
+                    "nested bbox wrong type": _mutate_all_observations(
+                        canonical_raw,
+                        ("highlights", 0, "bboxes"),
+                        [[0, 0, "1", 1]],
+                    ),
+                    "latency null": _mutate_all_observations(
+                        canonical_raw, ("duration_ms",), None
+                    ),
+                    "latency missing": _mutate_all_observations(
+                        canonical_raw, ("duration_ms",)
+                    ),
+                    "latency wrong type": _mutate_all_observations(
+                        canonical_raw, ("duration_ms",), "10"
+                    ),
+                    "latency negative": _mutate_all_observations(
+                        canonical_raw, ("duration_ms",), -1
+                    ),
+                    "latency nonfinite range": _mutate_all_observations(
+                        canonical_raw, ("duration_ms",), int("1" + "0" * 309)
+                    ),
+                    "signature null": _mutate_all_observations(
+                        canonical_raw, ("repetition_signature_sha256",), None
+                    ),
+                    "signature missing": _mutate_all_observations(
+                        canonical_raw, ("repetition_signature_sha256",)
+                    ),
+                    "signature numeric": _mutate_all_observations(
+                        canonical_raw,
+                        ("repetition_signature_sha256",),
+                        int("1" * 64),
+                    ),
+                    "signature uppercase": _mutate_all_observations(
+                        canonical_raw, ("repetition_signature_sha256",), "A" * 64
+                    ),
+                }
+                for mutation_name, malformed_raw in malformed_raw_by_name.items():
+                    try:
                         connection.execute(
                             """
                             INSERT INTO rag_evaluation_case_results (
@@ -701,7 +1042,7 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
                                 reciprocal_rank, ndcg, correct_supported,
                                 false_grounding, highlight_iou, access_leaks,
                                 reproducible, id
-                            ) SELECT run_configuration_id, dataset_snapshot_id,
+                            ) SELECT %s, dataset_snapshot_id,
                                      evaluation_case_id, ordinal, query_sha256,
                                      permission_scenario, expected_evidence_ids,
                                      %s::jsonb, duration_ms, recall_at_k,
@@ -714,11 +1055,47 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
                                ORDER BY ordinal LIMIT 1
                             """,
                             (
+                                raw_validation_candidate_id,
                                 json.dumps(malformed_raw),
                                 uuid4(),
                                 dataset_id,
                             ),
                         )
+                    except psycopg.errors.RaiseException as exc:
+                        assert "raw observation" in str(exc), mutation_name
+                    except Exception as exc:
+                        raise AssertionError(
+                            f"{mutation_name} reached the wrong database boundary"
+                        ) from exc
+                    else:
+                        pytest.fail(f"{mutation_name} bypassed raw observation validation")
+                assert connection.execute(
+                    """
+                    SELECT count(*) FROM rag_evaluation_case_results
+                     WHERE run_configuration_id = %s
+                    """,
+                    (raw_validation_candidate_id,),
+                ).fetchone() == (0,)
+                with pytest.raises(
+                    psycopg.errors.RaiseException, match="complete exact case"
+                ):
+                    connection.execute(
+                        """
+                        UPDATE rag_evaluation_run_configurations
+                           SET status = 'completed', completed_at = now()
+                         WHERE id = %s
+                        """,
+                        (raw_validation_candidate_id,),
+                    )
+                with pytest.raises(psycopg.errors.RaiseException, match="qualifying"):
+                    connection.execute(
+                        """
+                        UPDATE rag_configuration_versions
+                           SET evaluation_state = 'passed', is_default = true
+                         WHERE id = %s
+                        """,
+                        (inserted_pending_version_id,),
+                    )
                 duplicate_raw = json.loads(json.dumps(first_result[0]))
                 irrelevant_id = str(uuid4())
                 relevant_id = str(first_result[1][0])

@@ -229,13 +229,27 @@ class SqlAlchemyAssetRepository:
         record = await self.session.get(AssetVersionRecord, version_id)
         if record is None:
             return None
-        return AssetVersion(
-            id=record.id,
-            document_id=record.document_id,
-            number=record.number,
-            object_key=record.object_key,
-            sha256=record.sha256,
-            media_type=record.media_type,
-            size=record.size,
-            status=record.status,
+        return _version_from_record(record)
+
+    async def find_version_for_update(self, version_id: UUID) -> AssetVersion | None:
+        record = await self.session.scalar(
+            select(AssetVersionRecord)
+            .where(AssetVersionRecord.id == version_id)
+            .with_for_update()
         )
+        if record is None:
+            return None
+        return _version_from_record(record)
+
+
+def _version_from_record(record: AssetVersionRecord) -> AssetVersion:
+    return AssetVersion(
+        id=record.id,
+        document_id=record.document_id,
+        number=record.number,
+        object_key=record.object_key,
+        sha256=record.sha256,
+        media_type=record.media_type,
+        size=record.size,
+        status=record.status,
+    )

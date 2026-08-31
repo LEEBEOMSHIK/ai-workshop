@@ -37,7 +37,7 @@ docker compose -f infrastructure/compose/compose.yaml --profile tools run --rm m
 docker compose -f infrastructure/compose/compose.yaml run --rm api ai-workshop bootstrap-owner --name "Local Owner" --email "owner@example.com"
 ```
 
-API, worker와 주기적 outbox reconciler를 실행하는 beat를 시작한 뒤 별도 터미널에서 프론트엔드를 실행한다.
+API, worker와 주기적 검증·handoff·outbox reconciler를 실행하는 beat를 시작한 뒤 별도 터미널에서 프론트엔드를 실행한다.
 
 ```powershell
 docker compose -f infrastructure/compose/compose.yaml up -d api worker beat
@@ -135,6 +135,8 @@ docker compose -f infrastructure/compose/compose.yaml logs api worker beat postg
 - 포트 충돌: `.env`의 `API_PORT`, `POSTGRES_PORT`, `REDIS_PORT`를 사용하지 않는 포트로 바꾼다.
 - API가 시작되지 않음: migration 명령이 성공했는지 확인하고 API 로그의 오류 코드를 본다.
 - worker가 작업을 처리하지 않음: Redis 상태와 worker health/log를 확인한다. 실패 job은 API 상태에서 오류 코드를 확인한다.
+- 저장된 Asset 검증이 시작·재개되지 않음: beat 로그에서 `ai_workshop.assets.reconcile_dispatches` 실행 여부를 확인한다. `verification_dispatch_retry`는 broker 전달 실패, `retrying_verification`은 재시도 가능한 객체·DB 오류를 뜻한다.
+- READY Asset의 구독별 RAG job이 누락됨: beat 로그에서 `ai_workshop.rag.reconcile_asset_handoffs` 실행 여부를 확인한다. reconciler는 현재 active READY 버전의 누락 프로파일만 기존 멱등 키로 생성한다.
 - 저장된 RAG 작업이 worker로 전달되지 않음: beat가 실행 중인지 확인하고 beat 로그에서 `ai_workshop.rag.reconcile_dispatches` 실행 여부를 확인한다.
 - 객체 저장 권한 오류: `object-store-init` 서비스가 성공 종료했는지 `docker compose ps -a`로 확인한다.
 - owner 중복 오류: owner bootstrap은 최초 한 번만 허용된다. 기존 계정으로 로그인한다.

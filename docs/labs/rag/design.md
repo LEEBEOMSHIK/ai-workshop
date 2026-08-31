@@ -47,7 +47,22 @@ Asset Version `READY`는 불변 원본 객체가 무결성 검증을 통과했�
 검증 버전만 현재 Knowledge source다. 검증 실패는 Asset Version 상태와 active pointer를
 바꾸지 않는다.
 
+검증 Job 행은 업로드 commit 이후 worker 전달을 복구하는 영속 근거다. beat reconciler는
+`QUEUED`, 오래 멈춘 `RUNNING`, 이전 릴리스의 `SUCCEEDED/stored + STORED` 조합을 다시
+전달한다. 이전 조합도 객체 크기와 SHA-256을 다시 검증한 뒤에만 `READY`가 된다. 검증
+worker는 late ack와 worker-loss redelivery를 사용하고, 객체·DB의 일시 오류만 제한적으로
+재시도하며 checksum 불일치는 영구 오류로 기록한다.
+
 검증된 현재 Knowledge source는 구독된 Indexing Profile별 RAG projection을 시작한다.
+구독 조회, command 생성, outbox claim과 ingestion 각 단계는 모두 정확히 같은
+`Document.active_version_id`의 `READY` 버전인지 다시 확인한다. 따라서 v2가 활성화된 뒤
+늦게 도착한 v1 작업은 파싱이나 색인을 시작·계속하지 않는다.
+
+`READY` commit과 구독별 command 생성 사이의 손실은 별도 중복 outbox가 아니라
+`READY + active pointer + 현재 구독 + 기존 ingestion job` 상태를 읽는 주기적 handoff
+reconciler가 복구한다. 누락된 `(Asset Version, Indexing Profile)`만 기존 멱등 command로
+만들고, 그 뒤 broker 전달은 기존 RAG ingestion outbox가 담당한다. 일부 프로파일 생성만
+실패해도 성공한 job은 유지되고 다음 주기에 누락 프로파일만 수렴한다.
 
 ```text
 Asset Version READY
@@ -239,6 +254,8 @@ LLM 변경은 검색 색인을 다시 만들지 않는다. 검색 실험과 생�
 - 각 파이프라인 단계는 멱등성을 가져야 한다.
 - 실패 단계와 문서 요소를 식별할 수 있어야 한다.
 - 재시도는 같은 문서 및 프로파일에 중복 활성 버전을 만들지 않는다.
+- 검증과 RAG handoff는 영속 Job, 현재 `READY` 버전과 구독 상태에서 주기적으로 복구한다.
+- 이전 활성 버전의 지연된 dispatch 또는 worker 실행은 새 Knowledge source를 처리하지 않는다.
 - 사용자 조치가 필요한 암호화 파일, 손상 파일과 미지원 형식을 구분한다.
 - 파서 또는 모델의 자동 대체는 정책에 명시되고 실행 기록에 남아야 한다.
 - 일부 문서만 색인된 상태에서 새 버전을 활성화하지 않는다.

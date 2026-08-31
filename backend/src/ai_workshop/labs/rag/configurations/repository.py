@@ -569,6 +569,8 @@ class SqlAlchemyRagConfigurationRepository:
                     ),
                 )
                 .where(
+                    AssetVersionRecord.status == VersionStatus.READY,
+                    DocumentRecord.active_version_id == AssetVersionRecord.id,
                     RagConfigurationRecord.is_system.is_(False),
                     RagConfigurationRecord.owner_id.is_not(None),
                     workspace_is_active(),

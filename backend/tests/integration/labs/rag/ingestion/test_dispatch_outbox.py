@@ -90,9 +90,13 @@ def _seed_asset(database_url: str) -> tuple[UUID, UUID]:
             INSERT INTO asset_versions (
                 document_id, number, object_key, sha256,
                 media_type, size, status, id
-            ) VALUES (%s, 1, %s, %s, 'text/plain', 1, 'verified', %s)
+            ) VALUES (%s, 1, %s, %s, 'text/plain', 1, 'ready', %s)
             """,
             (document_id, f"dispatch/{asset_version_id}.txt", "a" * 64, asset_version_id),
+        )
+        connection.execute(
+            "UPDATE documents SET active_version_id = %s WHERE id = %s",
+            (asset_version_id, document_id),
         )
     return user_id, asset_version_id
 
@@ -181,6 +185,46 @@ async def test_postgres_outbox_is_atomic_claimed_safely_and_recovers_delivery(
 
                 dispatch_repository = SqlAlchemyRagDispatchRepository(sessions)
                 now = datetime.now(UTC) + timedelta(seconds=1)
+                newer_active_version_id = uuid4()
+                with psycopg.connect(_sync_url(isolated_url)) as connection:
+                    connection.execute(
+                        """
+                        INSERT INTO asset_versions (
+                            document_id, number, object_key, sha256,
+                            media_type, size, status, id
+                        )
+                        SELECT document_id, 2, %s, %s, 'text/plain', 1, 'ready', %s
+                        FROM asset_versions WHERE id = %s
+                        """,
+                        (
+                            f"dispatch/{newer_active_version_id}.txt",
+                            "b" * 64,
+                            newer_active_version_id,
+                            asset_version_id,
+                        ),
+                    )
+                    connection.execute(
+                        """
+                        UPDATE documents
+                        SET active_version_id = %s
+                        WHERE active_version_id = %s
+                        """,
+                        (newer_active_version_id, asset_version_id),
+                    )
+                assert await dispatch_repository.claim_ready(
+                    now=now,
+                    stale_before=now - timedelta(minutes=2),
+                    limit=1,
+                ) == ()
+                with psycopg.connect(_sync_url(isolated_url)) as connection:
+                    connection.execute(
+                        """
+                        UPDATE documents
+                        SET active_version_id = %s
+                        WHERE active_version_id = %s
+                        """,
+                        (asset_version_id, newer_active_version_id),
+                    )
                 first, second = await gather(
                     dispatch_repository.claim_ready(
                         now=now,

@@ -4,6 +4,9 @@ from uuid import UUID, uuid4
 from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from ai_workshop.labs.rag.configurations.repository import (
+    SqlAlchemyRagConfigurationRepository,
+)
 from ai_workshop.labs.rag.documents.domain import ProjectionStatus, RagProjection
 from ai_workshop.labs.rag.documents.models import RagProjectionRecord
 from ai_workshop.labs.rag.documents.repository import SqlAlchemyRagDocumentRepository
@@ -27,12 +30,16 @@ class SqlAlchemyRagIngestionCommandRepository:
         asset_result = await self.session.execute(
             select(AssetVersionRecord, DocumentRecord.workspace_id)
             .join(DocumentRecord, DocumentRecord.id == AssetVersionRecord.document_id)
-            .where(AssetVersionRecord.id == command.asset_version_id)
+            .where(
+                AssetVersionRecord.id == command.asset_version_id,
+                AssetVersionRecord.status == "ready",
+                DocumentRecord.active_version_id == AssetVersionRecord.id,
+            )
             .with_for_update(of=AssetVersionRecord)
         )
         asset_row = asset_result.one_or_none()
         if asset_row is None:
-            raise LookupError("Asset version does not exist.")
+            raise LookupError("Asset version is not the active READY source.")
         asset_version, workspace_id = asset_row
         profile = await self.session.get(ProfileRecord, command.indexing_profile_id)
         if profile is None or profile.kind != "indexing":
@@ -127,6 +134,45 @@ class SqlAlchemyRagIngestionCommandRepository:
         return job.id
 
 
+class SqlAlchemyRagAssetHandoffSource:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def pending(self, *, limit: int) -> tuple[EnsureIndexedCommand, ...]:
+        asset_version_ids = await self.session.scalars(
+            select(AssetVersionRecord.id)
+            .join(DocumentRecord, DocumentRecord.id == AssetVersionRecord.document_id)
+            .where(
+                AssetVersionRecord.status == "ready",
+                DocumentRecord.active_version_id == AssetVersionRecord.id,
+            )
+            .order_by(AssetVersionRecord.created_at, AssetVersionRecord.id)
+        )
+        commands: list[EnsureIndexedCommand] = []
+        configurations = SqlAlchemyRagConfigurationRepository(self.session)
+        for asset_version_id in asset_version_ids:
+            for indexing_profile_id, requested_by in (
+                await configurations.subscriptions_for_asset(asset_version_id)
+            ):
+                exists = await self.session.scalar(
+                    select(RagIngestionJobRecord.job_id).where(
+                        RagIngestionJobRecord.asset_version_id == asset_version_id,
+                        RagIngestionJobRecord.indexing_profile_id == indexing_profile_id,
+                    )
+                )
+                if exists is None:
+                    commands.append(
+                        EnsureIndexedCommand(
+                            asset_version_id,
+                            indexing_profile_id,
+                            requested_by,
+                        )
+                    )
+                    if len(commands) >= limit:
+                        return tuple(commands)
+        return tuple(commands)
+
+
 class DispatchClaimLostError(RuntimeError):
     pass
 
@@ -145,7 +191,21 @@ class SqlAlchemyRagDispatchRepository:
         async with self.sessions.begin() as session:
             result = await session.execute(
                 select(RagIngestionDispatchRecord)
+                .join(
+                    RagIngestionJobRecord,
+                    RagIngestionJobRecord.job_id == RagIngestionDispatchRecord.job_id,
+                )
+                .join(
+                    AssetVersionRecord,
+                    AssetVersionRecord.id == RagIngestionJobRecord.asset_version_id,
+                )
+                .join(
+                    DocumentRecord,
+                    DocumentRecord.id == AssetVersionRecord.document_id,
+                )
                 .where(
+                    AssetVersionRecord.status == "ready",
+                    DocumentRecord.active_version_id == AssetVersionRecord.id,
                     or_(
                         and_(
                             RagIngestionDispatchRecord.status == "pending",
@@ -162,7 +222,7 @@ class SqlAlchemyRagDispatchRepository:
                     RagIngestionDispatchRecord.created_at,
                 )
                 .limit(limit)
-                .with_for_update(skip_locked=True)
+                .with_for_update(of=RagIngestionDispatchRecord, skip_locked=True)
             )
             records = result.scalars().all()
             claims: list[DispatchClaim] = []

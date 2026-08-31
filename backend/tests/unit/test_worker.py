@@ -6,6 +6,7 @@ from sqlalchemy.exc import DisconnectionError, IntegrityError, OperationalError,
 import ai_workshop.worker as worker_module
 from ai_workshop.config import Settings
 from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand
+from ai_workshop.platform.assets.tasks import AssetTaskError
 from ai_workshop.platform.jobs.models import JobRecord
 from ai_workshop.worker import (
     ASSET_VERIFICATION_TASK,
@@ -33,6 +34,14 @@ def test_celery_cli_app_is_available_without_loading_application_secrets() -> No
     }
     assert celery_app.conf.beat_schedule["reconcile-rag-evaluation-dispatches"] == {
         "task": RAG_EVALUATION_DISPATCH_RECONCILE_TASK,
+        "schedule": 5.0,
+    }
+    assert celery_app.conf.beat_schedule["reconcile-asset-verification-dispatches"] == {
+        "task": "ai_workshop.assets.reconcile_dispatches",
+        "schedule": 5.0,
+    }
+    assert celery_app.conf.beat_schedule["reconcile-rag-asset-handoffs"] == {
+        "task": "ai_workshop.rag.reconcile_asset_handoffs",
         "schedule": 5.0,
     }
 
@@ -160,6 +169,104 @@ def test_evaluation_task_uses_late_ack_and_worker_loss_redelivery() -> None:
 
     assert task.acks_late is True
     assert task.reject_on_worker_lost is True
+
+
+def test_asset_verification_uses_late_ack_worker_loss_and_bounded_retry() -> None:
+    settings = Settings(
+        _env_file=None,
+        environment="test",
+        secret_key="x" * 32,
+        redis_url="redis://unused:6379/0",
+    )
+    task = create_celery(settings).tasks[ASSET_VERIFICATION_TASK]
+
+    assert task.acks_late is True
+    assert task.reject_on_worker_lost is True
+    assert task.max_retries == 3
+
+
+def test_asset_verification_retries_a_retryable_error_then_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asset_version_id = uuid4()
+
+    class Workflow:
+        def __init__(self) -> None:
+            self.attempts = 0
+
+        async def run(self, _job_id: UUID) -> UUID:
+            self.attempts += 1
+            if self.attempts == 1:
+                raise AssetTaskError(
+                    "object_unavailable",
+                    "Synthetic object outage.",
+                    retryable=True,
+                )
+            return asset_version_id
+
+    class Subscriptions:
+        async def for_asset(
+            self, _asset_version_id: UUID
+        ) -> tuple[VerifiedAssetSubscription, ...]:
+            return ()
+
+    workflow = Workflow()
+    monkeypatch.setattr(
+        worker_module,
+        "create_asset_verification_workflow",
+        lambda _settings: workflow,
+    )
+    settings = Settings(
+        _env_file=None,
+        environment="test",
+        secret_key="x" * 32,
+        redis_url="redis://unused:6379/0",
+    )
+
+    app = create_celery(
+        settings,
+        rag_subscriptions=Subscriptions(),
+    )
+    app.conf.task_eager_propagates = False
+    result = app.tasks[ASSET_VERIFICATION_TASK].delay(str(uuid4()))
+
+    assert result.get() is None
+    assert workflow.attempts == 2
+
+
+def test_asset_verification_does_not_retry_a_permanent_checksum_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Workflow:
+        def __init__(self) -> None:
+            self.attempts = 0
+
+        async def run(self, _job_id: UUID) -> UUID:
+            self.attempts += 1
+            raise AssetTaskError(
+                "checksum_mismatch",
+                "Synthetic checksum mismatch.",
+                retryable=False,
+            )
+
+    workflow = Workflow()
+    monkeypatch.setattr(
+        worker_module,
+        "create_asset_verification_workflow",
+        lambda _settings: workflow,
+    )
+    settings = Settings(
+        _env_file=None,
+        environment="test",
+        secret_key="x" * 32,
+        redis_url="redis://unused:6379/0",
+    )
+    task = create_celery(settings).tasks[ASSET_VERIFICATION_TASK]
+
+    with pytest.raises(RuntimeError, match="checksum_mismatch"):
+        task.delay(str(uuid4()))
+
+    assert workflow.attempts == 1
 
 
 def test_verified_asset_enqueues_distinct_profiles_with_job_ids_only(

@@ -61,6 +61,7 @@ class SqlAlchemyRagIngestionLifecycle:
         try:
             async with sessions.begin() as session:
                 rows = await self._load(session, job_id, lock=True)
+                self._require_active_source(rows)
                 documents = SqlAlchemyRagDocumentRepository(session)
                 jobs = SqlAlchemyJobRepository(session)
                 if rows.projection.status == ProjectionStatus.PENDING:
@@ -113,6 +114,7 @@ class SqlAlchemyRagIngestionLifecycle:
         try:
             async with sessions.begin() as session:
                 rows = await self._load(session, job_id, lock=True)
+                self._require_active_source(rows)
                 if rows.projection.status is not ProjectionStatus.PARSING:
                     return self._require_completed_stage(rows, ProjectionStatus.CHUNKING)
                 await SqlAlchemyRagDocumentRepository(session).save_parsed_document(
@@ -137,6 +139,7 @@ class SqlAlchemyRagIngestionLifecycle:
         try:
             async with sessions.begin() as session:
                 rows = await self._load(session, job_id, lock=True)
+                self._require_active_source(rows)
                 if rows.projection.status is not ProjectionStatus.CHUNKING:
                     return self._require_completed_stage(rows, ProjectionStatus.EMBEDDING)
                 await SqlAlchemyRagDocumentRepository(session).replace_chunks(
@@ -158,6 +161,7 @@ class SqlAlchemyRagIngestionLifecycle:
         try:
             async with sessions.begin() as session:
                 rows = await self._load(session, job_id, lock=True)
+                self._require_active_source(rows)
                 if rows.projection.status is not ProjectionStatus.EMBEDDING:
                     return self._require_completed_stage(rows, ProjectionStatus.INDEXING)
                 if (
@@ -186,6 +190,7 @@ class SqlAlchemyRagIngestionLifecycle:
         try:
             async with sessions.begin() as session:
                 rows = await self._load(session, job_id, lock=True)
+                self._require_active_source(rows)
                 if rows.projection.status is not ProjectionStatus.INDEXING:
                     return self._require_completed_stage(rows, ProjectionStatus.READY)
                 if (
@@ -310,6 +315,24 @@ class SqlAlchemyRagIngestionLifecycle:
                 retryable=False,
             )
         return _IngestionRows(ingestion, projection, asset, document, profile, job)
+
+    @staticmethod
+    def _require_active_source(rows: _IngestionRows) -> None:
+        if ProjectionStatus(rows.projection.status) in {
+            ProjectionStatus.READY,
+            ProjectionStatus.PARTIAL_READY,
+            ProjectionStatus.FAILED,
+        }:
+            return
+        if (
+            VersionStatus(rows.asset.status) is not VersionStatus.READY
+            or rows.document.active_version_id != rows.asset.id
+        ):
+            raise RagIngestionError(
+                "index_source_inactive",
+                "RAG ingestion requires the document's exact active READY version.",
+                retryable=False,
+            )
 
     def _execution(self, rows: _IngestionRows) -> IngestionExecution:
         return IngestionExecution(

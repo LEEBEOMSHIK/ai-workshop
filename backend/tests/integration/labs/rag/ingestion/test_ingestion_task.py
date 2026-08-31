@@ -20,6 +20,7 @@ from ai_workshop.labs.rag.documents.models import (
 )
 from ai_workshop.labs.rag.ingestion.domain import (
     EnsureIndexedCommand,
+    RagIngestionError,
     ReadinessVerification,
 )
 from ai_workshop.labs.rag.ingestion.models import RagIngestionJobRecord
@@ -128,9 +129,12 @@ async def seed_command_dependencies() -> tuple[UUID, UUID, UUID, UUID, UUID]:
                     sha256=stored.sha256,
                     media_type="text/plain",
                     size=stored.size,
-                    status="stored",
+                    status="ready",
                 )
             )
+            document = await session.get(DocumentRecord, document_id)
+            assert document is not None
+            document.active_version_id = asset_version_id
     finally:
         await engine.dispose()
     return (
@@ -372,6 +376,62 @@ async def create_ingestion_job(
 
 
 @pytest.mark.asyncio
+async def test_delivered_old_version_job_cannot_begin_after_newer_activation() -> None:
+    (
+        requested_by,
+        duplicate_requester,
+        _workspace_id,
+        asset_version_id,
+        indexing_profile_id,
+    ) = await seed_command_dependencies()
+    settings = get_settings()
+    engine = create_engine(settings)
+    sessions = create_session_factory(engine)
+    job_id = await create_ingestion_job(
+        requested_by,
+        asset_version_id,
+        indexing_profile_id,
+    )
+    try:
+        newer_active_version_id = uuid4()
+        async with sessions.begin() as session:
+            old_version = await session.get(AssetVersionRecord, asset_version_id)
+            assert old_version is not None
+            document = await session.get(DocumentRecord, old_version.document_id)
+            assert document is not None
+            session.add(
+                AssetVersionRecord(
+                    id=newer_active_version_id,
+                    document_id=old_version.document_id,
+                    number=old_version.number + 1,
+                    object_key=f"synthetic/{newer_active_version_id}.txt",
+                    sha256="b" * 64,
+                    media_type="text/plain",
+                    size=1,
+                    status="ready",
+                )
+            )
+            document.active_version_id = newer_active_version_id
+
+        with pytest.raises(RagIngestionError) as exc_info:
+            await SqlAlchemyRagIngestionLifecycle(settings).begin(job_id)
+
+        assert exc_info.value.code == "index_source_inactive"
+        async with sessions() as session:
+            job = await session.get(JobRecord, job_id)
+            ingestion = await session.get(RagIngestionJobRecord, job_id)
+            assert job is not None
+            assert ingestion is not None
+            projection = await session.get(RagProjectionRecord, ingestion.projection_id)
+        assert job.status == JobStatus.QUEUED
+        assert projection is not None
+        assert projection.status == ProjectionStatus.PENDING
+    finally:
+        await engine.dispose()
+        await delete_fixture(requested_by, duplicate_requester)
+
+
+@pytest.mark.asyncio
 async def test_postgres_persists_the_complete_command_and_global_idempotency_key() -> None:
     (
         requested_by,
@@ -451,13 +511,23 @@ async def test_eager_task_reloads_job_only_payload_and_reaches_ready_idempotentl
     )
     try:
         first = await to_thread(app.tasks[RAG_INGESTION_TASK].delay, str(job_id))
-        duplicate = await to_thread(app.tasks[RAG_INGESTION_TASK].delay, str(job_id))
         assert first.get() is None
-        assert duplicate.get() is None
 
         engine = create_engine(settings)
         sessions = create_session_factory(engine)
         try:
+            async with sessions.begin() as session:
+                asset = await session.get(AssetVersionRecord, asset_version_id)
+                assert asset is not None
+                document = await session.get(DocumentRecord, asset.document_id)
+                assert document is not None
+                document.active_version_id = None
+
+            duplicate = await to_thread(
+                app.tasks[RAG_INGESTION_TASK].delay, str(job_id)
+            )
+            assert duplicate.get() is None
+
             async with sessions() as session:
                 ingestion = await session.get(RagIngestionJobRecord, job_id)
                 job = await session.get(JobRecord, job_id)

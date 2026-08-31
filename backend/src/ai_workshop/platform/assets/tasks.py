@@ -29,6 +29,14 @@ class AssetVerificationLifecycle(Protocol):
 
     async def succeed(self, job_id: UUID) -> None: ...
 
+    async def retry(
+        self,
+        job_id: UUID,
+        *,
+        error_code: str,
+        error_message: str,
+    ) -> None: ...
+
     async def fail(
         self,
         job_id: UUID,
@@ -54,14 +62,37 @@ class AssetVerificationWorkflow:
         try:
             await verify_stored_asset(self.object_store, version)
         except AssetTaskError as exc:
-            await self.lifecycle.fail(
-                job_id,
-                error_code=exc.code,
-                error_message=str(exc),
-            )
+            transition = self.lifecycle.retry if exc.retryable else self.lifecycle.fail
+            await transition(job_id, error_code=exc.code, error_message=str(exc))
             raise
         await self.lifecycle.succeed(job_id)
         return version.id
+
+    async def retry(
+        self,
+        job_id: UUID,
+        *,
+        error_code: str,
+        error_message: str,
+    ) -> None:
+        await self.lifecycle.retry(
+            job_id,
+            error_code=error_code,
+            error_message=error_message,
+        )
+
+    async def fail(
+        self,
+        job_id: UUID,
+        *,
+        error_code: str,
+        error_message: str,
+    ) -> None:
+        await self.lifecycle.fail(
+            job_id,
+            error_code=error_code,
+            error_message=error_message,
+        )
 
 
 class SqlAlchemyAssetVerificationLifecycle:
@@ -76,39 +107,62 @@ class SqlAlchemyAssetVerificationLifecycle:
         try:
             async with session_factory.begin() as session:
                 jobs = SqlAlchemyJobRepository(session)
-                job = await jobs.find_by_id(job_id)
+                job = await jobs.find_by_id_for_update(job_id)
                 if job is None:
                     error = AssetTaskError(
                         "job_not_found",
                         "The background job does not exist.",
                         retryable=False,
                     )
-                elif job.status is JobStatus.SUCCEEDED:
-                    return None
-                elif job.status is JobStatus.FAILED:
-                    error = AssetTaskError(
-                        "job_terminal",
-                        "The background job is already in a terminal state.",
-                        retryable=False,
-                    )
                 else:
-                    if job.status is JobStatus.QUEUED:
-                        job.start(stage="verifying_object")
-                        await jobs.update(job)
-                    version = await SqlAlchemyAssetRepository(session).find_version(
-                        job.asset_version_id
-                    )
+                    version = await SqlAlchemyAssetRepository(
+                        session
+                    ).find_version_for_update(job.asset_version_id)
                     if version is None:
-                        job.fail(
-                            error_code="asset_version_not_found",
-                            error_message="The asset version does not exist.",
-                        )
-                        await jobs.update(job)
+                        if job.status is JobStatus.RUNNING:
+                            job.fail(
+                                error_code="asset_version_not_found",
+                                error_message="The asset version does not exist.",
+                            )
+                            await jobs.update(job)
                         error = AssetTaskError(
                             "asset_version_not_found",
                             "The asset version does not exist.",
                             retryable=False,
                         )
+                    elif job.status is JobStatus.SUCCEEDED:
+                        if (
+                            job.stage == "stored"
+                            and VersionStatus(version.status) is VersionStatus.STORED
+                        ):
+                            job.status = JobStatus.RUNNING
+                            job.stage = "verifying_object"
+                            job.attempt += 1
+                            job.error_code = None
+                            job.error_message = None
+                            job.finished_at = None
+                            await jobs.update(job)
+                        elif VersionStatus(version.status) is VersionStatus.READY:
+                            return None
+                        else:
+                            error = AssetTaskError(
+                                "verification_state_inconsistent",
+                                "The completed verification state is inconsistent.",
+                                retryable=False,
+                            )
+                    elif job.status is JobStatus.FAILED:
+                        error = AssetTaskError(
+                            "job_terminal",
+                            "The background job is already in a terminal state.",
+                            retryable=False,
+                        )
+                    else:
+                        if job.status is JobStatus.QUEUED:
+                            job.start(stage="verifying_object")
+                            await jobs.update(job)
+                        elif job.stage != "verifying_object":
+                            job.advance(stage="verifying_object")
+                            await jobs.update(job)
         finally:
             await engine.dispose()
         if error is not None:
@@ -151,6 +205,8 @@ class SqlAlchemyAssetVerificationLifecycle:
                         retryable=False,
                     )
                 if job.status is JobStatus.SUCCEEDED:
+                    return
+                if job.status is JobStatus.FAILED:
                     return
                 if job.status is not JobStatus.RUNNING:
                     raise AssetTaskError(
@@ -221,12 +277,42 @@ class SqlAlchemyAssetVerificationLifecycle:
         try:
             async with session_factory.begin() as session:
                 jobs = SqlAlchemyJobRepository(session)
-                job = await jobs.find_by_id(job_id)
+                job = await jobs.find_by_id_for_update(job_id)
                 if job is None:
                     return
-                if job.status is JobStatus.FAILED:
+                if job.status in {JobStatus.FAILED, JobStatus.SUCCEEDED}:
                     return
+                if job.status is JobStatus.QUEUED:
+                    job.start(stage="verifying_object")
                 job.fail(error_code=error_code, error_message=error_message)
+                await jobs.update(job)
+        finally:
+            await engine.dispose()
+
+    async def retry(
+        self,
+        job_id: UUID,
+        *,
+        error_code: str,
+        error_message: str,
+    ) -> None:
+        engine = create_engine(self.settings)
+        session_factory = create_session_factory(engine)
+        try:
+            async with session_factory.begin() as session:
+                jobs = SqlAlchemyJobRepository(session)
+                job = await jobs.find_by_id_for_update(job_id)
+                if job is None or job.status in {
+                    JobStatus.FAILED,
+                    JobStatus.SUCCEEDED,
+                }:
+                    return
+                if job.status is JobStatus.QUEUED:
+                    job.start(stage="retrying_verification")
+                else:
+                    job.advance(stage="retrying_verification")
+                job.error_code = error_code[:100]
+                job.error_message = error_message[:500]
                 await jobs.update(job)
         finally:
             await engine.dispose()

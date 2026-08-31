@@ -1,5 +1,6 @@
 from asyncio import run
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from os import environ
 from typing import Annotated, Protocol
@@ -21,20 +22,30 @@ from ai_workshop.labs.rag.evaluation.service import EvaluationWorkflow
 from ai_workshop.labs.rag.evaluation.tasks import create_evaluation_workflow
 from ai_workshop.labs.rag.ingestion.dispatch import RagDispatchReconciler
 from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand, RagIngestionError
+from ai_workshop.labs.rag.ingestion.handoff import RagAssetHandoffReconciler
 from ai_workshop.labs.rag.ingestion.repository import (
+    SqlAlchemyRagAssetHandoffSource,
     SqlAlchemyRagDispatchRepository,
     SqlAlchemyRagIngestionCommandRepository,
 )
 from ai_workshop.labs.rag.ingestion.service import RagIngestionService, RagIngestionWorkflow
 from ai_workshop.labs.rag.ingestion.tasks import create_rag_ingestion_workflow
 from ai_workshop.labs.rag.parsing.contracts import ParsingError
+from ai_workshop.platform.assets.dispatch import (
+    AssetVerificationDispatchReconciler,
+    SqlAlchemyAssetVerificationDispatchRepository,
+)
 from ai_workshop.platform.assets.tasks import AssetTaskError, create_asset_verification_workflow
 from ai_workshop.shared.db import create_engine, create_session_factory
 from ai_workshop.shared.model_registry import load_models
 
 ASSET_VERIFICATION_TASK = "ai_workshop.assets.verify_stored"
+ASSET_VERIFICATION_DISPATCH_RECONCILE_TASK = (
+    "ai_workshop.assets.reconcile_dispatches"
+)
 RAG_INGESTION_TASK = "ai_workshop.rag.ensure_indexed"
 RAG_DISPATCH_RECONCILE_TASK = "ai_workshop.rag.reconcile_dispatches"
+RAG_ASSET_HANDOFF_RECONCILE_TASK = "ai_workshop.rag.reconcile_asset_handoffs"
 RAG_EVALUATION_TASK = "ai_workshop.rag.evaluate_configuration_run"
 RAG_EVALUATION_DISPATCH_RECONCILE_TASK = (
     "ai_workshop.rag.reconcile_evaluation_dispatches"
@@ -121,6 +132,14 @@ def create_celery(
                 "task": RAG_DISPATCH_RECONCILE_TASK,
                 "schedule": 5.0,
             },
+            "reconcile-asset-verification-dispatches": {
+                "task": ASSET_VERIFICATION_DISPATCH_RECONCILE_TASK,
+                "schedule": 5.0,
+            },
+            "reconcile-rag-asset-handoffs": {
+                "task": RAG_ASSET_HANDOFF_RECONCILE_TASK,
+                "schedule": 5.0,
+            },
             "reconcile-rag-evaluation-dispatches": {
                 "task": RAG_EVALUATION_DISPATCH_RECONCILE_TASK,
                 "schedule": 5.0,
@@ -128,20 +147,23 @@ def create_celery(
         },
     )
 
-    @application.task(  # type: ignore[untyped-decorator]
+    @application.task(  # type: ignore
+        bind=True,
         name=ASSET_VERIFICATION_TASK,
         ignore_result=True,
+        max_retries=3,
+        acks_late=True,
+        reject_on_worker_lost=True,
         shared=False,
     )
-    def verify_asset(job_id: str) -> None:
+    def verify_asset(task: Task, job_id: str) -> None:
+        resolved_settings = settings or get_settings()
+        workflow = create_asset_verification_workflow(resolved_settings)
         try:
-            resolved_settings = settings or get_settings()
             subscriptions = rag_subscriptions or PersistentVerifiedAssetSubscriptions(
                 resolved_settings
             )
-            asset_version_id = run(
-                create_asset_verification_workflow(resolved_settings).run(UUID(job_id))
-            )
+            asset_version_id = run(workflow.run(UUID(job_id)))
             seen_profiles: set[UUID] = set()
             for subscription in run(subscriptions.for_asset(asset_version_id)):
                 if subscription.indexing_profile_id in seen_profiles:
@@ -157,10 +179,45 @@ def create_celery(
                         ),
                     )
                 )
-        except AssetTaskError as exc:
-            raise RuntimeError(exc.code) from exc
+        except Exception as exc:
+            code, retryable = _asset_error(exc)
+            if not isinstance(exc, AssetTaskError) and retryable:
+                with suppress(OperationalError, TimeoutError, DisconnectionError):
+                    run(
+                        workflow.retry(
+                            UUID(job_id),
+                            error_code=code,
+                            error_message="The asset verification task will be retried.",
+                        )
+                    )
+            if retryable and int(task.request.retries) < int(task.max_retries):
+                raise task.retry(exc=exc, countdown=0) from exc
+            if retryable or not isinstance(exc, AssetTaskError):
+                with suppress(OperationalError, TimeoutError, DisconnectionError):
+                    run(
+                        workflow.fail(
+                            UUID(job_id),
+                            error_code=code,
+                            error_message="The asset verification task failed.",
+                        )
+                    )
+            raise RuntimeError(code) from exc
 
-    @application.task(  # type: ignore[untyped-decorator]
+    @application.task(  # type: ignore
+        name=ASSET_VERIFICATION_DISPATCH_RECONCILE_TASK,
+        ignore_result=True,
+        shared=False,
+    )
+    def reconcile_asset_verification_dispatches() -> None:
+        resolved_settings = settings or get_settings()
+        run(
+            _reconcile_asset_verification_dispatches(
+                resolved_settings,
+                application,
+            )
+        )
+
+    @application.task(  # type: ignore
         name=RAG_DISPATCH_RECONCILE_TASK,
         ignore_result=True,
         shared=False,
@@ -169,7 +226,16 @@ def create_celery(
         resolved_settings = settings or get_settings()
         run(_reconcile_rag_dispatches(resolved_settings, application))
 
-    @application.task(  # type: ignore[untyped-decorator]
+    @application.task(  # type: ignore
+        name=RAG_ASSET_HANDOFF_RECONCILE_TASK,
+        ignore_result=True,
+        shared=False,
+    )
+    def reconcile_asset_handoffs() -> None:
+        resolved_settings = settings or get_settings()
+        run(_reconcile_rag_asset_handoffs(resolved_settings))
+
+    @application.task(  # type: ignore
         name=RAG_EVALUATION_DISPATCH_RECONCILE_TASK,
         ignore_result=True,
         shared=False,
@@ -178,7 +244,7 @@ def create_celery(
         resolved_settings = settings or get_settings()
         run(_reconcile_evaluation_dispatches(resolved_settings, application))
 
-    @application.task(  # type: ignore[untyped-decorator]
+    @application.task(  # type: ignore
         name=RAG_EVALUATION_TASK,
         ignore_result=True,
         acks_late=True,
@@ -189,7 +255,7 @@ def create_celery(
         resolved_settings = settings or get_settings()
         run(evaluation_workflow_factory(resolved_settings).run(UUID(run_id)))
 
-    @application.task(  # type: ignore[untyped-decorator]
+    @application.task(  # type: ignore
         bind=True,
         name=RAG_INGESTION_TASK,
         ignore_result=True,
@@ -224,10 +290,17 @@ celery_app = create_celery()
 
 class CeleryJobDispatcher:
     def __init__(self, settings: Settings) -> None:
+        self.settings = settings
         self.application = create_celery(settings)
 
     def verify_asset(self, job_id: UUID) -> None:
-        self.application.tasks[ASSET_VERIFICATION_TASK].delay(str(job_id))
+        run(
+            _reconcile_asset_verification_dispatches(
+                self.settings,
+                self.application,
+                job_id=job_id,
+            )
+        )
 
 
 def get_job_dispatcher(
@@ -256,6 +329,22 @@ class CeleryRagJobSender:
         self.application.tasks[RAG_INGESTION_TASK].delay(str(job_id))
 
 
+class PersistentRagIngestionJobCreator:
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+
+    async def ensure_indexed(self, command: EnsureIndexedCommand) -> UUID:
+        return await _ensure_rag_job(self.settings, command)
+
+
+class CeleryAssetVerificationJobSender:
+    def __init__(self, application: Celery) -> None:
+        self.application = application
+
+    def send(self, job_id: UUID) -> None:
+        self.application.tasks[ASSET_VERIFICATION_TASK].delay(str(job_id))
+
+
 class CeleryEvaluationRunSender:
     def __init__(self, application: Celery) -> None:
         self.application = application
@@ -272,6 +361,36 @@ async def _reconcile_rag_dispatches(settings: Settings, application: Celery) -> 
             SqlAlchemyRagDispatchRepository(sessions),
             CeleryRagJobSender(application),
         ).run_once()
+    finally:
+        await engine.dispose()
+
+
+async def _reconcile_rag_asset_handoffs(settings: Settings) -> None:
+    engine = create_engine(settings)
+    sessions = create_session_factory(engine)
+    try:
+        async with sessions() as session:
+            await RagAssetHandoffReconciler(
+                SqlAlchemyRagAssetHandoffSource(session),
+                PersistentRagIngestionJobCreator(settings),
+            ).run_once()
+    finally:
+        await engine.dispose()
+
+
+async def _reconcile_asset_verification_dispatches(
+    settings: Settings,
+    application: Celery,
+    *,
+    job_id: UUID | None = None,
+) -> None:
+    engine = create_engine(settings)
+    sessions = create_session_factory(engine)
+    try:
+        await AssetVerificationDispatchReconciler(
+            SqlAlchemyAssetVerificationDispatchRepository(sessions),
+            CeleryAssetVerificationJobSender(application),
+        ).run_once(job_id=job_id)
     finally:
         await engine.dispose()
 
@@ -300,3 +419,13 @@ def _rag_error(exc: Exception) -> tuple[str, bool]:
     if isinstance(exc, OSError):
         return "parser_unavailable", True
     return "rag_ingestion_failed", False
+
+
+def _asset_error(exc: Exception) -> tuple[str, bool]:
+    if isinstance(exc, AssetTaskError):
+        return exc.code, exc.retryable
+    if isinstance(exc, (OperationalError, TimeoutError, DisconnectionError)):
+        return "database_transient", True
+    if isinstance(exc, OSError):
+        return "object_unavailable", True
+    return "asset_verification_failed", False

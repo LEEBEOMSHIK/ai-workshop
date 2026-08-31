@@ -3,6 +3,7 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -54,6 +55,12 @@ class MemoryLifecycle(AssetVerificationLifecycle):
         assert job_id == self.job.id
         self.job.succeed(stage="ready")
 
+    async def retry(self, job_id, *, error_code: str, error_message: str) -> None:
+        assert job_id == self.job.id
+        self.job.stage = "retrying_verification"
+        self.job.error_code = error_code
+        self.job.error_message = error_message
+
     async def fail(self, job_id, *, error_code: str, error_message: str) -> None:
         assert job_id == self.job.id
         self.job.fail(error_code=error_code, error_message=error_message)
@@ -71,6 +78,9 @@ class CompletedLifecycle(AssetVerificationLifecycle):
 
     async def succeed(self, job_id) -> None:
         raise AssertionError("A completed job must not run again.")
+
+    async def retry(self, job_id, *, error_code: str, error_message: str) -> None:
+        raise AssertionError("A completed job must not retry.")
 
     async def fail(self, job_id, *, error_code: str, error_message: str) -> None:
         raise AssertionError("A completed job must not run again.")
@@ -363,7 +373,9 @@ async def test_asset_workflow_persists_successful_terminal_state(tmp_path) -> No
 
 
 @pytest.mark.asyncio
-async def test_asset_workflow_persists_stable_failure_code(tmp_path) -> None:
+async def test_asset_workflow_records_retryable_error_without_terminal_failure(
+    tmp_path,
+) -> None:
     version = AssetVersion(
         id=uuid4(),
         document_id=uuid4(),
@@ -382,12 +394,14 @@ async def test_asset_workflow_persists_stable_failure_code(tmp_path) -> None:
         idempotency_key=f"asset-version:{version.id}",
     )
 
-    with pytest.raises(AssetTaskError):
+    with pytest.raises(AssetTaskError) as exc_info:
         await AssetVerificationWorkflow(
             MemoryLifecycle(job, version), LocalObjectStore(tmp_path)
         ).run(job.id)
 
-    assert job.status is JobStatus.FAILED
+    assert exc_info.value.retryable is True
+    assert job.status is JobStatus.RUNNING
+    assert job.stage == "retrying_verification"
     assert job.error_code == "object_unavailable"
 
 
@@ -502,6 +516,106 @@ async def test_completed_job_redelivery_returns_the_same_version_without_regress
 
 
 @pytest.mark.asyncio
+async def test_legacy_stored_successes_reverify_and_activate_highest_version(
+    tmp_path,
+) -> None:
+    scenario = await _seed_verification_scenario(tmp_path, version_count=2)
+    engine = create_async_engine(TEST_DATABASE_URL)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with sessions.begin() as session:
+            for job_id in scenario.job_ids:
+                job = await session.get(JobRecord, job_id)
+                assert job is not None
+                job.status = JobStatus.SUCCEEDED
+                job.stage = "stored"
+                job.attempt = 1
+
+        workflow = create_asset_verification_workflow(scenario.settings)
+        recovered_newer_id = await workflow.run(scenario.job_ids[1])
+        recovered_older_id = await workflow.run(scenario.job_ids[0])
+
+        snapshot = await _snapshot(scenario)
+        assert recovered_newer_id == scenario.version_ids[1]
+        assert recovered_older_id == scenario.version_ids[0]
+        assert snapshot.active_version_id == scenario.version_ids[1]
+        assert snapshot.version_statuses == (VersionStatus.READY, VersionStatus.READY)
+        assert snapshot.job_statuses == (JobStatus.SUCCEEDED, JobStatus.SUCCEEDED)
+        assert snapshot.job_stages == ("ready", "ready")
+    finally:
+        await engine.dispose()
+        await _delete_scenario(scenario)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_success_and_failure_never_commit_ready_with_failed_job(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scenario = await _seed_verification_scenario(tmp_path, version_count=1)
+    lifecycle = asset_tasks_module.SqlAlchemyAssetVerificationLifecycle(
+        scenario.settings
+    )
+    assert await lifecycle.begin(scenario.job_ids[0]) is not None
+
+    success_flushed = asyncio.Event()
+    release_success = asyncio.Event()
+    failure_entered_repository = asyncio.Event()
+    original_update = SqlAlchemyJobRepository.update
+    original_find = SqlAlchemyJobRepository.find_by_id
+    original_find_for_update = SqlAlchemyJobRepository.find_by_id_for_update
+    failure_task: asyncio.Task[None] | None = None
+
+    async def update_and_pause_success(self, job):
+        result = await original_update(self, job)
+        if job.status is JobStatus.SUCCEEDED:
+            success_flushed.set()
+            await release_success.wait()
+        return result
+
+    async def find_and_signal_failure(self, job_id):
+        if asyncio.current_task() is failure_task:
+            failure_entered_repository.set()
+        return await original_find(self, job_id)
+
+    async def find_for_update_and_signal_failure(self, job_id):
+        if asyncio.current_task() is failure_task:
+            failure_entered_repository.set()
+        return await original_find_for_update(self, job_id)
+
+    monkeypatch.setattr(SqlAlchemyJobRepository, "update", update_and_pause_success)
+    monkeypatch.setattr(SqlAlchemyJobRepository, "find_by_id", find_and_signal_failure)
+    monkeypatch.setattr(
+        SqlAlchemyJobRepository,
+        "find_by_id_for_update",
+        find_for_update_and_signal_failure,
+    )
+
+    success_task = asyncio.create_task(lifecycle.succeed(scenario.job_ids[0]))
+    try:
+        await asyncio.wait_for(success_flushed.wait(), timeout=5)
+        failure_task = asyncio.create_task(
+            lifecycle.fail(
+                scenario.job_ids[0],
+                error_code="synthetic_failure",
+                error_message="Synthetic concurrent failure.",
+            )
+        )
+        await asyncio.wait_for(failure_entered_repository.wait(), timeout=5)
+        release_success.set()
+        await asyncio.gather(success_task, failure_task)
+
+        snapshot = await _snapshot(scenario)
+        assert snapshot.version_statuses == (VersionStatus.READY,)
+        assert snapshot.job_statuses == (JobStatus.SUCCEEDED,)
+        assert snapshot.job_stages == ("ready",)
+    finally:
+        release_success.set()
+        await success_task
+        await _delete_scenario(scenario)
+
+
+@pytest.mark.asyncio
 async def test_success_transaction_locks_job_version_and_document(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
@@ -592,4 +706,127 @@ async def test_failed_success_commit_exposes_none_of_the_ready_state(
         assert snapshot.job_statuses == (JobStatus.RUNNING,)
         assert snapshot.job_stages == ("verifying_object",)
     finally:
+        await _delete_scenario(scenario)
+
+
+@pytest.mark.asyncio
+async def test_verification_reconciler_claims_queued_stale_and_legacy_jobs_once(
+    tmp_path,
+) -> None:
+    from ai_workshop.platform.assets.dispatch import (
+        AssetVerificationDispatchReconciler,
+        SqlAlchemyAssetVerificationDispatchRepository,
+    )
+
+    queued = await _seed_verification_scenario(tmp_path / "queued", version_count=1)
+    stale = await _seed_verification_scenario(tmp_path / "stale", version_count=1)
+    fresh = await _seed_verification_scenario(tmp_path / "fresh", version_count=1)
+    legacy = await _seed_verification_scenario(tmp_path / "legacy", version_count=1)
+    scenarios = (queued, stale, fresh, legacy)
+    now = datetime.now(UTC)
+    engine = create_async_engine(TEST_DATABASE_URL)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+
+    class RecordingSender:
+        def __init__(self) -> None:
+            self.calls: list[UUID] = []
+
+        def send(self, job_id: UUID) -> None:
+            self.calls.append(job_id)
+
+    sender = RecordingSender()
+    try:
+        async with sessions.begin() as session:
+            stale_job = await session.get(JobRecord, stale.job_ids[0])
+            fresh_job = await session.get(JobRecord, fresh.job_ids[0])
+            legacy_job = await session.get(JobRecord, legacy.job_ids[0])
+            assert stale_job is not None
+            assert fresh_job is not None
+            assert legacy_job is not None
+            stale_job.status = JobStatus.RUNNING
+            stale_job.stage = "verifying_object"
+            stale_job.started_at = now - timedelta(minutes=5)
+            stale_job.attempt = 1
+            fresh_job.status = JobStatus.RUNNING
+            fresh_job.stage = "verifying_object"
+            fresh_job.started_at = now - timedelta(seconds=30)
+            fresh_job.attempt = 1
+            legacy_job.status = JobStatus.SUCCEEDED
+            legacy_job.stage = "stored"
+            legacy_job.attempt = 1
+
+        repository = SqlAlchemyAssetVerificationDispatchRepository(sessions)
+        first, second = await asyncio.gather(
+            AssetVerificationDispatchReconciler(repository, sender).run_once(now=now),
+            AssetVerificationDispatchReconciler(repository, sender).run_once(now=now),
+        )
+
+        assert first.claimed + second.claimed == 3
+        assert first.sent + second.sent == 3
+        assert set(sender.calls) == {
+            queued.job_ids[0],
+            stale.job_ids[0],
+            legacy.job_ids[0],
+        }
+        assert len(sender.calls) == 3
+        async with sessions() as session:
+            dispatched = []
+            for scenario in (queued, stale, legacy):
+                dispatched.append(
+                    await session.get(JobRecord, scenario.job_ids[0])
+                )
+            untouched = await session.get(JobRecord, fresh.job_ids[0])
+        assert all(job is not None for job in dispatched)
+        assert all(job.status == JobStatus.RUNNING for job in dispatched if job)
+        assert all(job.stage == "dispatching_verification" for job in dispatched if job)
+        assert untouched is not None
+        assert untouched.stage == "verifying_object"
+    finally:
+        await engine.dispose()
+        for scenario in scenarios:
+            await _delete_scenario(scenario)
+
+
+@pytest.mark.asyncio
+async def test_verification_reconciler_records_broker_failure_and_retries(
+    tmp_path,
+) -> None:
+    from ai_workshop.platform.assets.dispatch import (
+        AssetVerificationDispatchReconciler,
+        SqlAlchemyAssetVerificationDispatchRepository,
+    )
+
+    scenario = await _seed_verification_scenario(tmp_path, version_count=1)
+    engine = create_async_engine(TEST_DATABASE_URL)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    now = datetime.now(UTC)
+
+    class FailOnceSender:
+        def __init__(self) -> None:
+            self.calls: list[UUID] = []
+
+        def send(self, job_id: UUID) -> None:
+            self.calls.append(job_id)
+            if len(self.calls) == 1:
+                raise OSError("synthetic broker failure")
+
+    sender = FailOnceSender()
+    repository = SqlAlchemyAssetVerificationDispatchRepository(sessions)
+    reconciler = AssetVerificationDispatchReconciler(repository, sender)
+    try:
+        failed = await reconciler.run_once(now=now)
+        async with sessions() as session:
+            retryable = await session.get(JobRecord, scenario.job_ids[0])
+        assert failed.failed == 1
+        assert retryable is not None
+        assert retryable.status == JobStatus.QUEUED
+        assert retryable.stage == "verification_dispatch_retry"
+        assert retryable.error_code == "verification_dispatch_failed"
+        assert retryable.error_message == "synthetic broker failure"
+
+        recovered = await reconciler.run_once(now=now + timedelta(seconds=5))
+        assert recovered.sent == 1
+        assert sender.calls == [scenario.job_ids[0], scenario.job_ids[0]]
+    finally:
+        await engine.dispose()
         await _delete_scenario(scenario)

@@ -62,7 +62,9 @@
 
 - 작업은 중복 요청이나 재시도에도 데이터가 손상되지 않도록 멱등성을 가진다.
 - Platform Asset Version은 저장 객체의 크기와 SHA-256 검증 뒤 READY로 전이하고 버전 순서에 따라 현재 Knowledge source를 원자적으로 갱신한다.
+- 업로드 commit, 검증 전달과 worker 실행 사이의 손실은 영속 검증 Job에서 멱등 복구하며, 일시 오류만 제한적으로 재시도한다.
 - RAG Projection은 파싱, 청킹, 임베딩, 색인, 개수, provenance와 alias 검증이 완료된 뒤 별도로 READY·활성화한다.
+- RAG command 생성·dispatch·실행은 매 경계에서 정확한 현재 active READY Asset Version을 확인하고, READY와 구독 사이의 누락은 기존 command 멱등 키로 주기적으로 복구한다.
 - 오류를 숨기고 다른 파서나 모델로 조용히 전환하지 않는다.
 - 대체 처리와 재시도는 실행 기록과 사용자 상태에 표시한다.
 - 전체 실패와 페이지 또는 요소 단위의 부분 실패를 구분한다.

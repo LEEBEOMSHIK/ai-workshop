@@ -26,6 +26,7 @@ from ai_workshop.labs.rag.configurations.repository import (
 )
 from ai_workshop.labs.rag.configurations.service import RagConfigurationService
 from ai_workshop.labs.rag.documents.models import RagIndexBuildRecord, RagProjectionRecord
+from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand
 from ai_workshop.labs.rag.ingestion.repository import (
     SqlAlchemyRagIngestionCommandRepository,
 )
@@ -270,6 +271,68 @@ async def test_postgres_versions_visibility_jobs_subscriptions_and_exact_resolve
             assert subscriptions == (
                 (E5_INDEXING_PROFILE_ID, owner_id),
             )
+
+            active_version = await session.get(AssetVersionRecord, asset_version_id)
+            assert active_version is not None
+            active_document = await session.get(DocumentRecord, active_version.document_id)
+            assert active_document is not None
+            newer_active_version_id = uuid4()
+            session.add(
+                AssetVersionRecord(
+                    id=newer_active_version_id,
+                    document_id=active_document.id,
+                    number=active_version.number + 1,
+                    object_key=f"fixtures/{newer_active_version_id}.txt",
+                    sha256="c" * 64,
+                    media_type="text/plain",
+                    size=14,
+                    status="ready",
+                )
+            )
+            active_document.active_version_id = newer_active_version_id
+            await session.flush()
+
+            assert await repository.subscriptions_for_asset(asset_version_id) == ()
+            assert await repository.subscriptions_for_asset(newer_active_version_id) == (
+                (E5_INDEXING_PROFILE_ID, owner_id),
+            )
+            with pytest.raises(LookupError, match="active READY"):
+                await RagIngestionService(
+                    SqlAlchemyRagIngestionCommandRepository(session)
+                ).ensure_indexed(
+                    EnsureIndexedCommand(
+                        asset_version_id,
+                        E5_INDEXING_PROFILE_ID,
+                        owner_id,
+                    )
+                )
+
+            from ai_workshop.labs.rag.ingestion.handoff import (
+                RagAssetHandoffReconciler,
+            )
+            from ai_workshop.labs.rag.ingestion.repository import (
+                SqlAlchemyRagAssetHandoffSource,
+            )
+
+            handoff_source = SqlAlchemyRagAssetHandoffSource(session)
+            handoff_reconciler = RagAssetHandoffReconciler(
+                handoff_source,
+                RagIngestionService(SqlAlchemyRagIngestionCommandRepository(session)),
+            )
+            pending_handoffs = await handoff_source.pending(limit=10)
+            assert pending_handoffs == (
+                EnsureIndexedCommand(
+                    newer_active_version_id,
+                    E5_INDEXING_PROFILE_ID,
+                    owner_id,
+                ),
+            )
+            recovered_handoff = await handoff_reconciler.run_once()
+            repeated_handoff = await handoff_reconciler.run_once()
+            assert (recovered_handoff.created, recovered_handoff.failed) == (1, 0)
+            assert (repeated_handoff.created, repeated_handoff.failed) == (0, 0)
+            active_document.active_version_id = asset_version_id
+            await session.flush()
 
             projection = await session.scalar(
                 select(RagProjectionRecord).where(

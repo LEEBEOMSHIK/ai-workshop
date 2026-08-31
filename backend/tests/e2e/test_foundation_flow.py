@@ -1,12 +1,12 @@
 from asyncio import sleep
-from collections.abc import AsyncIterator
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from os import environ
 from uuid import UUID, uuid4
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text, update
+from sqlalchemy import update
 
 from ai_workshop.config import get_settings
 from ai_workshop.main import create_app
@@ -19,45 +19,25 @@ from ai_workshop.platform.workspaces.models import (
     WorkspaceRecord,
 )
 from ai_workshop.shared.db import create_engine, create_session_factory
+from tools.e2e_runtime import E2ERuntimeContractError, validate_prepared_e2e
 
 pytestmark = pytest.mark.skipif(
     environ.get("AI_WORKSHOP_E2E") != "1",
     reason="Set AI_WORKSHOP_E2E=1 to run tests against the disposable PostgreSQL database.",
 )
 
-OWNER_EMAIL = "owner.e2e@example.com"
-MEMBER_EMAIL = "member.e2e@example.com"
-TEST_PASSWORD = "foundation-test-password"
-TRUNCATE_SQL = """
-TRUNCATE TABLE
-    rag_profile_model_bindings,
-    rag_profiles,
-    rag_model_definitions,
-    jobs,
-    asset_versions,
-    documents,
-    folders,
-    workspace_memberships,
-    workspaces,
-    users
-RESTART IDENTITY CASCADE
-"""
+FLOW_OWNER_EMAIL = "rag.owner.e2e@example.com"
+ACL_OWNER_EMAIL = "foundation.acl.owner.e2e@example.com"
+ACL_MEMBER_EMAIL = "foundation.acl.member.e2e@example.com"
+TEST_PASSWORD = "task14-public-synthetic-password"
 
 
 @pytest.fixture(autouse=True)
-async def isolated_database() -> AsyncIterator[None]:
-    settings = get_settings()
-    if settings.environment != "test":
-        pytest.fail("Foundation E2E tests require AI_WORKSHOP_ENVIRONMENT=test.")
-    engine = create_engine(settings)
+def prepared_e2e_state() -> None:
     try:
-        async with engine.begin() as connection:
-            await connection.execute(text(TRUNCATE_SQL))
-        yield
-    finally:
-        async with engine.begin() as connection:
-            await connection.execute(text(TRUNCATE_SQL))
-        await engine.dispose()
+        validate_prepared_e2e(get_settings(), environ)
+    except E2ERuntimeContractError as exc:
+        pytest.fail(str(exc))
 
 
 async def seed_user(email: str, display_name: str) -> UUID:
@@ -145,6 +125,12 @@ async def wait_for_job(client: AsyncClient, job_id: object) -> dict[str, object]
     pytest.fail(f"Job did not reach a terminal state: {latest}")
 
 
+async def wait_for_jobs(
+    client: AsyncClient, job_ids: Sequence[object]
+) -> tuple[dict[str, object], ...]:
+    return tuple([await wait_for_job(client, job_id) for job_id in job_ids])
+
+
 async def create_workspace(
     client: AsyncClient,
     *,
@@ -184,9 +170,9 @@ async def upload_document(
 
 @pytest.mark.asyncio
 async def test_owner_can_complete_the_foundation_flow() -> None:
-    await seed_user(OWNER_EMAIL, "Workshop Owner")
+    await seed_user(FLOW_OWNER_EMAIL, "Foundation Flow Owner")
     async with create_http_client() as client:
-        await login(client, OWNER_EMAIL)
+        await login(client, FLOW_OWNER_EMAIL)
 
         workspace = await create_workspace(client, name="My Research", kind="personal")
         workspace_id = str(workspace["id"])
@@ -256,12 +242,12 @@ async def test_owner_can_complete_the_foundation_flow() -> None:
 
 @pytest.mark.asyncio
 async def test_member_sees_shared_company_assets_but_not_private_or_expired_assets() -> None:
-    owner_id = await seed_user(OWNER_EMAIL, "Workshop Owner")
-    member_id = await seed_user(MEMBER_EMAIL, "Workshop Member")
+    owner_id = await seed_user(ACL_OWNER_EMAIL, "Foundation ACL Owner")
+    member_id = await seed_user(ACL_MEMBER_EMAIL, "Foundation ACL Member")
     del owner_id
 
     async with create_http_client() as owner_client:
-        await login(owner_client, OWNER_EMAIL)
+        await login(owner_client, ACL_OWNER_EMAIL)
         company = await create_workspace(owner_client, name="Company Knowledge", kind="company")
         personal = await create_workspace(owner_client, name="Owner Notes", kind="personal")
         temporary = await create_workspace(
@@ -288,13 +274,22 @@ async def test_member_sees_shared_company_assets_but_not_private_or_expired_asse
             name="temporary.pdf",
             content=b"%PDF temporary notes",
         )
+        terminal_jobs = await wait_for_jobs(
+            owner_client,
+            (
+                company_document["job_id"],
+                private_document["job_id"],
+                temporary_document["job_id"],
+            ),
+        )
+        assert all(job["status"] == "succeeded" for job in terminal_jobs)
 
     await add_membership(UUID(str(company["id"])), member_id)
     await add_membership(UUID(str(temporary["id"])), member_id)
     await expire_workspace(UUID(str(temporary["id"])))
 
     async with create_http_client() as member_client:
-        await login(member_client, MEMBER_EMAIL)
+        await login(member_client, ACL_MEMBER_EMAIL)
 
         workspaces = await member_client.get("/api/v1/workspaces")
         assert workspaces.status_code == 200

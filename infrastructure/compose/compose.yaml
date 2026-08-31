@@ -124,6 +124,9 @@ services:
     environment:
       AI_WORKSHOP_ENVIRONMENT: test
       AI_WORKSHOP_E2E: "1"
+      AI_WORKSHOP_E2E_PREPARED: ${AI_WORKSHOP_E2E_PREPARED:-0}
+      AI_WORKSHOP_E2E_RESET: ${AI_WORKSHOP_E2E_RESET:-0}
+      AI_WORKSHOP_E2E_PROJECT: ${AI_WORKSHOP_E2E_PROJECT:-}
       AI_WORKSHOP_E2E_BASE_URL: http://api:8000
       AI_WORKSHOP_SECRET_KEY: ${AI_WORKSHOP_SECRET_KEY:-local-development-secret-change-before-sharing}
       AI_WORKSHOP_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-ai_workshop}:${POSTGRES_PASSWORD:-ai_workshop}@postgres:5432/${POSTGRES_DB:-ai_workshop}
@@ -132,21 +135,6 @@ services:
       AI_WORKSHOP_ELASTICSEARCH_URL: http://elasticsearch:9200
       AI_WORKSHOP_ELASTICSEARCH_INDEX_PREFIX: ${AI_WORKSHOP_ELASTICSEARCH_INDEX_PREFIX:-ai-workshop-rag}
       AI_WORKSHOP_MODEL_CACHE_ROOT: /models
-    depends_on:
-      api:
-        condition: service_healthy
-      object-store-init:
-        condition: service_completed_successfully
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      worker:
-        condition: service_healthy
-      beat:
-        condition: service_started
-      elasticsearch:
-        condition: service_healthy
 
   postgres:
     image: postgres:17-alpine

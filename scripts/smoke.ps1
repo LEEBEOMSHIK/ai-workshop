@@ -24,6 +24,9 @@ $composePath = Join-Path $repositoryRoot "infrastructure\compose\compose.yaml"
 $managedEnvironment = @(
     "AI_WORKSHOP_ENVIRONMENT",
     "AI_WORKSHOP_SECRET_KEY",
+    "AI_WORKSHOP_E2E_PREPARED",
+    "AI_WORKSHOP_E2E_RESET",
+    "AI_WORKSHOP_E2E_PROJECT",
     "API_PORT",
     "POSTGRES_PORT",
     "REDIS_PORT",
@@ -93,6 +96,25 @@ function Write-SmokeDiagnostics {
     }
 }
 
+function Invoke-E2eReset {
+    Invoke-Compose @(
+        "--profile", "test", "run", "--rm", "--no-deps", "e2e",
+        "python", "-m", "tools.reset_e2e_state"
+    )
+}
+
+function Stop-E2eRuntime {
+    $runtimeServices = @("api", "worker", "beat")
+    $stopArguments = @("stop") + $runtimeServices
+    Invoke-Compose $stopArguments
+    $running = & docker compose --project-name $ProjectName --file $composePath `
+        ps --status running --services @runtimeServices
+    $matching = @($running | Where-Object { $runtimeServices -contains $_ })
+    if ($LASTEXITCODE -ne 0 -or $matching.Count -ne 0) {
+        throw "API, worker, or beat remained live after stop."
+    }
+}
+
 try {
     if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
         throw "Docker CLI is required."
@@ -116,6 +138,13 @@ try {
         "Process"
     )
     [Environment]::SetEnvironmentVariable("AI_WORKSHOP_ENVIRONMENT", "local", "Process")
+    [Environment]::SetEnvironmentVariable("AI_WORKSHOP_E2E_PREPARED", "1", "Process")
+    [Environment]::SetEnvironmentVariable("AI_WORKSHOP_E2E_RESET", "1", "Process")
+    [Environment]::SetEnvironmentVariable(
+        "AI_WORKSHOP_E2E_PROJECT",
+        $ProjectName,
+        "Process"
+    )
     [Environment]::SetEnvironmentVariable("API_PORT", $ApiPort.ToString(), "Process")
     [Environment]::SetEnvironmentVariable("POSTGRES_PORT", $PostgresPort.ToString(), "Process")
     [Environment]::SetEnvironmentVariable("REDIS_PORT", $RedisPort.ToString(), "Process")
@@ -154,11 +183,15 @@ try {
         "from huggingface_hub import snapshot_download; snapshot_download(repo_id='intfloat/multilingual-e5-base', revision='d128750597153bb5987e10b1c3493a34e5a4502a', cache_dir='/models')"
     )
 
+    Write-Host "[smoke] Resetting isolated E2E state before runtime starts"
+    Stop-E2eRuntime
+    Invoke-E2eReset
+
     Write-Host "[smoke] Starting the foundation API and worker phase without beat"
     Invoke-Compose @("up", "--detach", "--wait", "api", "worker")
     Wait-ApiHealthy
 
-    Write-Host "[smoke] Running foundation E2E and its isolated teardown"
+    Write-Host "[smoke] Running foundation E2E against prepared state"
     Invoke-Compose @(
         "--profile", "test", "run", "--rm", "--no-deps", "e2e",
         "pytest", "-p", "no:cacheprovider", "tests/e2e/test_foundation_flow.py", "-q"
@@ -172,14 +205,14 @@ try {
     Invoke-Compose @("up", "--detach", "--wait", "api", "worker")
     Wait-ApiHealthy
 
-    Write-Host "[smoke] Running RAG E2E and its isolated teardown"
+    Write-Host "[smoke] Running RAG E2E against prepared state"
     Invoke-Compose @(
         "--profile", "test", "run", "--rm", "--no-deps", "e2e",
         "pytest", "-p", "no:cacheprovider", "tests/e2e/test_rag_search_flow.py", "-q"
     )
     Invoke-Compose @("stop", "api", "worker")
 
-    Write-Host "[smoke] Starting beat only after all fixture teardown is complete"
+    Write-Host "[smoke] Starting beat only after all fixture work is complete"
     Invoke-Compose @("up", "--detach", "beat")
     Start-Sleep -Seconds 5
     Assert-ServiceRunning -Service "beat"
@@ -191,14 +224,43 @@ catch {
     Write-SmokeDiagnostics
 }
 finally {
-    if ($started -and -not $KeepServices) {
-        Write-Host "[smoke] Removing isolated containers and network; retaining named volumes"
+    if ($started) {
+        $runtimeStopped = $false
+        Write-Host "[smoke] Stopping API, worker, and beat before state reset"
         try {
-            Invoke-Compose @("down", "--remove-orphans")
+            Stop-E2eRuntime
+            $runtimeStopped = $true
         }
         catch {
             $exitCode = 1
-            Write-Error "[smoke] Cleanup failed: $($_.Exception.Message)"
+            Write-Error "[smoke] Runtime stop cleanup failed: $($_.Exception.Message)" `
+                -ErrorAction Continue
+        }
+        if ($runtimeStopped) {
+            Write-Host "[smoke] Resetting isolated E2E state after runtime stops"
+            try {
+                Invoke-E2eReset
+            }
+            catch {
+                $exitCode = 1
+                Write-Error "[smoke] State reset cleanup failed: $($_.Exception.Message)" `
+                    -ErrorAction Continue
+            }
+        }
+        else {
+            Write-Error "[smoke] State reset skipped because runtime stop failed." `
+                -ErrorAction Continue
+        }
+        if (-not $KeepServices) {
+            Write-Host "[smoke] Removing isolated containers and network; retaining named volumes"
+            try {
+                Invoke-Compose @("down", "--remove-orphans")
+            }
+            catch {
+                $exitCode = 1
+                Write-Error "[smoke] Compose cleanup failed: $($_.Exception.Message)" `
+                    -ErrorAction Continue
+            }
         }
     }
     foreach ($name in $managedEnvironment) {

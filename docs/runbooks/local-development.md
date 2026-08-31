@@ -157,23 +157,24 @@ docker run --rm --volume "${repositoryRoot}\backend\build:/app/build" ai-worksho
 node frontend\node_modules\openapi-typescript\bin\cli.js backend\build\openapi.json --output frontend\src\shared\api\schema.d.ts --alphabetize --check
 ```
 
-전체 스택 smoke는 격리된 `ai-workshop-smoke` 프로젝트와 별도 PostgreSQL·Redis·Elasticsearch 포트를 만든다. beat와 fixture의 broad `TRUNCATE`가 겹치지 않도록 다음 순서를 고정한다.
+전체 스택 smoke는 격리된 `ai-workshop-smoke` 프로젝트와 별도 PostgreSQL·Redis·Elasticsearch 포트를 만든다. 실제 E2E fixture는 prepared state를 검증할 뿐 broad reset을 수행하지 않는다. reset은 `environment=test`, `AI_WORKSHOP_E2E_PREPARED=1`, `AI_WORKSHOP_E2E_RESET=1`, 격리 프로젝트명과 Compose 내부 host가 모두 일치할 때만 허용되는 단일 명령이며, 실행 중인 API·worker·beat가 없는 상태에서만 smoke가 호출한다.
 
-1. infrastructure, migration과 pinned E5 cache를 준비한다.
-2. beat 없이 API와 worker만 시작해 foundation E2E와 teardown을 끝낸 뒤 둘을 중지한다.
-3. committed `model-tools` catalog 등록 명령을 명시적으로 실행한다.
-4. beat 없이 API와 worker를 다시 시작해 RAG E2E와 teardown을 끝낸 뒤 둘을 중지한다. E2E prepared-state helper는 production Celery task name으로 handoff, durable queued 확인, dispatch 순서를 broker에 명시적으로 전달한다.
-5. 모든 fixture teardown이 끝난 뒤에만 beat를 시작하고 실행 상태를 확인한다.
-6. 종료 시 해당 프로젝트의 컨테이너와 네트워크만 제거하고 named volume은 보존한다.
+1. infrastructure, migration과 pinned E5 cache를 준비하고 API·worker·beat가 중지됐는지 확인한다.
+2. reset container가 PostgreSQL·Redis·Elasticsearch를 같은 Compose network에서 확인한 뒤 정확한 E2E 테이블, 격리 Redis DB 0과 해당 프로젝트의 RAG index prefix만 초기화한다.
+3. beat 없이 API와 worker만 시작해 foundation E2E를 끝내고 모든 영속 job이 terminal인지 확인한 뒤 둘을 중지한다.
+4. committed `model-tools` catalog 등록 명령을 명시적으로 실행한다.
+5. beat 없이 API와 worker를 다시 시작해 RAG E2E를 끝낸 뒤 둘을 중지한다. E2E prepared-state helper는 production Celery task name으로 handoff, durable queued 확인, dispatch 순서를 broker에 명시적으로 전달한다.
+6. 모든 E2E가 끝난 뒤에만 beat를 시작하고 실행 상태를 확인한 다음 중지한다.
+7. finally에서 runtime 중지를 다시 확인하고 같은 격리 reset을 실행한 뒤 해당 프로젝트의 컨테이너와 네트워크만 제거한다. named volume과 model cache는 보존한다.
 
-실패하면 smoke는 정리 전에 정확한 프로젝트의 `docker compose ps --all`과 API, worker, beat, PostgreSQL, Redis, Elasticsearch의 마지막 80줄 로그를 출력한다. 진단 실패는 원래 실패를 가리지 않으며, `down -v`나 `down --volumes`는 사용하지 않는다.
+실패하면 smoke는 정리 전에 정확한 프로젝트의 `docker compose ps --all`과 API, worker, beat, PostgreSQL, Redis, Elasticsearch의 마지막 80줄 로그를 출력한다. finally는 runtime을 먼저 중지한 뒤 reset하고 cleanup 오류를 원래 실패와 별도로 보고한다. 진단·reset 실패는 원래 실패를 가리지 않으며, `down -v`나 `down --volumes`는 사용하지 않는다.
 
 ```powershell
 cd ..
 .\scripts\smoke.ps1
 ```
 
-E2E 테스트는 `AI_WORKSHOP_E2E=1`과 `AI_WORKSHOP_ENVIRONMENT=test`가 모두 적용된 전용 DB에서만 실행한다. 개발 DB에 직접 이 값을 설정해 실행하지 않는다.
+E2E 테스트는 `AI_WORKSHOP_E2E=1`, `AI_WORKSHOP_ENVIRONMENT=test`, `AI_WORKSHOP_E2E_PREPARED=1`이 smoke가 준비한 전용 DB에 적용된 상태에서만 실행한다. Compose `e2e` service는 API·worker·beat를 자동 시작하지 않으며 prepared flag 없이 fixture를 실행하면 DB를 바꾸기 전에 `scripts/smoke.ps1` 사용 안내와 함께 실패한다. 개발 DB에 이 값을 직접 설정하거나 reset opt-in을 적용하지 않는다.
 
 ## 7. 로그와 문제 해결
 

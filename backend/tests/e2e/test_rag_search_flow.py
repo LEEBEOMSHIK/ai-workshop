@@ -1,5 +1,5 @@
 from asyncio import sleep
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -12,9 +12,8 @@ from uuid import UUID, uuid4
 import pymupdf
 import pytest
 from celery import Celery  # type: ignore[import-untyped]
-from elasticsearch import AsyncElasticsearch
-from httpx import AsyncClient
-from sqlalchemy import func, select, text
+from httpx import AsyncClient, MockTransport, Request, Response
+from sqlalchemy import func, select
 
 from ai_workshop.config import get_settings
 from ai_workshop.infrastructure.object_store.local import LocalObjectStore
@@ -60,6 +59,7 @@ from ai_workshop.worker import (
     RAG_EVALUATION_DISPATCH_RECONCILE_TASK,
     create_celery,
 )
+from tools.e2e_runtime import E2ERuntimeContractError, validate_prepared_e2e
 
 actual_stack = pytest.mark.skipif(
     environ.get("AI_WORKSHOP_E2E") != "1"
@@ -96,9 +96,6 @@ IMPORTED_E5_MODEL_CONFIG: dict[str, object] = {
     "output_mode": "dense",
     "data_policy": "local_only",
 }
-RAG_TRUNCATE_SQL = """
-TRUNCATE TABLE rag_profiles, users RESTART IDENTITY CASCADE
-"""
 RAG_PROJECTION_TASK_SEQUENCE = (
     RAG_ASSET_HANDOFF_RECONCILE_TASK,
     RAG_DISPATCH_RECONCILE_TASK,
@@ -210,38 +207,13 @@ async def test_ready_documents_remain_searchable_after_another_projection_activa
 
 
 @pytest.fixture
-async def isolated_rag_stack() -> AsyncIterator[None]:
-    settings = get_settings()
-    if settings.environment != "test":
-        pytest.fail("RAG E2E requires AI_WORKSHOP_ENVIRONMENT=test.")
-    if not environ.get("AI_WORKSHOP_E2E_BASE_URL"):
-        pytest.fail("RAG E2E requires the remote Compose API base URL.")
-    engine = create_engine(settings)
-    elasticsearch = create_elasticsearch(settings)
+def prepared_rag_stack() -> None:
     try:
-        async with engine.begin() as connection:
-            await connection.execute(text(RAG_TRUNCATE_SQL))
-        await _delete_isolated_indices(elasticsearch)
-        yield
-    finally:
-        async with engine.begin() as connection:
-            await connection.execute(text(RAG_TRUNCATE_SQL))
-        await _delete_isolated_indices(elasticsearch)
-        await elasticsearch.close()
-        await engine.dispose()
-
-
-async def _delete_isolated_indices(elasticsearch: AsyncElasticsearch) -> None:
-    settings = get_settings()
-    indices = elasticsearch.indices
-    matches = await indices.get(
-        index=f"{settings.elasticsearch_index_prefix}-*",
-        allow_no_indices=True,
-        expand_wildcards="all",
-    )
-    exact_names = sorted(matches)
-    if exact_names:
-        await indices.delete(index=exact_names, ignore_unavailable=True)
+        validate_prepared_e2e(get_settings(), environ)
+    except E2ERuntimeContractError as exc:
+        pytest.fail(str(exc))
+    if not environ.get("AI_WORKSHOP_E2E_BASE_URL"):
+        pytest.fail("Prepared E2E requires scripts/smoke.ps1.")
 
 
 def _remote_client() -> AsyncClient:
@@ -281,6 +253,18 @@ async def _create_workspace(
     )
     assert response.status_code == 201
     return response.json()
+
+
+async def _get_or_create_personal_workspace(
+    client: AsyncClient, *, name: str
+) -> dict[str, object]:
+    response = await client.get("/api/v1/workspaces")
+    assert response.status_code == 200
+    personal = [item for item in response.json() if item["kind"] == "personal"]
+    assert len(personal) <= 1
+    if personal:
+        return personal[0]
+    return await _create_workspace(client, name=name, kind="personal")
 
 
 async def _upload(
@@ -753,6 +737,51 @@ def test_insufficient_query_is_one_opaque_term_absent_from_the_corpus() -> None:
     assert INSUFFICIENT_QUERY.isascii()
     assert INSUFFICIENT_QUERY.isalnum()
     assert all(INSUFFICIENT_QUERY.casefold() not in item.casefold() for item in corpus)
+
+
+@pytest.mark.asyncio
+async def test_prepared_owner_reuses_only_the_known_singleton_owner_condition() -> None:
+    async def existing_owner(_name: str, _email: str) -> None:
+        raise SystemExit("An owner already exists.")
+
+    async def unexpected_failure(_name: str, _email: str) -> None:
+        raise SystemExit("unexpected bootstrap failure")
+
+    await _prepare_known_owner(bootstrap=existing_owner)
+    with pytest.raises(SystemExit, match="unexpected bootstrap failure"):
+        await _prepare_known_owner(bootstrap=unexpected_failure)
+
+
+@pytest.mark.asyncio
+async def test_prepared_personal_workspace_reuses_publicly_listed_workspace() -> None:
+    requests: list[tuple[str, str]] = []
+
+    async def handler(request: Request) -> Response:
+        requests.append((request.method, request.url.path))
+        return Response(
+            200,
+            json=[{"id": "known-personal", "kind": "personal"}],
+        )
+
+    async with AsyncClient(
+        transport=MockTransport(handler), base_url="http://test"
+    ) as client:
+        workspace = await _get_or_create_personal_workspace(
+            client, name="Task 14 Owner Notes"
+        )
+
+    assert workspace == {"id": "known-personal", "kind": "personal"}
+    assert requests == [("GET", "/api/v1/workspaces")]
+
+
+def test_expected_snapshot_pairs_fail_closed_on_duplicate_asset_versions() -> None:
+    document_one = uuid4()
+    document_two = uuid4()
+    version = uuid4()
+
+    assert _expected_snapshot_pairs({document_one: version}) == {(document_one, version)}
+    with pytest.raises(AssertionError):
+        _expected_snapshot_pairs({document_one: version, document_two: version})
 
 
 def _projection_diagnostics(
@@ -1371,13 +1400,31 @@ async def _search(
     return response.status_code, response.json()
 
 
+def _expected_snapshot_pairs(
+    expected_documents: Mapping[object, object],
+) -> set[tuple[UUID, UUID]]:
+    pairs = {
+        (UUID(str(document_id)), UUID(str(asset_version_id)))
+        for document_id, asset_version_id in expected_documents.items()
+    }
+    assert pairs
+    assert len(pairs) == len(expected_documents)
+    assert len({asset_version_id for _, asset_version_id in pairs}) == len(pairs)
+    return pairs
+
+
 async def _evaluation_fixture(
     *,
     query: str,
     ground_truth: Mapping[str, object],
     company_workspace_id: object,
     personal_workspace_id: object,
+    expected_documents: Mapping[object, object],
 ) -> dict[str, object]:
+    expected_snapshot_pairs = _expected_snapshot_pairs(expected_documents)
+    expected_asset_version_ids = {
+        asset_version_id for _, asset_version_id in expected_snapshot_pairs
+    }
     settings = get_settings()
     engine = create_engine(settings)
     sessions = create_session_factory(engine)
@@ -1395,6 +1442,7 @@ async def _evaluation_fixture(
                         AssetVersionRecord.document_id == DocumentRecord.id,
                     )
                     .where(DocumentRecord.active_version_id == AssetVersionRecord.id)
+                    .where(AssetVersionRecord.id.in_(expected_asset_version_ids))
                     .order_by(DocumentRecord.id)
                 )
             ).all()
@@ -1436,6 +1484,10 @@ async def _evaluation_fixture(
             )
     finally:
         await engine.dispose()
+    assert {
+        (document_id, asset_version_id)
+        for document_id, asset_version_id, _ in snapshot_rows
+    } == expected_snapshot_pairs
     assert company_evidence
     assert private_evidence
     return {
@@ -1482,17 +1534,28 @@ async def _wait_for_evaluation(
     )
 
 
-@actual_stack
-@pytest.mark.asyncio
-async def test_first_rag_search_vertical_slice_on_actual_stack(
-    isolated_rag_stack: None,
+async def _prepare_known_owner(
+    *,
+    bootstrap: Callable[[str, str], Awaitable[None]] = bootstrap_owner,
 ) -> None:
-    del isolated_rag_stack
     with patch(
         "ai_workshop.platform.identity.cli.getpass",
         side_effect=[TEST_PASSWORD, TEST_PASSWORD],
     ):
-        await bootstrap_owner("Task 14 Owner", OWNER_EMAIL)
+        try:
+            await bootstrap("Task 14 Owner", OWNER_EMAIL)
+        except SystemExit as exc:
+            if str(exc) != "An owner already exists.":
+                raise
+
+
+@actual_stack
+@pytest.mark.asyncio
+async def test_first_rag_search_vertical_slice_on_actual_stack(
+    prepared_rag_stack: None,
+) -> None:
+    del prepared_rag_stack
+    await _prepare_known_owner()
 
     exact_sentence = "COMPANY-RISK-CODE-AX17 requires daily compliance review."
     semantic_sentence = (
@@ -1516,8 +1579,8 @@ async def test_first_rag_search_vertical_slice_on_actual_stack(
         company = await _create_workspace(
             owner, name="Task 14 Company Knowledge", kind="company"
         )
-        personal = await _create_workspace(
-            owner, name="Task 14 Owner Notes", kind="personal"
+        personal = await _get_or_create_personal_workspace(
+            owner, name="Task 14 Owner Notes"
         )
         member_id = await _seed_member_and_membership(company["id"])
         del member_id
@@ -1727,6 +1790,11 @@ async def test_first_rag_search_vertical_slice_on_actual_stack(
             ground_truth=markdown_exact_truth,
             company_workspace_id=company["id"],
             personal_workspace_id=personal["id"],
+            expected_documents={
+                markdown_document["id"]: markdown_version["id"],
+                private_document["id"]: private_version["id"],
+                pdf_document["id"]: pdf_version["id"],
+            },
         )
         run_response = await owner.post(
             "/api/v1/rag/evaluation-runs",

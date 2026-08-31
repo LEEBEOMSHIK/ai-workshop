@@ -621,3 +621,344 @@ h1 {
     grid-template-columns: 1fr;
   }
 }
+
+.search-shell,
+.source-viewer-shell {
+  min-height: 100vh;
+  padding: clamp(2rem, 5vw, 5rem);
+  background:
+    radial-gradient(circle at 82% 5%, rgb(29 99 93 / 24%), transparent 28rem),
+    #0a0e13;
+}
+
+.search-header,
+.search-controls,
+.search-results,
+.source-viewer-header,
+.highlight-legend,
+.normalized-document,
+.pdf-viewer,
+.source-viewer-shell > [role="alert"],
+.source-viewer-shell > [role="status"] {
+  width: min(100%, 76rem);
+  margin-inline: auto;
+}
+
+.search-header > p:not(.eyebrow),
+.source-viewer-header > p:not(.eyebrow) {
+  color: #87939e;
+  line-height: 1.65;
+}
+
+.search-title,
+.source-viewer-title {
+  margin: 0.5rem 0 1rem;
+  font-size: clamp(2.5rem, 7vw, 5.5rem);
+  line-height: 1;
+}
+
+.search-controls {
+  display: grid;
+  gap: 1.2rem;
+  margin-top: 2.5rem;
+  padding: clamp(1.2rem, 3vw, 2rem);
+  border: 1px solid #2a3742;
+  border-radius: 1rem;
+  background: rgb(16 23 31 / 92%);
+}
+
+.search-controls fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin: 0;
+  padding: 0.9rem;
+  border: 1px solid #2d3944;
+  border-radius: 0.75rem;
+}
+
+.search-controls legend {
+  padding-inline: 0.4rem;
+  color: #cbd4dc;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.search-controls label {
+  display: grid;
+  gap: 0.45rem;
+  color: #bdc7d0;
+  font-size: 0.84rem;
+}
+
+.search-controls fieldset label,
+.experimental-consent label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.55rem;
+  background: #0c1218;
+}
+
+.search-controls input[type="search"],
+.search-controls select {
+  width: 100%;
+  padding: 0.8rem;
+  border: 1px solid #33414e;
+  border-radius: 0.6rem;
+  outline: none;
+  color: #eff4f7;
+  background: #0c1218;
+}
+
+.search-controls input:focus-visible,
+.search-controls select:focus-visible,
+.search-controls button:focus-visible,
+.source-link:focus-visible,
+.source-viewer-shell button:focus-visible {
+  outline: 3px solid rgb(85 217 201 / 42%);
+  outline-offset: 2px;
+}
+
+.search-controls button,
+.source-viewer-shell button {
+  justify-self: start;
+  padding: 0.85rem 1.15rem;
+  border: 0;
+  border-radius: 0.65rem;
+  color: #07100f;
+  background: #55d9c9;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.search-controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.experimental-consent {
+  padding: 0.9rem;
+  border: 1px solid #7b6534;
+  border-radius: 0.7rem;
+  background: #251f13;
+}
+
+.experimental-consent p {
+  margin-top: 0;
+}
+
+.experimental-badge {
+  display: inline-block;
+  margin-right: 0.5rem;
+  padding: 0.2rem 0.45rem;
+  border: 1px dashed currentColor;
+  border-radius: 999px;
+  color: #e7c98c;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.search-results {
+  display: grid;
+  gap: 2rem;
+  margin-top: 2.5rem;
+}
+
+.answer-stack {
+  display: grid;
+  gap: 2rem;
+}
+
+.answer-state,
+.evidence-card,
+.source-card,
+.normalized-element {
+  padding: 1.2rem;
+  border: 1px solid #2a3742;
+  border-radius: 0.85rem;
+  background: #10171f;
+}
+
+.answer-state {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.answer-state.supported {
+  border-left: 0.35rem solid #55d9c9;
+}
+
+.answer-state.insufficient {
+  border-left: 0.35rem double #e7c98c;
+}
+
+.answer-state h2,
+.answer-state p,
+.evidence-card h3,
+.source-card h3 {
+  margin-top: 0;
+}
+
+.configuration-version,
+.immutable-version,
+.source-location,
+.source-workspace,
+.source-card p {
+  color: #8f9ba6;
+  font-size: 0.78rem;
+}
+
+.evidence-section,
+.conflict-section,
+.related-sources {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.evidence-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.evidence-card blockquote {
+  margin: 1rem 0;
+  padding-left: 1rem;
+  border-left: 2px solid #4e6968;
+  color: #e9edf3;
+  font-size: 1.05rem;
+  line-height: 1.8;
+}
+
+.source-card-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: 0.8rem;
+}
+
+.match-badges,
+.highlight-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.match-badge {
+  padding: 0.3rem 0.55rem;
+  border-radius: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.match-badge.keyword {
+  border-bottom: 3px solid currentColor;
+  color: #9be8df;
+  background: #163b39;
+}
+
+.match-badge.semantic {
+  border: 1px dashed currentColor;
+  color: #e8c5a7;
+  background: repeating-linear-gradient(-45deg, #3b291b, #3b291b 4px, #2d2118 4px, #2d2118 8px);
+}
+
+.provenance-warning {
+  padding: 0.65rem 0.8rem;
+  border-left: 4px double #e7c98c;
+  color: #e7c98c;
+  background: #251f13;
+  font-size: 0.8rem;
+}
+
+.source-link {
+  display: inline-block;
+  margin-top: 0.8rem;
+  color: #82d9cf;
+  font-weight: 700;
+}
+
+.source-viewer-header {
+  margin-bottom: 1.5rem;
+}
+
+.highlight-legend {
+  margin-bottom: 1.25rem;
+}
+
+.normalized-document {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.normalized-element p:last-child {
+  margin-bottom: 0;
+  white-space: pre-wrap;
+  line-height: 1.8;
+}
+
+mark.keyword-highlight {
+  padding: 0.08rem;
+  color: inherit;
+  background: rgb(85 217 201 / 18%);
+  text-decoration: underline solid 3px;
+  text-decoration-color: #55d9c9;
+  text-underline-offset: 0.18rem;
+}
+
+mark.semantic-highlight {
+  padding: 0.08rem;
+  border-bottom: 2px dashed #d6a974;
+  color: inherit;
+  background: repeating-linear-gradient(-45deg, rgb(192 120 64 / 20%), rgb(192 120 64 / 20%) 3px, transparent 3px, transparent 6px);
+}
+
+.pdf-page {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid #33414e;
+  background: #fff;
+}
+
+.pdf-page img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+}
+
+.pdf-overlay-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.pdf-highlight {
+  position: absolute;
+  background: rgb(85 217 201 / 20%);
+}
+
+.pdf-highlight.keyword-highlight {
+  border: 3px solid #197c73;
+}
+
+.pdf-highlight.semantic-highlight {
+  border: 3px dashed #a8622e;
+  background: repeating-linear-gradient(-45deg, rgb(192 120 64 / 28%), rgb(192 120 64 / 28%) 4px, transparent 4px, transparent 8px);
+}
+
+@media (max-width: 680px) {
+  .search-shell,
+  .source-viewer-shell {
+    padding: 1.5rem 1rem 3rem;
+  }
+
+  .answer-state,
+  .evidence-card-header {
+    flex-direction: column;
+  }
+}

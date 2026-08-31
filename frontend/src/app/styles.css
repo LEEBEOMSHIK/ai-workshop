@@ -738,6 +738,11 @@ h1 {
   opacity: 0.45;
 }
 
+.search-controls .secondary-button {
+  color: #cbd4dc;
+  background: #25313b;
+}
+
 .experimental-consent {
   padding: 0.9rem;
   border: 1px solid #7b6534;
@@ -764,6 +769,16 @@ h1 {
   display: grid;
   gap: 2rem;
   margin-top: 2.5rem;
+}
+
+.submitted-query {
+  margin: 0;
+  color: #cbd4dc;
+}
+
+.submitted-query strong {
+  margin-right: 0.55rem;
+  color: #55d9c9;
 }
 
 .answer-stack {
@@ -804,12 +819,28 @@ h1 {
 }
 
 .configuration-version,
+.configuration-provenance,
 .immutable-version,
 .source-location,
 .source-workspace,
 .source-card p {
   color: #8f9ba6;
   font-size: 0.78rem;
+}
+
+.configuration-provenance {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  max-width: 40rem;
+}
+
+.configuration-provenance strong {
+  color: #dfe7ed;
+}
+
+.source-scope p {
+  margin: 0 0 0.35rem;
 }
 
 .evidence-section,

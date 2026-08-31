@@ -16,6 +16,28 @@ export interface SearchOptions {
   workspaces: WorkspaceOption[];
 }
 
+export interface SearchSubmissionContext {
+  readonly query: string;
+  readonly configuration: {
+    readonly id: string;
+    readonly versionId: string;
+    readonly version: number;
+    readonly name: string;
+    readonly experimental: boolean;
+  };
+  readonly workspaces: ReadonlyArray<{
+    readonly id: string;
+    readonly name: string;
+    readonly kind: WorkspaceOption["kind"];
+  }>;
+  readonly folders: ReadonlyArray<{
+    readonly id: string;
+    readonly name: string;
+    readonly workspaceId: string;
+  }>;
+  readonly experimentalConsent: boolean;
+}
+
 export async function loadSearchOptions(): Promise<SearchOptions> {
   const [workspaces, configurations] = await Promise.all([
     apiRequest<WorkspaceOption[]>("/api/v1/workspaces"),
@@ -24,10 +46,11 @@ export async function loadSearchOptions(): Promise<SearchOptions> {
   return { configurations, workspaces };
 }
 
-export function searchEvidence(request: SearchRequest): Promise<SearchResult> {
+export function searchEvidence(request: SearchRequest, signal?: AbortSignal): Promise<SearchResult> {
   return apiRequest<SearchResult>("/api/v1/rag/search", {
     method: "POST",
     json: request,
+    signal,
   });
 }
 

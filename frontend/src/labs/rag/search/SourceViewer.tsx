@@ -237,6 +237,9 @@ function validateTextHighlights(
     );
     const localStart = element ? highlight.char_start - element.location.char_start : -1;
     const localEnd = element ? highlight.char_end - element.location.char_start : -1;
+    const codePointLength = element ? Array.from(element.text).length : -1;
+    const utf16Start = element ? codePointIndexToUtf16Offset(element.text, localStart) : null;
+    const utf16End = element ? codePointIndexToUtf16Offset(element.text, localEnd) : null;
     const valid =
       Number.isInteger(highlight.char_start) &&
       Number.isInteger(highlight.char_end) &&
@@ -244,7 +247,10 @@ function validateTextHighlights(
       highlight.char_end > highlight.char_start &&
       highlight.char_start >= previousEnd &&
       element !== undefined &&
-      element.text.slice(localStart, localEnd) === highlight.text;
+      localEnd <= codePointLength &&
+      utf16Start !== null &&
+      utf16End !== null &&
+      element.text.slice(utf16Start, utf16End) === highlight.text;
     if (!valid) {
       invalid = true;
       continue;
@@ -267,8 +273,11 @@ function highlightElement(
   const parts: ReactNode[] = [];
   let cursor = 0;
   for (const highlight of relevant) {
-    const start = highlight.char_start - element.location.char_start;
-    const end = highlight.char_end - element.location.char_start;
+    const codePointStart = highlight.char_start - element.location.char_start;
+    const codePointEnd = highlight.char_end - element.location.char_start;
+    const start = codePointIndexToUtf16Offset(element.text, codePointStart);
+    const end = codePointIndexToUtf16Offset(element.text, codePointEnd);
+    if (start === null || end === null) continue;
     if (start > cursor) parts.push(element.text.slice(cursor, start));
     parts.push(
       <mark
@@ -283,6 +292,18 @@ function highlightElement(
   }
   if (cursor < element.text.length) parts.push(element.text.slice(cursor));
   return parts;
+}
+
+function codePointIndexToUtf16Offset(text: string, codePointIndex: number): number | null {
+  const codePoints = Array.from(text);
+  if (!Number.isInteger(codePointIndex) || codePointIndex < 0 || codePointIndex > codePoints.length) {
+    return null;
+  }
+  let utf16Offset = 0;
+  for (let index = 0; index < codePointIndex; index += 1) {
+    utf16Offset += codePoints[index].length;
+  }
+  return utf16Offset;
 }
 
 function overlayStyle(

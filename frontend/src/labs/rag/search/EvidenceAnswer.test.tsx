@@ -1,13 +1,26 @@
 import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
-import type { EvidenceAnswerData, SearchResult } from "./api";
+import type { EvidenceAnswerData, SearchResult, SearchSubmissionContext } from "./api";
 import { EvidenceAnswer } from "./EvidenceAnswer";
 
-const workspaceNames = new Map([
-  ["company-1", "전사 규정"],
-  ["personal-1", "개인 리서치"],
-]);
+const submissionContext: SearchSubmissionContext = {
+  query: "환매 제한은 무엇인가요?",
+  configuration: {
+    id: "configuration-1",
+    versionId: "configuration-version-1",
+    version: 3,
+    name: "승인된 하이브리드",
+    experimental: false,
+  },
+  workspaces: [
+    { id: "company-1", name: "전사 규정", kind: "company" },
+    { id: "personal-1", name: "개인 리서치", kind: "personal" },
+    { id: "temporary-1", name: "임시 검토", kind: "temporary" },
+  ],
+  folders: [{ id: "folder-1", name: "상품 규정", workspaceId: "company-1" }],
+  experimentalConsent: false,
+};
 
 describe("EvidenceAnswer", () => {
   it("renders a supported extract with immutable provenance and distinct keyword and semantic labels", () => {
@@ -25,9 +38,15 @@ describe("EvidenceAnswer", () => {
     expect(screen.getByRole("heading", { name: "확인된 근거" })).toBeVisible();
     expect(screen.getByText("환매 규정.txt")).toBeVisible();
     expect(screen.getByText("버전 4")).toBeVisible();
-    expect(screen.getByText("전사 규정")).toBeVisible();
+    expect(screen.getByText("전사")).toBeVisible();
+    expect(screen.getByText(/전사 규정/)).toHaveTextContent("company-1");
     expect(screen.getByText("제3조 › 환매")).toBeVisible();
-    expect(screen.getByText("구성 버전 3")).toBeVisible();
+    const configuration = screen.getByLabelText("사용한 저장 RAG 구성");
+    expect(configuration).toHaveTextContent("승인된 하이브리드");
+    expect(configuration).toHaveTextContent("configuration-1");
+    expect(configuration).toHaveTextContent("configuration-version-1");
+    expect(configuration).toHaveTextContent("버전 3");
+    expect(configuration).toHaveTextContent("일반 실행");
     expect(screen.getByText("정확·키워드 일치")).toBeVisible();
     expect(screen.getByText("의미 일치")).toBeVisible();
     const warning = screen.getByText("원문 위치 정보가 완전하지 않습니다.");
@@ -36,6 +55,24 @@ describe("EvidenceAnswer", () => {
       "aria-describedby",
       warning.id,
     );
+  });
+
+  it("associates a supported result warning once without duplicating a source warning", () => {
+    renderAnswer(
+      searchResult({
+        answer: evidence({ warnings: [] }),
+        status: "supported",
+        warnings: ["projection_provenance_incomplete"],
+      }),
+    );
+
+    const state = screen.getByRole("status");
+    const warnings = screen.getAllByText(
+      "검색 결과에 원문 위치 정보가 완전하지 않은 항목이 있습니다.",
+    );
+    expect(warnings).toHaveLength(1);
+    expect(state).toHaveAttribute("aria-describedby", warnings[0].id);
+    expect(screen.queryByText("원문 위치 정보가 완전하지 않습니다.")).not.toBeInTheDocument();
   });
 
   it("keeps related-looking content out of the answer when evidence is insufficient", () => {
@@ -68,6 +105,7 @@ describe("EvidenceAnswer", () => {
         projection_id: "projection-2",
         title: "상품 약관.md",
         workspace_id: "personal-1",
+        folder_id: null,
         location: { ...first.source.location, element_id: "element-2" },
       },
     });
@@ -82,18 +120,67 @@ describe("EvidenceAnswer", () => {
     );
 
     const conflictSection = screen.getByRole("region", { name: "충돌하는 근거" });
+    expect(within(conflictSection).getByLabelText("사용한 저장 RAG 구성")).toHaveTextContent(
+      "configuration-version-1",
+    );
     const cards = within(conflictSection).getAllByRole("article");
     expect(cards).toHaveLength(2);
     expect(within(cards[0]).getByText("환매 규정.txt")).toBeVisible();
     expect(within(cards[1]).getByText("상품 약관.md")).toBeVisible();
+    expect(within(cards[0]).getByText("전사")).toBeVisible();
+    expect(within(cards[1]).getByText("개인")).toBeVisible();
     expect(screen.queryByText(/종합하면|따라서/)).not.toBeInTheDocument();
+  });
+
+  it("shows the authorized folder identity and exact ids without inventing missing labels", () => {
+    const withFolder = evidence({
+      source: {
+        ...evidence().source,
+        folder_id: "folder-1",
+      },
+    });
+    const unknownScope = evidence({
+      source: {
+        ...evidence().source,
+        document_id: "document-unknown",
+        asset_version_id: "asset-version-unknown",
+        evidence_unit_id: "evidence-unknown",
+        workspace_id: "workspace-unknown",
+        folder_id: "folder-unknown",
+      },
+    });
+    const temporaryScope = evidence({
+      source: {
+        ...evidence().source,
+        document_id: "document-temporary",
+        asset_version_id: "asset-version-temporary",
+        evidence_unit_id: "evidence-temporary",
+        workspace_id: "temporary-1",
+        folder_id: null,
+      },
+    });
+
+    renderAnswer(
+      searchResult({
+        answer: withFolder,
+        conflict_state: "separate_sources",
+        conflicts: [withFolder, unknownScope, temporaryScope],
+      }),
+    );
+
+    expect(screen.getAllByText(/상품 규정/)[0]).toHaveTextContent("folder-1");
+    expect(screen.getByText(/workspace-unknown/)).toBeVisible();
+    expect(screen.getByText(/folder-unknown/)).toBeVisible();
+    expect(screen.getByText("임시")).toBeVisible();
+    expect(screen.getByText(/임시 검토/)).toHaveTextContent("temporary-1");
+    expect(screen.queryByText("알 수 없는 지식 공간")).not.toBeInTheDocument();
   });
 });
 
 function renderAnswer(result: SearchResult) {
   render(
     <MemoryRouter>
-      <EvidenceAnswer result={result} workspaceNames={workspaceNames} />
+      <EvidenceAnswer result={result} context={submissionContext} />
     </MemoryRouter>,
   );
 }

@@ -1,40 +1,45 @@
 import { useId } from "react";
 import { Link } from "react-router-dom";
 
-import type { EvidenceAnswerData, SearchResult } from "./api";
+import type { EvidenceAnswerData, SearchResult, SearchSubmissionContext } from "./api";
+import { ConfigurationProvenance, SourceScopeProvenance } from "./Provenance";
 
 interface EvidenceAnswerProps {
   result: SearchResult;
-  workspaceNames: ReadonlyMap<string, string>;
+  context: SearchSubmissionContext;
 }
 
-export function EvidenceAnswer({ result, workspaceNames }: EvidenceAnswerProps) {
+export function EvidenceAnswer({ result, context }: EvidenceAnswerProps) {
   const answer = result.status === "supported" ? result.answer : null;
   const supported = answer !== null;
+  const globalWarningId = useId();
+  const hasGlobalWarning = result.warnings.length > 0;
 
   return (
     <div className="answer-stack">
       <section className={`answer-state ${supported ? "supported" : "insufficient"}`}>
-        <div role="status">
+        <div role="status" aria-describedby={hasGlobalWarning ? globalWarningId : undefined}>
           <h2>{supported ? "근거로 답변할 수 있습니다" : "직접 답할 근거가 부족합니다"}</h2>
           <p>
             {supported
               ? "아래 원문 발췌와 위치를 확인해 주세요."
               : "관련 문서는 참고할 수 있지만 답변 근거로 확정하지 않았습니다."}
           </p>
-          {!supported && result.warnings.length > 0 ? (
-            <p className="provenance-warning">
-              원문 위치 정보가 완전하지 않은 후보는 답변 근거에서 제외했습니다.
+          {hasGlobalWarning ? (
+            <p className="provenance-warning" id={globalWarningId}>
+              {supported
+                ? "검색 결과에 원문 위치 정보가 완전하지 않은 항목이 있습니다."
+                : "원문 위치 정보가 완전하지 않은 후보는 답변 근거에서 제외했습니다."}
             </p>
           ) : null}
         </div>
-        <p className="configuration-version">구성 버전 {result.configuration_version.version}</p>
+        <ConfigurationProvenance result={result} context={context} />
       </section>
 
       {supported ? (
         <section className="evidence-section" aria-labelledby="confirmed-evidence-title">
           <h2 id="confirmed-evidence-title">확인된 근거</h2>
-          <EvidenceCard answer={answer} workspaceNames={workspaceNames} />
+          <EvidenceCard answer={answer} context={context} />
         </section>
       ) : null}
 
@@ -42,12 +47,13 @@ export function EvidenceAnswer({ result, workspaceNames }: EvidenceAnswerProps) 
         <section className="conflict-section" aria-labelledby="conflict-sources-title">
           <h2 id="conflict-sources-title">충돌하는 근거</h2>
           <p>서로 다른 원문 발췌를 분리해 표시합니다. 하나의 답변으로 합성하지 않았습니다.</p>
+          <ConfigurationProvenance result={result} context={context} />
           <div className="source-card-list">
             {result.conflicts.map((answer) => (
               <EvidenceCard
                 key={`${answer.source.asset_version_id}-${answer.source.evidence_unit_id}`}
                 answer={answer}
-                workspaceNames={workspaceNames}
+                context={context}
               />
             ))}
           </div>
@@ -59,16 +65,15 @@ export function EvidenceAnswer({ result, workspaceNames }: EvidenceAnswerProps) 
 
 function EvidenceCard({
   answer,
-  workspaceNames,
+  context,
 }: {
   answer: EvidenceAnswerData;
-  workspaceNames: ReadonlyMap<string, string>;
+  context: SearchSubmissionContext;
 }) {
   const warningId = useId();
   const warnings = Array.from(
     new Set([...answer.warnings, ...answer.highlights.flatMap((highlight) => highlight.warnings)]),
   );
-  const workspaceName = workspaceNames.get(answer.source.workspace_id);
   const hasKeyword = answer.highlights.some((highlight) => highlight.kind === "keyword");
   const hasSemantic = answer.highlights.some((highlight) => highlight.kind === "semantic");
   const location = sourceLocation(answer);
@@ -80,7 +85,11 @@ function EvidenceCard({
     >
       <div className="evidence-card-header">
         <div>
-          {workspaceName ? <span className="workspace-badge">{workspaceName}</span> : null}
+          <SourceScopeProvenance
+            workspaceId={answer.source.workspace_id}
+            folderId={answer.source.folder_id}
+            context={context}
+          />
           <h3>{answer.source.title}</h3>
         </div>
         <span className="immutable-version">버전 {answer.source.asset_version_number}</span>

@@ -51,6 +51,49 @@ describe("SourceViewer", () => {
     ]);
   });
 
+  it("interprets text offsets as Python Unicode code points across astral characters", async () => {
+    const text = "📈환매🚀3일";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          ...normalizedText("text/plain"),
+          elements: [
+            {
+              ...normalizedText("text/plain").elements[0],
+              text,
+              location: {
+                ...normalizedText("text/plain").elements[0].location,
+                char_end: Array.from(text).length,
+              },
+            },
+          ],
+        }),
+      ),
+    );
+
+    render(
+      <SourceViewer
+        assetVersionId="asset-version-1"
+        projectionId="projection-1"
+        highlights={[
+          highlight("keyword", 0, 1, "\ud83d"),
+          highlight("keyword", 1, 3, "환매"),
+          highlight("semantic", 3, 4, "🚀"),
+          highlight("keyword", 4, 6, "3일"),
+        ]}
+      />,
+    );
+
+    const document = await screen.findByRole("region", { name: "정규화된 원문" });
+    expect(document).toHaveTextContent(text);
+    expect(screen.getByText("환매", { selector: "mark.keyword-highlight" })).toBeVisible();
+    expect(screen.getByText("🚀", { selector: "mark.semantic-highlight" })).toBeVisible();
+    expect(screen.getByText("3일", { selector: "mark.keyword-highlight" })).toBeVisible();
+    expect(document.querySelectorAll("mark")).toHaveLength(3);
+    expect(screen.getByText("유효하지 않은 하이라이트 범위를 제외했습니다.")).toBeVisible();
+  });
+
   it("uses the authorized PDF image dimensions for overlays and labels missing coordinates", async () => {
     const createObjectURL = vi.fn(() => "blob:authorized-page");
     const revokeObjectURL = vi.fn();

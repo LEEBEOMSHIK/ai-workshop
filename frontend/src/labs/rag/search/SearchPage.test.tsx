@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, MemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, vi } from "vitest";
@@ -251,6 +251,160 @@ describe("SearchPage", () => {
     expect(searchBody).toMatchObject({ folder_ids: ["folder-1"] });
   });
 
+  it("keeps an immutable submitted context and ignores a cancelled late response", async () => {
+    const firstSearch = deferred<Response>();
+    const secondSearch = deferred<Response>();
+    const searchSignals: AbortSignal[] = [];
+    let searchCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        if (input === "/api/v1/workspaces") {
+          return Promise.resolve(
+            jsonResponse([
+              { id: "company-1", name: "전사 규정", kind: "company", expires_at: null },
+              { id: "personal-1", name: "개인 리서치", kind: "personal", expires_at: null },
+            ]),
+          );
+        }
+        if (input === "/api/v1/rag/configurations") {
+          return Promise.resolve(
+            jsonResponse([
+              savedConfiguration({ id: "configuration-a", name: "구성 A" }),
+              savedConfiguration({
+                id: "configuration-b",
+                version_id: "selected-configuration-version-b",
+                name: "구성 B",
+                evaluation_state: "pending",
+                experimental: true,
+                is_default: false,
+              }),
+            ]),
+          );
+        }
+        if (input === "/api/v1/workspaces/company-1/folders") {
+          return Promise.resolve(
+            jsonResponse([{ id: "folder-a", name: "전사 폴더", parent_id: null }]),
+          );
+        }
+        if (input === "/api/v1/workspaces/personal-1/folders") {
+          return Promise.resolve(
+            jsonResponse([{ id: "folder-b", name: "개인 폴더", parent_id: null }]),
+          );
+        }
+        if (input === "/api/v1/rag/search") {
+          searchSignals.push(init?.signal as AbortSignal);
+          searchCount += 1;
+          return searchCount === 1 ? firstSearch.promise : secondSearch.promise;
+        }
+        throw new Error(`Unexpected request: ${String(input)}`);
+      }),
+    );
+
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <SearchPage />
+      </MemoryRouter>,
+    );
+
+    const company = await screen.findByRole("checkbox", { name: /전사 규정/ });
+    await user.click(company);
+    await user.click(await screen.findByRole("checkbox", { name: "전사 규정 / 전사 폴더" }));
+    const configuration = screen.getByRole("combobox", { name: "저장된 RAG 구성" });
+    const query = screen.getByRole("searchbox", { name: "검색 질문" });
+    await user.selectOptions(configuration, "configuration-a");
+    await user.type(query, "첫 질문");
+    await user.click(screen.getByRole("button", { name: "근거 검색" }));
+
+    expect(company).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /개인 리서치/ })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "전사 규정 / 전사 폴더" })).toBeDisabled();
+    expect(configuration).toBeDisabled();
+    expect(query).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "검색 취소" }));
+    expect(searchSignals[0].aborted).toBe(true);
+    await user.click(company);
+    await user.click(screen.getByRole("checkbox", { name: /개인 리서치/ }));
+    await user.click(await screen.findByRole("checkbox", { name: "개인 리서치 / 개인 폴더" }));
+    await user.selectOptions(configuration, "configuration-b");
+    await user.click(screen.getByRole("checkbox", { name: "평가 전 구성을 실험 검색에 사용" }));
+    await user.clear(query);
+    await user.type(query, "두 번째 질문");
+    await user.click(screen.getByRole("button", { name: "근거 검색" }));
+
+    expect(screen.getByRole("checkbox", { name: "평가 전 구성을 실험 검색에 사용" })).toBeDisabled();
+    secondSearch.resolve(
+      jsonResponse({
+        status: "supported",
+        answer: evidenceAnswer({ workspace_id: "personal-1", folder_id: "folder-b" }),
+        conflict_state: "none",
+        conflicts: [],
+        warnings: [],
+        related_sources: [
+          {
+            document_id: "document-related-b",
+            asset_version_id: "asset-version-related-b",
+            asset_version_number: 3,
+            workspace_id: "personal-1",
+            folder_id: "folder-b",
+            projection_id: "projection-related-b",
+            chunk_id: "chunk-related-b",
+            title: "두 번째 관련 문서.md",
+            media_type: "text/markdown",
+            section_path: [],
+            fused_score: 0.4,
+          },
+        ],
+        configuration_version: {
+          configuration_id: "configuration-b",
+          version_id: "configuration-version-b",
+          version: 3,
+        },
+        experimental: true,
+      }),
+    );
+
+    const results = await screen.findByTestId("submitted-search-result");
+    expect(within(results).getByText("두 번째 질문")).toBeVisible();
+    expect(within(results).getAllByText(/구성 B/).length).toBeGreaterThan(0);
+    expect(within(results).getAllByText(/configuration-b/).length).toBeGreaterThan(0);
+    expect(
+      within(results).getAllByText(/응답 버전 ID configuration-version-b/).length,
+    ).toBeGreaterThan(0);
+    expect(
+      within(results).getAllByText(/선택 버전 ID selected-configuration-version-b/).length,
+    ).toBeGreaterThan(0);
+    expect(within(results).getAllByText("개인").length).toBeGreaterThan(0);
+    expect(within(results).getAllByText(/개인 리서치/).length).toBeGreaterThan(0);
+    expect(within(results).getAllByText(/개인 폴더/).length).toBeGreaterThan(0);
+    expect(within(results).getAllByText(/실험 실행/).length).toBeGreaterThan(0);
+    const related = within(results).getByRole("region", { name: "관련 문서" });
+    expect(within(related).getByLabelText("사용한 저장 RAG 구성")).toHaveTextContent(
+      "configuration-version-b",
+    );
+
+    firstSearch.resolve(
+      jsonResponse({
+        status: "supported",
+        answer: evidenceAnswer(),
+        conflict_state: "none",
+        conflicts: [],
+        warnings: [],
+        related_sources: [],
+        configuration_version: {
+          configuration_id: "configuration-a",
+          version_id: "configuration-version-1",
+          version: 3,
+        },
+        experimental: false,
+      }),
+    );
+    await waitFor(() => expect(within(results).queryByText("첫 질문")).not.toBeInTheDocument());
+    expect(within(results).queryByText(/구성 A/)).not.toBeInTheDocument();
+  });
+
   it.each([
     [401, "로그인이 필요합니다."],
     [404, "검색 범위 또는 구성을 찾을 수 없습니다."],
@@ -354,7 +508,7 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-function evidenceAnswer() {
+function evidenceAnswer(sourceOverrides: Record<string, unknown> = {}) {
   return {
     excerpt: "환매 요청은 영업일 기준 3일 전에 접수해야 합니다.",
     source: {
@@ -377,6 +531,7 @@ function evidenceAnswer() {
         char_end: 29,
         bbox: null,
       },
+      ...sourceOverrides,
     },
     highlights: [
       {
@@ -395,6 +550,14 @@ function evidenceAnswer() {
     semantic_score: 0.91,
     warnings: [],
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
 }
 
 function savedConfiguration(overrides: Record<string, unknown> = {}) {

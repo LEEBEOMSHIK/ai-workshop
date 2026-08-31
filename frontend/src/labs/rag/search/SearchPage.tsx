@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiError } from "../../../shared/api/client";
 import {
@@ -6,6 +6,7 @@ import {
   type SavedConfiguration,
   type SearchOptions,
   type SearchResult,
+  type SearchSubmissionContext,
   type WorkspaceOption,
   listSearchFolders,
   loadSearchOptions,
@@ -29,10 +30,15 @@ export function SearchPage() {
   const [configurationId, setConfigurationId] = useState("");
   const [experimentalConsent, setExperimentalConsent] = useState(false);
   const [query, setQuery] = useState("");
-  const [result, setResult] = useState<SearchResult | null>(null);
+  const [completedSearch, setCompletedSearch] = useState<{
+    result: SearchResult;
+    context: SearchSubmissionContext;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState("");
+  const requestGeneration = useRef(0);
+  const searchController = useRef<AbortController | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -50,6 +56,14 @@ export function SearchPage() {
       active = false;
     };
   }, []);
+
+  useEffect(
+    () => () => {
+      requestGeneration.current += 1;
+      searchController.current?.abort();
+    },
+    [],
+  );
 
   const workspaceNames = useMemo(
     () => new Map(options.workspaces.map((workspace) => [workspace.id, workspace.name])),
@@ -78,26 +92,84 @@ export function SearchPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!configurationId || workspaceIds.length === 0 || query.trim().length < 2) return;
+    if (
+      !selectedConfiguration ||
+      workspaceIds.length === 0 ||
+      query.trim().length < 2 ||
+      (requiresExperimentalConsent && !experimentalConsent)
+    ) {
+      return;
+    }
+    const submittedWorkspaces = workspaceIds.flatMap((workspaceId) => {
+      const workspace = options.workspaces.find((candidate) => candidate.id === workspaceId);
+      return workspace
+        ? [{ id: workspace.id, name: workspace.name, kind: workspace.kind }]
+        : [];
+    });
+    if (submittedWorkspaces.length !== workspaceIds.length) return;
+    const submittedWorkspaceIds = new Set(workspaceIds);
+    const submittedFolders = Object.entries(folderOptions).flatMap(([workspaceId, folders]) =>
+      submittedWorkspaceIds.has(workspaceId)
+        ? folders
+            .filter((folder) => folderIds.includes(folder.id))
+            .map((folder) => ({ id: folder.id, name: folder.name, workspaceId }))
+        : [],
+    );
+    const experimental = requiresExperimentalConsent && experimentalConsent;
+    const context: SearchSubmissionContext = {
+      query: query.trim(),
+      configuration: {
+        id: selectedConfiguration.id,
+        versionId: selectedConfiguration.version_id,
+        version: selectedConfiguration.version,
+        name: selectedConfiguration.name,
+        experimental: selectedConfiguration.experimental,
+      },
+      workspaces: submittedWorkspaces,
+      folders: submittedFolders,
+      experimentalConsent: experimental,
+    };
+    searchController.current?.abort();
+    const controller = new AbortController();
+    searchController.current = controller;
+    const generation = requestGeneration.current + 1;
+    requestGeneration.current = generation;
     setError("");
+    setCompletedSearch(null);
     setSearching(true);
     try {
-      setResult(
-        await searchEvidence({
-          query: query.trim(),
-          configuration_id: configurationId,
-          workspace_ids: workspaceIds,
-          folder_ids: folderIds,
+      const result = await searchEvidence(
+        {
+          query: context.query,
+          configuration_id: context.configuration.id,
+          workspace_ids: context.workspaces.map((workspace) => workspace.id),
+          folder_ids: context.folders.map((folder) => folder.id),
           top_k: 10,
-          experimental: requiresExperimentalConsent && experimentalConsent,
-        }),
+          experimental,
+        },
+        controller.signal,
       );
+      if (requestGeneration.current === generation && !controller.signal.aborted) {
+        setCompletedSearch({ result, context });
+      }
     } catch (caught) {
-      setResult(null);
-      setError(searchErrorMessage(caught));
+      if (requestGeneration.current === generation && !controller.signal.aborted) {
+        setCompletedSearch(null);
+        setError(searchErrorMessage(caught));
+      }
     } finally {
-      setSearching(false);
+      if (requestGeneration.current === generation) {
+        searchController.current = null;
+        setSearching(false);
+      }
     }
+  }
+
+  function cancelSearch() {
+    requestGeneration.current += 1;
+    searchController.current?.abort();
+    searchController.current = null;
+    setSearching(false);
   }
 
   return (
@@ -113,7 +185,7 @@ export function SearchPage() {
 
       {!loading ? (
         <form className="search-controls" onSubmit={handleSubmit}>
-          <fieldset>
+          <fieldset disabled={searching}>
             <legend>검색할 지식 공간</legend>
             {options.workspaces.length === 0 ? (
               <p role="status">검색할 수 있는 지식 공간이 없습니다.</p>
@@ -134,7 +206,7 @@ export function SearchPage() {
           </fieldset>
 
           {workspaceIds.some((id) => (folderOptions[id] ?? []).length > 0) ? (
-            <fieldset>
+            <fieldset disabled={searching}>
               <legend>폴더 (선택 사항)</legend>
               {workspaceIds.flatMap((workspaceId) =>
                 (folderOptions[workspaceId] ?? []).map((folder) => (
@@ -160,6 +232,7 @@ export function SearchPage() {
           <label>
             저장된 RAG 구성
             <select
+              disabled={searching}
               value={configurationId}
               onChange={(event) => {
                 setConfigurationId(event.target.value);
@@ -181,6 +254,7 @@ export function SearchPage() {
               <label>
                 <input
                   type="checkbox"
+                  disabled={searching}
                   checked={experimentalConsent}
                   onChange={(event) => setExperimentalConsent(event.target.checked)}
                 />
@@ -192,6 +266,7 @@ export function SearchPage() {
             검색 질문
             <input
               type="search"
+              disabled={searching}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
@@ -208,13 +283,19 @@ export function SearchPage() {
           >
             {searching ? "검색 중…" : "근거 검색"}
           </button>
+          {searching ? (
+            <button type="button" className="secondary-button" onClick={cancelSearch}>
+              검색 취소
+            </button>
+          ) : null}
         </form>
       ) : null}
 
-      {result ? (
-        <div className="search-results">
-          <EvidenceAnswer result={result} workspaceNames={workspaceNames} />
-          <RelatedSources sources={result.related_sources} workspaceNames={workspaceNames} />
+      {completedSearch ? (
+        <div className="search-results" data-testid="submitted-search-result">
+          <p className="submitted-query"><strong>제출한 질문</strong> {completedSearch.context.query}</p>
+          <EvidenceAnswer result={completedSearch.result} context={completedSearch.context} />
+          <RelatedSources result={completedSearch.result} context={completedSearch.context} />
         </div>
       ) : null}
     </main>

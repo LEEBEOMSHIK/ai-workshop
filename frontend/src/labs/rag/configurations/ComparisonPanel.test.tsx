@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, vi } from "vitest";
 
@@ -220,6 +220,54 @@ describe("ComparisonPanel", () => {
     expect(refreshSignal?.aborted).toBe(true);
     expect(await screen.findByRole("status")).toHaveTextContent("평가 대기");
     expect(screen.queryByRole("button", { name: "새로고침 중…" })).not.toBeInTheDocument();
+  });
+
+  it("serializes refresh behind a pending start even when the refresh handler is forced", async () => {
+    const start = deferred<Response>();
+    const refresh = deferred<Response>();
+    let startSignal: AbortSignal | undefined;
+    let refreshRequests = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        if (input === "/api/v1/rag/evaluation-runs") {
+          startSignal = init?.signal as AbortSignal;
+          return start.promise;
+        }
+        if (input === "/api/v1/rag/evaluation-runs/run-completed") {
+          refreshRequests += 1;
+          return refresh.promise;
+        }
+        throw new Error(`Unexpected request: ${String(input)}`);
+      }),
+    );
+
+    const user = userEvent.setup();
+    render(
+      <ComparisonPanel
+        configurations={[baselineConfiguration(), savedConfiguration()]}
+        initialRuns={[completedRun()]}
+        onConfigurationUpdated={() => undefined}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "평가 실행 시작" }));
+    await waitFor(() => expect(startSignal).toBeDefined());
+    const refreshButton = screen.getByRole("button", { name: "현재 실행 새로고침" });
+    const refreshWasDisabled = refreshButton.hasAttribute("disabled");
+    refreshButton.removeAttribute("disabled");
+    fireEvent.click(refreshButton);
+    await Promise.resolve();
+    if (refreshRequests > 0) refresh.resolve(jsonResponse(completedRun()));
+    start.resolve(jsonResponse(pendingRun(), 202));
+
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("run-pending");
+      expect(screen.getByRole("button", { name: "평가 실행 시작" })).toBeEnabled();
+    });
+    expect(refreshWasDisabled).toBe(true);
+    expect(refreshRequests).toBe(0);
+    expect(startSignal?.aborted).toBe(false);
   });
 
   it("keeps promotion independent through selection changes and a new run, then applies only the synchronized list", async () => {

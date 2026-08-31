@@ -220,7 +220,7 @@ export function ComparisonPanel({
   }
 
   async function refreshRun() {
-    if (!activeRun || refreshing) return;
+    if (!activeRun || starting || refreshing) return;
     refreshController.current?.abort();
     runGeneration.current += 1;
     const controller = new AbortController();
@@ -399,7 +399,7 @@ export function ComparisonPanel({
           <button
             type="button"
             className="secondary-button"
-            disabled={!activeRun || refreshing}
+            disabled={!activeRun || starting || refreshing}
             onClick={() => void refreshRun()}
           >
             {refreshing ? "새로고침 중…" : "현재 실행 새로고침"}

@@ -5,6 +5,8 @@ import {
 } from "react-router-dom";
 
 import { listDocuments } from "../platform/assets/api";
+import { loadConfigurationStudio } from "../labs/rag/configurations/api";
+import { ConfigurationStudioRoute } from "../labs/rag/configurations/ConfigurationStudioPage";
 import { loadModelLab } from "../labs/rag/models/api";
 import { ModelLabRoute } from "../labs/rag/models/ModelLabPage";
 import { SearchPage } from "../labs/rag/search/SearchPage";
@@ -36,6 +38,12 @@ export const routes: RouteObject[] = [
     path: "/workspaces/:workspaceId/documents",
     element: <DocumentPage />,
     loader: documentLoader,
+  },
+  {
+    path: "/rag/configurations",
+    element: <ConfigurationStudioRoute />,
+    hydrateFallbackElement: <p role="status">RAG 구성 스튜디오를 불러오는 중…</p>,
+    loader: loadConfigurationStudio,
   },
   {
     path: "/rag/models",

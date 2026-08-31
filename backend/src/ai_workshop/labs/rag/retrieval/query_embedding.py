@@ -16,7 +16,14 @@ class RetrievalQueryEmbedding:
         return self.embedding.count_tokens(text)
 
     def count_query_tokens(self, text: str) -> int:
-        return self.embedding.count_query_tokens(text)
+        try:
+            return self.embedding.count_query_tokens(text)
+        except QueryEmbeddingUnavailableError:
+            raise
+        except EmbeddingRuntimeUnavailableError as exc:
+            raise QueryEmbeddingUnavailableError(
+                "The local query tokenizer runtime is unavailable."
+            ) from exc
 
     def encode_documents(self, texts: Sequence[str]) -> list[list[float]]:
         return self.embedding.encode_documents(texts)

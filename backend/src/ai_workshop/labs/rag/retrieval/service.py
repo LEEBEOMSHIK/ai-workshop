@@ -79,12 +79,29 @@ class HybridRetrievalService:
         retrieval_profile: Profile,
         index_alias: SearchIndexTarget,
         result_limit: int,
+        query_max_tokens: int = 512,
     ) -> tuple[FusedHit, ...]:
         clean_query = query.strip()
         if not clean_query:
             raise AppError("invalid_query", "A non-empty search query is required.", 422)
         if result_limit < 1:
             raise AppError("invalid_result_limit", "The result limit must be positive.", 422)
+        if query_max_tokens < 1:
+            raise ValueError("The query token limit must be positive.")
+        try:
+            query_tokens = self.embedding.count_query_tokens(clean_query)
+        except QueryEmbeddingUnavailableError as exc:
+            raise AppError(
+                "query_tokenizer_unavailable",
+                "The query tokenizer is temporarily unavailable.",
+                503,
+            ) from exc
+        if query_tokens > query_max_tokens:
+            raise AppError(
+                "query_token_limit_exceeded",
+                f"The search query exceeds the {query_max_tokens} token model limit.",
+                422,
+            )
         bm25_top_k, dense_top_k, rrf_k = _retrieval_settings(retrieval_profile)
         _validate_active_alias(
             retrieval_profile,

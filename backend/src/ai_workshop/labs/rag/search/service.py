@@ -126,6 +126,7 @@ class SearchApplicationService:
             retrieval_profile=configuration.retrieval_profile,
             index_alias=configuration.active_index_alias,
             result_limit=request.top_k,
+            query_max_tokens=configuration.query_max_tokens,
         )
         sources = await self.source_resolver.resolve(
             actor_id=actor_id,

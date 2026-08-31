@@ -87,6 +87,7 @@ class _FrozenConfiguration:
     answer_policy_version_id: UUID
     answer_policy: AnswerPolicy
     embedding: EmbeddingPort
+    query_max_tokens: int
 
 
 class FrozenSourceResolver:
@@ -273,6 +274,7 @@ class ProductionEvaluationSearch(EvaluationSearchPort):
             retrieval_profile=configuration.retrieval_profile,
             index_alias=target,
             result_limit=candidate.retrieval_k,
+            query_max_tokens=configuration.query_max_tokens,
         )
         if candidate.execution_snapshot is None:
             raise RuntimeError("The frozen Evaluation execution snapshot is unavailable.")
@@ -515,6 +517,7 @@ class ProductionEvaluationSearch(EvaluationSearchPort):
             answer_policy_version_id=UUID(str(policy["id"])),
             answer_policy=answer_policy,
             embedding=self.embedding_factory(embedding_config),
+            query_max_tokens=embedding_config.max_tokens,
         )
 
 

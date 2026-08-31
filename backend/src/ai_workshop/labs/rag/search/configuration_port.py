@@ -19,12 +19,15 @@ class ResolvedSearchConfiguration:
     answer_policy: AnswerPolicy | None
     active_index_alias: SearchIndexTarget
     embedding: EmbeddingPort
+    query_max_tokens: int = 512
     workspace_ids: tuple[UUID, ...] = ()
     experimental: bool = True
 
     def __post_init__(self) -> None:
         if self.configuration_version < 1:
             raise ValueError("A resolved search configuration requires a positive version.")
+        if self.query_max_tokens < 1:
+            raise ValueError("A resolved search configuration requires a token limit.")
         if (
             self.answer_policy is not None
             and self.answer_policy.require_complete_provenance is not True

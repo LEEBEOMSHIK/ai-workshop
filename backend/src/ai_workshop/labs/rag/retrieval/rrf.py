@@ -23,9 +23,9 @@ def rrf_fuse(
 
     sparse_ranks = _best_ranks(sparse)
     dense_ranks = _best_ranks(dense)
-    first_seen: dict[ChunkIdentifier, int] = {}
+    first_seen: dict[ChunkIdentifier, None] = {}
     for chunk_id in (*sparse_ranks, *dense_ranks):
-        first_seen.setdefault(chunk_id, len(first_seen))
+        first_seen.setdefault(chunk_id, None)
     chunks = _chunks((*sparse, *dense))
 
     fused = []
@@ -47,7 +47,7 @@ def rrf_fuse(
     return tuple(
         sorted(
             fused,
-            key=lambda hit: (-hit.score, hit.best_rank, first_seen[hit.chunk_id]),
+            key=lambda hit: (-hit.score, hit.best_rank, str(hit.chunk_id)),
         )
     )
 

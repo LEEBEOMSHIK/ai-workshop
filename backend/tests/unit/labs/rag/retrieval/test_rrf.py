@@ -4,14 +4,14 @@ from ai_workshop.labs.rag.retrieval.domain import RankedHit
 from ai_workshop.labs.rag.retrieval.rrf import rrf_fuse
 
 
-def test_rrf_orders_disjoint_hits_by_rank_then_branch_stably() -> None:
+def test_rrf_orders_disjoint_hits_by_rank_then_immutable_chunk_id() -> None:
     result = rrf_fuse(
         sparse=[RankedHit("s1", 1), RankedHit("s2", 2)],
         dense=[RankedHit("d1", 1), RankedHit("d2", 2)],
         k=60,
     )
 
-    assert [hit.chunk_id for hit in result] == ["s1", "d1", "s2", "d2"]
+    assert [hit.chunk_id for hit in result] == ["d1", "s1", "d2", "s2"]
 
 
 def test_rrf_combines_duplicate_chunk() -> None:
@@ -38,14 +38,14 @@ def test_rrf_breaks_equal_score_by_best_individual_rank() -> None:
     assert result[0].score == result[1].score == 1.0
 
 
-def test_rrf_preserves_first_input_order_after_all_numeric_ties() -> None:
+def test_rrf_breaks_all_numeric_ties_by_immutable_chunk_id() -> None:
     result = rrf_fuse(
         sparse=[RankedHit("z", 1), RankedHit("a", 1)],
         dense=[],
         k=60,
     )
 
-    assert [hit.chunk_id for hit in result] == ["z", "a"]
+    assert [hit.chunk_id for hit in result] == ["a", "z"]
 
 
 def test_rrf_rejects_non_positive_rank() -> None:

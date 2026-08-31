@@ -757,6 +757,7 @@ class SqlAlchemySearchConfigurationResolver:
             answer_policy=configuration.answer_policy_version.to_answer_policy(),
             active_index_alias=target,
             embedding=self.embedding_factory(embedding_config),
+            query_max_tokens=embedding_config.max_tokens,
             workspace_ids=workspace_ids,
             experimental=configuration.experimental,
         )

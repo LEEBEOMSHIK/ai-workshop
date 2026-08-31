@@ -272,6 +272,10 @@ async def test_sparse_and_dense_use_equivalent_acl_prefilters_and_hide_vectors()
     assert evidence.location.char_start == 10
     assert evidence.projection_id == sparse_hits[0].chunk.projection_id
     assert [call["index"] for call in client.calls] == [alias.name, alias.name]
+    assert all(
+        call["sort"] == [{"_score": "desc"}, {"chunk_id": "asc"}]
+        for call in client.calls
+    )
 
 
 @pytest.mark.asyncio
@@ -327,6 +331,10 @@ async def test_frozen_target_searches_each_validated_physical_index_separately()
 
     assert len(client.calls) == 2
     assert all("index" not in call and "pit" in call for call in client.calls)
+    assert all(
+        call["sort"] == [{"_score": "desc"}, {"chunk_id": "asc"}]
+        for call in client.calls
+    )
 
 
 @pytest.mark.asyncio

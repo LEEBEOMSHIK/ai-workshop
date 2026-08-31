@@ -137,15 +137,17 @@ class RecordingEmbedding:
         events: list[str],
         *,
         failure: Exception | None = None,
+        query_tokens: int | None = None,
     ) -> None:
         self.events = events
         self.failure = failure
+        self.query_tokens = query_tokens
 
     def count_tokens(self, text: str) -> int:
         return len(text.split())
 
     def count_query_tokens(self, text: str) -> int:
-        return len(text.split())
+        return self.query_tokens if self.query_tokens is not None else len(text.split())
 
     def encode_documents(self, texts: object) -> NoReturn:
         del texts
@@ -347,6 +349,41 @@ async def test_hybrid_resolves_scope_and_embedding_before_concurrent_branches() 
     assert scope_resolver.indexing_profile_ids == [INDEXING_PROFILE_ID]
     assert result[0].chunk_id == duplicate.chunk_id
     assert result[0].chunk == duplicate
+
+
+@pytest.mark.asyncio
+async def test_query_over_model_token_limit_is_rejected_before_scope_or_embedding() -> None:
+    events: list[str] = []
+    scope = ResolvedSearchScope((uuid4(),), ())
+    embedding = RecordingEmbedding(events, query_tokens=513)
+    sparse = RecordingSparseRetriever(events, ())
+    dense = RecordingDenseRetriever(events, ())
+    service = HybridRetrievalService(
+        scope_resolver=RecordingScopeResolver(events, scope),
+        embedding=embedding,
+        sparse_retriever=sparse,
+        dense_retriever=dense,
+    )
+
+    with pytest.raises(AppError) as error:
+        await service.search(
+            actor_id=uuid4(),
+            query="query",
+            workspace_ids=scope.workspace_ids,
+            folder_ids=(),
+            indexing_profile_id=INDEXING_PROFILE_ID,
+            retrieval_profile=_hybrid_profile(),
+            index_alias=_active_alias(),
+            result_limit=10,
+            query_max_tokens=512,
+        )
+
+    assert (error.value.code, error.value.status_code) == (
+        "query_token_limit_exceeded",
+        422,
+    )
+    assert events == []
+    assert sparse.calls == dense.calls == 0
 
 
 @pytest.mark.asyncio

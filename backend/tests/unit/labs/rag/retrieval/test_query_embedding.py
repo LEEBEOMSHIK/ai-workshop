@@ -104,6 +104,23 @@ def test_query_wrapper_translates_production_model_loader_oserror(tmp_path: Path
     assert operational.__cause__ is failure
 
 
+def test_query_token_count_translates_production_model_loader_oserror(tmp_path: Path) -> None:
+    failure = OSError("local tokenizer cache unavailable")
+
+    def loader(repo_id: str, **kwargs: Any) -> NoReturn:
+        del repo_id, kwargs
+        raise failure
+
+    query_embedding = RetrievalQueryEmbedding(_embedding(tmp_path, loader))
+
+    with pytest.raises(QueryEmbeddingUnavailableError) as error:
+        query_embedding.count_query_tokens("synthetic query")
+
+    operational = error.value.__cause__
+    assert isinstance(operational, EmbeddingRuntimeUnavailableError)
+    assert operational.__cause__ is failure
+
+
 def test_query_wrapper_translates_production_model_runtime_error(tmp_path: Path) -> None:
     failure = RuntimeError("model runtime unavailable")
     model = _Model(failure=failure)

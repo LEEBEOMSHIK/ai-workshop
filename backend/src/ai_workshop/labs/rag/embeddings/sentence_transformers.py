@@ -38,10 +38,20 @@ class SentenceTransformerEmbedding:
         self._model: _SentenceTransformerModel | None = None
 
     def count_tokens(self, text: str) -> int:
-        return self._count_input(self._document_input(text))
+        return self._count_tokens(self._document_input(text))
 
     def count_query_tokens(self, text: str) -> int:
-        return self._count_input(self._query_input(text))
+        return self._count_tokens(self._query_input(text))
+
+    def _count_tokens(self, model_input: str) -> int:
+        try:
+            return self._count_input(model_input)
+        except EmbeddingRuntimeUnavailableError:
+            raise
+        except (OSError, RuntimeError) as exc:
+            raise EmbeddingRuntimeUnavailableError(
+                "The local embedding tokenizer runtime is unavailable."
+            ) from exc
 
     def _count_input(self, model_input: str) -> int:
         encoded = self._load().tokenizer(

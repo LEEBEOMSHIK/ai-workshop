@@ -60,6 +60,7 @@ RETRIEVAL_SOURCE_FIELDS = (
     "text",
     "evidence_units",
 )
+RETRIEVAL_SORT = [{"_score": "desc"}, {"chunk_id": "asc"}]
 
 
 async def require_concrete_frozen_indices(
@@ -282,6 +283,7 @@ class ElasticsearchSparseRetriever:
                                 }
                             },
                             size=top_k,
+                            sort=RETRIEVAL_SORT,
                             source={"includes": list(RETRIEVAL_SOURCE_FIELDS)},
                         ),
                     )
@@ -294,8 +296,7 @@ class ElasticsearchSparseRetriever:
             ) from exc
         raw_hits = sorted(
             (hit for response in responses for hit in _raw_hits(response)),
-            key=_score,
-            reverse=True,
+            key=_stable_hit_sort_key,
         )[:top_k]
         return tuple(
             SparseHit(_parse_chunk(hit), rank=rank, score=_score(hit))
@@ -361,6 +362,7 @@ class ElasticsearchDenseRetriever:
                                 },
                             },
                             size=top_k,
+                            sort=RETRIEVAL_SORT,
                             source={"includes": list(RETRIEVAL_SOURCE_FIELDS)},
                         ),
                     )
@@ -373,8 +375,7 @@ class ElasticsearchDenseRetriever:
             ) from exc
         raw_hits = sorted(
             (hit for response in responses for hit in _raw_hits(response)),
-            key=_score,
-            reverse=True,
+            key=_stable_hit_sort_key,
         )[:top_k]
         return tuple(
             DenseHit(_parse_chunk(hit), rank=rank, score=_score(hit))
@@ -437,6 +438,7 @@ async def _search_frozen(
                     pit={"id": pit_id, "keep_alive": "1m"},
                     query=cast(Any, query),
                     size=size,
+                    sort=RETRIEVAL_SORT,
                     source={"includes": list(RETRIEVAL_SOURCE_FIELDS)},
                 ),
             )
@@ -449,6 +451,7 @@ async def _search_frozen(
                     pit={"id": pit_id, "keep_alive": "1m"},
                     knn=cast(Any, knn),
                     size=size,
+                    sort=RETRIEVAL_SORT,
                     source={"includes": list(RETRIEVAL_SOURCE_FIELDS)},
                 ),
             )
@@ -520,6 +523,11 @@ def _raw_hits(response: Any) -> Sequence[dict[str, Any]]:
 def _score(hit: dict[str, Any]) -> float:
     score = hit.get("_score")
     return float(score) if score is not None else 0.0
+
+
+def _stable_hit_sort_key(hit: dict[str, Any]) -> tuple[float, str]:
+    source = cast(dict[str, Any], hit.get("_source", {}))
+    return (-_score(hit), str(source.get("chunk_id", "")))
 
 
 def _parse_chunk(hit: dict[str, Any]) -> RetrievedChunk:

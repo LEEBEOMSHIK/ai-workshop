@@ -287,8 +287,43 @@ indexing_profile_id)` identity. The record contains only a stable error code/cla
 bounded sanitized message, attempts, last/next retry timestamps, and one of
 `retrying`, `resolved`, `quarantined`, or `cancelled`. Transient errors use bounded
 exponential backoff, deterministic errors quarantine, obsolete sources cancel, and
-success resolves the record. Unexpected programming errors are not recorded as
-ordinary retries; the batch processes other commands and then fails visibly.
+success resolves the record. Unknown command failures are quarantined on that exact
+handoff identity with stable code `internal_error`; they are never ordinary retries.
+The safe message contains only a bounded exception class name, never the exception
+message, document content, or connection details. The aggregate run error and worker
+log carry a bounded list of exact Asset Version and indexing profile UUID pairs so
+operators can locate the durable ledger rows. Quarantined identities are excluded
+from later source batches, allowing healthy commands beyond the batch boundary to
+make progress. The batch processes other commands before failing visibly.
+
+PostgreSQL is also authoritative for periodic profile-alias convergence. For each
+indexing profile, the intended alias set is derived only from a current active
+`READY` Asset Version whose Projection and immutable Build are both `READY`; neither
+the current Elasticsearch alias nor stale `is_active` flags are an input. The
+reconciler snapshots targets in deterministic UUID order. Normal stage-changing
+paths retain their `Ingestion → Job → Projection` locks before the shared source
+locks; the alias reconciler does not acquire those stage rows. Every path that shares
+source and profile locks acquires `Asset Version → Document → profile`, and the alias
+reconciler takes source pairs in deterministic UUID order before locking all profile
+Build rows. It re-reads membership after the profile lock. A new or disappeared
+target aborts that profile before any Elasticsearch call and is retried by a later
+run, avoiding a profile-to-source lock inversion with normal final activation. The
+inactive-source reconciler never acquires the profile lock.
+
+After a stable snapshot, reconciliation replaces the Elasticsearch alias with the
+exact intended set, verifies it, and then sets every Build `is_active` flag for the
+profile equal to that exact set in the same database transaction. Recovery may use
+an empty target set to remove a stale alias, but it still validates the canonical
+profile alias and every nonempty physical target name. Normal prepared activation
+continues requiring a nonempty set containing its prepared Build. Elasticsearch
+success followed by database rollback is eventually consistent: the next periodic
+run derives the same truth from PostgreSQL and repairs both alias and flags.
+
+Alias replacement holds source and profile locks across the external call. This is
+the serialization boundary, so Elasticsearch connection/timeout failures are typed
+retryable failures and lock duration may grow to the external timeout. A failed
+profile does not stop other profiles in the batch; beat emits a bounded aggregate
+failure signal after all claimed profiles have been processed.
 
 ## 12. 첫 AI 검색 완료 기준
 

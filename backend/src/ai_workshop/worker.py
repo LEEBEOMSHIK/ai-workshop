@@ -21,6 +21,11 @@ from ai_workshop.labs.rag.evaluation.repository import (
 )
 from ai_workshop.labs.rag.evaluation.service import EvaluationWorkflow
 from ai_workshop.labs.rag.evaluation.tasks import create_evaluation_workflow
+from ai_workshop.labs.rag.indexing.recovery import (
+    RagAliasParityResult,
+    RagAliasParityRunError,
+    SqlAlchemyRagAliasParityReconciler,
+)
 from ai_workshop.labs.rag.ingestion.dispatch import RagDispatchReconciler
 from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand, RagIngestionError
 from ai_workshop.labs.rag.ingestion.handoff import (
@@ -380,26 +385,56 @@ async def _reconcile_rag_asset_handoffs(settings: Settings) -> None:
     sessions = create_session_factory(engine)
     try:
         await SqlAlchemyInactiveRagIngestionReconciler(sessions).run_once()
+        alias_result = await SqlAlchemyRagAliasParityReconciler(settings).run_once()
+        handoff_result: RagAssetHandoffResult | None = None
+        handoff_run_error: RagAssetHandoffRunError | None = None
         async with sessions() as session:
             try:
-                result = await RagAssetHandoffReconciler(
+                handoff_result = await RagAssetHandoffReconciler(
                     SqlAlchemyRagAssetHandoffSource(session),
                     PersistentRagIngestionJobCreator(settings),
                     SqlAlchemyRagAssetHandoffFailureRepository(sessions),
                 ).run_once()
             except RagAssetHandoffRunError as exc:
-                logger.error(
-                    "rag_asset_handoff_reconcile_unexpected_failure "
-                    "claimed=%d created=%d failed=%d cause_type=%s",
-                    exc.result.claimed,
-                    exc.result.created,
-                    exc.result.failed,
-                    type(exc.__cause__).__name__,
-                )
-                raise
-            _raise_on_handoff_failures(result)
+                handoff_run_error = exc
+
+        alias_run_error: RagAliasParityRunError | None = None
+        try:
+            _raise_on_alias_parity_failures(alias_result)
+        except RagAliasParityRunError as exc:
+            alias_run_error = exc
+
+        handoff_failure_error: RagAssetHandoffRunError | None = None
+        if handoff_result is not None:
+            try:
+                _raise_on_handoff_failures(handoff_result)
+            except RagAssetHandoffRunError as exc:
+                handoff_failure_error = exc
+        if handoff_run_error is not None:
+            _log_handoff_run_error(handoff_run_error)
+            raise handoff_run_error
+        if handoff_failure_error is not None:
+            raise handoff_failure_error
+        if alias_run_error is not None:
+            raise alias_run_error
     finally:
         await engine.dispose()
+
+
+def _log_handoff_run_error(exc: RagAssetHandoffRunError) -> None:
+    identities = ",".join(
+        f"{identity.asset_version_id}:{identity.indexing_profile_id}"
+        for identity in exc.identities
+    )
+    logger.error(
+        "rag_asset_handoff_reconcile_unexpected_failure "
+        "claimed=%d created=%d failed=%d cause_type=%s identities=%s",
+        exc.result.claimed,
+        exc.result.created,
+        exc.result.failed,
+        type(exc.__cause__).__name__,
+        identities or "none",
+    )
 
 
 def _raise_on_handoff_failures(result: RagAssetHandoffResult) -> None:
@@ -412,6 +447,24 @@ def _raise_on_handoff_failures(result: RagAssetHandoffResult) -> None:
         result.failed,
     )
     raise RagAssetHandoffRunError(result)
+
+
+def _raise_on_alias_parity_failures(result: RagAliasParityResult) -> None:
+    if not result.failed:
+        return
+    failures = ",".join(
+        f"{failure.profile_id}:{failure.error_code}:{str(failure.retryable).lower()}"
+        for failure in result.failures
+    )
+    logger.error(
+        "rag_alias_parity_reconcile_failed "
+        "claimed=%d reconciled=%d failed=%d profiles=%s",
+        result.claimed,
+        result.reconciled,
+        result.failed,
+        failures or "none",
+    )
+    raise RagAliasParityRunError(result)
 
 
 async def _reconcile_asset_verification_dispatches(

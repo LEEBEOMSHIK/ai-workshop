@@ -190,3 +190,35 @@ async def test_exact_alias_replacement_rejects_unsafe_target_sets(
         await adapter.replace_active_targets(alias, targets)
 
     assert client.indices.actions is None
+
+
+@pytest.mark.asyncio
+async def test_recovery_alias_replacement_removes_every_stale_target() -> None:
+    profile_id = UUID("00000000-0000-0000-0000-000000000540")
+    alias = f"rag-{profile_id}-active"
+    first = f"rag-{profile_id}-00000000-0000-0000-0000-000000000541"
+    second = f"rag-{profile_id}-00000000-0000-0000-0000-000000000542"
+    client = AliasClient(
+        acknowledged=True,
+        current_targets=(second, first),
+    )
+    adapter = ElasticsearchSearchIndex(cast(AsyncElasticsearch, client))
+
+    reconciled = await adapter.reconcile_active_targets(alias, ())
+
+    assert reconciled is True
+    assert client.indices.actions == [
+        {"remove": {"index": first, "alias": alias}},
+        {"remove": {"index": second, "alias": alias}},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_recovery_empty_set_still_rejects_unsafe_profile_alias() -> None:
+    client = AliasClient(acknowledged=True)
+    adapter = ElasticsearchSearchIndex(cast(AsyncElasticsearch, client))
+
+    with pytest.raises(ValueError, match="safe profile alias"):
+        await adapter.reconcile_active_targets("rag-*-active", ())
+
+    assert client.indices.actions is None

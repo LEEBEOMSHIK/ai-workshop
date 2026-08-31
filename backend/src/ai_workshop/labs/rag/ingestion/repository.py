@@ -171,7 +171,12 @@ class SqlAlchemyRagAssetHandoffSource:
                         )
                     )
                 else:
-                    should_handoff = failure is not None and failure.status != "resolved"
+                    should_handoff = (
+                        failure is not None
+                        and failure.status == "retrying"
+                        and failure.next_retry_at is not None
+                        and failure.next_retry_at <= datetime.now(UTC)
+                    )
                 if should_handoff:
                     commands.append(
                         EnsureIndexedCommand(

@@ -373,6 +373,14 @@ async def test_postgres_versions_visibility_jobs_subscriptions_and_exact_resolve
             repeated_handoff = await handoff_reconciler.run_once()
             assert (recovered_handoff.created, recovered_handoff.failed) == (1, 0)
             assert (repeated_handoff.created, repeated_handoff.failed) == (0, 0)
+            retry_record.status = "quarantined"
+            retry_record.error_class = "permanent"
+            retry_record.error_code = "internal_error"
+            retry_record.last_error_message = "Internal failure class: ValueError."
+            retry_record.next_retry_at = None
+            retry_record.terminal_at = datetime.now(UTC)
+            await session.flush()
+            assert await handoff_source.pending(limit=10) == ()
             active_document.active_version_id = asset_version_id
             await session.flush()
 

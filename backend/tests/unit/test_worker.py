@@ -5,8 +5,14 @@ from sqlalchemy.exc import DisconnectionError, IntegrityError, OperationalError,
 
 import ai_workshop.worker as worker_module
 from ai_workshop.config import Settings
+from ai_workshop.labs.rag.indexing.recovery import (
+    RagAliasParityFailure,
+    RagAliasParityResult,
+    RagAliasParityRunError,
+)
 from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand
 from ai_workshop.labs.rag.ingestion.handoff import (
+    RagAssetHandoffIdentity,
     RagAssetHandoffResult,
     RagAssetHandoffRunError,
 )
@@ -21,7 +27,9 @@ from ai_workshop.worker import (
     CeleryEvaluationRunSender,
     CeleryRagJobSender,
     VerifiedAssetSubscription,
+    _log_handoff_run_error,
     _rag_error,
+    _raise_on_alias_parity_failures,
     _raise_on_handoff_failures,
     celery_app,
     create_celery,
@@ -60,6 +68,62 @@ def test_handoff_beat_failure_is_logged_and_signaled_after_batch(
         _raise_on_handoff_failures(result)
 
     assert "rag_asset_handoff_reconcile_failed claimed=3 created=2 failed=1" in caplog.text
+
+
+def test_unknown_handoff_log_carries_bounded_exact_identities(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    identities = tuple(
+        RagAssetHandoffIdentity(uuid4(), uuid4()) for _ in range(25)
+    )
+    error = RagAssetHandoffRunError(
+        RagAssetHandoffResult(claimed=25, created=0, failed=25),
+        identities=identities,
+    )
+
+    with caplog.at_level("ERROR"):
+        _log_handoff_run_error(error)
+
+    assert "rag_asset_handoff_reconcile_unexpected_failure" in caplog.text
+    assert str(identities[0].asset_version_id) in caplog.text
+    assert str(identities[0].indexing_profile_id) in caplog.text
+    assert str(identities[19].asset_version_id) in caplog.text
+    assert str(identities[20].asset_version_id) not in caplog.text
+
+
+def test_alias_parity_beat_logs_safe_profile_failures_and_signals(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    first_profile_id = uuid4()
+    second_profile_id = uuid4()
+    result = RagAliasParityResult(
+        claimed=3,
+        reconciled=1,
+        failed=2,
+        failures=(
+            RagAliasParityFailure(
+                first_profile_id,
+                "alias_parity_search_transient",
+                True,
+                "ConnectionTimeout",
+            ),
+            RagAliasParityFailure(
+                second_profile_id,
+                "alias_parity_invalid_build",
+                False,
+                "RagAliasParityError",
+            ),
+        ),
+    )
+
+    with caplog.at_level("ERROR"), pytest.raises(RagAliasParityRunError) as raised:
+        _raise_on_alias_parity_failures(result)
+
+    assert raised.value.result is result
+    assert str(first_profile_id) in caplog.text
+    assert str(second_profile_id) in caplog.text
+    assert "alias_parity_search_transient" in caplog.text
+    assert "alias_parity_invalid_build" in caplog.text
 
 
 def test_worker_registers_every_table_referenced_by_jobs() -> None:

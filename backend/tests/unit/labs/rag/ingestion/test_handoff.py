@@ -1,6 +1,7 @@
 from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy.exc import TimeoutError as SqlAlchemyTimeoutError
 
 from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand, RagIngestionError
 
@@ -131,8 +132,38 @@ async def test_expected_failures_are_classified_without_exposing_raw_messages() 
 
 
 @pytest.mark.asyncio
+async def test_sqlalchemy_pool_timeout_is_recorded_as_transient() -> None:
+    from ai_workshop.labs.rag.ingestion.handoff import RagAssetHandoffReconciler
+
+    command = EnsureIndexedCommand(uuid4(), uuid4(), uuid4())
+
+    class Source:
+        async def pending(self, *, limit: int) -> tuple[EnsureIndexedCommand, ...]:
+            return (command,)[:limit]
+
+    class Creator:
+        async def ensure_indexed(self, command: EnsureIndexedCommand) -> UUID:
+            del command
+            raise SqlAlchemyTimeoutError("postgresql://secret pool timeout")
+
+    failures = RecordingFailures()
+    result = await RagAssetHandoffReconciler(Source(), Creator(), failures).run_once()
+
+    assert (result.claimed, result.created, result.failed) == (1, 0, 1)
+    assert failures.recorded == [
+        (
+            command.indexing_profile_id,
+            "transient",
+            "database_transient",
+            "A transient database operation interrupted the RAG Asset handoff.",
+        )
+    ]
+
+
+@pytest.mark.asyncio
 async def test_programming_error_is_signaled_after_remaining_commands_run() -> None:
     from ai_workshop.labs.rag.ingestion.handoff import (
+        RagAssetHandoffIdentity,
         RagAssetHandoffReconciler,
         RagAssetHandoffRunError,
     )
@@ -153,7 +184,7 @@ async def test_programming_error_is_signaled_after_remaining_commands_run() -> N
         async def ensure_indexed(self, command: EnsureIndexedCommand) -> UUID:
             self.calls.append(command.indexing_profile_id)
             if command == commands[0]:
-                raise ValueError("synthetic programming error")
+                raise ValueError("postgresql://secret/private document body")
             return uuid4()
 
     creator = Creator()
@@ -162,7 +193,104 @@ async def test_programming_error_is_signaled_after_remaining_commands_run() -> N
         await RagAssetHandoffReconciler(Source(), creator, failures).run_once()
 
     assert creator.calls == [item.indexing_profile_id for item in commands]
-    assert failures.recorded == []
+    assert failures.recorded == [
+        (
+            commands[0].indexing_profile_id,
+            "permanent",
+            "internal_error",
+            "Internal RAG Asset handoff failure class: ValueError.",
+        )
+    ]
     assert failures.resolved == [commands[1].indexing_profile_id]
     assert exc_info.value.result.failed == 1
+    assert exc_info.value.identities == (
+        RagAssetHandoffIdentity(
+            commands[0].asset_version_id,
+            commands[0].indexing_profile_id,
+        ),
+    )
     assert isinstance(exc_info.value.__cause__, ValueError)
+
+
+@pytest.mark.asyncio
+async def test_quarantined_programming_error_does_not_starve_next_batch() -> None:
+    from ai_workshop.labs.rag.ingestion.handoff import (
+        RagAssetHandoffReconciler,
+        RagAssetHandoffRunError,
+    )
+
+    commands = tuple(EnsureIndexedCommand(uuid4(), uuid4(), uuid4()) for _ in range(3))
+    quarantined: set[tuple[UUID, UUID]] = set()
+    created: set[tuple[UUID, UUID]] = set()
+
+    class Source:
+        async def pending(self, *, limit: int) -> tuple[EnsureIndexedCommand, ...]:
+            return tuple(
+                command
+                for command in commands
+                if (command.asset_version_id, command.indexing_profile_id)
+                not in quarantined | created
+            )[:limit]
+
+    class Creator:
+        async def ensure_indexed(self, command: EnsureIndexedCommand) -> UUID:
+            if command == commands[0]:
+                raise TypeError("private internal detail")
+            created.add((command.asset_version_id, command.indexing_profile_id))
+            return uuid4()
+
+    class Failures(RecordingFailures):
+        async def record(self, command: EnsureIndexedCommand, **failure: str) -> None:
+            await super().record(command, **failure)
+            if failure["error_code"] == "internal_error":
+                quarantined.add(
+                    (command.asset_version_id, command.indexing_profile_id)
+                )
+
+    failures = Failures()
+    reconciler = RagAssetHandoffReconciler(
+        Source(), Creator(), failures, batch_size=2
+    )
+
+    with pytest.raises(RagAssetHandoffRunError):
+        await reconciler.run_once()
+    second = await reconciler.run_once()
+
+    assert (second.claimed, second.created, second.failed) == (1, 1, 0)
+    assert created == {
+        (commands[1].asset_version_id, commands[1].indexing_profile_id),
+        (commands[2].asset_version_id, commands[2].indexing_profile_id),
+    }
+
+
+@pytest.mark.asyncio
+async def test_programming_failure_identities_are_bounded() -> None:
+    from ai_workshop.labs.rag.ingestion.handoff import (
+        RagAssetHandoffIdentity,
+        RagAssetHandoffReconciler,
+        RagAssetHandoffRunError,
+    )
+
+    commands = tuple(EnsureIndexedCommand(uuid4(), uuid4(), uuid4()) for _ in range(25))
+
+    class Source:
+        async def pending(self, *, limit: int) -> tuple[EnsureIndexedCommand, ...]:
+            return commands[:limit]
+
+    class Creator:
+        async def ensure_indexed(self, command: EnsureIndexedCommand) -> UUID:
+            del command
+            raise AssertionError("private internal detail")
+
+    with pytest.raises(RagAssetHandoffRunError) as exc_info:
+        await RagAssetHandoffReconciler(
+            Source(), Creator(), RecordingFailures(), batch_size=25
+        ).run_once()
+
+    assert exc_info.value.identities == tuple(
+        RagAssetHandoffIdentity(
+            command.asset_version_id,
+            command.indexing_profile_id,
+        )
+        for command in commands[:20]
+    )

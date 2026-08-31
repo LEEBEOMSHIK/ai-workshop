@@ -139,6 +139,7 @@ docker compose -f infrastructure/compose/compose.yaml logs api worker beat postg
 - READY Asset의 구독별 RAG job이 누락됨: beat 로그에서 `ai_workshop.rag.reconcile_asset_handoffs` 실행 여부를 확인한다. reconciler는 현재 active READY 버전의 누락 프로파일만 기존 멱등 키로 생성한다.
 - RAG handoff beat가 실패함: `rag_asset_handoff_reconcile_failed` 로그의 집계 수와 `rag_asset_handoff_failures`의 `status`, `error_class`, `error_code`, `attempt_count`, `last_attempt_at`, `next_retry_at`만 확인한다. `last_error_message`는 진단용으로 제한된 안전한 문구이며 원문·비밀값을 넣지 않는다.
 - `retrying`: DB나 운영 의존성을 복구한 뒤 `next_retry_at` 이후 beat가 기존 멱등 키로 재시도한다. `quarantined`: 프로파일/구독 같은 결정적 원인을 먼저 수정하고 정상 API/worker 흐름으로 다시 요청한다. `cancelled`: Asset Version이 더 이상 active source가 아닌 정상적인 종결 상태이므로 재시도하지 않는다. 성공하면 같은 exact identity 레코드는 `resolved`가 된다.
+- RAG alias parity beat가 실패함: `rag_alias_parity_reconcile_failed` 로그의 bounded `profile UUID:error_code:retryable` 항목으로 프로파일을 찾고, PostgreSQL의 current active READY Asset Version·READY Projection·READY Build와 Elasticsearch alias target만 비교한다. `is_active`나 alias를 수동 수정하지 않는다. 외부 alias 호출 동안 source/profile lock이 유지되므로 검색 연결 지연도 함께 확인하고, 원인을 복구한 뒤 다음 beat가 alias와 모든 Build flag를 함께 수렴하게 한다.
 - 비활성 source의 RAG Job/Projection이 남음: beat가 둘을 `index_source_inactive`로 실패시키고 dispatch를 `cancelled`로 만든다. DB에서 상태나 attempt를 직접 되돌리거나 새 outbox를 수동 삽입하지 말고, active 버전의 정상 구독/handoff가 새 멱등 command를 만들게 한다.
 - 저장된 RAG 작업이 worker로 전달되지 않음: beat가 실행 중인지 확인하고 beat 로그에서 `ai_workshop.rag.reconcile_dispatches` 실행 여부를 확인한다.
 - 객체 저장 권한 오류: `object-store-init` 서비스가 성공 종료했는지 `docker compose ps -a`로 확인한다.

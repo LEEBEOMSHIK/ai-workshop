@@ -9,12 +9,13 @@ from ai_workshop.labs.rag.documents.domain import EvidenceUnit
 _SAFE_ELASTICSEARCH_NAME = re.compile(r"[a-z0-9][a-z0-9._-]*")
 
 
-def canonical_active_targets(alias: str, index_names: Sequence[str]) -> tuple[str, ...]:
+def _canonical_alias_targets(
+    alias: str,
+    index_names: Sequence[str],
+    *,
+    allow_empty: bool,
+) -> tuple[str, ...]:
     targets = tuple(index_names)
-    if not targets:
-        raise ValueError("An active RAG alias requires at least one concrete target.")
-    if len(targets) != len(set(targets)):
-        raise ValueError("An active RAG alias target set cannot contain duplicates.")
     if _SAFE_ELASTICSEARCH_NAME.fullmatch(alias) is None or not alias.endswith("-active"):
         raise ValueError("An active RAG alias must use a safe profile alias name.")
     alias_base = alias.removesuffix("-active")
@@ -27,6 +28,10 @@ def canonical_active_targets(alias: str, index_names: Sequence[str]) -> tuple[st
         raise ValueError("An active RAG alias must identify its immutable profile.") from exc
     if str(profile_id) != profile_text or not alias_base[:-37]:
         raise ValueError("An active RAG alias must use a canonical profile identity.")
+    if not targets and not allow_empty:
+        raise ValueError("An active RAG alias requires at least one concrete target.")
+    if len(targets) != len(set(targets)):
+        raise ValueError("An active RAG alias target set cannot contain duplicates.")
     target_prefix = f"{alias_base}-"
     for target in targets:
         if (
@@ -44,6 +49,14 @@ def canonical_active_targets(alias: str, index_names: Sequence[str]) -> tuple[st
         if str(build_id) != build_text:
             raise ValueError("Every active alias target must use a canonical build identity.")
     return tuple(sorted(targets))
+
+
+def canonical_active_targets(alias: str, index_names: Sequence[str]) -> tuple[str, ...]:
+    return _canonical_alias_targets(alias, index_names, allow_empty=False)
+
+
+def canonical_recovery_targets(alias: str, index_names: Sequence[str]) -> tuple[str, ...]:
+    return _canonical_alias_targets(alias, index_names, allow_empty=True)
 
 
 @dataclass(frozen=True, slots=True)

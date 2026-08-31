@@ -8,6 +8,7 @@ from ai_workshop.labs.rag.indexing.contracts import (
     IndexDescriptor,
     IndexDocument,
     canonical_active_targets,
+    canonical_recovery_targets,
 )
 
 
@@ -106,6 +107,17 @@ class ElasticsearchSearchIndex:
         self, alias: str, index_names: Sequence[str]
     ) -> bool:
         intended_targets = canonical_active_targets(alias, index_names)
+        return await self._replace_alias_targets(alias, intended_targets)
+
+    async def reconcile_active_targets(
+        self, alias: str, index_names: Sequence[str]
+    ) -> bool:
+        intended_targets = canonical_recovery_targets(alias, index_names)
+        return await self._replace_alias_targets(alias, intended_targets)
+
+    async def _replace_alias_targets(
+        self, alias: str, intended_targets: tuple[str, ...]
+    ) -> bool:
         try:
             current_targets = tuple(
                 sorted(await self.client.indices.get_alias(name=alias))

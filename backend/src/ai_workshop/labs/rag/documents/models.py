@@ -7,12 +7,10 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     ForeignKeyConstraint,
-    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
-    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -110,12 +108,6 @@ class RagIndexBuildRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("projection_id"),
         UniqueConstraint("index_name"),
-        Index(
-            "uq_rag_index_builds_active_profile",
-            "indexing_profile_id",
-            unique=True,
-            postgresql_where=text("is_active"),
-        ),
     )
 
     projection_id: Mapped[UUID] = mapped_column(

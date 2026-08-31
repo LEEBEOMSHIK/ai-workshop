@@ -40,7 +40,11 @@ from ai_workshop.labs.rag.ingestion.domain import (
 )
 from ai_workshop.labs.rag.ingestion.models import RagIngestionJobRecord
 from ai_workshop.labs.rag.ingestion.repository import SqlAlchemyRagIngestionCommandRepository
-from ai_workshop.labs.rag.ingestion.service import RagIngestionService, RagIngestionWorkflow
+from ai_workshop.labs.rag.ingestion.service import (
+    RagIngestionService,
+    RagIngestionWorkflow,
+    ReadinessVerifierPort,
+)
 from ai_workshop.labs.rag.ingestion.stages import (
     ProductionEmbeddingStage,
     ProductionIndexingStage,
@@ -113,7 +117,9 @@ class FailFirstActivationIndex:
     async def count_projection(self, index_name: str, projection_id: UUID) -> int:
         return await self.delegate.count_projection(index_name, projection_id)
 
-    async def activate(self, alias: str, index_name: str) -> bool:
+    async def replace_active_targets(
+        self, alias: str, index_names: Sequence[str]
+    ) -> bool:
         if not self.failed:
             self.failed = True
             if self.failure_mode == "acknowledgement":
@@ -125,7 +131,7 @@ class FailFirstActivationIndex:
             if self.failure_mode == "generic-value":
                 raise self.unexpected_error
             raise AssertionError(f"Unexpected failure mode: {self.failure_mode}")
-        return await self.delegate.activate(alias, index_name)
+        return await self.delegate.replace_active_targets(alias, index_names)
 
     async def active_targets(self, alias: str) -> tuple[str, ...]:
         return await self.delegate.active_targets(alias)
@@ -170,6 +176,35 @@ class CorruptEmbeddingMetadataLifecycle(SqlAlchemyRagIngestionLifecycle):
         finally:
             await engine.dispose()
         return execution
+
+
+class ProjectionStatusTamperingVerifier:
+    def __init__(
+        self,
+        settings: Settings,
+        delegate: ProductionReadinessVerifier,
+        status: ProjectionStatus,
+    ) -> None:
+        self.settings = settings
+        self.delegate = delegate
+        self.status = status
+
+    async def verify(
+        self, *, projection_id: UUID, indexing_profile_id: UUID
+    ) -> ReadinessVerification:
+        engine = create_engine(self.settings)
+        sessions = create_session_factory(engine)
+        try:
+            async with sessions.begin() as session:
+                projection = await session.get(RagProjectionRecord, projection_id)
+                assert projection is not None
+                projection.status = self.status
+        finally:
+            await engine.dispose()
+        return await self.delegate.verify(
+            projection_id=projection_id,
+            indexing_profile_id=indexing_profile_id,
+        )
 
 
 class NeverSearchIndexFactory:
@@ -277,7 +312,7 @@ async def seed_two_jobs(
                         workspace_id=workspace_id,
                         folder_id=None,
                         name=f"synthetic-{position}.txt",
-                        active_version_id=None,
+                        active_version_id=asset_id,
                     )
                 )
                 await session.flush()
@@ -290,7 +325,7 @@ async def seed_two_jobs(
                         sha256=item.sha256,
                         media_type="text/plain",
                         size=item.size,
-                        status="stored",
+                        status="ready",
                     )
                 )
             await session.flush()
@@ -322,7 +357,7 @@ async def seed_two_jobs(
 
 def workflow(
     settings: Settings,
-    verifier: CoordinatedVerifier | ProductionReadinessVerifier,
+    verifier: ReadinessVerifierPort,
     *,
     lifecycle: SqlAlchemyRagIngestionLifecycle | None = None,
     indexing: ProductionIndexingStage | None = None,
@@ -400,6 +435,186 @@ async def test_corrupt_persisted_embedding_metadata_rejects_before_es_factory(
                 )
                 if key is not None
             ]
+        async with sessions.begin() as session:
+            await session.execute(
+                delete(WorkspaceRecord).where(WorkspaceRecord.created_by == owner_id)
+            )
+            await session.execute(delete(ProfileRecord).where(ProfileRecord.id == profile_id))
+            await session.execute(delete(UserRecord).where(UserRecord.id == owner_id))
+            if inserted_model:
+                await session.execute(
+                    delete(ModelDefinitionRecord).where(
+                        ModelDefinitionRecord.id == E5_ID
+                    )
+                )
+        await engine.dispose()
+        for key in (*source_keys, *artifact_keys):
+            await store.delete(key)
+
+
+@pytest.mark.asyncio
+async def test_production_readiness_rejects_a_non_current_asset_version() -> None:
+    base = get_settings()
+    prefix = f"rag-task14a-inactive-{uuid4().hex}"
+    settings = base.model_copy(update={"elasticsearch_index_prefix": prefix})
+    owner_id, profile_id, job_ids, source_keys, inserted_model = await seed_two_jobs(
+        settings
+    )
+    store = LocalObjectStore(settings.object_store_root)
+    engine = create_engine(settings)
+    sessions = create_session_factory(engine)
+    client = create_elasticsearch(settings)
+    artifact_keys: list[str] = []
+    index_names: list[str] = []
+    try:
+        async with sessions.begin() as session:
+            ingestion = await session.scalar(
+                select(RagIngestionJobRecord).where(
+                    RagIngestionJobRecord.job_id == job_ids[0]
+                )
+            )
+            assert ingestion is not None
+            asset = await session.get(AssetVersionRecord, ingestion.asset_version_id)
+            assert asset is not None
+            document = await session.get(DocumentRecord, asset.document_id)
+            assert document is not None
+            document.active_version_id = None
+
+        with pytest.raises(RagIngestionError) as exc_info:
+            await workflow(settings, ProductionReadinessVerifier(settings)).run(
+                job_ids[0]
+            )
+
+        assert exc_info.value.code == "index_source_inactive"
+        assert exc_info.value.retryable is False
+    finally:
+        async with sessions() as session:
+            ingestions = list(
+                await session.scalars(
+                    select(RagIngestionJobRecord).where(
+                        RagIngestionJobRecord.job_id.in_(job_ids)
+                    )
+                )
+            )
+            index_names = list(
+                await session.scalars(
+                    select(RagIndexBuildRecord.index_name).where(
+                        RagIndexBuildRecord.indexing_profile_id == profile_id,
+                        RagIndexBuildRecord.index_name.is_not(None),
+                    )
+                )
+            )
+            artifact_keys = [
+                key
+                for ingestion in ingestions
+                for key in (
+                    ingestion.parsed_object_key,
+                    ingestion.chunk_object_key,
+                    ingestion.embedding_object_key,
+                )
+                if key is not None
+            ]
+        try:
+            if index_names:
+                await client.indices.delete(
+                    index=",".join(index_names), ignore_unavailable=True
+                )
+        finally:
+            await client.close()
+        async with sessions.begin() as session:
+            await session.execute(
+                delete(WorkspaceRecord).where(WorkspaceRecord.created_by == owner_id)
+            )
+            await session.execute(delete(ProfileRecord).where(ProfileRecord.id == profile_id))
+            await session.execute(delete(UserRecord).where(UserRecord.id == owner_id))
+            if inserted_model:
+                await session.execute(
+                    delete(ModelDefinitionRecord).where(
+                        ModelDefinitionRecord.id == E5_ID
+                    )
+                )
+        await engine.dispose()
+        for key in (*source_keys, *artifact_keys):
+            await store.delete(key)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "invalid_status",
+    [
+        ProjectionStatus.PENDING,
+        ProjectionStatus.PARSING,
+        ProjectionStatus.CHUNKING,
+        ProjectionStatus.EMBEDDING,
+        ProjectionStatus.FAILED,
+        ProjectionStatus.PARTIAL_READY,
+    ],
+)
+async def test_production_readiness_rejects_invalid_projection_status_before_alias(
+    invalid_status: ProjectionStatus,
+) -> None:
+    base = get_settings()
+    prefix = f"rag-task14a-status-{uuid4().hex}"
+    settings = base.model_copy(update={"elasticsearch_index_prefix": prefix})
+    owner_id, profile_id, job_ids, source_keys, inserted_model = await seed_two_jobs(
+        settings
+    )
+    store = LocalObjectStore(settings.object_store_root)
+    engine = create_engine(settings)
+    sessions = create_session_factory(engine)
+    client = create_elasticsearch(settings)
+    search_factory = NeverSearchIndexFactory()
+    artifact_keys: list[str] = []
+    index_names: list[str] = []
+    try:
+        verifier = ProjectionStatusTamperingVerifier(
+            settings,
+            ProductionReadinessVerifier(
+                settings,
+                search_index_session=search_factory,
+            ),
+            invalid_status,
+        )
+        with pytest.raises(RagIngestionError) as exc_info:
+            await workflow(settings, verifier).run(job_ids[0])
+
+        assert exc_info.value.code == "indexing_stage_conflict"
+        assert exc_info.value.retryable is False
+        assert search_factory.calls == 0
+    finally:
+        async with sessions() as session:
+            ingestions = list(
+                await session.scalars(
+                    select(RagIngestionJobRecord).where(
+                        RagIngestionJobRecord.job_id.in_(job_ids)
+                    )
+                )
+            )
+            index_names = list(
+                await session.scalars(
+                    select(RagIndexBuildRecord.index_name).where(
+                        RagIndexBuildRecord.indexing_profile_id == profile_id,
+                        RagIndexBuildRecord.index_name.is_not(None),
+                    )
+                )
+            )
+            artifact_keys = [
+                key
+                for ingestion in ingestions
+                for key in (
+                    ingestion.parsed_object_key,
+                    ingestion.chunk_object_key,
+                    ingestion.embedding_object_key,
+                )
+                if key is not None
+            ]
+        try:
+            if index_names:
+                await client.indices.delete(
+                    index=",".join(index_names), ignore_unavailable=True
+                )
+        finally:
+            await client.close()
         async with sessions.begin() as session:
             await session.execute(
                 delete(WorkspaceRecord).where(WorkspaceRecord.created_by == owner_id)
@@ -540,10 +755,11 @@ async def test_competing_builds_preserve_errors_and_retryable_paths_converge(
         assert reloaded_retry.index_build_id == original_build_id
         assert projection_statuses == [ProjectionStatus.READY, ProjectionStatus.READY]
         active = [build for build in builds if build.is_active]
-        assert len(active) == 1
-        assert active[0].id == original_build_id
+        assert {build.id for build in active} == {build.id for build in builds}
         alias = IndexDescriptor(768, "cosine").active_alias(prefix, profile_id)
-        assert await activation_index.active_targets(alias) == (active[0].index_name,)
+        assert await activation_index.active_targets(alias) == tuple(
+            sorted(build.index_name for build in active if build.index_name is not None)
+        )
         index_names = [build.index_name for build in builds if build.index_name is not None]
         artifact_keys = [
             key
@@ -616,6 +832,253 @@ async def test_competing_builds_preserve_errors_and_retryable_paths_converge(
 
 
 @pytest.mark.asyncio
+async def test_replacement_version_retains_other_document_and_isolates_other_profile() -> None:
+    base = get_settings()
+    prefix = f"rag-task14a-replacement-{uuid4().hex}"
+    settings = base.model_copy(update={"elasticsearch_index_prefix": prefix})
+    owner_id, profile_id, job_ids, source_keys, inserted_model = await seed_two_jobs(
+        settings
+    )
+    store = LocalObjectStore(settings.object_store_root)
+    replacement_key = f"synthetic/{uuid4()}.txt"
+    replacement = await store.put(
+        replacement_key,
+        bytes_source(b"Synthetic alpha replacement evidence."),
+    )
+    engine = create_engine(settings)
+    sessions = create_session_factory(engine)
+    client = create_elasticsearch(settings)
+    artifact_keys: list[str] = []
+    index_names: list[str] = []
+    replacement_job_id: UUID | None = None
+    replacement_asset_id = uuid4()
+    other_profile_id = uuid4()
+    other_projection_id = uuid4()
+    other_build_id = uuid4()
+    other_index_name = f"{prefix}-{other_profile_id}-{other_build_id}"
+    try:
+        async with sessions.begin() as session:
+            first_ingestion = await session.scalar(
+                select(RagIngestionJobRecord).where(
+                    RagIngestionJobRecord.job_id == job_ids[0]
+                )
+            )
+            assert first_ingestion is not None
+            other_profile = ProfileRecord(
+                id=other_profile_id,
+                kind="indexing",
+                name=f"synthetic-other-profile-{other_profile_id}",
+                version=1,
+                config={
+                    "chunker": {
+                        "name": "structure-aware",
+                        "version": 2,
+                        "target_tokens": 380,
+                        "overlap_tokens": 60,
+                    },
+                    "embedding": {"batch_size": 8, "similarity": "cosine"},
+                },
+                evaluation_state="draft",
+                is_default=False,
+            )
+            other_profile.bindings = [
+                ProfileModelBindingRecord(role="embedding", model_id=E5_ID)
+            ]
+            session.add(other_profile)
+            await session.flush()
+            session.add(
+                RagProjectionRecord(
+                    id=other_projection_id,
+                    asset_version_id=first_ingestion.asset_version_id,
+                    indexing_profile_id=other_profile_id,
+                    status=ProjectionStatus.READY,
+                )
+            )
+            await session.flush()
+            session.add(
+                RagIndexBuildRecord(
+                    id=other_build_id,
+                    projection_id=other_projection_id,
+                    indexing_profile_id=other_profile_id,
+                    index_name=other_index_name,
+                    expected_document_count=1,
+                    indexed_document_count=1,
+                    vector_dimension=768,
+                    status="ready",
+                    is_active=True,
+                )
+            )
+
+        verifier = ProductionReadinessVerifier(settings)
+        await workflow(settings, verifier).run(job_ids[0])
+        await workflow(settings, verifier).run(job_ids[1])
+
+        async with sessions.begin() as session:
+            first_ingestion = await session.scalar(
+                select(RagIngestionJobRecord).where(
+                    RagIngestionJobRecord.job_id == job_ids[0]
+                )
+            )
+            assert first_ingestion is not None
+            first_asset = await session.get(
+                AssetVersionRecord, first_ingestion.asset_version_id
+            )
+            assert first_asset is not None
+            first_document = await session.get(DocumentRecord, first_asset.document_id)
+            assert first_document is not None
+            session.add(
+                AssetVersionRecord(
+                    id=replacement_asset_id,
+                    document_id=first_document.id,
+                    number=2,
+                    object_key=replacement.key,
+                    sha256=replacement.sha256,
+                    media_type="text/plain",
+                    size=replacement.size,
+                    status="ready",
+                )
+            )
+            first_document.active_version_id = replacement_asset_id
+            await session.flush()
+            replacement_job_id = await RagIngestionService(
+                SqlAlchemyRagIngestionCommandRepository(session)
+            ).ensure_indexed(
+                EnsureIndexedCommand(replacement_asset_id, profile_id, owner_id)
+            )
+
+        await workflow(settings, ProductionReadinessVerifier(settings)).run(
+            replacement_job_id
+        )
+
+        async with sessions() as session:
+            rows = (
+                await session.execute(
+                    select(
+                        RagIndexBuildRecord,
+                        RagProjectionRecord,
+                        AssetVersionRecord,
+                    )
+                    .join(
+                        RagProjectionRecord,
+                        RagProjectionRecord.id == RagIndexBuildRecord.projection_id,
+                    )
+                    .join(
+                        AssetVersionRecord,
+                        AssetVersionRecord.id == RagProjectionRecord.asset_version_id,
+                    )
+                    .where(RagIndexBuildRecord.indexing_profile_id == profile_id)
+                )
+            ).all()
+            active_rows = [row for row in rows if row[0].is_active]
+            old_first_row = next(
+                row for row in rows if row[2].id == first_ingestion.asset_version_id
+            )
+            index_names = [
+                row[0].index_name for row in rows if row[0].index_name is not None
+            ]
+            ingestions = list(
+                await session.scalars(
+                    select(RagIngestionJobRecord).where(
+                        RagIngestionJobRecord.job_id.in_((*job_ids, replacement_job_id))
+                    )
+                )
+            )
+            artifact_keys = [
+                key
+                for ingestion in ingestions
+                for key in (
+                    ingestion.parsed_object_key,
+                    ingestion.chunk_object_key,
+                    ingestion.embedding_object_key,
+                )
+                if key is not None
+            ]
+            isolated_build = await session.get(RagIndexBuildRecord, other_build_id)
+        active_asset_ids = {row[2].id for row in active_rows}
+        assert replacement_asset_id in active_asset_ids
+        assert first_ingestion.asset_version_id not in active_asset_ids
+        assert len(active_asset_ids) == 2
+        assert old_first_row[0].is_active is False
+        assert isolated_build is not None
+        assert isolated_build.index_name == other_index_name
+        assert isolated_build.status == "ready"
+        assert isolated_build.is_active is True
+        alias = IndexDescriptor(768, "cosine").active_alias(prefix, profile_id)
+        active_names = tuple(
+            sorted(
+                row[0].index_name
+                for row in active_rows
+                if row[0].index_name is not None
+            )
+        )
+        assert await ElasticsearchSearchIndex(client).active_targets(alias) == active_names
+        await client.indices.refresh(index=alias)
+        hits = await client.search(index=alias, query={"match_all": {}}, size=10)
+        assert {
+            UUID(hit["_source"]["asset_version_id"])
+            for hit in hits["hits"]["hits"]
+        } == active_asset_ids
+    finally:
+        if not index_names:
+            async with sessions() as session:
+                index_names = list(
+                    await session.scalars(
+                        select(RagIndexBuildRecord.index_name).where(
+                            RagIndexBuildRecord.indexing_profile_id == profile_id,
+                            RagIndexBuildRecord.index_name.is_not(None),
+                        )
+                    )
+                )
+        try:
+            if index_names:
+                await client.indices.delete(
+                    index=",".join(index_names), ignore_unavailable=True
+                )
+        finally:
+            await client.close()
+        if not artifact_keys:
+            async with sessions() as session:
+                ingestions = list(
+                    await session.scalars(
+                        select(RagIngestionJobRecord).where(
+                            RagIngestionJobRecord.job_id.in_(
+                                (*job_ids, *((replacement_job_id,) if replacement_job_id else ()))
+                            )
+                        )
+                    )
+                )
+                artifact_keys = [
+                    key
+                    for ingestion in ingestions
+                    for key in (
+                        ingestion.parsed_object_key,
+                        ingestion.chunk_object_key,
+                        ingestion.embedding_object_key,
+                    )
+                    if key is not None
+                ]
+        async with sessions.begin() as session:
+            await session.execute(
+                delete(WorkspaceRecord).where(WorkspaceRecord.created_by == owner_id)
+            )
+            await session.execute(
+                delete(ProfileRecord).where(
+                    ProfileRecord.id.in_((profile_id, other_profile_id))
+                )
+            )
+            await session.execute(delete(UserRecord).where(UserRecord.id == owner_id))
+            if inserted_model:
+                await session.execute(
+                    delete(ModelDefinitionRecord).where(
+                        ModelDefinitionRecord.id == E5_ID
+                    )
+                )
+        await engine.dispose()
+        for key in (*source_keys, replacement_key, *artifact_keys):
+            await store.delete(key)
+
+
+@pytest.mark.asyncio
 async def test_alias_success_then_database_commit_failure_reuses_build_and_converges() -> None:
     base = get_settings()
     prefix = f"rag-task7-commit-{uuid4().hex}"
@@ -650,9 +1113,11 @@ async def test_alias_success_then_database_commit_failure_reuses_build_and_conve
         ) -> int:
             return await delegate.count_projection(index_name, projection_id)
 
-        async def activate(self, alias: str, index_name: str) -> bool:
+        async def replace_active_targets(
+            self, alias: str, index_names: Sequence[str]
+        ) -> bool:
             nonlocal listener_armed
-            acknowledged = await delegate.activate(alias, index_name)
+            acknowledged = await delegate.replace_active_targets(alias, index_names)
             if acknowledged and not listener_armed:
                 event.listen(Engine, "commit", fail_first_commit)
                 listener_armed = True
@@ -673,6 +1138,22 @@ async def test_alias_success_then_database_commit_failure_reuses_build_and_conve
     artifact_keys: list[str] = []
     index_names: list[str] = []
     try:
+        await workflow(settings, ProductionReadinessVerifier(settings)).run(job_ids[1])
+        async with sessions() as session:
+            prior_ingestion = await session.scalar(
+                select(RagIngestionJobRecord).where(
+                    RagIngestionJobRecord.job_id == job_ids[1]
+                )
+            )
+            assert prior_ingestion is not None
+            prior_build = await session.get(
+                RagIndexBuildRecord, prior_ingestion.index_build_id
+            )
+        assert prior_build is not None
+        assert prior_build.status == "ready"
+        assert prior_build.is_active is True
+        assert prior_build.index_name is not None
+
         with pytest.raises(OperationalError, match="readiness commit failure"):
             await workflow(
                 settings,
@@ -701,11 +1182,14 @@ async def test_alias_success_then_database_commit_failure_reuses_build_and_conve
         assert build is not None
         assert build.status == "prepared"
         assert build.is_active is False
+        assert build.index_name is not None
         assert job is not None and job.status == JobStatus.RUNNING.value
         assert projection is not None
         assert projection.status == ProjectionStatus.INDEXING
         alias = IndexDescriptor(768, "cosine").active_alias(prefix, profile_id)
-        assert await delegate.active_targets(alias) == (build.index_name,)
+        assert await delegate.active_targets(alias) == tuple(
+            sorted((prior_build.index_name, build.index_name))
+        )
 
         await workflow(settings, ProductionReadinessVerifier(settings)).run(job_ids[0])
 
@@ -721,6 +1205,14 @@ async def test_alias_success_then_database_commit_failure_reuses_build_and_conve
             )
             job = await session.get(JobRecord, job_ids[0])
             projection = await session.get(RagProjectionRecord, ingestion.projection_id)
+            active_builds = list(
+                await session.scalars(
+                    select(RagIndexBuildRecord).where(
+                        RagIndexBuildRecord.indexing_profile_id == profile_id,
+                        RagIndexBuildRecord.is_active.is_(True),
+                    )
+                )
+            )
             index_names = list(
                 await session.scalars(
                     select(RagIndexBuildRecord.index_name).where(
@@ -744,9 +1236,19 @@ async def test_alias_success_then_database_commit_failure_reuses_build_and_conve
         assert reloaded_build is not None
         assert reloaded_build.status == "ready"
         assert reloaded_build.is_active is True
+        assert {item.id for item in active_builds} == {
+            prior_build.id,
+            reloaded_build.id,
+        }
         assert job is not None and job.status == JobStatus.SUCCEEDED.value
         assert projection is not None and projection.status == ProjectionStatus.READY
-        assert await delegate.active_targets(alias) == (reloaded_build.index_name,)
+        assert await delegate.active_targets(alias) == tuple(
+            sorted(
+                item.index_name
+                for item in active_builds
+                if item.index_name is not None
+            )
+        )
     finally:
         if listener_armed:
             event.remove(Engine, "commit", fail_first_commit)

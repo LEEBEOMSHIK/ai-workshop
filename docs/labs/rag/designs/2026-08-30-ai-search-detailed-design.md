@@ -216,6 +216,28 @@ Elasticsearch 문서에는 최소한 다음 검색 필드를 둔다.
 - 활성 및 처리 상태
 - 페이지와 구조 위치
 
+하나의 불변 물리 색인은 하나의 문서 projection과 Index Build만 포함한다. 반면
+Indexing Profile의 활성 읽기 alias는 단일 물리 색인이 아니라 현재 검색 가능한
+projection 전체를 나타내며, 서로 다른 문서의 여러 정확한 물리 색인을 동시에 가리킬
+수 있다. alias 교체 대상은 해당 프로파일에서 `READY`이고 소유 Document의 현재 활성
+Asset Version에 속한 build 전체와, 검증을 마치고 지금 활성화하는 prepared build다.
+
+활성화는 프로파일 행 잠금을 직렬화 경계로 사용한다. 잠금 안에서 정본 PostgreSQL
+상태로 전체 대상 집합을 계산하고 Elasticsearch alias를 그 집합으로 원자적으로
+교체한 뒤, alias가 정확히 같은 물리 색인 집합을 가리키는지 확인하고 DB의
+`is_active` 플래그를 같은 집합과 일치시킨다. 새 문서 버전이 활성화되면 이전 버전의
+물리 색인은 alias와 활성 플래그에서 제거하되 다른 문서의 활성 물리 색인은 유지한다.
+Elasticsearch 교체 뒤 DB commit이 실패한 재시도도 같은 정본 집합으로 수렴하며,
+단일 projection용 편의 색인 경로의 기존 대상 합치기는 이 교체 판단에 사용하지 않는다.
+
+다중 활성 build를 허용하는 스키마에서 이전 단일 활성 제약으로 downgrade할 때는
+프로파일별 `updated_at DESC, created_at DESC, id DESC` 순서의 첫 build만 활성으로
+남기고 나머지를 명시적으로 비활성화한 뒤 제약을 복원한다. 이 downgrade는 검색 집합을
+축소하므로 운영 전 별도 확인이 필요한 호환성 동작이다. migration은 Elasticsearch에
+접근하지 않으므로 downgrade 직후에는 프로파일별 alias도 DB에 남은 단일 활성 build로
+원자적으로 재조정하고 정확한 대상을 확인해야 한다. 이 재조정이 끝나기 전에는 단일
+활성 build를 가정하는 이전 애플리케이션 버전을 시작하지 않는다.
+
 BM25와 dense 검색에는 동일한 Workspace, Folder, 권한, 활성 버전과 상태 필터를 검색 전에 적용한다.
 
 ## 9. Hybrid 검색 흐름

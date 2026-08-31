@@ -68,6 +68,7 @@ from ai_workshop.labs.rag.models.models import (
     ProfileRecord,
 )
 from ai_workshop.labs.rag.models.repository import _model_to_domain
+from ai_workshop.platform.assets.domain import VersionStatus
 from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecord
 from ai_workshop.platform.jobs.domain import JobStatus
 from ai_workshop.platform.jobs.repository import SqlAlchemyJobRepository
@@ -718,6 +719,15 @@ class ProductionReadinessVerifier:
                         "The prepared projection does not match its indexing profile.",
                         retryable=False,
                     )
+                if projection.status not in {
+                    ProjectionStatus.INDEXING,
+                    ProjectionStatus.READY,
+                }:
+                    raise RagIngestionError(
+                        "indexing_stage_conflict",
+                        "The final activation requires an INDEXING or READY projection.",
+                        retryable=False,
+                    )
                 profile = await session.scalar(
                     select(ProfileRecord)
                     .where(ProfileRecord.id == indexing_profile_id)
@@ -748,6 +758,8 @@ class ProductionReadinessVerifier:
                 )
                 if (
                     build is None
+                    or build.projection_id != projection_id
+                    or build.indexing_profile_id != indexing_profile_id
                     or build.status not in {"prepared", "ready"}
                     or build.index_name is None
                     or build.expected_document_count is None
@@ -757,6 +769,25 @@ class ProductionReadinessVerifier:
                     raise RagIngestionError(
                         "index_build_incomplete",
                         "The final activation requires a fully prepared immutable build.",
+                        retryable=False,
+                    )
+                current_asset = await session.get(
+                    AssetVersionRecord, projection.asset_version_id
+                )
+                current_document = (
+                    await session.get(DocumentRecord, current_asset.document_id)
+                    if current_asset is not None
+                    else None
+                )
+                if (
+                    current_asset is None
+                    or current_document is None
+                    or current_asset.status != VersionStatus.READY
+                    or current_document.active_version_id != current_asset.id
+                ):
+                    raise RagIngestionError(
+                        "index_source_inactive",
+                        "The prepared build must belong to the current READY Asset Version.",
                         retryable=False,
                     )
                 verification = ReadinessVerification(
@@ -775,13 +806,68 @@ class ProductionReadinessVerifier:
                         "Persisted stage and prepared index counts do not match.",
                         retryable=False,
                     )
+                active_rows = (
+                    await session.execute(
+                        select(
+                            RagIndexBuildRecord,
+                            RagProjectionRecord,
+                            AssetVersionRecord,
+                            DocumentRecord,
+                        )
+                        .join(
+                            RagProjectionRecord,
+                            RagProjectionRecord.id == RagIndexBuildRecord.projection_id,
+                        )
+                        .join(
+                            AssetVersionRecord,
+                            AssetVersionRecord.id == RagProjectionRecord.asset_version_id,
+                        )
+                        .join(
+                            DocumentRecord,
+                            DocumentRecord.id == AssetVersionRecord.document_id,
+                        )
+                        .where(
+                            RagIndexBuildRecord.indexing_profile_id
+                            == indexing_profile_id,
+                            RagProjectionRecord.indexing_profile_id
+                            == indexing_profile_id,
+                            RagIndexBuildRecord.status == "ready",
+                            RagProjectionRecord.status == ProjectionStatus.READY,
+                            AssetVersionRecord.status == VersionStatus.READY,
+                            DocumentRecord.active_version_id == AssetVersionRecord.id,
+                        )
+                        .order_by(RagIndexBuildRecord.id)
+                    )
+                ).all()
+                target_builds = {candidate.id: candidate for candidate, *_ in active_rows}
+                target_builds[build.id] = build
+                descriptor = IndexDescriptor(build.vector_dimension, "cosine")
+                intended_targets: list[str] = []
+                for candidate in target_builds.values():
+                    expected_name = descriptor.concrete_index_name(
+                        self.settings.elasticsearch_index_prefix,
+                        indexing_profile_id,
+                        candidate.id,
+                    )
+                    if (
+                        candidate.indexing_profile_id != indexing_profile_id
+                        or candidate.status not in {"prepared", "ready"}
+                        or candidate.index_name != expected_name
+                        or candidate.vector_dimension != build.vector_dimension
+                    ):
+                        raise RagIngestionError(
+                            "index_build_incomplete",
+                            "Every active build must match the exact profile index descriptor.",
+                            retryable=False,
+                        )
+                    intended_targets.append(expected_name)
                 prepared = IndexingResult(
-                    descriptor=IndexDescriptor(build.vector_dimension, "cosine"),
+                    descriptor=descriptor,
                     profile_id=indexing_profile_id,
                     build_id=build.id,
                     projection_id=projection_id,
                     index_name=build.index_name,
-                    alias=IndexDescriptor(build.vector_dimension, "cosine").active_alias(
+                    alias=descriptor.active_alias(
                         self.settings.elasticsearch_index_prefix, indexing_profile_id
                     ),
                     indexed_document_count=build.indexed_document_count,
@@ -792,7 +878,10 @@ class ProductionReadinessVerifier:
                         activated = await IndexingService(
                             search_index,
                             index_prefix=self.settings.elasticsearch_index_prefix,
-                        ).activate_prepared(prepared)
+                        ).activate_prepared(
+                            prepared,
+                            intended_targets=intended_targets,
+                        )
                 except (
                     ActiveAliasTargetMismatchError,
                     AliasActivationNotAcknowledgedError,
@@ -804,18 +893,17 @@ class ProductionReadinessVerifier:
                 if not activated.alias_verified:
                     raise RagIngestionError(
                         "index_activation_failed",
-                        "The prepared index alias was not exclusively verified.",
+                        "The prepared index alias target set was not exactly verified.",
                         retryable=True,
                     )
+                target_build_ids = tuple(target_builds)
                 await session.execute(
                     update(RagIndexBuildRecord)
                     .where(
                         RagIndexBuildRecord.indexing_profile_id == indexing_profile_id,
-                        RagIndexBuildRecord.id != build.id,
                     )
-                    .values(is_active=False)
+                    .values(is_active=RagIndexBuildRecord.id.in_(target_build_ids))
                 )
-                build.is_active = True
                 build.status = "ready"
                 ingestion.indexed_document_count = build.indexed_document_count
                 ingestion.index_alias_verified = True

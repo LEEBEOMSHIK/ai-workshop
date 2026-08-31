@@ -4,7 +4,11 @@ from uuid import UUID
 
 from elasticsearch import AsyncElasticsearch, NotFoundError
 
-from ai_workshop.labs.rag.indexing.contracts import IndexDescriptor, IndexDocument
+from ai_workshop.labs.rag.indexing.contracts import (
+    IndexDescriptor,
+    IndexDocument,
+    canonical_active_targets,
+)
 
 
 def build_mapping(descriptor: IndexDescriptor) -> dict[str, Any]:
@@ -98,16 +102,28 @@ class ElasticsearchSearchIndex:
         )
         return int(response["count"])
 
-    async def activate(self, alias: str, index_name: str) -> bool:
+    async def replace_active_targets(
+        self, alias: str, index_names: Sequence[str]
+    ) -> bool:
+        intended_targets = canonical_active_targets(alias, index_names)
         try:
-            current_indices = list(await self.client.indices.get_alias(name=alias))
+            current_targets = tuple(
+                sorted(await self.client.indices.get_alias(name=alias))
+            )
         except NotFoundError:
-            current_indices = []
+            current_targets = ()
+        if current_targets == intended_targets:
+            return True
         actions: list[dict[str, dict[str, str]]] = [
             {"remove": {"index": existing_index, "alias": alias}}
-            for existing_index in current_indices
+            for existing_index in current_targets
+            if existing_index not in intended_targets
         ]
-        actions.append({"add": {"index": index_name, "alias": alias}})
+        actions.extend(
+            {"add": {"index": index_name, "alias": alias}}
+            for index_name in intended_targets
+            if index_name not in current_targets
+        )
         response = await self.client.indices.update_aliases(actions=actions)
         return bool(response.get("acknowledged", False))
 
@@ -116,4 +132,4 @@ class ElasticsearchSearchIndex:
             response = await self.client.indices.get_alias(name=alias)
         except NotFoundError:
             return ()
-        return tuple(response)
+        return tuple(sorted(response))

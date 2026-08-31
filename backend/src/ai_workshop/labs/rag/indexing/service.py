@@ -6,6 +6,7 @@ from ai_workshop.labs.rag.indexing.contracts import (
     IndexDescriptor,
     IndexDocument,
     SearchIndexPort,
+    canonical_active_targets,
 )
 
 
@@ -14,7 +15,7 @@ class AliasActivationNotAcknowledgedError(ValueError):
 
 
 class ActiveAliasTargetMismatchError(ValueError):
-    """The active alias does not exclusively identify the intended build."""
+    """The active alias does not identify the exact intended build set."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,7 +53,12 @@ class IndexingService:
             expected_chunk_count=expected_chunk_count,
             documents=documents,
         )
-        return await self.activate_prepared(prepared)
+        existing_targets = await self.search_index.active_targets(prepared.alias)
+        intended_targets = tuple(sorted({*existing_targets, prepared.index_name}))
+        return await self.activate_prepared(
+            prepared,
+            intended_targets=intended_targets,
+        )
 
     async def prepare_projection(
         self,
@@ -109,30 +115,48 @@ class IndexingService:
             alias_verified=False,
         )
 
-    async def activate_prepared(self, prepared: IndexingResult) -> IndexingResult:
-        if not await self.search_index.activate(prepared.alias, prepared.index_name):
+    async def activate_prepared(
+        self,
+        prepared: IndexingResult,
+        *,
+        intended_targets: Sequence[str],
+    ) -> IndexingResult:
+        expected_alias = prepared.descriptor.active_alias(
+            self.index_prefix,
+            prepared.profile_id,
+        )
+        expected_name = prepared.descriptor.concrete_index_name(
+            self.index_prefix,
+            prepared.profile_id,
+            prepared.build_id,
+        )
+        if prepared.alias != expected_alias or prepared.index_name != expected_name:
+            raise ValueError(
+                "The prepared index identity must match its service prefix, profile, and build."
+            )
+        targets = canonical_active_targets(prepared.alias, intended_targets)
+        if prepared.index_name not in targets:
+            raise ValueError("The exact active target set must include the prepared build.")
+        if not await self.search_index.replace_active_targets(prepared.alias, targets):
             raise AliasActivationNotAcknowledgedError(
                 "Elasticsearch did not acknowledge alias activation."
             )
-        await self.revalidate_active_target(
-            profile_id=prepared.profile_id,
-            build_id=prepared.build_id,
-            descriptor=prepared.descriptor,
+        await self.revalidate_active_targets(
+            alias=prepared.alias,
+            intended_targets=targets,
         )
         return replace(prepared, alias_verified=True)
 
-    async def revalidate_active_target(
+    async def revalidate_active_targets(
         self,
         *,
-        profile_id: UUID,
-        build_id: UUID,
-        descriptor: IndexDescriptor,
+        alias: str,
+        intended_targets: Sequence[str],
     ) -> bool:
-        index_name = descriptor.concrete_index_name(self.index_prefix, profile_id, build_id)
-        alias = descriptor.active_alias(self.index_prefix, profile_id)
-        if await self.search_index.active_targets(alias) != (index_name,):
+        targets = canonical_active_targets(alias, intended_targets)
+        if await self.search_index.active_targets(alias) != targets:
             raise ActiveAliasTargetMismatchError(
-                "The active alias must resolve exclusively to the verified index."
+                "The active alias must resolve exactly to the verified index set."
             )
         return True
 

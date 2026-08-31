@@ -35,7 +35,7 @@ class RecordingIndex:
         self.events: list[str] = []
         self.indices: set[str] = set()
         self.document_ids_by_index: dict[str, set[UUID]] = {}
-        self.last_activated_index: str | None = None
+        self.current_targets: tuple[str, ...] = ()
 
     async def create(self, descriptor: IndexDescriptor) -> None:
         assert descriptor.index_name is not None
@@ -53,17 +53,19 @@ class RecordingIndex:
         self.events.append(f"count:{index_name}:{projection_id}")
         return self.counted
 
-    async def activate(self, alias: str, index_name: str) -> bool:
-        self.events.append(f"activate:{alias}:{index_name}")
-        self.last_activated_index = index_name
+    async def replace_active_targets(
+        self, alias: str, index_names: Sequence[str]
+    ) -> bool:
+        targets = tuple(sorted(index_names))
+        self.events.append(f"replace:{alias}:{','.join(targets)}")
+        self.current_targets = targets
         return self.activation_acknowledged
 
     async def active_targets(self, alias: str) -> tuple[str, ...]:
         self.events.append(f"targets:{alias}")
         if self._active_targets is not None:
             return self._active_targets
-        assert self.last_activated_index is not None
-        return (self.last_activated_index,)
+        return self.current_targets
 
 
 def _document(
@@ -144,7 +146,7 @@ async def test_count_mismatch_never_activates_alias() -> None:
         await _index_one(_service(index))
 
     assert index.events[-1].startswith("count:")
-    assert not any(event.startswith("activate:") for event in index.events)
+    assert not any(event.startswith("replace:") for event in index.events)
 
 
 @pytest.mark.asyncio
@@ -154,24 +156,48 @@ async def test_unacknowledged_alias_activation_never_claims_verified_success() -
     with pytest.raises(ValueError, match="acknowledge"):
         await _index_one(_service(index))
 
-    assert not any(event.startswith("targets:") for event in index.events)
+    assert [event.split(":")[0] for event in index.events][-2:] == [
+        "targets",
+        "replace",
+    ]
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "active_targets",
     [
-        ("another-concrete-index",),
-        ("another-concrete-index", "second-concrete-index"),
+        (
+            "ai-workshop-rag-00000000-0000-0000-0000-000000000101-"
+            "00000000-0000-0000-0000-000000000299",
+        ),
+        (
+            "ai-workshop-rag-00000000-0000-0000-0000-000000000101-"
+            "00000000-0000-0000-0000-000000000201",
+            "ai-workshop-rag-00000000-0000-0000-0000-000000000101-"
+            "00000000-0000-0000-0000-000000000299",
+        ),
     ],
 )
 async def test_alias_verification_rejects_wrong_or_multiple_targets(
     active_targets: tuple[str, ...],
 ) -> None:
-    index = RecordingIndex(active_targets=active_targets)
+    index = RecordingIndex()
+    service = _service(index)
+    prepared = await service.prepare_projection(
+        descriptor=IndexDescriptor(vector_dimension=768, similarity="cosine"),
+        profile_id=PROFILE_ID,
+        build_id=BUILD_ID,
+        projection_id=PROJECTION_ID,
+        expected_chunk_count=1,
+        documents=(_document(),),
+    )
+    index._active_targets = active_targets
 
-    with pytest.raises(ActiveAliasTargetMismatchError, match="exclusively"):
-        await _index_one(_service(index))
+    with pytest.raises(ActiveAliasTargetMismatchError, match="exactly"):
+        await service.activate_prepared(
+            prepared,
+            intended_targets=(prepared.index_name,),
+        )
 
     assert index.events[-1].startswith("targets:")
 
@@ -185,7 +211,7 @@ async def test_unacknowledged_alias_activation_has_a_distinct_error() -> None:
     ):
         await _index_one(_service(index))
 
-    assert index.events[-1].startswith("activate:")
+    assert index.events[-1].startswith("replace:")
 
 
 @pytest.mark.asyncio
@@ -199,13 +225,18 @@ async def test_successful_indexing_verifies_alias_after_count_and_activation() -
         "create",
         "bulk",
         "count",
-        "activate",
+        "targets",
+        "replace",
         "targets",
     ]
-    assert await service.revalidate_active_target(
-        profile_id=PROFILE_ID,
-        build_id=BUILD_ID,
-        descriptor=IndexDescriptor(vector_dimension=768, similarity="cosine"),
+    expected_name = IndexDescriptor(768, "cosine").concrete_index_name(
+        service.index_prefix, PROFILE_ID, BUILD_ID
+    )
+    assert await service.revalidate_active_targets(
+        alias=IndexDescriptor(768, "cosine").active_alias(
+            service.index_prefix, PROFILE_ID
+        ),
+        intended_targets=(expected_name,),
     ) is True
 
 
@@ -243,10 +274,107 @@ async def test_activation_ack_and_exclusive_revalidation_are_a_separate_boundary
     )
     index.events.clear()
 
-    activated = await service.activate_prepared(prepared)
+    activated = await service.activate_prepared(
+        prepared,
+        intended_targets=(prepared.index_name,),
+    )
 
     assert activated.alias_verified is True
-    assert [event.split(":")[0] for event in index.events] == ["activate", "targets"]
+    assert [event.split(":")[0] for event in index.events] == ["replace", "targets"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tampered_prefix", "tampered_profile_id"),
+    [
+        ("other-rag", PROFILE_ID),
+        ("ai-workshop-rag", UUID("00000000-0000-0000-0000-000000000999")),
+    ],
+    ids=("prefix", "profile"),
+)
+async def test_prepared_activation_rejects_tampered_physical_identity_without_alias_mutation(
+    tampered_prefix: str,
+    tampered_profile_id: UUID,
+) -> None:
+    descriptor = IndexDescriptor(768, "cosine")
+    index = RecordingIndex()
+    service = _service(index)
+    prepared = await service.prepare_projection(
+        descriptor=descriptor,
+        profile_id=PROFILE_ID,
+        build_id=BUILD_ID,
+        projection_id=PROJECTION_ID,
+        expected_chunk_count=1,
+        documents=(_document(),),
+    )
+    tampered_name = descriptor.concrete_index_name(
+        tampered_prefix,
+        tampered_profile_id,
+        BUILD_ID,
+    )
+    tampered = replace(
+        prepared,
+        alias=descriptor.active_alias(tampered_prefix, tampered_profile_id),
+        index_name=tampered_name,
+    )
+    index.events.clear()
+
+    with pytest.raises(ValueError, match="identity"):
+        await service.activate_prepared(
+            tampered,
+            intended_targets=(tampered_name,),
+        )
+
+    assert index.events == []
+
+
+@pytest.mark.asyncio
+async def test_convenience_indexing_adds_prepared_target_to_existing_alias_targets() -> None:
+    existing_build = UUID("00000000-0000-0000-0000-000000000202")
+    existing_name = IndexDescriptor(768, "cosine").concrete_index_name(
+        "ai-workshop-rag", PROFILE_ID, existing_build
+    )
+    index = RecordingIndex()
+    index.current_targets = (existing_name,)
+
+    await _index_one(_service(index))
+
+    prepared_name = IndexDescriptor(768, "cosine").concrete_index_name(
+        "ai-workshop-rag", PROFILE_ID, BUILD_ID
+    )
+    assert index.current_targets == tuple(sorted((existing_name, prepared_name)))
+
+
+@pytest.mark.asyncio
+async def test_prepared_activation_replaces_alias_and_removes_superseded_target() -> None:
+    stale_build = UUID("00000000-0000-0000-0000-000000000202")
+    retained_build = UUID("00000000-0000-0000-0000-000000000203")
+    descriptor = IndexDescriptor(768, "cosine")
+    stale_name = descriptor.concrete_index_name(
+        "ai-workshop-rag", PROFILE_ID, stale_build
+    )
+    retained_name = descriptor.concrete_index_name(
+        "ai-workshop-rag", PROFILE_ID, retained_build
+    )
+    index = RecordingIndex()
+    index.current_targets = (stale_name, retained_name)
+    service = _service(index)
+    prepared = await service.prepare_projection(
+        descriptor=descriptor,
+        profile_id=PROFILE_ID,
+        build_id=BUILD_ID,
+        projection_id=PROJECTION_ID,
+        expected_chunk_count=1,
+        documents=(_document(),),
+    )
+
+    await service.activate_prepared(
+        prepared,
+        intended_targets=(retained_name, prepared.index_name),
+    )
+
+    assert index.current_targets == tuple(sorted((retained_name, prepared.index_name)))
+    assert stale_name not in index.current_targets
 
 
 @pytest.mark.asyncio

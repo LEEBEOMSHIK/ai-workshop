@@ -23,19 +23,35 @@ class BulkClient:
 
 
 class AliasIndices:
-    def __init__(self, *, acknowledged: bool) -> None:
+    def __init__(
+        self,
+        *,
+        acknowledged: bool,
+        current_targets: tuple[str, ...] = (),
+    ) -> None:
         self.acknowledged = acknowledged
+        self.current_targets = current_targets
+        self.actions: list[dict[str, object]] | None = None
 
     async def get_alias(self, *, name: str) -> dict[str, object]:
-        return {}
+        return {target: {"aliases": {name: {}}} for target in self.current_targets}
 
     async def update_aliases(self, *, actions: list[dict[str, object]]) -> dict[str, bool]:
+        self.actions = actions
         return {"acknowledged": self.acknowledged}
 
 
 class AliasClient:
-    def __init__(self, *, acknowledged: bool) -> None:
-        self.indices = AliasIndices(acknowledged=acknowledged)
+    def __init__(
+        self,
+        *,
+        acknowledged: bool,
+        current_targets: tuple[str, ...] = (),
+    ) -> None:
+        self.indices = AliasIndices(
+            acknowledged=acknowledged,
+            current_targets=current_targets,
+        )
 
 
 def test_mapping_carries_immutable_rag_descriptor_metadata() -> None:
@@ -105,13 +121,72 @@ async def test_bulk_uses_chunk_uuid_as_stable_id_without_refresh() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("acknowledged", [False, True])
-async def test_alias_activation_returns_elasticsearch_acknowledgement(
+async def test_exact_alias_replacement_is_sorted_and_returns_acknowledgement(
     acknowledged: bool,
 ) -> None:
-    adapter = ElasticsearchSearchIndex(
-        cast(AsyncElasticsearch, AliasClient(acknowledged=acknowledged))
-    )
+    profile_id = UUID("00000000-0000-0000-0000-000000000510")
+    first_build_id = UUID("00000000-0000-0000-0000-000000000511")
+    second_build_id = UUID("00000000-0000-0000-0000-000000000512")
+    alias = f"rag-{profile_id}-active"
+    first = f"rag-{profile_id}-{first_build_id}"
+    second = f"rag-{profile_id}-{second_build_id}"
+    stale = f"rag-{profile_id}-00000000-0000-0000-0000-000000000513"
+    client = AliasClient(acknowledged=acknowledged, current_targets=(stale,))
+    adapter = ElasticsearchSearchIndex(cast(AsyncElasticsearch, client))
 
-    activated = await adapter.activate("profile-active", "concrete-index")
+    activated = await adapter.replace_active_targets(alias, (second, first))
 
     assert activated is acknowledged
+    assert client.indices.actions == [
+        {"remove": {"index": stale, "alias": alias}},
+        {"add": {"index": first, "alias": alias}},
+        {"add": {"index": second, "alias": alias}},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_exact_alias_replacement_is_idempotent_without_an_update() -> None:
+    profile_id = UUID("00000000-0000-0000-0000-000000000520")
+    first = f"rag-{profile_id}-00000000-0000-0000-0000-000000000521"
+    second = f"rag-{profile_id}-00000000-0000-0000-0000-000000000522"
+    alias = f"rag-{profile_id}-active"
+    client = AliasClient(
+        acknowledged=True,
+        current_targets=(second, first),
+    )
+    adapter = ElasticsearchSearchIndex(cast(AsyncElasticsearch, client))
+
+    activated = await adapter.replace_active_targets(alias, (first, second))
+
+    assert activated is True
+    assert client.indices.actions is None
+    assert await adapter.active_targets(alias) == (first, second)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "targets",
+    [
+        (),
+        (
+            "rag-00000000-0000-0000-0000-000000000530-"
+            "00000000-0000-0000-0000-000000000531",
+        )
+        * 2,
+        ("rag-00000000-0000-0000-0000-000000000999-00000000-0000-0000-0000-000000000531",),
+        ("rag-00000000-0000-0000-0000-000000000530-*,other",),
+    ],
+    ids=("empty", "duplicate", "other-profile", "injected"),
+)
+async def test_exact_alias_replacement_rejects_unsafe_target_sets(
+    targets: tuple[str, ...],
+) -> None:
+    profile_id = UUID("00000000-0000-0000-0000-000000000530")
+    alias = f"rag-{profile_id}-active"
+    client = AliasClient(acknowledged=True)
+    adapter = ElasticsearchSearchIndex(cast(AsyncElasticsearch, client))
+
+    with pytest.raises(ValueError):
+        await adapter.replace_active_targets(alias, targets)
+
+    assert client.indices.actions is None

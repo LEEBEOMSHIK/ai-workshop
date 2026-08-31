@@ -291,6 +291,52 @@ async def test_postgres_versions_visibility_jobs_subscriptions_and_exact_resolve
                     is_active=True,
                 )
             )
+            second_document_id = uuid4()
+            second_asset_version_id = uuid4()
+            second_projection_id = uuid4()
+            session.add(
+                DocumentRecord(
+                    id=second_document_id,
+                    workspace_id=workspace_id,
+                    folder_id=None,
+                    name="owner-second.txt",
+                    active_version_id=second_asset_version_id,
+                )
+            )
+            await session.flush()
+            session.add(
+                AssetVersionRecord(
+                    id=second_asset_version_id,
+                    document_id=second_document_id,
+                    number=1,
+                    object_key=f"fixtures/{second_asset_version_id}.txt",
+                    sha256="b" * 64,
+                    media_type="text/plain",
+                    size=13,
+                    status="ready",
+                )
+            )
+            await session.flush()
+            session.add(
+                RagProjectionRecord(
+                    id=second_projection_id,
+                    asset_version_id=second_asset_version_id,
+                    indexing_profile_id=E5_INDEXING_PROFILE_ID,
+                    status="ready",
+                )
+            )
+            await session.flush()
+            second_active_build = RagIndexBuildRecord(
+                projection_id=second_projection_id,
+                indexing_profile_id=E5_INDEXING_PROFILE_ID,
+                index_name=f"ai-workshop-rag-{E5_INDEXING_PROFILE_ID}-{uuid4()}",
+                expected_document_count=1,
+                indexed_document_count=1,
+                vector_dimension=768,
+                status="ready",
+                is_active=True,
+            )
+            session.add(second_active_build)
             await session.flush()
 
             resolver = SqlAlchemySearchConfigurationResolver(session, settings)
@@ -316,6 +362,15 @@ async def test_postgres_versions_visibility_jobs_subscriptions_and_exact_resolve
             assert exact_first.configuration_version == 1
             assert exact_first.answer_policy is not None
             assert exact_first.answer_policy.min_semantic_score == 0.81
+
+            second_active_build.vector_dimension = 1024
+            await session.flush()
+            with pytest.raises(AppError) as incompatible_active_builds:
+                await resolver.resolve(first.configuration.id, owner_id)
+            assert incompatible_active_builds.value.status_code == 409
+            assert incompatible_active_builds.value.code == "configuration_not_ready"
+            second_active_build.vector_dimension = 768
+            await session.flush()
 
             with pytest.raises(AppError) as hidden:
                 await resolver.resolve(first.configuration.id, other_id)

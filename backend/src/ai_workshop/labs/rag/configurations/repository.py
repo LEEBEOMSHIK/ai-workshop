@@ -703,21 +703,28 @@ class SqlAlchemySearchConfigurationResolver:
             raise AppError("configuration_invalid", str(exc), 409) from exc
 
         if frozen_target is None:
-            build = await self.session.scalar(
-                select(RagIndexBuildRecord).where(
-                    RagIndexBuildRecord.indexing_profile_id == indexing.id,
-                    RagIndexBuildRecord.status == "ready",
-                    RagIndexBuildRecord.is_active.is_(True),
+            builds = list(
+                await self.session.scalars(
+                    select(RagIndexBuildRecord)
+                    .where(
+                        RagIndexBuildRecord.indexing_profile_id == indexing.id,
+                        RagIndexBuildRecord.status == "ready",
+                        RagIndexBuildRecord.is_active.is_(True),
+                    )
+                    .order_by(RagIndexBuildRecord.id)
                 )
             )
-            if build is None or build.vector_dimension is None:
+            dimensions = {build.vector_dimension for build in builds}
+            if not builds or None in dimensions or len(dimensions) != 1:
                 raise AppError(
                     "configuration_not_ready",
-                    "The selected configuration has no READY active index.",
+                    "The selected configuration requires compatible READY active indices.",
                     409,
                 )
+            vector_dimension = next(iter(dimensions))
+            assert vector_dimension is not None
             target: SearchIndexTarget = ActiveIndexAlias(
-                IndexDescriptor(build.vector_dimension, "cosine"),
+                IndexDescriptor(vector_dimension, "cosine"),
                 self.settings.elasticsearch_index_prefix,
                 indexing.id,
             )

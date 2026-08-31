@@ -175,6 +175,7 @@ class RagIngestionWorkflow:
                 execution = await self.lifecycle.complete_chunking(job_id, result, artifact)
                 continue
             if execution.status is ProjectionStatus.EMBEDDING:
+                await self._require_nonempty_chunk_artifact(execution)
                 count = await self.embeddings.embed(
                     projection_id=execution.projection_id,
                     indexing_profile_id=execution.indexing_profile_id,
@@ -184,6 +185,7 @@ class RagIngestionWorkflow:
                 )
                 continue
             if execution.status is ProjectionStatus.INDEXING:
+                await self._require_nonempty_chunk_artifact(execution)
                 await self.indexing.index(
                     projection_id=execution.projection_id,
                     indexing_profile_id=execution.indexing_profile_id,
@@ -250,6 +252,21 @@ class RagIngestionWorkflow:
                 retryable=False,
             )
         return content
+
+    async def _require_nonempty_chunk_artifact(
+        self, execution: IngestionExecution
+    ) -> None:
+        if execution.chunk_artifact is None:
+            raise RagIngestionError(
+                "artifact_reference_incomplete",
+                "A durable RAG artifact reference is incomplete.",
+                retryable=False,
+            )
+        result = self._deserialize_chunks(
+            await self._read_artifact(execution.chunk_artifact),
+            projection_id=execution.projection_id,
+        )
+        self._require_nonempty_chunks(result)
 
     async def _read_exact_key(self, key: str) -> bytes:
         try:

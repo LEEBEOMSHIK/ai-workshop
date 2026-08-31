@@ -624,6 +624,132 @@ async def test_empty_chunking_result_fails_before_publication_or_embedding() -> 
     ]
 
 
+@pytest.mark.asyncio
+async def test_resumed_embedding_rejects_empty_exact_chunk_artifact_before_model_call() -> None:
+    job_id = uuid4()
+    asset_version_id = uuid4()
+    projection_id = uuid4()
+    content = serialize_chunking_result(ChunkingResult(chunks=(), evidence_units=()))
+    chunk_artifact = ArtifactReference(
+        key=f"rag/chunks/{projection_id}.json",
+        sha256=hashlib.sha256(content).hexdigest(),
+    )
+    lifecycle = ResumedLifecycle(
+        replace(
+            ingestion_execution_fixture(
+                job_id=job_id,
+                asset_version_id=asset_version_id,
+                projection_id=projection_id,
+            ),
+            status=ProjectionStatus.EMBEDDING,
+            chunk_artifact=chunk_artifact,
+        )
+    )
+    store = MemoryObjectStore()
+    store.objects[chunk_artifact.key] = content
+    stages = ForbiddenStages()
+    workflow = RagIngestionWorkflow(
+        lifecycle,
+        store,
+        ForbiddenParser(),
+        ForbiddenChunker(),
+        stages,
+        stages,
+        stages,
+    )
+
+    with pytest.raises(RagIngestionError) as raised:
+        await workflow.run(job_id)
+
+    assert raised.value.code == "chunking_result_empty"
+    assert raised.value.retryable is False
+    assert lifecycle.statuses == [ProjectionStatus.EMBEDDING]
+    assert list(store.objects) == [chunk_artifact.key]
+
+
+@pytest.mark.asyncio
+async def test_resumed_indexing_rejects_empty_exact_chunk_artifact_before_index_call() -> None:
+    job_id = uuid4()
+    asset_version_id = uuid4()
+    projection_id = uuid4()
+    content = serialize_chunking_result(ChunkingResult(chunks=(), evidence_units=()))
+    chunk_artifact = ArtifactReference(
+        key=f"rag/chunks/{projection_id}.json",
+        sha256=hashlib.sha256(content).hexdigest(),
+    )
+    lifecycle = ResumedLifecycle(
+        replace(
+            ingestion_execution_fixture(
+                job_id=job_id,
+                asset_version_id=asset_version_id,
+                projection_id=projection_id,
+            ),
+            status=ProjectionStatus.INDEXING,
+            chunk_artifact=chunk_artifact,
+        )
+    )
+    store = MemoryObjectStore()
+    store.objects[chunk_artifact.key] = content
+    stages = ForbiddenStages()
+    workflow = RagIngestionWorkflow(
+        lifecycle,
+        store,
+        ForbiddenParser(),
+        ForbiddenChunker(),
+        stages,
+        stages,
+        stages,
+    )
+
+    with pytest.raises(RagIngestionError) as raised:
+        await workflow.run(job_id)
+
+    assert raised.value.code == "chunking_result_empty"
+    assert raised.value.retryable is False
+    assert lifecycle.statuses == [ProjectionStatus.INDEXING]
+    assert list(store.objects) == [chunk_artifact.key]
+
+
+@pytest.mark.parametrize(
+    "status", (ProjectionStatus.EMBEDDING, ProjectionStatus.INDEXING)
+)
+@pytest.mark.asyncio
+async def test_resumed_stage_keeps_missing_chunk_reference_error(
+    status: ProjectionStatus,
+) -> None:
+    job_id = uuid4()
+    asset_version_id = uuid4()
+    projection_id = uuid4()
+    lifecycle = ResumedLifecycle(
+        replace(
+            ingestion_execution_fixture(
+                job_id=job_id,
+                asset_version_id=asset_version_id,
+                projection_id=projection_id,
+            ),
+            status=status,
+            chunk_artifact=None,
+        )
+    )
+    stages = ForbiddenStages()
+    workflow = RagIngestionWorkflow(
+        lifecycle,
+        MemoryObjectStore(),
+        ForbiddenParser(),
+        ForbiddenChunker(),
+        stages,
+        stages,
+        stages,
+    )
+
+    with pytest.raises(RagIngestionError) as raised:
+        await workflow.run(job_id)
+
+    assert raised.value.code == "artifact_reference_incomplete"
+    assert raised.value.retryable is False
+    assert lifecycle.statuses == [status]
+
+
 def test_readiness_requires_real_count_and_alias_verification() -> None:
     assert ReadinessVerification(1, 2, 2, 2, True).is_complete is True
     assert ReadinessVerification(1, 2, 1, 2, True).is_complete is False

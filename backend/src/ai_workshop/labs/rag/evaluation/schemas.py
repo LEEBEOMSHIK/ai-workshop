@@ -154,10 +154,24 @@ class EvaluationCaseResponse(BaseModel):
         raw: list[dict[str, object]] = []
         for observation in result.raw_observations:
             stable = observation.stable
+            source_ids = {
+                (item.surface, item.evidence_id): item.source_id
+                for item in observation.exposures
+            }
             raw.append(
                 {
                     "retrieved_evidence_ids": [
                         str(item) for item in stable.retrieved_evidence_ids
+                    ],
+                    "retrieved_ranked": [
+                        {
+                            "rank": rank,
+                            "evidence_id": str(item),
+                            "source_id": str(source_ids[("retrieval", item)]),
+                        }
+                        for rank, item in enumerate(
+                            stable.retrieved_evidence_ids, start=1
+                        )
                     ],
                     "answer_status": stable.answer_status.value,
                     "answer_evidence_ids": [str(item) for item in stable.answer_evidence_ids],
@@ -166,6 +180,27 @@ class EvaluationCaseResponse(BaseModel):
                     ],
                     "related_evidence_ids": [
                         str(item) for item in stable.related_evidence_ids
+                    ],
+                    "answer_sources": [
+                        {
+                            "evidence_id": str(item),
+                            "source_id": str(source_ids[("answer", item)]),
+                        }
+                        for item in stable.answer_evidence_ids
+                    ],
+                    "conflict_sources": [
+                        {
+                            "evidence_id": str(item),
+                            "source_id": str(source_ids[("conflict", item)]),
+                        }
+                        for item in stable.conflict_evidence_ids
+                    ],
+                    "related_sources": [
+                        {
+                            "evidence_id": str(item),
+                            "source_id": str(source_ids[("related_source", item)]),
+                        }
+                        for item in stable.related_evidence_ids
                     ],
                     "highlight_kind": (
                         stable.highlight_kind.value if stable.highlight_kind else None
@@ -183,6 +218,11 @@ class EvaluationCaseResponse(BaseModel):
                             "document_id": str(item.document_id),
                             "asset_version_id": str(item.asset_version_id),
                             "evidence_unit_id": str(item.evidence_unit_id),
+                            "source_id": str(
+                                source_ids[
+                                    (f"{item.surface}_highlight", item.evidence_unit_id)
+                                ]
+                            ),
                             "page": item.page,
                             "kind": item.kind.value,
                             "spans": [[span.start, span.end] for span in item.spans],
@@ -197,6 +237,7 @@ class EvaluationCaseResponse(BaseModel):
                         {
                             "surface": item.surface,
                             "source_id": str(item.source_id),
+                            "evidence_id": str(item.evidence_id),
                         }
                         for item in observation.exposures
                     ],

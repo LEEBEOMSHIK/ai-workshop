@@ -882,6 +882,78 @@ def upgrade() -> None:
         END;
         $$;
 
+        CREATE FUNCTION rag_evaluation_evidence_source_matches(
+            snapshot jsonb, evidence_id jsonb, source_id jsonb
+        ) RETURNS boolean LANGUAGE plpgsql IMMUTABLE AS $$
+        DECLARE
+            matches integer;
+        BEGIN
+            IF jsonb_typeof(snapshot->'sources') IS DISTINCT FROM 'array'
+               OR NOT rag_evaluation_is_canonical_uuid(evidence_id)
+               OR NOT rag_evaluation_is_canonical_uuid(source_id) THEN
+                RETURN false;
+            END IF;
+            SELECT count(*) INTO matches
+              FROM jsonb_array_elements(snapshot->'sources') AS source(item)
+              CROSS JOIN LATERAL jsonb_array_elements(
+                  CASE
+                      WHEN jsonb_typeof(source.item->'evidence_units') = 'array'
+                      THEN source.item->'evidence_units'
+                      ELSE '[]'::jsonb
+                  END
+              ) AS evidence(item)
+             WHERE jsonb_typeof(evidence.item) = 'object'
+               AND rag_evaluation_is_canonical_uuid(evidence.item->'id')
+               AND rag_evaluation_is_canonical_uuid(evidence.item->'source_id')
+               AND (evidence.item->>'id')::uuid = (evidence_id #>> '{}')::uuid
+               AND (evidence.item->>'source_id')::uuid =
+                   (source_id #>> '{}')::uuid;
+            RETURN matches = 1;
+        END;
+        $$;
+
+        CREATE FUNCTION rag_evaluation_canonical_exposures(observation jsonb)
+        RETURNS jsonb LANGUAGE sql IMMUTABLE AS $$
+            WITH surfaced(surface, evidence_id, source_id) AS (
+                SELECT 'retrieval', item->>'evidence_id', item->>'source_id'
+                  FROM jsonb_array_elements(
+                      observation->'retrieved_ranked'
+                  ) AS ranked(item)
+                UNION
+                SELECT 'answer', item->>'evidence_id', item->>'source_id'
+                  FROM jsonb_array_elements(
+                      observation->'answer_sources'
+                  ) AS answer(item)
+                UNION
+                SELECT 'conflict', item->>'evidence_id', item->>'source_id'
+                  FROM jsonb_array_elements(
+                      observation->'conflict_sources'
+                  ) AS conflict(item)
+                UNION
+                SELECT 'related_source', item->>'evidence_id', item->>'source_id'
+                  FROM jsonb_array_elements(
+                      observation->'related_sources'
+                  ) AS related(item)
+                UNION
+                SELECT item->>'surface' || '_highlight',
+                       item->>'evidence_unit_id', item->>'source_id'
+                  FROM jsonb_array_elements(
+                      observation->'highlights'
+                  ) AS highlight(item)
+            )
+            SELECT coalesce(
+                jsonb_agg(
+                    jsonb_build_object(
+                        'surface', surface,
+                        'source_id', source_id,
+                        'evidence_id', evidence_id
+                    ) ORDER BY surface, source_id, evidence_id
+                ),
+                '[]'::jsonb
+            )
+              FROM surfaced;
+        $$;
+
         CREATE FUNCTION rag_verify_evaluation_case_result()
         RETURNS trigger LANGUAGE plpgsql AS $$
         DECLARE
@@ -889,6 +961,7 @@ def upgrade() -> None:
             expected_dataset uuid;
             expected_repetitions integer;
             retrieval_k integer;
+            execution_snapshot jsonb;
             observation jsonb;
             exposure jsonb;
             highlight jsonb;
@@ -916,9 +989,17 @@ def upgrade() -> None:
             calculated_reproducible boolean;
             evidence_array_name text;
             evidence_array jsonb;
+            source_array_name text;
+            source_array jsonb;
+            source_item jsonb;
+            source_ordinal integer;
+            canonical_exposures jsonb;
+            supplied_exposures jsonb;
         BEGIN
-            SELECT run.dataset_snapshot_id, run.repetition_count, run.retrieval_k
-              INTO expected_dataset, expected_repetitions, retrieval_k
+            SELECT run.dataset_snapshot_id, run.repetition_count, run.retrieval_k,
+                   run.execution_snapshot::jsonb
+              INTO expected_dataset, expected_repetitions, retrieval_k,
+                   execution_snapshot
               FROM rag_evaluation_run_configurations AS candidate
               JOIN rag_evaluation_runs AS run ON run.id = candidate.run_id
              WHERE candidate.id = NEW.run_configuration_id;
@@ -953,6 +1034,7 @@ def upgrade() -> None:
                         'retrieved_evidence_ids', 'answer_status',
                         'retrieved_ranked', 'answer_evidence_ids',
                         'conflict_evidence_ids', 'related_evidence_ids',
+                        'answer_sources', 'conflict_sources', 'related_sources',
                         'highlight_kind', 'highlight_spans',
                         'highlight_bboxes', 'highlights', 'exposures',
                         'duration_ms', 'repetition_signature_sha256'
@@ -961,6 +1043,7 @@ def upgrade() -> None:
                         'retrieved_evidence_ids', 'answer_status', 'retrieved_ranked',
                         'answer_evidence_ids', 'conflict_evidence_ids',
                         'related_evidence_ids', 'highlight_kind', 'highlight_spans',
+                        'answer_sources', 'conflict_sources', 'related_sources',
                         'highlight_bboxes', 'highlights', 'exposures', 'duration_ms',
                         'repetition_signature_sha256'
                    ] IS DISTINCT FROM '{}'::jsonb THEN
@@ -975,6 +1058,12 @@ def upgrade() -> None:
                    OR jsonb_typeof(observation->'conflict_evidence_ids')
                       IS DISTINCT FROM 'array'
                    OR jsonb_typeof(observation->'related_evidence_ids')
+                      IS DISTINCT FROM 'array'
+                   OR jsonb_typeof(observation->'answer_sources')
+                      IS DISTINCT FROM 'array'
+                   OR jsonb_typeof(observation->'conflict_sources')
+                      IS DISTINCT FROM 'array'
+                   OR jsonb_typeof(observation->'related_sources')
                       IS DISTINCT FROM 'array'
                    OR jsonb_typeof(observation->'highlight_spans')
                       IS DISTINCT FROM 'array'
@@ -1050,8 +1139,8 @@ def upgrade() -> None:
                     IF jsonb_typeof(ranked_item) IS DISTINCT FROM 'object' THEN
                         RAISE EXCEPTION 'invalid evaluation raw observation rank';
                     END IF;
-                    IF NOT ranked_item ?& ARRAY['rank', 'evidence_id']
-                       OR ranked_item - ARRAY['rank', 'evidence_id']
+                    IF NOT ranked_item ?& ARRAY['rank', 'evidence_id', 'source_id']
+                       OR ranked_item - ARRAY['rank', 'evidence_id', 'source_id']
                           IS DISTINCT FROM '{}'::jsonb
                     THEN
                         RAISE EXCEPTION 'invalid evaluation raw observation rank';
@@ -1060,6 +1149,14 @@ def upgrade() -> None:
                        OR coalesce(ranked_item->>'rank', '') !~ '^[1-9][0-9]*$'
                        OR NOT rag_evaluation_is_canonical_uuid(
                            ranked_item->'evidence_id'
+                       )
+                       OR NOT rag_evaluation_is_canonical_uuid(
+                           ranked_item->'source_id'
+                       )
+                       OR NOT rag_evaluation_evidence_source_matches(
+                           execution_snapshot,
+                           ranked_item->'evidence_id',
+                           ranked_item->'source_id'
                        ) THEN
                         RAISE EXCEPTION 'invalid evaluation raw observation rank';
                     END IF;
@@ -1071,6 +1168,48 @@ def upgrade() -> None:
                               ->>(ranked_ordinal - 1))::uuid THEN
                         RAISE EXCEPTION 'invalid evaluation raw observation rank';
                     END IF;
+                END LOOP;
+                FOREACH source_array_name IN ARRAY ARRAY[
+                    'answer_sources', 'conflict_sources', 'related_sources'
+                ]
+                LOOP
+                    source_array := observation->source_array_name;
+                    evidence_array_name := CASE source_array_name
+                        WHEN 'answer_sources' THEN 'answer_evidence_ids'
+                        WHEN 'conflict_sources' THEN 'conflict_evidence_ids'
+                        ELSE 'related_evidence_ids'
+                    END;
+                    evidence_array := observation->evidence_array_name;
+                    IF jsonb_array_length(source_array) IS DISTINCT FROM
+                       jsonb_array_length(evidence_array) THEN
+                        RAISE EXCEPTION 'invalid evaluation raw observation source';
+                    END IF;
+                    source_ordinal := 0;
+                    FOR source_item IN
+                        SELECT value FROM jsonb_array_elements(source_array)
+                    LOOP
+                        source_ordinal := source_ordinal + 1;
+                        IF jsonb_typeof(source_item) IS DISTINCT FROM 'object'
+                           OR NOT source_item ?& ARRAY['evidence_id', 'source_id']
+                           OR source_item - ARRAY['evidence_id', 'source_id']
+                              IS DISTINCT FROM '{}'::jsonb
+                           OR NOT rag_evaluation_is_canonical_uuid(
+                               source_item->'evidence_id'
+                           )
+                           OR NOT rag_evaluation_is_canonical_uuid(
+                               source_item->'source_id'
+                           )
+                           OR (source_item->>'evidence_id')::uuid IS DISTINCT FROM
+                              (evidence_array->>(source_ordinal - 1))::uuid
+                           OR NOT rag_evaluation_evidence_source_matches(
+                               execution_snapshot,
+                               source_item->'evidence_id',
+                               source_item->'source_id'
+                           ) THEN
+                            RAISE EXCEPTION
+                                'invalid evaluation raw observation source';
+                        END IF;
+                    END LOOP;
                 END LOOP;
                 FOR coordinate IN
                     SELECT value
@@ -1094,15 +1233,24 @@ def upgrade() -> None:
                     IF jsonb_typeof(exposure) IS DISTINCT FROM 'object' THEN
                         RAISE EXCEPTION 'invalid evaluation raw observation exposure';
                     END IF;
-                    IF NOT exposure ?& ARRAY['surface', 'source_id']
-                       OR exposure - ARRAY['surface', 'source_id']
+                    IF NOT exposure ?& ARRAY['surface', 'source_id', 'evidence_id']
+                       OR exposure - ARRAY['surface', 'source_id', 'evidence_id']
                           IS DISTINCT FROM '{}'::jsonb
                     THEN
                         RAISE EXCEPTION 'invalid evaluation raw observation exposure';
                     END IF;
                     IF jsonb_typeof(exposure->'surface') IS DISTINCT FROM 'string'
-                       OR btrim(coalesce(exposure->>'surface', '')) = ''
-                       OR NOT rag_evaluation_is_canonical_uuid(exposure->'source_id') THEN
+                       OR exposure->>'surface' NOT IN (
+                           'retrieval', 'answer', 'conflict', 'related_source',
+                           'answer_highlight', 'conflict_highlight'
+                       )
+                       OR NOT rag_evaluation_is_canonical_uuid(exposure->'source_id')
+                       OR NOT rag_evaluation_is_canonical_uuid(exposure->'evidence_id')
+                       OR NOT rag_evaluation_evidence_source_matches(
+                           execution_snapshot,
+                           exposure->'evidence_id',
+                           exposure->'source_id'
+                       ) THEN
                         RAISE EXCEPTION 'invalid evaluation raw observation exposure';
                     END IF;
                 END LOOP;
@@ -1114,11 +1262,13 @@ def upgrade() -> None:
                     END IF;
                     IF NOT highlight ?& ARRAY[
                            'surface', 'document_id', 'asset_version_id',
-                            'evidence_unit_id', 'page', 'kind', 'spans', 'bboxes'
+                            'evidence_unit_id', 'source_id', 'page', 'kind',
+                            'spans', 'bboxes'
                         ]
                        OR highlight - ARRAY[
                             'surface', 'document_id', 'asset_version_id',
-                            'evidence_unit_id', 'page', 'kind', 'spans', 'bboxes'
+                            'evidence_unit_id', 'source_id', 'page', 'kind',
+                            'spans', 'bboxes'
                        ] IS DISTINCT FROM '{}'::jsonb THEN
                         RAISE EXCEPTION 'invalid evaluation raw observation highlight';
                     END IF;
@@ -1132,6 +1282,14 @@ def upgrade() -> None:
                        )
                        OR NOT rag_evaluation_is_canonical_uuid(
                            highlight->'evidence_unit_id'
+                       )
+                       OR NOT rag_evaluation_is_canonical_uuid(
+                           highlight->'source_id'
+                       )
+                       OR NOT rag_evaluation_evidence_source_matches(
+                           execution_snapshot,
+                           highlight->'evidence_unit_id',
+                           highlight->'source_id'
                        )
                        OR jsonb_typeof(highlight->'kind') IS DISTINCT FROM 'string'
                        OR highlight->>'kind' NOT IN ('keyword', 'semantic') THEN
@@ -1188,6 +1346,22 @@ def upgrade() -> None:
                         RAISE EXCEPTION 'invalid evaluation raw observation highlight';
                     END IF;
                 END LOOP;
+                canonical_exposures := rag_evaluation_canonical_exposures(observation);
+                SELECT coalesce(
+                           jsonb_agg(
+                               value ORDER BY value->>'surface',
+                               value->>'source_id', value->>'evidence_id'
+                           ),
+                           '[]'::jsonb
+                       )
+                  INTO supplied_exposures
+                  FROM jsonb_array_elements(observation->'exposures') AS item(value);
+                IF jsonb_array_length(observation->'exposures') IS DISTINCT FROM
+                       jsonb_array_length(canonical_exposures)
+                   OR supplied_exposures IS DISTINCT FROM canonical_exposures THEN
+                    RAISE EXCEPTION
+                        'evaluation raw observation exposures do not match surfaces';
+                END IF;
                 CASE observation->>'answer_status'
                     WHEN 'supported' THEN
                         IF jsonb_array_length(observation->'answer_evidence_ids') = 0
@@ -1320,7 +1494,9 @@ def upgrade() -> None:
             SELECT count(*)
               INTO calculated_leaks
               FROM jsonb_array_elements(NEW.raw_observations::jsonb) AS raw(item)
-              CROSS JOIN LATERAL jsonb_array_elements(item->'exposures') AS e(exposed)
+              CROSS JOIN LATERAL jsonb_array_elements(
+                  rag_evaluation_canonical_exposures(item)
+              ) AS e(exposed)
              WHERE frozen.forbidden_source_ids::jsonb ? (exposed->>'source_id')
                 OR NOT frozen.authorized_source_ids::jsonb ? (exposed->>'source_id');
             SELECT count(DISTINCT item - 'duration_ms' - 'exposures'
@@ -1361,7 +1537,7 @@ def upgrade() -> None:
         BEFORE INSERT ON rag_evaluation_case_results
         FOR EACH ROW EXECUTE FUNCTION rag_verify_evaluation_case_result();
         COMMENT ON FUNCTION rag_verify_evaluation_case_result() IS
-            'Trust boundary: authenticated workers attest only structured raw retrieval, answer, highlight, exposure, latency, and repetition observations; PostgreSQL verifies all supplied case scalars from the frozen expected case and raw observations.';
+            'Trust boundary: authenticated workers attest IDs-only structured raw result surfaces, latency, and repetition observations; PostgreSQL validates evidence-to-source bindings, derives the complete exposure relation, and verifies all supplied case scalars from the frozen expected case and raw observations.';
         """
     )
     op.execute(
@@ -1718,6 +1894,10 @@ def downgrade() -> None:
         "ON rag_evaluation_case_results"
     )
     op.execute("DROP FUNCTION rag_verify_evaluation_case_result")
+    op.execute("DROP FUNCTION rag_evaluation_canonical_exposures(jsonb)")
+    op.execute(
+        "DROP FUNCTION rag_evaluation_evidence_source_matches(jsonb, jsonb, jsonb)"
+    )
     op.execute("DROP FUNCTION rag_evaluation_is_nonnegative_integer(jsonb)")
     op.execute("DROP FUNCTION rag_evaluation_is_nonnegative_finite_float(jsonb)")
     op.execute("DROP FUNCTION rag_evaluation_is_bbox(jsonb)")

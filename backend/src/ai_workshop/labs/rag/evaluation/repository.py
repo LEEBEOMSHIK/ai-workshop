@@ -189,16 +189,45 @@ def _scenario_domain(value: dict[str, object]) -> PermissionScenario:
 
 def _observation_json(value: SearchExecutionObservation) -> dict[str, object]:
     stable = value.stable
+    source_ids = {
+        (item.surface, cast(UUID, item.evidence_id)): item.source_id
+        for item in value.exposures
+    }
     stable_payload: dict[str, object] = {
         "retrieved_evidence_ids": [str(item) for item in stable.retrieved_evidence_ids],
         "retrieved_ranked": [
-            {"rank": rank, "evidence_id": str(evidence_id)}
+            {
+                "rank": rank,
+                "evidence_id": str(evidence_id),
+                "source_id": str(source_ids[("retrieval", evidence_id)]),
+            }
             for rank, evidence_id in enumerate(stable.retrieved_evidence_ids, start=1)
         ],
         "answer_status": stable.answer_status.value,
         "answer_evidence_ids": [str(item) for item in stable.answer_evidence_ids],
         "conflict_evidence_ids": [str(item) for item in stable.conflict_evidence_ids],
         "related_evidence_ids": [str(item) for item in stable.related_evidence_ids],
+        "answer_sources": [
+            {
+                "evidence_id": str(item),
+                "source_id": str(source_ids[("answer", item)]),
+            }
+            for item in stable.answer_evidence_ids
+        ],
+        "conflict_sources": [
+            {
+                "evidence_id": str(item),
+                "source_id": str(source_ids[("conflict", item)]),
+            }
+            for item in stable.conflict_evidence_ids
+        ],
+        "related_sources": [
+            {
+                "evidence_id": str(item),
+                "source_id": str(source_ids[("related_source", item)]),
+            }
+            for item in stable.related_evidence_ids
+        ],
         "highlight_kind": stable.highlight_kind.value if stable.highlight_kind else None,
         "highlight_spans": [[item.start, item.end] for item in stable.highlight_spans],
         "highlight_bboxes": [
@@ -210,6 +239,9 @@ def _observation_json(value: SearchExecutionObservation) -> dict[str, object]:
                 "document_id": str(item.document_id),
                 "asset_version_id": str(item.asset_version_id),
                 "evidence_unit_id": str(item.evidence_unit_id),
+                "source_id": str(
+                    source_ids[(f"{item.surface}_highlight", item.evidence_unit_id)]
+                ),
                 "page": item.page,
                 "kind": item.kind.value,
                 "spans": [[span.start, span.end] for span in item.spans],
@@ -234,6 +266,7 @@ def _observation_json(value: SearchExecutionObservation) -> dict[str, object]:
             {
                 "surface": item.surface,
                 "source_id": str(item.source_id),
+                "evidence_id": str(item.evidence_id),
             }
             for item in value.exposures
         ],
@@ -301,6 +334,7 @@ def _observation_domain(value: dict[str, object]) -> SearchExecutionObservation:
             AccessExposure(
                 surface=str(item["surface"]),
                 source_id=UUID(str(item["source_id"])),
+                evidence_id=UUID(str(item["evidence_id"])),
             )
             for item in cast(list[dict[str, object]], value["exposures"])
         ),
@@ -900,6 +934,7 @@ class SqlAlchemyEvaluationApplicationRepository:
                     "evidence_units": [
                         {
                             "id": str(evidence.id),
+                            "source_id": str(evidence.id),
                             "ordinal": evidence.ordinal,
                             "text": evidence.text,
                             "element_id": str(evidence.element_id),

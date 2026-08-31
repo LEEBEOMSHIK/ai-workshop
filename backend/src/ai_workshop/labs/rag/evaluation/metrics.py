@@ -43,6 +43,7 @@ class AnswerObservation:
 class AccessExposure:
     surface: str
     source_id: UUID
+    evidence_id: UUID | None = None
 
     def __post_init__(self) -> None:
         if not self.surface.strip():
@@ -91,6 +92,65 @@ class StableObservation:
     highlight_spans: tuple[CharacterSpan, ...]
     highlight_bboxes: tuple[BoundingBox, ...]
     highlights: tuple[HighlightObservation, ...] = ()
+
+
+def canonical_access_exposures(
+    observation: StableObservation,
+) -> tuple[AccessExposure, ...]:
+    """Return the complete, de-duplicated relation of result surfaces to sources."""
+    exposures = (
+        *(
+            AccessExposure("retrieval", evidence_id, evidence_id)
+            for evidence_id in observation.retrieved_evidence_ids
+        ),
+        *(
+            AccessExposure("answer", evidence_id, evidence_id)
+            for evidence_id in observation.answer_evidence_ids
+        ),
+        *(
+            AccessExposure("conflict", evidence_id, evidence_id)
+            for evidence_id in observation.conflict_evidence_ids
+        ),
+        *(
+            AccessExposure("related_source", evidence_id, evidence_id)
+            for evidence_id in observation.related_evidence_ids
+        ),
+        *(
+            AccessExposure(
+                f"{highlight.surface}_highlight",
+                highlight.evidence_unit_id,
+                highlight.evidence_unit_id,
+            )
+            for highlight in observation.highlights
+        ),
+    )
+    return tuple(dict.fromkeys(exposures))
+
+
+def validate_access_exposures(
+    observation: StableObservation,
+    exposures: Sequence[AccessExposure],
+) -> tuple[AccessExposure, ...]:
+    """Validate and canonically order the source identity for every raw surface."""
+    expected = canonical_access_exposures(observation)
+    expected_keys: list[tuple[str, UUID]] = []
+    for exposure in expected:
+        evidence_id = exposure.evidence_id
+        if evidence_id is None:  # pragma: no cover - canonical construction is total.
+            raise AssertionError("Canonical result surfaces require evidence identity.")
+        expected_keys.append((exposure.surface, evidence_id))
+    supplied: dict[tuple[str, UUID], AccessExposure] = {}
+    for exposure in exposures:
+        evidence_id = exposure.evidence_id
+        if evidence_id is None:
+            raise ValueError("A result-surface exposure requires an evidence ID.")
+        key = (exposure.surface, evidence_id)
+        if key in supplied:
+            raise ValueError("Result-surface exposures cannot contain duplicates.")
+        supplied[key] = exposure
+    if set(supplied) != set(expected_keys):
+        raise ValueError("Result-surface exposures must exactly match the raw surfaces.")
+    return tuple(supplied[key] for key in expected_keys)
 
 
 def _unique(items: Iterable[UUID]) -> tuple[UUID, ...]:

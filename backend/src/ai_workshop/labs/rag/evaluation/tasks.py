@@ -11,11 +11,11 @@ from ai_workshop.labs.rag.embeddings import SentenceTransformerEmbedding
 from ai_workshop.labs.rag.embeddings.contracts import EmbeddingModelConfig, EmbeddingPort
 from ai_workshop.labs.rag.evaluation.domain import EvaluationCase
 from ai_workshop.labs.rag.evaluation.metrics import (
-    AccessExposure,
     BoundingBox,
     CharacterSpan,
     HighlightObservation,
     StableObservation,
+    canonical_access_exposures,
 )
 from ai_workshop.labs.rag.evaluation.repository import SqlAlchemyEvaluationRepository
 from ai_workshop.labs.rag.evaluation.service import (
@@ -309,67 +309,37 @@ class ProductionEvaluationSearch(EvaluationSearchPort):
             for selected_item in selected
             for item in selected_item.highlights
         )
-        exposures: list[AccessExposure] = []
-        exposures.extend(
-            AccessExposure("retrieval", evidence.id)
-            for hit in hits
-            if hit.chunk is not None
-            for evidence in hit.chunk.evidence_units
-        )
-        for source in sources:
-            for evidence in source.chunk.evidence_units:
-                exposures.append(
-                    AccessExposure(
-                        "case_output",
-                        evidence.id,
-                    )
+        stable = StableObservation(
+            retrieved_evidence_ids=retrieved_ids,
+            answer_status=selection.status,
+            answer_evidence_ids=(answer.evidence.id,) if answer else (),
+            conflict_evidence_ids=tuple(item.evidence.id for item in conflicts),
+            related_evidence_ids=related_ids,
+            highlight_kind=highlights[0][2].kind if highlights else None,
+            # Structured highlights below keep answer/conflict coordinates separate.
+            highlight_spans=(),
+            highlight_bboxes=(),
+            highlights=tuple(
+                HighlightObservation(
+                    surface=surface,
+                    document_id=selected_item.source.document_id,
+                    asset_version_id=selected_item.source.chunk.asset_version_id,
+                    evidence_unit_id=item.evidence_unit_id,
+                    page=item.page,
+                    kind=item.kind,
+                    spans=(CharacterSpan(item.char_start, item.char_end),)
+                    if item.bbox is None
+                    else (),
+                    bboxes=(BoundingBox(*item.bbox),)
+                    if item.bbox is not None
+                    else (),
                 )
-        for selected_item in selected:
-            surface = "answer" if selected_item is answer else "conflict"
-            exposures.append(
-                AccessExposure(
-                    surface,
-                    selected_item.evidence.id,
-                )
-            )
-        exposures.extend(
-            AccessExposure("related_source", evidence_id)
-            for evidence_id in related_ids
-        )
-        exposures.extend(
-            AccessExposure("highlight", item.evidence_unit_id)
-            for _, _, item in highlights
+                for surface, selected_item, item in highlights
+            ),
         )
         return SearchExecutionObservation(
-            stable=StableObservation(
-                retrieved_evidence_ids=retrieved_ids,
-                answer_status=selection.status,
-                answer_evidence_ids=(answer.evidence.id,) if answer else (),
-                conflict_evidence_ids=tuple(item.evidence.id for item in conflicts),
-                related_evidence_ids=related_ids,
-                highlight_kind=highlights[0][2].kind if highlights else None,
-                # Structured highlights below keep answer/conflict coordinates separate.
-                highlight_spans=(),
-                highlight_bboxes=(),
-                highlights=tuple(
-                    HighlightObservation(
-                        surface=surface,
-                        document_id=selected_item.source.document_id,
-                        asset_version_id=selected_item.source.chunk.asset_version_id,
-                        evidence_unit_id=item.evidence_unit_id,
-                        page=item.page,
-                        kind=item.kind,
-                        spans=(CharacterSpan(item.char_start, item.char_end),)
-                        if item.bbox is None
-                        else (),
-                        bboxes=(BoundingBox(*item.bbox),)
-                        if item.bbox is not None
-                        else (),
-                    )
-                    for surface, selected_item, item in highlights
-                ),
-            ),
-            exposures=tuple(exposures),
+            stable=stable,
+            exposures=canonical_access_exposures(stable),
             duration_ms=(perf_counter() - started) * 1000.0,
         )
 

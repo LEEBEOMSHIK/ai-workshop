@@ -10,8 +10,10 @@ from ai_workshop.labs.rag.evaluation.domain import (
     PermissionScenario,
 )
 from ai_workshop.labs.rag.evaluation.metrics import (
+    AccessExposure,
     CharacterSpan,
     StableObservation,
+    canonical_access_exposures,
 )
 from ai_workshop.labs.rag.evaluation.service import (
     CandidateExecutionInput,
@@ -20,11 +22,13 @@ from ai_workshop.labs.rag.evaluation.service import (
     EvaluationRunClaim,
     EvaluationWorkflow,
     SearchExecutionObservation,
+    evaluate_case,
 )
 from ai_workshop.labs.rag.highlighting.domain import AnswerStatus, HighlightKind
 
 E1 = UUID("00000000-0000-0000-0000-000000000001")
 E2 = UUID("00000000-0000-0000-0000-000000000002")
+E3 = UUID("00000000-0000-0000-0000-000000000003")
 
 
 def dataset() -> EvaluationDataset:
@@ -184,7 +188,7 @@ class RecordingSearch:
             raise RuntimeError("dense branch unavailable")
         return SearchExecutionObservation(
             stable=stable(case),
-            exposures=(),
+            exposures=canonical_access_exposures(stable(case)),
             duration_ms=next(self.durations),
         )
 
@@ -209,7 +213,7 @@ class WorkerLossSearch:
             raise KeyboardInterrupt
         return SearchExecutionObservation(
             stable=stable(case),
-            exposures=(),
+            exposures=canonical_access_exposures(stable(case)),
             duration_ms=10.0,
         )
 
@@ -219,9 +223,125 @@ def test_search_observation_rejects_non_finite_duration(duration_ms: float) -> N
     with pytest.raises(ValueError, match="finite and non-negative"):
         SearchExecutionObservation(
             stable=stable(dataset().cases[0]),
-            exposures=(),
+            exposures=canonical_access_exposures(stable(dataset().cases[0])),
             duration_ms=duration_ms,
         )
+
+
+def test_case_leaks_are_derived_from_each_stable_result_surface() -> None:
+    evaluation_case = dataset().cases[1]
+    observation = SearchExecutionObservation(
+        stable=StableObservation(
+            retrieved_evidence_ids=(E3,),
+            answer_status=AnswerStatus.INSUFFICIENT_EVIDENCE,
+            answer_evidence_ids=(),
+            conflict_evidence_ids=(),
+            related_evidence_ids=(E3,),
+            highlight_kind=None,
+            highlight_spans=(),
+            highlight_bboxes=(),
+        ),
+        exposures=canonical_access_exposures(
+            StableObservation(
+                retrieved_evidence_ids=(E3,),
+                answer_status=AnswerStatus.INSUFFICIENT_EVIDENCE,
+                answer_evidence_ids=(),
+                conflict_evidence_ids=(),
+                related_evidence_ids=(E3,),
+                highlight_kind=None,
+                highlight_spans=(),
+                highlight_bboxes=(),
+            )
+        ),
+        duration_ms=1.0,
+    )
+
+    result = evaluate_case(evaluation_case, 0, (observation,), retrieval_k=10)
+
+    assert result.access_leaks == 2
+
+
+def test_source_identity_is_part_of_access_and_reproducibility_observation() -> None:
+    evaluation_case = dataset().cases[1]
+    stable_result = StableObservation(
+        retrieved_evidence_ids=(E3,),
+        answer_status=AnswerStatus.INSUFFICIENT_EVIDENCE,
+        answer_evidence_ids=(),
+        conflict_evidence_ids=(),
+        related_evidence_ids=(E3,),
+        highlight_kind=None,
+        highlight_spans=(),
+        highlight_bboxes=(),
+    )
+    observations = (
+        SearchExecutionObservation(
+            stable=stable_result,
+            exposures=(
+                AccessExposure("retrieval", E1, E3),
+                AccessExposure("related_source", E1, E3),
+            ),
+            duration_ms=1.0,
+        ),
+        SearchExecutionObservation(
+            stable=stable_result,
+            exposures=(
+                AccessExposure("retrieval", E2, E3),
+                AccessExposure("related_source", E2, E3),
+            ),
+            duration_ms=1.0,
+        ),
+    )
+
+    result = evaluate_case(evaluation_case, 0, observations, retrieval_k=10)
+
+    assert result.access_leaks == 0
+    assert result.reproducible is False
+
+
+@pytest.mark.parametrize("variant", ["omitted", "duplicate", "extra"])
+def test_search_observation_requires_exact_surface_exposure_relation(
+    variant: str,
+) -> None:
+    stable_result = StableObservation(
+        retrieved_evidence_ids=(E1,),
+        answer_status=AnswerStatus.INSUFFICIENT_EVIDENCE,
+        answer_evidence_ids=(),
+        conflict_evidence_ids=(),
+        related_evidence_ids=(),
+        highlight_kind=None,
+        highlight_spans=(),
+        highlight_bboxes=(),
+    )
+    canonical = canonical_access_exposures(stable_result)
+    exposures = {
+        "omitted": (),
+        "duplicate": canonical + canonical,
+        "extra": canonical + (AccessExposure("related_source", E2, E2),),
+    }[variant]
+
+    with pytest.raises(ValueError, match="exposure"):
+        SearchExecutionObservation(
+            stable=stable_result,
+            exposures=exposures,
+            duration_ms=1.0,
+        )
+
+
+def test_search_observation_accepts_empty_exposures_for_a_truly_empty_result() -> None:
+    SearchExecutionObservation(
+        stable=StableObservation(
+            retrieved_evidence_ids=(),
+            answer_status=AnswerStatus.INSUFFICIENT_EVIDENCE,
+            answer_evidence_ids=(),
+            conflict_evidence_ids=(),
+            related_evidence_ids=(),
+            highlight_kind=None,
+            highlight_spans=(),
+            highlight_bboxes=(),
+        ),
+        exposures=(),
+        duration_ms=1.0,
+    )
 
 
 @pytest.mark.asyncio

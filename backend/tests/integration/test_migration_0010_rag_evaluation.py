@@ -56,6 +56,58 @@ def _drop_database(base_url: str, database: str) -> None:
         )
 
 
+def _canonical_exposures(observation: dict[str, Any]) -> list[dict[str, str]]:
+    surfaced: set[tuple[str, str, str]] = set()
+    for item in observation["retrieved_ranked"]:
+        surfaced.add(("retrieval", item["source_id"], item["evidence_id"]))
+    for surface, name in (
+        ("answer", "answer_sources"),
+        ("conflict", "conflict_sources"),
+        ("related_source", "related_sources"),
+    ):
+        for item in observation[name]:
+            surfaced.add((surface, item["source_id"], item["evidence_id"]))
+    for item in observation["highlights"]:
+        surfaced.add(
+            (
+                f"{item['surface']}_highlight",
+                item["source_id"],
+                item["evidence_unit_id"],
+            )
+        )
+    return [
+        {"surface": surface, "source_id": source_id, "evidence_id": evidence_id}
+        for surface, source_id, evidence_id in sorted(surfaced)
+    ]
+
+
+def _execution_snapshot(fixture: dict[str, Any]) -> tuple[dict[str, Any], bytes, str]:
+    source_ids = sorted(
+        {
+            source_id
+            for raw_case in fixture["cases"]
+            for source_id in (
+                *raw_case["permission_scenario"]["authorized_source_ids"],
+                *raw_case["permission_scenario"]["forbidden_source_ids"],
+                *raw_case["expected"]["evidence_unit_ids"],
+            )
+        }
+    )
+    snapshot = {
+        "schema_version": 1,
+        "sources": [
+            {
+                "evidence_units": [
+                    {"id": source_id, "source_id": source_id}
+                ]
+            }
+            for source_id in source_ids
+        ],
+    }
+    payload = json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode()
+    return snapshot, payload, hashlib.sha256(payload).hexdigest()
+
+
 def _raw_observations(raw_case: dict[str, object]) -> str:
     expected = raw_case["expected"]
     assert isinstance(expected, dict)
@@ -72,30 +124,40 @@ def _raw_observations(raw_case: dict[str, object]) -> str:
         highlight_kind = highlight["kind"]
         highlight_spans = highlight["spans"]  # type: ignore[assignment]
         highlight_bboxes = highlight["bboxes"]  # type: ignore[assignment]
-        highlights = [highlight]
+        highlights = [{**highlight, "source_id": highlight["evidence_unit_id"]}]
+    conflict_ids = evidence_ids if answer_status == "conflicting_evidence" else []
     observation = {
         "retrieved_evidence_ids": evidence_ids,
         "retrieved_ranked": [
-            {"rank": rank, "evidence_id": evidence_id}
+            {
+                "rank": rank,
+                "evidence_id": evidence_id,
+                "source_id": evidence_id,
+            }
             for rank, evidence_id in enumerate(evidence_ids, start=1)
         ],
         "answer_status": answer_status,
         "answer_evidence_ids": answer_ids,
-        "conflict_evidence_ids": (
-            evidence_ids if answer_status == "conflicting_evidence" else []
-        ),
+        "conflict_evidence_ids": conflict_ids,
         "related_evidence_ids": [],
+        "answer_sources": [
+            {"evidence_id": evidence_id, "source_id": evidence_id}
+            for evidence_id in answer_ids
+        ],
+        "conflict_sources": [
+            {"evidence_id": evidence_id, "source_id": evidence_id}
+            for evidence_id in conflict_ids
+        ],
+        "related_sources": [],
         "highlight_kind": highlight_kind,
         "highlight_spans": highlight_spans,
         "highlight_bboxes": highlight_bboxes,
         "highlights": highlights,
-        "exposures": [
-            {"surface": "case_output", "source_id": evidence_id}
-            for evidence_id in evidence_ids
-        ],
+        "exposures": [],
         "duration_ms": 10,
         "repetition_signature_sha256": "a" * 64,
     }
+    observation["exposures"] = _canonical_exposures(observation)
     return json.dumps([observation, observation])
 
 
@@ -166,6 +228,9 @@ def _seed_qualifying_evidence(database_url: str) -> tuple[UUID, UUID]:
     fixture_bytes = FIXTURE_PATH.read_bytes()
     dataset = load_evaluation_dataset(fixture_bytes)
     fixture = json.loads(fixture_bytes)
+    execution_snapshot, execution_snapshot_bytes, execution_snapshot_sha256 = (
+        _execution_snapshot(fixture)
+    )
     with psycopg.connect(_sync_url(database_url)) as connection:
         connection.execute(
             """
@@ -262,9 +327,7 @@ def _seed_qualifying_evidence(database_url: str) -> tuple[UUID, UUID]:
                 worker_runtime_environment, metric_definition_version,
                 retrieval_k, repetition_count, candidate_count, finished_at, id
             ) VALUES (%s, %s, %s, 'completed', %s, %s, %s,
-                      '{}'::jsonb, '{}'::bytea,
-                      '44136fa355b3678a1146ad16f7e8649e'
-                          || '94fb4fc21fe77e8310c060f61caaff8a',
+                      %s::jsonb, %s, %s,
                       '{"python":"3.13","runtime":"test"}'::jsonb,
                       '{"revision":"test-worker"}'::jsonb,
                       1, 10, 2, 1, now(), %s)
@@ -276,6 +339,9 @@ def _seed_qualifying_evidence(database_url: str) -> tuple[UUID, UUID]:
                 dataset.fixture_sha256,
                 dataset.document_snapshot_sha256,
                 dataset.query_set_sha256,
+                json.dumps(execution_snapshot),
+                execution_snapshot_bytes,
+                execution_snapshot_sha256,
                 run_id,
             ),
         )
@@ -294,14 +360,22 @@ def _seed_qualifying_evidence(database_url: str) -> tuple[UUID, UUID]:
             SELECT %s, version.id, 0,
                    version.indexing_profile_id, version.retrieval_profile_id,
                    version.answer_policy_version_id, version.generation_profile_id,
-                   '{"models":[],"execution_snapshot_sha256":"44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"}'::jsonb,
+                   jsonb_build_object(
+                       'models', '[]'::jsonb,
+                       'execution_snapshot_sha256', %s::text
+                   ),
                    'pending', NULL,
                    NULL, NULL, NULL, NULL, NULL, NULL,
                    NULL, NULL, NULL, NULL, NULL, %s
             FROM rag_configuration_versions AS version
             WHERE version.id = %s
             """,
-            (run_id, candidate_id, BM25_BASELINE_CONFIGURATION_VERSION_ID),
+            (
+                run_id,
+                execution_snapshot_sha256,
+                candidate_id,
+                BM25_BASELINE_CONFIGURATION_VERSION_ID,
+            ),
         )
         for ordinal, raw_case in enumerate(fixture["cases"]):
             expected = raw_case["expected"]
@@ -569,9 +643,8 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
                     )
                     SELECT owner_id, dataset_snapshot_id, %s, 'pending',
                            fixture_sha256, document_snapshot_sha256,
-                           query_set_sha256, '{}'::jsonb, '{}'::bytea,
-                           '44136fa355b3678a1146ad16f7e8649e'
-                               || '94fb4fc21fe77e8310c060f61caaff8a',
+                           query_set_sha256, execution_snapshot,
+                           execution_snapshot_bytes, execution_snapshot_sha256,
                            '{}'::jsonb, NULL, 1, 10, 2, 1, %s
                       FROM rag_evaluation_runs
                      WHERE dataset_snapshot_id = %s
@@ -591,12 +664,20 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
                            version.retrieval_profile_id,
                            version.answer_policy_version_id,
                            version.generation_profile_id,
-                           '{"models":[],"execution_snapshot_sha256":"44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"}'::jsonb,
+                           jsonb_build_object(
+                               'models', '[]'::jsonb,
+                               'execution_snapshot_sha256', (
+                                   SELECT execution_snapshot_sha256
+                                     FROM rag_evaluation_runs
+                                    WHERE id = %s
+                               )
+                           ),
                            'pending', %s
                       FROM rag_configuration_versions AS version
                      WHERE version.id = %s
                     """,
                     (
+                        raw_validation_run_id,
                         raw_validation_run_id,
                         raw_validation_candidate_id,
                         inserted_pending_version_id,
@@ -770,6 +851,19 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
                     "rank extra field": _mutate_all_observations(
                         canonical_raw, ("retrieved_ranked", 0, "score"), 1.0
                     ),
+                    "rank missing source ID": _mutate_all_observations(
+                        canonical_raw, ("retrieved_ranked", 0, "source_id")
+                    ),
+                    "rank unknown source ID": _mutate_all_observations(
+                        canonical_raw,
+                        ("retrieved_ranked", 0, "source_id"),
+                        str(uuid4()),
+                    ),
+                    "rank unknown evidence ID": _mutate_all_observations(
+                        canonical_raw,
+                        ("retrieved_ranked", 0, "evidence_id"),
+                        str(uuid4()),
+                    ),
                     "answer null": _mutate_all_observations(
                         canonical_raw, ("answer_status",), None
                     ),
@@ -825,6 +919,36 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
                         ("related_evidence_ids",),
                         [canonical_variant_id, canonical_variant_id.upper()],
                     ),
+                    "answer source container missing": _mutate_all_observations(
+                        canonical_raw, ("answer_sources",)
+                    ),
+                    "answer source container null": _mutate_all_observations(
+                        canonical_raw, ("answer_sources",), None
+                    ),
+                    "answer source item missing source": _mutate_all_observations(
+                        canonical_raw, ("answer_sources", 0, "source_id")
+                    ),
+                    "answer evidence source mismatch": _mutate_all_observations(
+                        canonical_raw,
+                        ("answer_sources", 0, "source_id"),
+                        str(uuid4()),
+                    ),
+                    "answer unknown evidence ID": _mutate_all_observations(
+                        canonical_raw,
+                        ("answer_sources", 0, "evidence_id"),
+                        str(uuid4()),
+                    ),
+                    "answer evidence known source mismatch": _mutate_all_observations(
+                        canonical_raw,
+                        ("answer_sources", 0, "source_id"),
+                        "00000000-0000-0000-0000-000000000902",
+                    ),
+                    "conflict source wrong type": _mutate_all_observations(
+                        canonical_raw, ("conflict_sources",), {}
+                    ),
+                    "related source wrong type": _mutate_all_observations(
+                        canonical_raw, ("related_sources",), None
+                    ),
                     "exposure container null": _mutate_all_observations(
                         canonical_raw, ("exposures",), None
                     ),
@@ -833,6 +957,9 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
                     ),
                     "exposure container wrong type": _mutate_all_observations(
                         canonical_raw, ("exposures",), {}
+                    ),
+                    "exposure omitted despite retrieved surface": (
+                        _mutate_all_observations(canonical_raw, ("exposures",), [])
                     ),
                     "exposure null item": _mutate_all_observations(
                         canonical_raw, ("exposures", 0), None
@@ -851,6 +978,34 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
                     ),
                     "exposure extra field": _mutate_all_observations(
                         canonical_raw, ("exposures", 0, "extra"), True
+                    ),
+                    "exposure missing evidence ID": _mutate_all_observations(
+                        canonical_raw, ("exposures", 0, "evidence_id")
+                    ),
+                    "exposure unknown evidence ID": _mutate_all_observations(
+                        canonical_raw,
+                        ("exposures", 0, "evidence_id"),
+                        str(uuid4()),
+                    ),
+                    "exposure duplicate": _mutate_all_observations(
+                        canonical_raw,
+                        ("exposures",),
+                        [
+                            *canonical_raw[0]["exposures"],
+                            canonical_raw[0]["exposures"][0],
+                        ],
+                    ),
+                    "exposure extra": _mutate_all_observations(
+                        canonical_raw,
+                        ("exposures",),
+                        [
+                            *canonical_raw[0]["exposures"],
+                            {
+                                "surface": "related_source",
+                                "source_id": canonical_variant_id,
+                                "evidence_id": canonical_variant_id,
+                            },
+                        ],
                     ),
                     "exposure noncanonical UUID": _mutate_all_observations(
                         canonical_raw,
@@ -963,6 +1118,14 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
                         ("highlights", 0, "document_id"),
                         canonical_variant_id.upper(),
                     ),
+                    "highlight missing source ID": _mutate_all_observations(
+                        canonical_raw, ("highlights", 0, "source_id")
+                    ),
+                    "highlight evidence source mismatch": _mutate_all_observations(
+                        canonical_raw,
+                        ("highlights", 0, "source_id"),
+                        str(uuid4()),
+                    ),
                     "nested spans null": _mutate_all_observations(
                         canonical_raw, ("highlights", 0, "spans"), None
                     ),
@@ -1069,6 +1232,197 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
                         ) from exc
                     else:
                         pytest.fail(f"{mutation_name} bypassed raw observation validation")
+                forbidden_result = connection.execute(
+                    """
+                    SELECT raw_observations
+                      FROM rag_evaluation_case_results
+                     WHERE dataset_snapshot_id = %s
+                       AND evaluation_case_id = %s
+                    """,
+                    (
+                        dataset_id,
+                        UUID("00000000-0000-0000-0000-000000000907"),
+                    ),
+                ).fetchone()
+                assert forbidden_result is not None
+                forbidden_id = "00000000-0000-0000-0000-000000000997"
+                forbidden_surface_raw: dict[str, list[dict[str, Any]]] = {}
+                for surface in (
+                    "retrieval",
+                    "answer",
+                    "conflict",
+                    "related_source",
+                    "highlight",
+                ):
+                    surfaced_raw = deepcopy(forbidden_result[0])
+                    for observation in surfaced_raw:
+                        if surface == "retrieval":
+                            observation["retrieved_evidence_ids"].append(forbidden_id)
+                            observation["retrieved_ranked"].append(
+                                {
+                                    "rank": len(observation["retrieved_ranked"]) + 1,
+                                    "evidence_id": forbidden_id,
+                                    "source_id": forbidden_id,
+                                }
+                            )
+                        elif surface == "answer":
+                            observation["answer_evidence_ids"].append(forbidden_id)
+                            observation["answer_sources"].append(
+                                {
+                                    "evidence_id": forbidden_id,
+                                    "source_id": forbidden_id,
+                                }
+                            )
+                        elif surface == "conflict":
+                            observation["answer_status"] = "conflicting_evidence"
+                            observation["answer_evidence_ids"] = []
+                            observation["answer_sources"] = []
+                            observation["conflict_evidence_ids"] = [forbidden_id]
+                            observation["conflict_sources"] = [
+                                {
+                                    "evidence_id": forbidden_id,
+                                    "source_id": forbidden_id,
+                                }
+                            ]
+                            observation["highlights"] = []
+                        elif surface == "related_source":
+                            observation["related_evidence_ids"].append(forbidden_id)
+                            observation["related_sources"].append(
+                                {
+                                    "evidence_id": forbidden_id,
+                                    "source_id": forbidden_id,
+                                }
+                            )
+                        else:
+                            observation["answer_evidence_ids"].append(forbidden_id)
+                            observation["answer_sources"].append(
+                                {
+                                    "evidence_id": forbidden_id,
+                                    "source_id": forbidden_id,
+                                }
+                            )
+                            forbidden_highlight = deepcopy(observation["highlights"][0])
+                            forbidden_highlight["evidence_unit_id"] = forbidden_id
+                            forbidden_highlight["source_id"] = forbidden_id
+                            observation["highlights"].append(forbidden_highlight)
+                        # Deliberately retain the old exposure list: no surface may be
+                        # hidden by omitting its source from caller-supplied exposures.
+                        observation["repetition_signature_sha256"] = "d" * 64
+                    forbidden_surface_raw[surface] = surfaced_raw
+                for surfaced_raw in forbidden_surface_raw.values():
+                    with pytest.raises(
+                        psycopg.errors.RaiseException, match="exposures do not match"
+                    ):
+                        connection.execute(
+                            """
+                            INSERT INTO rag_evaluation_case_results (
+                                run_configuration_id, dataset_snapshot_id,
+                                evaluation_case_id, ordinal, query_sha256,
+                                permission_scenario, expected_evidence_ids,
+                                raw_observations, duration_ms, recall_at_k,
+                                reciprocal_rank, ndcg, correct_supported,
+                                false_grounding, highlight_iou, access_leaks,
+                                reproducible, id
+                            ) SELECT %s, dataset_snapshot_id,
+                                     evaluation_case_id, ordinal, query_sha256,
+                                     permission_scenario, expected_evidence_ids,
+                                     %s::jsonb, duration_ms, recall_at_k,
+                                     reciprocal_rank, ndcg, correct_supported,
+                                     false_grounding, highlight_iou, 0,
+                                     reproducible, %s
+                                FROM rag_evaluation_case_results
+                               WHERE dataset_snapshot_id = %s
+                                 AND evaluation_case_id = %s
+                            """,
+                            (
+                                raw_validation_candidate_id,
+                                json.dumps(surfaced_raw),
+                                uuid4(),
+                                dataset_id,
+                                UUID("00000000-0000-0000-0000-000000000907"),
+                            ),
+                        )
+                for surfaced_raw in forbidden_surface_raw.values():
+                    exact_surface_raw = deepcopy(surfaced_raw)
+                    for observation in exact_surface_raw:
+                        observation["exposures"] = _canonical_exposures(observation)
+                    with pytest.raises(
+                        psycopg.errors.RaiseException, match="derived metrics"
+                    ):
+                        connection.execute(
+                            """
+                            INSERT INTO rag_evaluation_case_results (
+                                run_configuration_id, dataset_snapshot_id,
+                                evaluation_case_id, ordinal, query_sha256,
+                                permission_scenario, expected_evidence_ids,
+                                raw_observations, duration_ms, recall_at_k,
+                                reciprocal_rank, ndcg, correct_supported,
+                                false_grounding, highlight_iou, access_leaks,
+                                reproducible, id
+                            ) SELECT %s, dataset_snapshot_id,
+                                     evaluation_case_id, ordinal, query_sha256,
+                                     permission_scenario, expected_evidence_ids,
+                                     %s::jsonb, duration_ms, recall_at_k,
+                                     reciprocal_rank, ndcg, correct_supported,
+                                     false_grounding, highlight_iou, 0,
+                                     reproducible, %s
+                                FROM rag_evaluation_case_results
+                               WHERE dataset_snapshot_id = %s
+                                 AND evaluation_case_id = %s
+                            """,
+                            (
+                                raw_validation_candidate_id,
+                                json.dumps(exact_surface_raw),
+                                uuid4(),
+                                dataset_id,
+                                UUID("00000000-0000-0000-0000-000000000907"),
+                            ),
+                        )
+                exact_surface_union = deepcopy(forbidden_surface_raw["related_source"])
+                for observation in exact_surface_union:
+                    observation["retrieved_evidence_ids"].append(forbidden_id)
+                    observation["retrieved_ranked"].append(
+                        {
+                            "rank": len(observation["retrieved_ranked"]) + 1,
+                            "evidence_id": forbidden_id,
+                            "source_id": forbidden_id,
+                        }
+                    )
+                    observation["exposures"] = _canonical_exposures(observation)
+                # The same forbidden source on retrieval and related_source is two
+                # distinct surfaced relations. Reporting one leak must fail closed.
+                with pytest.raises(
+                    psycopg.errors.RaiseException, match="derived metrics"
+                ):
+                    connection.execute(
+                        """
+                        INSERT INTO rag_evaluation_case_results (
+                            run_configuration_id, dataset_snapshot_id,
+                            evaluation_case_id, ordinal, query_sha256,
+                            permission_scenario, expected_evidence_ids,
+                            raw_observations, duration_ms, recall_at_k,
+                            reciprocal_rank, ndcg, correct_supported,
+                            false_grounding, highlight_iou, access_leaks,
+                            reproducible, id
+                        ) SELECT %s, dataset_snapshot_id,
+                                 evaluation_case_id, ordinal, query_sha256,
+                                 permission_scenario, expected_evidence_ids,
+                                 %s::jsonb, duration_ms, recall_at_k,
+                                 reciprocal_rank, ndcg, correct_supported,
+                                 false_grounding, highlight_iou, 1,
+                                 reproducible, %s
+                            FROM rag_evaluation_case_results
+                           WHERE dataset_snapshot_id = %s
+                             AND evaluation_case_id = %s
+                        """,
+                        (
+                            raw_validation_candidate_id,
+                            json.dumps(exact_surface_union),
+                            uuid4(),
+                            dataset_id,
+                            UUID("00000000-0000-0000-0000-000000000907"),
+                        ),
+                    )
                 assert connection.execute(
                     """
                     SELECT count(*) FROM rag_evaluation_case_results
@@ -1076,6 +1430,90 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
                     """,
                     (raw_validation_candidate_id,),
                 ).fetchone() == (0,)
+                with pytest.raises(
+                    psycopg.errors.RaiseException, match="complete exact case"
+                ):
+                    connection.execute(
+                        """
+                        UPDATE rag_evaluation_run_configurations
+                           SET status = 'completed', completed_at = now()
+                         WHERE id = %s
+                        """,
+                        (raw_validation_candidate_id,),
+                    )
+                with pytest.raises(psycopg.errors.RaiseException, match="qualifying"):
+                    connection.execute(
+                        """
+                        UPDATE rag_configuration_versions
+                           SET evaluation_state = 'passed', is_default = true
+                         WHERE id = %s
+                        """,
+                        (inserted_pending_version_id,),
+                    )
+                authorized_related_raw = deepcopy(canonical_raw)
+                authorized_related_id = "00000000-0000-0000-0000-000000000902"
+                for observation in authorized_related_raw:
+                    observation["related_evidence_ids"].append(authorized_related_id)
+                    observation["related_sources"].append(
+                        {
+                            "evidence_id": authorized_related_id,
+                            "source_id": authorized_related_id,
+                        }
+                    )
+                    observation["exposures"] = _canonical_exposures(observation)
+                    observation["repetition_signature_sha256"] = "e" * 64
+                connection.execute(
+                    """
+                    INSERT INTO rag_evaluation_case_results (
+                        run_configuration_id, dataset_snapshot_id,
+                        evaluation_case_id, ordinal, query_sha256,
+                        permission_scenario, expected_evidence_ids,
+                        raw_observations, duration_ms, recall_at_k,
+                        reciprocal_rank, ndcg, correct_supported,
+                        false_grounding, highlight_iou, access_leaks,
+                        reproducible, id
+                    ) SELECT %s, dataset_snapshot_id,
+                             evaluation_case_id, ordinal, query_sha256,
+                             permission_scenario, expected_evidence_ids,
+                             %s::jsonb, duration_ms, recall_at_k,
+                             reciprocal_rank, ndcg, correct_supported,
+                             false_grounding, highlight_iou, 0,
+                             reproducible, %s
+                        FROM rag_evaluation_case_results
+                       WHERE dataset_snapshot_id = %s
+                         AND evaluation_case_id = %s
+                    """,
+                    (
+                        raw_validation_candidate_id,
+                        json.dumps(authorized_related_raw),
+                        uuid4(),
+                        dataset_id,
+                        UUID("00000000-0000-0000-0000-000000000901"),
+                    ),
+                )
+                assert connection.execute(
+                    """
+                    SELECT access_leaks
+                      FROM rag_evaluation_case_results
+                     WHERE run_configuration_id = %s
+                    """,
+                    (raw_validation_candidate_id,),
+                ).fetchone() == (0,)
+                empty_result = connection.execute(
+                    """
+                    SELECT raw_observations, access_leaks
+                      FROM rag_evaluation_case_results
+                     WHERE dataset_snapshot_id = %s
+                       AND evaluation_case_id = %s
+                    """,
+                    (
+                        dataset_id,
+                        UUID("00000000-0000-0000-0000-000000000905"),
+                    ),
+                ).fetchone()
+                assert empty_result is not None
+                assert empty_result[1] == 0
+                assert all(item["exposures"] == [] for item in empty_result[0])
                 with pytest.raises(
                     psycopg.errors.RaiseException, match="complete exact case"
                 ):
@@ -1152,6 +1590,7 @@ async def test_0010_migrates_forward_and_database_promotion_is_evidence_backed(
                 for observation in forged_raw:
                     observation["retrieved_evidence_ids"] = []
                     observation["retrieved_ranked"] = []
+                    observation["exposures"] = _canonical_exposures(observation)
                     observation["repetition_signature_sha256"] = "b" * 64
                 with pytest.raises(
                     psycopg.errors.RaiseException, match="derived metrics"

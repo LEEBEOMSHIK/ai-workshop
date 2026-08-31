@@ -848,6 +848,30 @@ async def test_real_bm25_e5_bge_compare_the_same_snapshot_with_caller_saved_conf
                 )
                 for result in raw_results
             )
+            for result in raw_results:
+                for observation in result.raw_observations:
+                    assert {"title", "excerpt", "text"}.isdisjoint(observation)
+                    assert all(
+                        set(item) == {"rank", "evidence_id", "source_id"}
+                        for item in cast(list[dict[str, object]], observation["retrieved_ranked"])
+                    )
+                    assert all(
+                        set(item) == {"evidence_id", "source_id"}
+                        for field in (
+                            "answer_sources",
+                            "conflict_sources",
+                            "related_sources",
+                        )
+                        for item in cast(list[dict[str, object]], observation[field])
+                    )
+                    assert all(
+                        set(item) == {"surface", "source_id", "evidence_id"}
+                        for item in cast(list[dict[str, object]], observation["exposures"])
+                    )
+                    assert all(
+                        item["source_id"] == item["evidence_unit_id"]
+                        for item in cast(list[dict[str, object]], observation["highlights"])
+                    )
     finally:
         if concrete_indices:
             await client.indices.delete(index=",".join(concrete_indices), ignore_unavailable=True)

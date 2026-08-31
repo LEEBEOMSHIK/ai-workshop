@@ -39,6 +39,7 @@ from ai_workshop.labs.rag.evaluation.metrics import (
     span_iou,
     structured_highlight_iou,
     supported_precision,
+    validate_access_exposures,
 )
 
 
@@ -108,6 +109,11 @@ class SearchExecutionObservation:
     def __post_init__(self) -> None:
         if not math.isfinite(self.duration_ms) or self.duration_ms < 0:
             raise ValueError("Search duration must be finite and non-negative.")
+        object.__setattr__(
+            self,
+            "exposures",
+            validate_access_exposures(self.stable, self.exposures),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -574,7 +580,7 @@ def evaluate_case(
             for item in observations
         ),
         reproducible=(
-            reproducibility_rate((tuple(item.stable for item in observations),)) == 1.0
+            len({(item.stable, item.exposures) for item in observations}) == 1
         ),
     )
 

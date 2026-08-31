@@ -12,6 +12,7 @@ from ai_workshop.labs.rag.evaluation.metrics import (
     StableObservation,
     bbox_iou,
     bbox_set_iou,
+    canonical_access_exposures,
     count_access_leaks,
     false_grounding_rate,
     ndcg_at_k,
@@ -160,6 +161,50 @@ def test_forbidden_sources_take_precedence_and_authorized_related_sources_are_sa
         authorized_source_ids=frozenset({E1, E2}),
         forbidden_source_ids=frozenset({E2}),
     ) == 2
+
+
+def test_canonical_exposures_cover_every_result_surface_with_ids_only() -> None:
+    observation = StableObservation(
+        retrieved_evidence_ids=(E1, E1),
+        answer_status=AnswerStatus.SUPPORTED,
+        answer_evidence_ids=(E2,),
+        conflict_evidence_ids=(E3,),
+        related_evidence_ids=(E4,),
+        highlight_kind=HighlightKind.KEYWORD,
+        highlight_spans=(),
+        highlight_bboxes=(),
+        highlights=(
+            HighlightObservation(
+                surface="answer",
+                document_id=E4,
+                asset_version_id=E3,
+                evidence_unit_id=E2,
+                page=1,
+                kind=HighlightKind.KEYWORD,
+                spans=(CharacterSpan(0, 2),),
+                bboxes=(),
+            ),
+            HighlightObservation(
+                surface="conflict",
+                document_id=E4,
+                asset_version_id=E3,
+                evidence_unit_id=E3,
+                page=1,
+                kind=HighlightKind.KEYWORD,
+                spans=(CharacterSpan(2, 4),),
+                bboxes=(),
+            ),
+        ),
+    )
+
+    assert canonical_access_exposures(observation) == (
+        AccessExposure("retrieval", E1, E1),
+        AccessExposure("answer", E2, E2),
+        AccessExposure("conflict", E3, E3),
+        AccessExposure("related_source", E4, E4),
+        AccessExposure("answer_highlight", E2, E2),
+        AccessExposure("conflict_highlight", E3, E3),
+    )
 
 
 def test_structured_highlight_iou_requires_source_kind_page_and_surface_identity() -> None:

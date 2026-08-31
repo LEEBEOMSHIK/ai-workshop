@@ -274,6 +274,8 @@ def create_celery(
         bind=True,
         name=RAG_INGESTION_TASK,
         ignore_result=True,
+        acks_late=True,
+        reject_on_worker_lost=True,
         max_retries=1,
         shared=False,
     )

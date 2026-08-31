@@ -87,7 +87,7 @@ class RagDispatchReconciler:
                     claim,
                     now=completed_at,
                     retry_at=completed_at + self._backoff(claim.attempt_count),
-                    error=str(exc),
+                    error=_safe_broker_failure(exc),
                 )
             else:
                 await self.repository.mark_sent(claim, now=now or self.clock())
@@ -107,3 +107,13 @@ class RagDispatchReconciler:
             return self.max_backoff
         candidate = self.base_backoff * (1 << exponent)
         return candidate if candidate <= self.max_backoff else self.max_backoff
+
+
+def _safe_broker_failure(exc: Exception) -> str:
+    cause_class = "".join(
+        character
+        if character.isascii() and (character.isalnum() or character in "._")
+        else "_"
+        for character in type(exc).__name__
+    )[:100]
+    return f"broker_delivery_failed:{cause_class or 'Exception'}"

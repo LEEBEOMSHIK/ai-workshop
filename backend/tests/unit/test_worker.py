@@ -251,6 +251,20 @@ def test_evaluation_task_uses_late_ack_and_worker_loss_redelivery() -> None:
     assert task.reject_on_worker_lost is True
 
 
+def test_rag_ingestion_task_uses_late_ack_and_worker_loss_redelivery() -> None:
+    settings = Settings(
+        _env_file=None,
+        environment="test",
+        secret_key="x" * 32,
+        redis_url="redis://unused:6379/0",
+    )
+    task = create_celery(settings).tasks[RAG_INGESTION_TASK]
+
+    assert task.acks_late is True
+    assert task.reject_on_worker_lost is True
+    assert task.max_retries == 1
+
+
 def test_asset_verification_uses_late_ack_worker_loss_and_bounded_retry() -> None:
     settings = Settings(
         _env_file=None,

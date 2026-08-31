@@ -68,7 +68,7 @@ class FailOnceSender:
         assert self.repository.status == "claimed"
         self.calls.append(job_id)
         if len(self.calls) == 1:
-            raise OSError("broker unavailable")
+            raise OSError("redis://user:secret@host/0 private-token")
 
 
 class SteppedClock:
@@ -108,7 +108,10 @@ async def test_broker_failure_is_persisted_then_reconciled_after_backoff() -> No
     assert repository.status == "pending"
     assert repository.attempt_count == 1
     assert repository.available_at == now + timedelta(seconds=10)
-    assert repository.last_error == "broker unavailable"
+    assert repository.last_error == "broker_delivery_failed:OSError"
+    assert "secret" not in repository.last_error
+    assert "private-token" not in repository.last_error
+    assert "redis://" not in repository.last_error
 
     too_early = await reconciler.run_once(now=now + timedelta(seconds=9))
     recovered = await reconciler.run_once(now=now + timedelta(seconds=10))

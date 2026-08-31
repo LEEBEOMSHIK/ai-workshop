@@ -67,3 +67,54 @@ def test_markdown_parser_emits_list_items_and_excludes_fenced_code_from_evidence
         ("list_item", "두 번째 항목"),
     ]
     assert all("비공개 코드" not in element.text for element in document.elements)
+
+
+def test_markdown_parser_closes_only_matching_fence_character_and_length(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "fences.md"
+    source.write_text(
+        "````python\n"
+        "숨김 1\n"
+        "~~~\n"
+        "숨김 2\n"
+        "```\n"
+        "숨김 3\n"
+        "```` info\n"
+        "숨김 4\n"
+        "````\n"
+        "공개 문장\n",
+        encoding="utf-8",
+    )
+
+    document = MarkdownParser().parse(
+        ParseRequest(
+            path=source,
+            media_type="text/markdown",
+            filename=source.name,
+            asset_version_id=UUID("22222222-2222-2222-2222-222222222222"),
+        )
+    )
+
+    assert [(element.kind, element.text) for element in document.elements] == [
+        ("paragraph", "공개 문장")
+    ]
+
+
+def test_markdown_parser_preserves_multiline_paragraph_source_slice(tmp_path: Path) -> None:
+    source = tmp_path / "paragraph.md"
+    source.write_text("  첫 문장입니다.  \n    두 번째 문장입니다.  \n", encoding="utf-8")
+
+    document = MarkdownParser().parse(
+        ParseRequest(
+            path=source,
+            media_type="text/markdown",
+            filename=source.name,
+            asset_version_id=UUID("22222222-2222-2222-2222-222222222222"),
+        )
+    )
+
+    paragraph = document.elements[0]
+    normalized = source.read_text(encoding="utf-8")
+    assert paragraph.text == "첫 문장입니다.  \n    두 번째 문장입니다."
+    assert normalized[paragraph.location.char_start : paragraph.location.char_end] == paragraph.text

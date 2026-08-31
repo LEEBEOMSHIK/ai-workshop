@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 from ai_workshop.labs.rag.chunking.contracts import ChunkingConfig, ChunkingResult, TokenCounter
-from ai_workshop.labs.rag.chunking.sentences import split_sentences
+from ai_workshop.labs.rag.chunking.sentences import SentenceSpan, split_sentences
 from ai_workshop.labs.rag.documents.domain import (
     EvidenceUnit,
     ParsedDocument,
@@ -100,22 +100,48 @@ class StructuralChunker:
 def _evidence_sources(document: ParsedDocument) -> tuple[_EvidenceSource, ...]:
     sources: list[_EvidenceSource] = []
     for element in document.elements:
-        texts = (
+        spans = (
             split_sentences(element.text)
-            if element.kind == "paragraph"
-            else (element.text.strip(),)
+            if element.kind == "paragraph" and element.location.bbox is None
+            else (_whole_element_span(element.text),)
         )
-        for text in texts:
-            if text:
+        for span in spans:
+            if span is not None:
                 sources.append(
                     _EvidenceSource(
                         element_id=element.id,
-                        text=text,
-                        location=element.location,
+                        text=span.text,
+                        location=_source_location_for_span(element.location, span),
                         section_path=element.section_path,
                     )
                 )
     return tuple(sources)
+
+
+def _whole_element_span(text: str) -> SentenceSpan | None:
+    start = 0
+    end = len(text)
+    while start < end and text[start].isspace():
+        start += 1
+    while end > start and text[end - 1].isspace():
+        end -= 1
+    if start == end:
+        return None
+    return SentenceSpan(text=text[start:end], start=start, end=end)
+
+
+def _source_location_for_span(location: SourceLocation, span: SentenceSpan) -> SourceLocation:
+    if location.bbox is not None:
+        # A parser-provided PDF bbox covers the structural element. Without
+        # character-level geometry, splitting it would invent sub-box coordinates.
+        return location
+    return SourceLocation(
+        element_id=location.element_id,
+        page=location.page,
+        char_start=location.char_start + span.start,
+        char_end=location.char_start + span.end,
+        bbox=None,
+    )
 
 
 def _render_chunk(section_path: tuple[str, ...], sources: list[_EvidenceSource]) -> str:

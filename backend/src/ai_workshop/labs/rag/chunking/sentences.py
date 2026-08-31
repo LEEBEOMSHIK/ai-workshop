@@ -1,7 +1,17 @@
-def split_sentences(text: str) -> tuple[str, ...]:
-    """Split prose on terminal punctuation without treating clause numbers as sentences."""
+from dataclasses import dataclass
 
-    sentences: list[str] = []
+
+@dataclass(frozen=True, slots=True)
+class SentenceSpan:
+    text: str
+    start: int
+    end: int
+
+
+def split_sentences(text: str) -> tuple[SentenceSpan, ...]:
+    """Split prose and retain stable source-relative code-point spans."""
+
+    sentences: list[SentenceSpan] = []
     start = 0
     active_clause_number: int | None = None
     marker_dot_indexes: set[int] = set()
@@ -10,7 +20,7 @@ def split_sentences(text: str) -> tuple[str, ...]:
         if marker is not None and _is_valid_clause_marker(
             text, index, marker[0], active_clause_number
         ):
-            if sentence := text[start:index].strip():
+            if sentence := _trimmed_span(text, start, index):
                 sentences.append(sentence)
             start = index
             active_clause_number = marker[0]
@@ -19,15 +29,25 @@ def split_sentences(text: str) -> tuple[str, ...]:
             continue
         if index + 1 < len(text) and not text[index + 1].isspace():
             continue
-        sentence = text[start : index + 1].strip()
+        sentence = _trimmed_span(text, start, index + 1)
         if sentence:
             sentences.append(sentence)
         start = index + 1
         active_clause_number = None
-    tail = text[start:].strip()
+    tail = _trimmed_span(text, start, len(text))
     if tail:
         sentences.append(tail)
     return tuple(sentences)
+
+
+def _trimmed_span(text: str, start: int, end: int) -> SentenceSpan | None:
+    while start < end and text[start].isspace():
+        start += 1
+    while end > start and text[end - 1].isspace():
+        end -= 1
+    if start == end:
+        return None
+    return SentenceSpan(text=text[start:end], start=start, end=end)
 
 
 def _numbered_marker_at(text: str, index: int) -> tuple[int, int] | None:

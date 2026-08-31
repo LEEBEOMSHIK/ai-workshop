@@ -9,7 +9,7 @@ class MarkdownParser:
     media_types = frozenset({"text/markdown", "text/x-markdown"})
     suffixes = frozenset({".md", ".markdown"})
     parser_name = "markdown"
-    parser_version = "1"
+    parser_version = "2"
 
     def parse(self, request: ParseRequest) -> ParsedDocument:
         try:
@@ -19,10 +19,9 @@ class MarkdownParser:
         normalized = text.replace("\r\n", "\n").replace("\r", "\n")
         elements: list[StructuralElement] = []
         section_stack: list[tuple[int, str]] = []
-        in_fence = False
+        active_fence: tuple[str, int] | None = None
         paragraph_start: int | None = None
         paragraph_end: int | None = None
-        paragraph_lines: list[str] = []
 
         def current_path() -> tuple[str, ...]:
             return tuple(title for _, title in section_stack)
@@ -57,29 +56,30 @@ class MarkdownParser:
             )
 
         def flush_paragraph() -> None:
-            nonlocal paragraph_start, paragraph_end, paragraph_lines
+            nonlocal paragraph_start, paragraph_end
             if paragraph_start is not None and paragraph_end is not None:
                 append_element(
                     kind="paragraph",
-                    value="\n".join(paragraph_lines),
+                    value=normalized[paragraph_start:paragraph_end],
                     char_start=paragraph_start,
                     char_end=paragraph_end,
                     section_path=current_path(),
                 )
             paragraph_start = None
             paragraph_end = None
-            paragraph_lines = []
 
         offset = 0
         for line in normalized.splitlines(keepends=True):
             content = line.rstrip("\n")
-            fence = re.match(r"^\s*(`{3,}|~{3,})", content)
-            if fence is not None:
+            opening_fence = _opening_fence(content) if active_fence is None else None
+            if opening_fence is not None:
                 flush_paragraph()
-                in_fence = not in_fence
+                active_fence = opening_fence
                 offset += len(line)
                 continue
-            if in_fence:
+            if active_fence is not None:
+                if _closes_fence(content, active_fence):
+                    active_fence = None
                 offset += len(line)
                 continue
             heading = re.match(r"^(#{1,6})\s+(.*?)\s*#*\s*$", content)
@@ -123,7 +123,6 @@ class MarkdownParser:
                 if paragraph_start is None:
                     paragraph_start = offset + leading
                 paragraph_end = offset + len(content.rstrip())
-                paragraph_lines.append(content.strip())
             else:
                 flush_paragraph()
             offset += len(line)
@@ -134,3 +133,19 @@ class MarkdownParser:
             parser_version=self.parser_version,
             elements=tuple(elements),
         )
+
+
+def _opening_fence(line: str) -> tuple[str, int] | None:
+    match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+    if match is None:
+        return None
+    marker = match.group(1)
+    if marker[0] == "`" and "`" in match.group(2):
+        return None
+    return marker[0], len(marker)
+
+
+def _closes_fence(line: str, active_fence: tuple[str, int]) -> bool:
+    fence_char, minimum_length = active_fence
+    match = re.match(rf"^ {{0,3}}({re.escape(fence_char)}{{{minimum_length},}})[ \t]*$", line)
+    return match is not None

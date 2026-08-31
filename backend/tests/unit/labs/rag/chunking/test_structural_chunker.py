@@ -112,6 +112,60 @@ def test_chunker_keeps_list_items_and_table_cells_as_indivisible_evidence() -> N
     ]
 
 
+def test_chunker_preserves_exact_offsets_for_repeated_unicode_sentences() -> None:
+    element = _element(
+        0,
+        "반복 문장입니다.  \n반복 문장입니다. 마지막 📈 문장입니다.",
+    )
+    element = StructuralElement(
+        id=element.id,
+        ordinal=element.ordinal,
+        kind=element.kind,
+        text=element.text,
+        section_path=element.section_path,
+        location=SourceLocation(
+            element_id=element.id,
+            page=None,
+            char_start=100,
+            char_end=134,
+            bbox=None,
+        ),
+        parser_name=element.parser_name,
+        parser_version=element.parser_version,
+        confidence=element.confidence,
+    )
+
+    result = StructuralChunker(MarkerTokenCounter()).chunk(
+        _document(element),
+        projection_id=UUID("00000000-0000-0000-0000-000000000126"),
+        config=ChunkingConfig(target_tokens=40, overlap_tokens=0, hard_ceiling_tokens=50),
+    )
+
+    assert [unit.text for unit in result.evidence_units] == [
+        "반복 문장입니다.",
+        "반복 문장입니다.",
+        "마지막 📈 문장입니다.",
+    ]
+    assert [
+        (unit.location.char_start, unit.location.char_end)
+        for unit in result.evidence_units
+    ] == [(100, 109), (112, 121), (122, 134)]
+
+
+def test_chunker_keeps_pdf_bbox_element_indivisible_without_sentence_geometry() -> None:
+    element = _element(0, "첫 문장입니다. 두 번째 문장입니다.")
+
+    result = StructuralChunker(MarkerTokenCounter()).chunk(
+        _document(element),
+        projection_id=UUID("00000000-0000-0000-0000-000000000127"),
+        config=ChunkingConfig(target_tokens=40, overlap_tokens=0, hard_ceiling_tokens=50),
+    )
+
+    assert len(result.evidence_units) == 1
+    assert result.evidence_units[0].text == element.text
+    assert result.evidence_units[0].location == element.location
+
+
 def test_chunker_rejects_an_indivisible_unit_that_exceeds_the_hard_ceiling() -> None:
     element = _element(0, "one two three four five")
 

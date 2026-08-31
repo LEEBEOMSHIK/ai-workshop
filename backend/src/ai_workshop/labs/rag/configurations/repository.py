@@ -15,6 +15,7 @@ from ai_workshop.labs.rag.configurations.models import (
     RagConfigurationRecord,
     RagConfigurationVersionRecord,
     RagConfigurationWorkspaceSubscriptionRecord,
+    RagSystemIndexingSubscriptionRecord,
 )
 from ai_workshop.labs.rag.documents.models import RagIndexBuildRecord
 from ai_workshop.labs.rag.embeddings.contracts import (
@@ -529,7 +530,48 @@ class SqlAlchemyRagConfigurationRepository:
         asset_version_id: UUID,
     ) -> tuple[tuple[UUID, UUID], ...]:
         membership = WorkspaceMembershipRecord
-        rows = (
+        system_rows = (
+            await self.session.execute(
+                select(
+                    RagConfigurationVersionRecord.indexing_profile_id,
+                    WorkspaceRecord.created_by,
+                )
+                .join(
+                    RagSystemIndexingSubscriptionRecord,
+                    RagSystemIndexingSubscriptionRecord.configuration_version_id
+                    == RagConfigurationVersionRecord.id,
+                )
+                .join(
+                    RagConfigurationRecord,
+                    RagConfigurationRecord.id
+                    == RagConfigurationVersionRecord.configuration_id,
+                )
+                .join(
+                    AssetVersionRecord,
+                    AssetVersionRecord.id == asset_version_id,
+                )
+                .join(
+                    DocumentRecord,
+                    DocumentRecord.id == AssetVersionRecord.document_id,
+                )
+                .join(
+                    WorkspaceRecord,
+                    WorkspaceRecord.id == DocumentRecord.workspace_id,
+                )
+                .where(
+                    AssetVersionRecord.status == VersionStatus.READY,
+                    DocumentRecord.active_version_id == AssetVersionRecord.id,
+                    RagConfigurationRecord.is_system.is_(True),
+                    RagConfigurationRecord.owner_id.is_(None),
+                    workspace_is_active(),
+                )
+                .order_by(
+                    RagConfigurationVersionRecord.indexing_profile_id,
+                    WorkspaceRecord.created_by,
+                )
+            )
+        ).all()
+        user_rows = (
             await self.session.execute(
                 select(
                     RagConfigurationVersionRecord.indexing_profile_id,
@@ -586,7 +628,9 @@ class SqlAlchemyRagConfigurationRepository:
             )
         ).all()
         by_profile: dict[UUID, UUID] = {}
-        for profile_id, owner_id in rows:
+        for profile_id, owner_id in system_rows:
+            by_profile.setdefault(profile_id, owner_id)
+        for profile_id, owner_id in user_rows:
             if owner_id is not None:
                 by_profile.setdefault(profile_id, owner_id)
         return tuple(by_profile.items())

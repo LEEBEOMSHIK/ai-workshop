@@ -142,3 +142,15 @@ class RagConfigurationWorkspaceSubscriptionRecord(
     workspace_id: Mapped[UUID] = mapped_column(
         ForeignKey("workspaces.id", ondelete="RESTRICT"), nullable=False
     )
+
+
+class RagSystemIndexingSubscriptionRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """System-wide indexing demand bound to one immutable configuration version."""
+
+    __tablename__ = "rag_system_indexing_subscriptions"
+
+    configuration_version_id: Mapped[UUID] = mapped_column(
+        ForeignKey("rag_configuration_versions.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )

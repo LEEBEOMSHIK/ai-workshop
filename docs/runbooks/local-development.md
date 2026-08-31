@@ -1,7 +1,7 @@
 # 로컬 개발 실행서
 
 - 상태: 현재 구현 기준
-- 기준일: 2026-08-31
+- 기준일: 2026-09-01
 
 이 문서는 AI Workshop 기반을 로컬에서 설치하고 실행·검증하는 절차의 정본이다. 원본 문서와 비밀값은 Git에 추가하지 않는다.
 
@@ -149,7 +149,24 @@ pnpm build
 pnpm api:check
 ```
 
-전체 스택 smoke는 격리된 `ai-workshop-smoke` 프로젝트와 별도 PostgreSQL·Redis·Elasticsearch 포트를 만들고, migration, pinned E5 cache, API/worker/beat health, foundation 및 RAG E2E를 실행한다. 종료 시 해당 프로젝트의 컨테이너와 네트워크만 제거하고 named volume은 보존한다.
+Windows에서 `pnpm api:check`가 현재 worktree의 `backend/.venv/Scripts/python.exe`가 없거나 잘못된 실행 파일이라 실패하면 그 명령을 성공으로 기록하지 않는다. 현재 worktree backend image로 OpenAPI를 내보낸 뒤 같은 `openapi-typescript --check` 계약을 직접 실행한다. 다음은 2026-09-01에 실제로 재실행해 통과한 fallback이다.
+
+```powershell
+$repositoryRoot = (Resolve-Path .).Path
+docker run --rm --volume "${repositoryRoot}\backend\build:/app/build" ai-workshop-backend:local python tools/export_openapi.py
+node frontend\node_modules\openapi-typescript\bin\cli.js backend\build\openapi.json --output frontend\src\shared\api\schema.d.ts --alphabetize --check
+```
+
+전체 스택 smoke는 격리된 `ai-workshop-smoke` 프로젝트와 별도 PostgreSQL·Redis·Elasticsearch 포트를 만든다. beat와 fixture의 broad `TRUNCATE`가 겹치지 않도록 다음 순서를 고정한다.
+
+1. infrastructure, migration과 pinned E5 cache를 준비한다.
+2. beat 없이 API와 worker만 시작해 foundation E2E와 teardown을 끝낸 뒤 둘을 중지한다.
+3. committed `model-tools` catalog 등록 명령을 명시적으로 실행한다.
+4. beat 없이 API와 worker를 다시 시작해 RAG E2E와 teardown을 끝낸 뒤 둘을 중지한다. E2E prepared-state helper는 production Celery task name으로 handoff, durable queued 확인, dispatch 순서를 broker에 명시적으로 전달한다.
+5. 모든 fixture teardown이 끝난 뒤에만 beat를 시작하고 실행 상태를 확인한다.
+6. 종료 시 해당 프로젝트의 컨테이너와 네트워크만 제거하고 named volume은 보존한다.
+
+실패하면 smoke는 정리 전에 정확한 프로젝트의 `docker compose ps --all`과 API, worker, beat, PostgreSQL, Redis, Elasticsearch의 마지막 80줄 로그를 출력한다. 진단 실패는 원래 실패를 가리지 않으며, `down -v`나 `down --volumes`는 사용하지 않는다.
 
 ```powershell
 cd ..

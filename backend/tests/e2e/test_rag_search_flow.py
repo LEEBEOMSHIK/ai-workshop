@@ -1,17 +1,20 @@
 from asyncio import sleep
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
+from copy import deepcopy
 from dataclasses import replace
 from datetime import UTC, datetime
 from hashlib import sha256
 from os import environ
+from typing import Protocol
 from unittest.mock import patch
 from uuid import UUID, uuid4
 
 import pymupdf
 import pytest
+from celery import Celery  # type: ignore[import-untyped]
 from elasticsearch import AsyncElasticsearch
 from httpx import AsyncClient
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 
 from ai_workshop.config import get_settings
 from ai_workshop.infrastructure.object_store.local import LocalObjectStore
@@ -30,11 +33,18 @@ from ai_workshop.labs.rag.configurations.models import (
 from ai_workshop.labs.rag.documents.models import (
     EvidenceUnitRecord,
     RagProjectionRecord,
+    RetrievalChunkRecord,
+    StructuralElementRecord,
+)
+from ai_workshop.labs.rag.evaluation.models import (
+    EvaluationCaseResultRecord,
+    EvaluationRunConfigurationRecord,
 )
 from ai_workshop.labs.rag.indexing.contracts import IndexDescriptor, IndexDocument
 from ai_workshop.labs.rag.indexing.elasticsearch import ElasticsearchSearchIndex
 from ai_workshop.labs.rag.indexing.service import IndexingService
 from ai_workshop.labs.rag.ingestion.models import RagIngestionJobRecord
+from ai_workshop.labs.rag.models.models import ProfileRecord
 from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecord
 from ai_workshop.platform.identity.cli import bootstrap_owner
 from ai_workshop.platform.identity.domain import User
@@ -44,8 +54,14 @@ from ai_workshop.platform.jobs.models import JobRecord
 from ai_workshop.platform.workspaces.domain import MembershipRole
 from ai_workshop.platform.workspaces.models import WorkspaceMembershipRecord
 from ai_workshop.shared.db import create_engine, create_session_factory
+from ai_workshop.worker import (
+    RAG_ASSET_HANDOFF_RECONCILE_TASK,
+    RAG_DISPATCH_RECONCILE_TASK,
+    RAG_EVALUATION_DISPATCH_RECONCILE_TASK,
+    create_celery,
+)
 
-pytestmark = pytest.mark.skipif(
+actual_stack = pytest.mark.skipif(
     environ.get("AI_WORKSHOP_E2E") != "1"
     or environ.get("AI_WORKSHOP_ENVIRONMENT") != "test",
     reason=(
@@ -65,9 +81,37 @@ SECOND_CHUNK_ID = UUID("00000000-0000-0000-0000-00000000e502")
 OWNER_EMAIL = "rag.owner.e2e@example.com"
 MEMBER_EMAIL = "rag.member.e2e@example.com"
 TEST_PASSWORD = "task14-public-synthetic-password"
+INSUFFICIENT_QUERY = "ZXQJ987654321NOMATCH"
+IMPORTED_E5_MODEL_ID = "00000000-0000-0000-0000-000000000101"
+IMPORTED_E5_MODEL_CONFIG: dict[str, object] = {
+    "repo_id": "intfloat/multilingual-e5-base",
+    "revision": "d128750597153bb5987e10b1c3493a34e5a4502a",
+    "dimension": 768,
+    "max_tokens": 512,
+    "query_prefix": "query: ",
+    "document_prefix": "passage: ",
+    "normalize": True,
+    "device": "cpu",
+    "dtype": "float32",
+    "output_mode": "dense",
+    "data_policy": "local_only",
+}
 RAG_TRUNCATE_SQL = """
-TRUNCATE TABLE rag_model_definitions, users RESTART IDENTITY CASCADE
+TRUNCATE TABLE rag_profiles, users RESTART IDENTITY CASCADE
 """
+RAG_PROJECTION_TASK_SEQUENCE = (
+    RAG_ASSET_HANDOFF_RECONCILE_TASK,
+    RAG_DISPATCH_RECONCILE_TASK,
+)
+
+
+class _TaskSender(Protocol):
+    def send_task(
+        self,
+        name: str,
+        args: tuple[object, ...],
+        kwargs: dict[str, object],
+    ) -> object: ...
 
 
 def _document(
@@ -94,6 +138,7 @@ def _document(
     )
 
 
+@actual_stack
 @pytest.mark.asyncio
 async def test_ready_documents_remain_searchable_after_another_projection_activates() -> None:
     """A profile-wide active search view must retain every READY document."""
@@ -317,29 +362,9 @@ async def _seed_member_and_membership(workspace_id: object) -> UUID:
 async def _register_rag_components(
     client: AsyncClient,
 ) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
-    model_response = await client.post(
-        "/api/v1/rag/models",
-        json={
-            "kind": "embedding",
-            "name": "task14-multilingual-e5-base",
-            "version": 1,
-            "config": {
-                "repo_id": "intfloat/multilingual-e5-base",
-                "revision": "d128750597153bb5987e10b1c3493a34e5a4502a",
-                "dimension": 768,
-                "max_tokens": 512,
-                "query_prefix": "query: ",
-                "document_prefix": "passage: ",
-                "normalize": True,
-                "device": "cpu",
-                "dtype": "float32",
-                "output_mode": "dense",
-                "data_policy": "local_only",
-            },
-        },
-    )
-    assert model_response.status_code == 201
-    model = model_response.json()
+    model_response = await client.get("/api/v1/rag/models")
+    assert model_response.status_code == 200
+    model = _select_imported_e5_model(model_response.json())
     indexing_response = await client.post(
         "/api/v1/rag/profiles/indexing",
         json={
@@ -491,6 +516,245 @@ def test_search_payload_serializes_uuid_ids_for_the_api_contract() -> None:
     }
 
 
+def test_select_imported_e5_model_requires_the_exact_committed_definition() -> None:
+    expected = {
+        "id": "00000000-0000-0000-0000-000000000101",
+        "kind": "embedding",
+        "name": "multilingual-e5-base",
+        "version": 1,
+        "config": {
+            "repo_id": "intfloat/multilingual-e5-base",
+            "revision": "d128750597153bb5987e10b1c3493a34e5a4502a",
+            "dimension": 768,
+            "max_tokens": 512,
+            "query_prefix": "query: ",
+            "document_prefix": "passage: ",
+            "normalize": True,
+            "device": "cpu",
+            "dtype": "float32",
+            "output_mode": "dense",
+            "data_policy": "local_only",
+        },
+    }
+
+    selected = _select_imported_e5_model(
+        [
+            {
+                "id": "00000000-0000-0000-0000-000000000999",
+                "kind": "embedding",
+                "name": "other-model",
+                "version": 1,
+                "config": {},
+            },
+            expected,
+        ]
+    )
+
+    assert selected == expected
+
+
+def test_evaluation_case_uses_independent_ground_truth_coordinates() -> None:
+    case = _evaluation_case(
+        query="COMPANY-RISK-CODE-AX17",
+        ground_truth={
+            "document_id": "00000000-0000-0000-0000-000000000701",
+            "asset_version_id": "00000000-0000-0000-0000-000000000702",
+            "evidence_unit_id": "00000000-0000-0000-0000-000000000703",
+            "text": "COMPANY-RISK-CODE-AX17 requires daily compliance review.",
+            "page": None,
+            "char_start": 101,
+            "char_end": 159,
+            "bbox": None,
+        },
+        company_workspace_id="00000000-0000-0000-0000-000000000704",
+        authorized_source_ids=["00000000-0000-0000-0000-000000000703"],
+        forbidden_source_ids=["00000000-0000-0000-0000-000000000705"],
+        as_of="2026-09-01T00:00:00Z",
+    )
+
+    assert case["expected"] == {
+        "answer_status": "supported",
+        "evidence_unit_ids": ["00000000-0000-0000-0000-000000000703"],
+        "highlight": {
+            "surface": "answer",
+            "document_id": "00000000-0000-0000-0000-000000000701",
+            "asset_version_id": "00000000-0000-0000-0000-000000000702",
+            "evidence_unit_id": "00000000-0000-0000-0000-000000000703",
+            "page": None,
+            "kind": "keyword",
+            "spans": [[101, 123]],
+            "bboxes": [],
+        },
+    }
+
+
+def test_grounded_answer_check_rejects_any_source_provenance_mismatch() -> None:
+    ground_truth = {
+        "workspace_id": "00000000-0000-0000-0000-000000000801",
+        "document_id": "00000000-0000-0000-0000-000000000802",
+        "asset_version_id": "00000000-0000-0000-0000-000000000803",
+        "asset_version_number": 2,
+        "projection_id": "00000000-0000-0000-0000-000000000804",
+        "chunk_id": "00000000-0000-0000-0000-000000000805",
+        "evidence_unit_id": "00000000-0000-0000-0000-000000000806",
+        "element_id": "00000000-0000-0000-0000-000000000807",
+        "title": "public-risk-policy.md",
+        "media_type": "text/markdown",
+        "section_path": ["Public Risk Policy"],
+        "text": "COMPANY-RISK-CODE-AX17 requires daily compliance review.",
+        "page": None,
+        "char_start": 22,
+        "char_end": 80,
+        "bbox": None,
+    }
+    answer = {
+        "excerpt": ground_truth["text"],
+        "source": {
+            "document_id": ground_truth["document_id"],
+            "asset_version_id": ground_truth["asset_version_id"],
+            "asset_version_number": 2,
+            "workspace_id": ground_truth["workspace_id"],
+            "folder_id": None,
+            "projection_id": ground_truth["projection_id"],
+            "chunk_id": ground_truth["chunk_id"],
+            "evidence_unit_id": ground_truth["evidence_unit_id"],
+            "element_id": ground_truth["element_id"],
+            "title": ground_truth["title"],
+            "media_type": ground_truth["media_type"],
+            "section_path": ground_truth["section_path"],
+            "location": {
+                "element_id": ground_truth["element_id"],
+                "page": None,
+                "char_start": 22,
+                "char_end": 80,
+                "bbox": None,
+            },
+        },
+        "highlights": [
+            {
+                "kind": "keyword",
+                "evidence_unit_id": ground_truth["evidence_unit_id"],
+                "text": "COMPANY",
+                "char_start": 22,
+                "char_end": 29,
+                "page": None,
+                "bbox": None,
+                "score": None,
+                "warnings": [],
+            }
+        ],
+    }
+    expected_highlights = [
+        {
+            "kind": "keyword",
+            "evidence_unit_id": ground_truth["evidence_unit_id"],
+            "text": "COMPANY",
+            "char_start": 22,
+            "char_end": 29,
+            "page": None,
+            "bbox": None,
+            "score": None,
+            "warnings": [],
+        }
+    ]
+
+    _assert_grounded_answer(
+        answer,
+        ground_truth=ground_truth,
+        expected_excerpt=ground_truth["text"],
+        expected_highlights=expected_highlights,
+    )
+    mismatched = deepcopy(answer)
+    mismatched["source"]["workspace_id"] = "00000000-0000-0000-0000-000000000899"
+    with pytest.raises(AssertionError):
+        _assert_grounded_answer(
+            mismatched,
+            ground_truth=ground_truth,
+            expected_excerpt=ground_truth["text"],
+            expected_highlights=expected_highlights,
+        )
+
+
+def test_private_leak_values_include_every_durable_provenance_identity() -> None:
+    values = _private_leak_values(
+        workspace_id="workspace-private",
+        document_id="document-private",
+        asset_version_id="version-private",
+        projection_id="projection-private",
+        chunk_ids=["chunk-one", "chunk-two"],
+        evidence_unit_ids=["evidence-one", "evidence-two"],
+        element_ids=["element-one", "element-two"],
+        title="private-owner-note.txt",
+        marker="PRIVATE-OWNER-MARKER-Q91",
+    )
+
+    assert values == (
+        "workspace-private",
+        "document-private",
+        "version-private",
+        "projection-private",
+        "chunk-one",
+        "chunk-two",
+        "evidence-one",
+        "evidence-two",
+        "element-one",
+        "element-two",
+        "private-owner-note.txt",
+        "PRIVATE-OWNER-MARKER-Q91",
+    )
+
+
+def test_standalone_system_baseline_seed_loads_profile_metadata() -> None:
+    assert ProfileRecord.__table__ is RagConfigurationVersionRecord.metadata.tables[
+        "rag_profiles"
+    ]
+
+
+def test_prepared_state_enqueues_registered_tasks_in_production_order() -> None:
+    class RecordingCelery:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, tuple[object, ...], dict[str, object]]] = []
+
+        def send_task(
+            self,
+            name: str,
+            args: tuple[object, ...],
+            kwargs: dict[str, object],
+        ) -> None:
+            self.calls.append((name, args, kwargs))
+
+    application = RecordingCelery()
+    for task_name in RAG_PROJECTION_TASK_SEQUENCE:
+        _enqueue_registered_task(application, task_name)
+    _enqueue_registered_task(application, RAG_EVALUATION_DISPATCH_RECONCILE_TASK)
+
+    assert application.calls == [
+        ("ai_workshop.rag.reconcile_asset_handoffs", (), {}),
+        ("ai_workshop.rag.reconcile_dispatches", (), {}),
+        ("ai_workshop.rag.reconcile_evaluation_dispatches", (), {}),
+    ]
+
+
+def test_evaluation_failure_presence_never_copies_durable_error_text() -> None:
+    assert _bounded_candidate_failures(None) == []
+    assert _bounded_candidate_failures("synthetic private error body") == [
+        "failure_present"
+    ]
+
+
+def test_insufficient_query_is_one_opaque_term_absent_from_the_corpus() -> None:
+    corpus = (
+        "COMPANY-RISK-CODE-AX17 requires daily compliance review.",
+        "Investors must submit redemption notice five business days before payout.",
+        "PRIVATE-OWNER-MARKER-Q91 is a synthetic personal research note.",
+        "PUBLIC-LIQUIDITY-WINDOW-PDF is 14 calendar days.",
+    )
+
+    assert INSUFFICIENT_QUERY.isascii()
+    assert INSUFFICIENT_QUERY.isalnum()
+    assert all(INSUFFICIENT_QUERY.casefold() not in item.casefold() for item in corpus)
+
+
 def _projection_diagnostics(
     rows: Sequence[Sequence[object]],
 ) -> list[dict[str, str | None]]:
@@ -506,6 +770,510 @@ def _projection_diagnostics(
         }
         for row in rows[:20]
     ]
+
+
+def _select_imported_e5_model(
+    models: Sequence[dict[str, object]],
+) -> dict[str, object]:
+    matching = [
+        item
+        for item in models
+        if item
+        == {
+            "id": IMPORTED_E5_MODEL_ID,
+            "kind": "embedding",
+            "name": "multilingual-e5-base",
+            "version": 1,
+            "config": IMPORTED_E5_MODEL_CONFIG,
+        }
+    ]
+    assert len(matching) == 1, "The exact committed multilingual E5 model must be imported."
+    return matching[0]
+
+
+def _evaluation_case(
+    *,
+    query: str,
+    ground_truth: Mapping[str, object],
+    company_workspace_id: object,
+    authorized_source_ids: Sequence[object],
+    forbidden_source_ids: Sequence[object],
+    as_of: str,
+) -> dict[str, object]:
+    expected_text = str(ground_truth["text"])
+    relative_start = expected_text.index(query)
+    absolute_start = int(ground_truth["char_start"]) + relative_start
+    absolute_end = absolute_start + len(query)
+    return {
+        "id": str(uuid4()),
+        "kind": "exact_code",
+        "query": query,
+        "query_sha256": sha256(query.encode()).hexdigest(),
+        "permission_scenario": {
+            "name": "task14-company-owner",
+            "actor": "caller",
+            "workspace_ids": [str(company_workspace_id)],
+            "folder_ids": [],
+            "authorized_source_ids": sorted(str(item) for item in authorized_source_ids),
+            "forbidden_source_ids": sorted(str(item) for item in forbidden_source_ids),
+            "as_of": as_of,
+        },
+        "expected": {
+            "answer_status": "supported",
+            "evidence_unit_ids": [str(ground_truth["evidence_unit_id"])],
+            "highlight": {
+                "surface": "answer",
+                "document_id": str(ground_truth["document_id"]),
+                "asset_version_id": str(ground_truth["asset_version_id"]),
+                "evidence_unit_id": str(ground_truth["evidence_unit_id"]),
+                "page": ground_truth["page"],
+                "kind": "keyword",
+                "spans": [[absolute_start, absolute_end]],
+                "bboxes": [],
+            },
+        },
+    }
+
+
+def _assert_grounded_answer(
+    answer: Mapping[str, object],
+    *,
+    ground_truth: Mapping[str, object],
+    expected_excerpt: object,
+    expected_highlights: Sequence[Mapping[str, object]],
+) -> None:
+    assert answer["excerpt"] == expected_excerpt
+    assert answer["source"] == {
+        "document_id": str(ground_truth["document_id"]),
+        "asset_version_id": str(ground_truth["asset_version_id"]),
+        "asset_version_number": ground_truth["asset_version_number"],
+        "workspace_id": str(ground_truth["workspace_id"]),
+        "folder_id": ground_truth.get("folder_id"),
+        "projection_id": str(ground_truth["projection_id"]),
+        "chunk_id": str(ground_truth["chunk_id"]),
+        "evidence_unit_id": str(ground_truth["evidence_unit_id"]),
+        "element_id": str(ground_truth["element_id"]),
+        "title": ground_truth["title"],
+        "media_type": ground_truth["media_type"],
+        "section_path": ground_truth["section_path"],
+        "location": {
+            "element_id": str(ground_truth["element_id"]),
+            "page": ground_truth["page"],
+            "char_start": ground_truth["char_start"],
+            "char_end": ground_truth["char_end"],
+            "bbox": ground_truth["bbox"],
+        },
+    }
+    highlights = answer["highlights"]
+    assert isinstance(highlights, list)
+    assert len(highlights) == len(expected_highlights)
+    for actual, expected in zip(highlights, expected_highlights, strict=True):
+        assert isinstance(actual, dict)
+        assert all(actual.get(key) == value for key, value in expected.items())
+        if expected["kind"] == "semantic":
+            assert isinstance(actual.get("score"), float)
+        else:
+            assert actual.get("score") is None
+
+
+def _private_leak_values(
+    *,
+    workspace_id: object,
+    document_id: object,
+    asset_version_id: object,
+    projection_id: object,
+    chunk_ids: Sequence[object],
+    evidence_unit_ids: Sequence[object],
+    element_ids: Sequence[object],
+    title: str,
+    marker: str,
+) -> tuple[str, ...]:
+    return tuple(
+        str(item)
+        for item in (
+            workspace_id,
+            document_id,
+            asset_version_id,
+            projection_id,
+            *chunk_ids,
+            *evidence_unit_ids,
+            *element_ids,
+            title,
+            marker,
+        )
+    )
+
+
+def _enqueue_registered_task(
+    application: _TaskSender,
+    task_name: str,
+) -> None:
+    application.send_task(task_name, args=(), kwargs={})
+
+
+async def _prepare_ready_projections(
+    asset_version_ids: list[object],
+    indexing_profile_id: object,
+) -> dict[str, str]:
+    application = _broker_task_sender()
+    try:
+        _enqueue_registered_task(application, RAG_PROJECTION_TASK_SEQUENCE[0])
+        await _wait_for_queued_projections(asset_version_ids, indexing_profile_id)
+        _enqueue_registered_task(application, RAG_PROJECTION_TASK_SEQUENCE[1])
+        return await _wait_for_ready_projections(
+            asset_version_ids,
+            indexing_profile_id,
+        )
+    finally:
+        application.close()
+
+
+async def _wait_for_queued_projections(
+    asset_version_ids: list[object],
+    indexing_profile_id: object,
+) -> None:
+    settings = get_settings()
+    engine = create_engine(settings)
+    sessions = create_session_factory(engine)
+    expected = {UUID(str(item)) for item in asset_version_ids}
+    latest: list[tuple[object, ...]] = []
+    try:
+        for _attempt in range(60):
+            async with sessions() as session:
+                latest = [
+                    tuple(item)
+                    for item in (
+                        await session.execute(
+                            select(
+                                RagProjectionRecord.asset_version_id,
+                                RagProjectionRecord.id,
+                                RagIngestionJobRecord.job_id,
+                                RagProjectionRecord.status,
+                                JobRecord.status,
+                                JobRecord.stage,
+                                JobRecord.error_code,
+                            )
+                            .join(
+                                RagIngestionJobRecord,
+                                RagIngestionJobRecord.projection_id
+                                == RagProjectionRecord.id,
+                            )
+                            .join(
+                                JobRecord,
+                                JobRecord.id == RagIngestionJobRecord.job_id,
+                            )
+                            .where(
+                                RagProjectionRecord.asset_version_id.in_(expected),
+                                RagProjectionRecord.indexing_profile_id
+                                == UUID(str(indexing_profile_id)),
+                            )
+                            .order_by(RagProjectionRecord.asset_version_id)
+                        )
+                    ).all()
+                ]
+            if {item[0] for item in latest} == expected:
+                return
+            await sleep(1)
+        pytest.fail(
+            "RAG handoff did not create durable queued projections: "
+            f"{_projection_diagnostics(latest)}"
+        )
+    finally:
+        await engine.dispose()
+
+
+def _dispatch_pending_evaluation() -> None:
+    application = _broker_task_sender()
+    try:
+        _enqueue_registered_task(
+            application,
+            RAG_EVALUATION_DISPATCH_RECONCILE_TASK,
+        )
+    finally:
+        application.close()
+
+
+def _broker_task_sender() -> Celery:
+    application = create_celery(get_settings())
+    application.conf.task_always_eager = False
+    return application
+
+
+def _bounded_candidate_failures(failure: object) -> list[str]:
+    return [] if failure is None else ["failure_present"]
+
+
+async def _load_evaluation_candidate_ground_truth(
+    *,
+    run_id: object,
+    expected_configuration_version_ids: Sequence[object],
+) -> dict[str, dict[str, object]]:
+    settings = get_settings()
+    engine = create_engine(settings)
+    sessions = create_session_factory(engine)
+    expected = {UUID(str(item)) for item in expected_configuration_version_ids}
+    try:
+        async with sessions() as session:
+            rows = (
+                await session.execute(
+                    select(
+                        EvaluationRunConfigurationRecord.configuration_version_id,
+                        EvaluationRunConfigurationRecord.status,
+                        EvaluationRunConfigurationRecord.failure,
+                        func.count(EvaluationCaseResultRecord.id),
+                    )
+                    .outerjoin(
+                        EvaluationCaseResultRecord,
+                        EvaluationCaseResultRecord.run_configuration_id
+                        == EvaluationRunConfigurationRecord.id,
+                    )
+                    .where(
+                        EvaluationRunConfigurationRecord.run_id
+                        == UUID(str(run_id)),
+                        EvaluationRunConfigurationRecord.configuration_version_id.in_(
+                            expected
+                        ),
+                    )
+                    .group_by(
+                        EvaluationRunConfigurationRecord.configuration_version_id,
+                        EvaluationRunConfigurationRecord.status,
+                        EvaluationRunConfigurationRecord.failure,
+                    )
+                )
+            ).all()
+        assert {row[0] for row in rows} == expected
+        return {
+            str(row[0]): {
+                "status": str(row[1]),
+                "failures": _bounded_candidate_failures(row[2]),
+                "case_result_count": int(row[3]),
+            }
+            for row in rows
+        }
+    finally:
+        await engine.dispose()
+
+
+async def _load_ground_truth(
+    *,
+    document_id: object,
+    asset_version_id: object,
+    projection_id: object,
+    expected_text: str,
+) -> dict[str, object]:
+    settings = get_settings()
+    engine = create_engine(settings)
+    sessions = create_session_factory(engine)
+    try:
+        async with sessions() as session:
+            rows = (
+                await session.execute(
+                    select(
+                        DocumentRecord.workspace_id,
+                        DocumentRecord.id,
+                        DocumentRecord.folder_id,
+                        DocumentRecord.name,
+                        AssetVersionRecord.id,
+                        AssetVersionRecord.number,
+                        AssetVersionRecord.media_type,
+                        RagProjectionRecord.id,
+                        RetrievalChunkRecord.id,
+                        RetrievalChunkRecord.section_path,
+                        EvidenceUnitRecord.id,
+                        EvidenceUnitRecord.text,
+                        StructuralElementRecord.id,
+                        StructuralElementRecord.text,
+                        StructuralElementRecord.section_path,
+                        EvidenceUnitRecord.page,
+                        EvidenceUnitRecord.char_start,
+                        EvidenceUnitRecord.char_end,
+                        EvidenceUnitRecord.bbox,
+                    )
+                    .select_from(DocumentRecord)
+                    .join(
+                        AssetVersionRecord,
+                        AssetVersionRecord.document_id == DocumentRecord.id,
+                    )
+                    .join(
+                        RagProjectionRecord,
+                        RagProjectionRecord.asset_version_id == AssetVersionRecord.id,
+                    )
+                    .join(
+                        RetrievalChunkRecord,
+                        RetrievalChunkRecord.projection_id == RagProjectionRecord.id,
+                    )
+                    .join(
+                        EvidenceUnitRecord,
+                        EvidenceUnitRecord.retrieval_chunk_id
+                        == RetrievalChunkRecord.id,
+                    )
+                    .join(
+                        StructuralElementRecord,
+                        StructuralElementRecord.id == EvidenceUnitRecord.element_id,
+                    )
+                    .where(
+                        DocumentRecord.id == UUID(str(document_id)),
+                        DocumentRecord.active_version_id
+                        == UUID(str(asset_version_id)),
+                        AssetVersionRecord.id == UUID(str(asset_version_id)),
+                        RagProjectionRecord.id == UUID(str(projection_id)),
+                        EvidenceUnitRecord.text == expected_text,
+                        StructuralElementRecord.text == expected_text,
+                    )
+                )
+            ).all()
+        assert len(rows) == 1, "Expected one exact durable evidence provenance row."
+        row = rows[0]
+        return {
+            "workspace_id": str(row[0]),
+            "document_id": str(row[1]),
+            "folder_id": str(row[2]) if row[2] is not None else None,
+            "title": row[3],
+            "asset_version_id": str(row[4]),
+            "asset_version_number": row[5],
+            "media_type": row[6],
+            "projection_id": str(row[7]),
+            "chunk_id": str(row[8]),
+            "section_path": row[9],
+            "evidence_unit_id": str(row[10]),
+            "text": row[11],
+            "element_id": str(row[12]),
+            "element_text": row[13],
+            "element_section_path": row[14],
+            "page": row[15],
+            "char_start": row[16],
+            "char_end": row[17],
+            "bbox": row[18],
+        }
+    finally:
+        await engine.dispose()
+
+
+async def _load_private_leak_values(
+    *,
+    workspace_id: object,
+    document_id: object,
+    asset_version_id: object,
+    projection_id: object,
+    title: str,
+    marker: str,
+) -> tuple[str, ...]:
+    settings = get_settings()
+    engine = create_engine(settings)
+    sessions = create_session_factory(engine)
+    projection_uuid = UUID(str(projection_id))
+    try:
+        async with sessions() as session:
+            chunk_ids = tuple(
+                await session.scalars(
+                    select(RetrievalChunkRecord.id)
+                    .where(RetrievalChunkRecord.projection_id == projection_uuid)
+                    .order_by(RetrievalChunkRecord.id)
+                )
+            )
+            evidence_unit_ids = tuple(
+                await session.scalars(
+                    select(EvidenceUnitRecord.id)
+                    .where(EvidenceUnitRecord.projection_id == projection_uuid)
+                    .order_by(EvidenceUnitRecord.id)
+                )
+            )
+            element_ids = tuple(
+                await session.scalars(
+                    select(StructuralElementRecord.id)
+                    .where(StructuralElementRecord.projection_id == projection_uuid)
+                    .order_by(StructuralElementRecord.id)
+                )
+            )
+        assert chunk_ids and evidence_unit_ids and element_ids
+        return _private_leak_values(
+            workspace_id=workspace_id,
+            document_id=document_id,
+            asset_version_id=asset_version_id,
+            projection_id=projection_id,
+            chunk_ids=chunk_ids,
+            evidence_unit_ids=evidence_unit_ids,
+            element_ids=element_ids,
+            title=title,
+            marker=marker,
+        )
+    finally:
+        await engine.dispose()
+
+
+def _expected_keyword_highlights(
+    ground_truth: Mapping[str, object],
+    terms: Sequence[str],
+) -> list[dict[str, object]]:
+    text_value = str(ground_truth["text"])
+    start_offset = int(ground_truth["char_start"])
+    page = ground_truth["page"]
+    has_pdf_bbox = ground_truth["bbox"] is not None
+    highlights: list[dict[str, object]] = []
+    for term in terms:
+        relative_start = text_value.index(term)
+        highlights.append(
+            {
+                "kind": "keyword",
+                "evidence_unit_id": str(ground_truth["evidence_unit_id"]),
+                "text": term,
+                "char_start": start_offset + relative_start,
+                "char_end": start_offset + relative_start + len(term),
+                "page": page,
+                "bbox": None,
+                "warnings": ["pdf_keyword_bbox_unavailable"] if has_pdf_bbox else [],
+            }
+        )
+    return sorted(
+        highlights,
+        key=lambda item: (int(item["char_start"]), int(item["char_end"]), str(item["text"])),
+    )
+
+
+def _expected_semantic_highlight(
+    ground_truth: Mapping[str, object],
+) -> list[dict[str, object]]:
+    return [
+        {
+            "kind": "semantic",
+            "evidence_unit_id": str(ground_truth["evidence_unit_id"]),
+            "text": ground_truth["text"],
+            "char_start": ground_truth["char_start"],
+            "char_end": ground_truth["char_end"],
+            "page": ground_truth["page"],
+            "bbox": ground_truth["bbox"],
+            "warnings": [],
+        }
+    ]
+
+
+def _assert_normalized_viewer(
+    payload: Mapping[str, object],
+    *,
+    ground_truth: Mapping[str, object],
+) -> None:
+    assert payload["document_id"] == ground_truth["document_id"]
+    assert payload["asset_version_id"] == ground_truth["asset_version_id"]
+    assert payload["asset_version_number"] == ground_truth["asset_version_number"]
+    assert payload["workspace_id"] == ground_truth["workspace_id"]
+    assert payload["folder_id"] == ground_truth["folder_id"]
+    assert payload["projection_id"] == ground_truth["projection_id"]
+    assert payload["title"] == ground_truth["title"]
+    assert payload["media_type"] == ground_truth["media_type"]
+    elements = payload["elements"]
+    assert isinstance(elements, list)
+    expected = next(
+        item for item in elements if item["id"] == ground_truth["element_id"]
+    )
+    assert expected["text"] == ground_truth["element_text"]
+    assert expected["section_path"] == ground_truth["element_section_path"]
+    assert expected["location"] == {
+        "element_id": ground_truth["element_id"],
+        "page": ground_truth["page"],
+        "char_start": ground_truth["char_start"],
+        "char_end": ground_truth["char_end"],
+        "bbox": ground_truth["bbox"],
+    }
 
 
 async def _wait_for_ready_projections(
@@ -606,7 +1374,7 @@ async def _search(
 async def _evaluation_fixture(
     *,
     query: str,
-    answer: dict[str, object],
+    ground_truth: Mapping[str, object],
     company_workspace_id: object,
     personal_workspace_id: object,
 ) -> dict[str, object]:
@@ -668,10 +1436,6 @@ async def _evaluation_fixture(
             )
     finally:
         await engine.dispose()
-    source = answer["source"]
-    assert isinstance(source, dict)
-    highlight = answer["highlights"][0]
-    assert isinstance(highlight, dict)
     assert company_evidence
     assert private_evidence
     return {
@@ -689,41 +1453,14 @@ async def _evaluation_fixture(
             for document_id, asset_version_id, digest in snapshot_rows
         ],
         "cases": [
-            {
-                "id": str(uuid4()),
-                "kind": "exact_code",
-                "query": query,
-                "query_sha256": sha256(query.encode()).hexdigest(),
-                "permission_scenario": {
-                    "name": "task14-company-owner",
-                    "actor": "caller",
-                    "workspace_ids": [str(company_workspace_id)],
-                    "folder_ids": [],
-                    "authorized_source_ids": sorted(str(item) for item in company_evidence),
-                    "forbidden_source_ids": sorted(str(item) for item in private_evidence),
-                    "as_of": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-                },
-                "expected": {
-                    "answer_status": "supported",
-                    "evidence_unit_ids": [source["evidence_unit_id"]],
-                    "highlight": {
-                        "surface": "answer",
-                        "document_id": source["document_id"],
-                        "asset_version_id": source["asset_version_id"],
-                        "evidence_unit_id": source["evidence_unit_id"],
-                        "page": highlight["page"],
-                        "kind": highlight["kind"],
-                        "spans": [
-                            [highlight["char_start"], highlight["char_end"]]
-                        ]
-                        if highlight["bbox"] is None
-                        else [],
-                        "bboxes": [highlight["bbox"]]
-                        if highlight["bbox"] is not None
-                        else [],
-                    },
-                },
-            }
+            _evaluation_case(
+                query=query,
+                ground_truth=ground_truth,
+                company_workspace_id=company_workspace_id,
+                authorized_source_ids=tuple(company_evidence),
+                forbidden_source_ids=tuple(private_evidence),
+                as_of=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            )
         ],
     }
 
@@ -745,6 +1482,7 @@ async def _wait_for_evaluation(
     )
 
 
+@actual_stack
 @pytest.mark.asyncio
 async def test_first_rag_search_vertical_slice_on_actual_stack(
     isolated_rag_stack: None,
@@ -756,15 +1494,21 @@ async def test_first_rag_search_vertical_slice_on_actual_stack(
     ):
         await bootstrap_owner("Task 14 Owner", OWNER_EMAIL)
 
+    exact_sentence = "COMPANY-RISK-CODE-AX17 requires daily compliance review."
+    semantic_sentence = (
+        "Investors must submit redemption notice five business days before payout."
+    )
+    private_sentence = (
+        "PRIVATE-OWNER-MARKER-Q91 is a synthetic personal research note."
+    )
+    pdf_sentence = "PUBLIC-LIQUIDITY-WINDOW-PDF is 14 calendar days."
     markdown = (
-        b"# Public Risk Policy\n\n"
-        b"COMPANY-RISK-CODE-AX17 requires daily compliance review.\n\n"
-        b"Investors must submit redemption notice five business days before payout.\n"
-    )
+        f"# Public Risk Policy\n\n{exact_sentence}\n\n{semantic_sentence}\n"
+    ).encode()
     private_text = (
-        b"PRIVATE-OWNER-MARKER-Q91 is a synthetic personal research note.\n"
-        b"It must never appear in company-member search results.\n"
-    )
+        f"{private_sentence}\n"
+        "It must never appear in company-member search results.\n"
+    ).encode()
     pdf = _text_pdf()
 
     async with _remote_client() as owner:
@@ -813,8 +1557,28 @@ async def test_first_rag_search_vertical_slice_on_actual_stack(
         )
         assert saved_response.status_code == 201
         saved = saved_response.json()
-        projections = await _wait_for_ready_projections(
+        projections = await _prepare_ready_projections(
             [markdown_version["id"], private_version["id"]], indexing["id"]
+        )
+        markdown_exact_truth = await _load_ground_truth(
+            document_id=markdown_document["id"],
+            asset_version_id=markdown_version["id"],
+            projection_id=projections[str(markdown_version["id"])],
+            expected_text=exact_sentence,
+        )
+        markdown_semantic_truth = await _load_ground_truth(
+            document_id=markdown_document["id"],
+            asset_version_id=markdown_version["id"],
+            projection_id=projections[str(markdown_version["id"])],
+            expected_text=semantic_sentence,
+        )
+        private_values = await _load_private_leak_values(
+            workspace_id=personal["id"],
+            document_id=private_document["id"],
+            asset_version_id=private_version["id"],
+            projection_id=projections[str(private_version["id"])],
+            title="private-owner-note.txt",
+            marker="PRIVATE-OWNER-MARKER-Q91",
         )
 
         exact_query = "COMPANY-RISK-CODE-AX17"
@@ -826,8 +1590,16 @@ async def test_first_rag_search_vertical_slice_on_actual_stack(
         )
         assert status == 200
         assert exact["status"] == "supported"
-        assert exact["answer"]["source"]["document_id"] == markdown_document["id"]
-        assert exact["answer"]["highlights"][0]["kind"] == "keyword"
+        assert isinstance(exact["answer"], dict)
+        _assert_grounded_answer(
+            exact["answer"],
+            ground_truth=markdown_exact_truth,
+            expected_excerpt=exact_sentence,
+            expected_highlights=_expected_keyword_highlights(
+                markdown_exact_truth,
+                ("COMPANY", "RISK", "CODE", "AX17"),
+            ),
+        )
         assert exact["configuration_version"]["version_id"] == saved["version_id"]
         assert exact["experimental"] is True
 
@@ -839,16 +1611,26 @@ async def test_first_rag_search_vertical_slice_on_actual_stack(
         )
         assert semantic_status == 200
         assert semantic["status"] == "supported"
-        assert semantic["answer"]["source"]["document_id"] == markdown_document["id"]
-        assert semantic["answer"]["highlights"][0]["kind"] == "semantic"
+        assert isinstance(semantic["answer"], dict)
+        _assert_grounded_answer(
+            semantic["answer"],
+            ground_truth=markdown_semantic_truth,
+            expected_excerpt=semantic_sentence,
+            expected_highlights=_expected_semantic_highlight(
+                markdown_semantic_truth
+            ),
+        )
+        assert "five business days" in semantic["answer"]["excerpt"]
 
         markdown_view = await owner.get(
             f"/api/v1/rag/sources/{markdown_version['id']}/normalized-text",
             params={"projection_id": projections[str(markdown_version["id"])]},
         )
         assert markdown_view.status_code == 200
-        assert markdown_view.json()["asset_version_id"] == markdown_version["id"]
-        assert markdown_view.json()["elements"]
+        _assert_normalized_viewer(
+            markdown_view.json(),
+            ground_truth=markdown_exact_truth,
+        )
 
         pdf_document, pdf_version = await _upload(
             owner,
@@ -858,10 +1640,16 @@ async def test_first_rag_search_vertical_slice_on_actual_stack(
             content=pdf,
         )
         await _verify_stored_object(pdf_version["id"], pdf)
-        new_projection = await _wait_for_ready_projections(
+        new_projection = await _prepare_ready_projections(
             [pdf_version["id"]], indexing["id"]
         )
         projections.update(new_projection)
+        pdf_truth = await _load_ground_truth(
+            document_id=pdf_document["id"],
+            asset_version_id=pdf_version["id"],
+            projection_id=projections[str(pdf_version["id"])],
+            expected_text=pdf_sentence,
+        )
         new_status, new_result = await _search(
             owner,
             query="PUBLIC-LIQUIDITY-WINDOW-PDF",
@@ -870,7 +1658,17 @@ async def test_first_rag_search_vertical_slice_on_actual_stack(
         )
         assert new_status == 200
         assert new_result["status"] == "supported"
-        assert new_result["answer"]["source"]["document_id"] == pdf_document["id"]
+        assert isinstance(new_result["answer"], dict)
+        _assert_grounded_answer(
+            new_result["answer"],
+            ground_truth=pdf_truth,
+            expected_excerpt=pdf_sentence,
+            expected_highlights=_expected_keyword_highlights(
+                pdf_truth,
+                ("PUBLIC", "LIQUIDITY", "WINDOW", "PDF"),
+            ),
+        )
+        assert "14 calendar days" in new_result["answer"]["excerpt"]
 
         existing_status, existing = await _search(
             owner,
@@ -879,7 +1677,39 @@ async def test_first_rag_search_vertical_slice_on_actual_stack(
             workspace_ids=[company["id"]],
         )
         assert existing_status == 200
-        assert existing["answer"]["source"]["document_id"] == markdown_document["id"]
+        assert existing["status"] == "supported"
+        assert isinstance(existing["answer"], dict)
+        _assert_grounded_answer(
+            existing["answer"],
+            ground_truth=markdown_exact_truth,
+            expected_excerpt=exact_sentence,
+            expected_highlights=_expected_keyword_highlights(
+                markdown_exact_truth,
+                ("COMPANY", "RISK", "CODE", "AX17"),
+            ),
+        )
+        assert existing["related_sources"]
+        assert all(
+            item["workspace_id"] == company["id"]
+            and item["document_id"] == pdf_document["id"]
+            and item["asset_version_id"] == pdf_version["id"]
+            and item["asset_version_number"] == pdf_truth["asset_version_number"]
+            and item["projection_id"] == pdf_truth["projection_id"]
+            and item["chunk_id"] == pdf_truth["chunk_id"]
+            and item["title"] == pdf_truth["title"]
+            and item["media_type"] == pdf_truth["media_type"]
+            for item in existing["related_sources"]
+        )
+
+        pdf_normalized = await owner.get(
+            f"/api/v1/rag/sources/{pdf_version['id']}/normalized-text",
+            params={"projection_id": projections[str(pdf_version["id"])]},
+        )
+        assert pdf_normalized.status_code == 200
+        _assert_normalized_viewer(
+            pdf_normalized.json(),
+            ground_truth=pdf_truth,
+        )
 
         pdf_page = await owner.get(
             f"/api/v1/rag/sources/{pdf_version['id']}/pdf/pages/1",
@@ -889,10 +1719,12 @@ async def test_first_rag_search_vertical_slice_on_actual_stack(
         assert pdf_page.headers["content-type"].startswith("image/png")
         assert pdf_page.content.startswith(b"\x89PNG\r\n\x1a\n")
         assert pdf_page.headers["x-ai-workshop-asset-version"] == pdf_version["id"]
+        assert pdf_truth["page"] == 1
+        assert pdf_truth["bbox"] is not None
 
         fixture = await _evaluation_fixture(
             query=exact_query,
-            answer=exact["answer"],
+            ground_truth=markdown_exact_truth,
             company_workspace_id=company["id"],
             personal_workspace_id=personal["id"],
         )
@@ -908,6 +1740,7 @@ async def test_first_rag_search_vertical_slice_on_actual_stack(
             },
         )
         assert run_response.status_code == 202
+        _dispatch_pending_evaluation()
         evaluation = await _wait_for_evaluation(owner, run_response.json()["id"])
         assert evaluation["status"] == "completed"
         assert [item["configuration_version_id"] for item in evaluation["candidates"]] == [
@@ -915,6 +1748,22 @@ async def test_first_rag_search_vertical_slice_on_actual_stack(
             saved["version_id"],
         ]
         assert all(item["status"] == "completed" for item in evaluation["candidates"])
+        candidate_ground_truth = await _load_evaluation_candidate_ground_truth(
+            run_id=evaluation["id"],
+            expected_configuration_version_ids=(
+                BM25_BASELINE_CONFIGURATION_VERSION_ID,
+                saved["version_id"],
+            ),
+        )
+        assert all(
+            candidate_ground_truth[item["configuration_version_id"]]
+            == {
+                "status": "completed",
+                "failures": [],
+                "case_result_count": 1,
+            }
+            for item in evaluation["candidates"]
+        )
         assert all(item["metrics"]["access_leaks"] == 0 for item in evaluation["candidates"])
         assert all(item["metrics"]["reproducibility"] == 1.0 for item in evaluation["candidates"])
 
@@ -942,7 +1791,30 @@ async def test_first_rag_search_vertical_slice_on_actual_stack(
         )
         assert company_status == 200
         assert company_result["status"] == "supported"
-        assert company_result["answer"]["source"]["document_id"] == markdown_document["id"]
+        assert isinstance(company_result["answer"], dict)
+        _assert_grounded_answer(
+            company_result["answer"],
+            ground_truth=markdown_exact_truth,
+            expected_excerpt=exact_sentence,
+            expected_highlights=_expected_keyword_highlights(
+                markdown_exact_truth,
+                ("COMPANY", "RISK", "CODE", "AX17"),
+            ),
+        )
+
+        insufficient_status, insufficient = await _search(
+            member,
+            query=INSUFFICIENT_QUERY,
+            configuration_id=BM25_BASELINE_CONFIGURATION_ID,
+            workspace_ids=[company["id"]],
+        )
+        assert insufficient_status == 200
+        assert insufficient["status"] == "insufficient_evidence"
+        assert insufficient["answer"] is None
+        assert insufficient["conflict_state"] == "none"
+        assert insufficient["conflicts"] == []
+        assert insufficient["related_sources"] == []
+        assert all(value not in repr(insufficient) for value in private_values)
 
         leak_status, leak_result = await _search(
             member,
@@ -951,16 +1823,12 @@ async def test_first_rag_search_vertical_slice_on_actual_stack(
             workspace_ids=[company["id"]],
         )
         assert leak_status == 200
+        assert leak_result["status"] == "insufficient_evidence"
+        assert leak_result["answer"] is None
+        assert leak_result["conflicts"] == []
+        assert leak_result["related_sources"] == []
         leaked = repr(leak_result)
-        for private_value in (
-            personal["id"],
-            private_document["id"],
-            private_version["id"],
-            projections[str(private_version["id"])],
-            "PRIVATE-OWNER-MARKER-Q91",
-            "private-owner-note.txt",
-        ):
-            assert str(private_value) not in leaked
+        assert all(private_value not in leaked for private_value in private_values)
 
         private_status, _private_result = await _search(
             member,
@@ -981,3 +1849,13 @@ async def test_first_rag_search_vertical_slice_on_actual_stack(
         member_runs = await member.get("/api/v1/rag/evaluation-runs")
         assert member_runs.status_code == 200
         assert member_runs.json() == []
+        member_visible_payloads = repr(
+            (
+                visible.json(),
+                company_result,
+                insufficient,
+                leak_result,
+                member_runs.json(),
+            )
+        )
+        assert all(value not in member_visible_payloads for value in private_values)

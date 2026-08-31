@@ -1,7 +1,7 @@
 # 자산운용 문서 RAG AI 검색 상세 설계
 
-- 상태: 사용자 검토 대기
-- 기준일: 2026-08-30
+- 상태: 승인됨
+- 기준일: 2026-09-01
 - 상위 설계: [자산운용 문서 RAG AI 검색 설계](../design.md)
 - 관련 결정: [ADR-0002 로컬 우선 데이터 경계](../../../decisions/0002-local-first-data-boundary.md), [ADR-0003 Hybrid retrieval 기준선](../../../decisions/0003-hybrid-retrieval-baseline.md)
 

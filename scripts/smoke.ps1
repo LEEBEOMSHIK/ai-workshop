@@ -47,6 +47,52 @@ function Invoke-Compose {
     }
 }
 
+function Wait-ApiHealthy {
+    $healthUri = "http://127.0.0.1:$ApiPort/api/v1/health"
+    for ($attempt = 1; $attempt -le 60; $attempt++) {
+        try {
+            $response = Invoke-WebRequest -Uri $healthUri -UseBasicParsing -TimeoutSec 2
+            if ($response.StatusCode -eq 200) {
+                return
+            }
+        }
+        catch {
+            Start-Sleep -Seconds 1
+        }
+    }
+    throw "API health check did not become ready within 60 seconds."
+}
+
+function Assert-ServiceRunning {
+    param([Parameter(Mandatory)][string]$Service)
+
+    $running = & docker compose --project-name $ProjectName --file $composePath `
+        ps --status running --services $Service
+    $matching = @($running | Where-Object { $_ -eq $Service })
+    if ($LASTEXITCODE -ne 0 -or $matching.Count -ne 1) {
+        throw "$Service did not remain running."
+    }
+}
+
+function Write-SmokeDiagnostics {
+    Write-Host "[smoke] Project service state after failure"
+    try {
+        & docker compose --project-name $ProjectName --file $composePath ps --all
+    }
+    catch {
+        Write-Warning "[smoke] Could not collect Compose service state."
+    }
+
+    Write-Host "[smoke] Bounded service logs after failure (tail 80)"
+    try {
+        & docker compose --project-name $ProjectName --file $composePath logs `
+            --no-color --tail 80 api worker beat postgres redis elasticsearch
+    }
+    catch {
+        Write-Warning "[smoke] Could not collect bounded Compose logs."
+    }
+}
+
 try {
     if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
         throw "Docker CLI is required."
@@ -56,10 +102,17 @@ try {
         throw "Docker Desktop is not running."
     }
 
-    $secretBytes = [Security.Cryptography.RandomNumberGenerator]::GetBytes(32)
+    $secretBytes = New-Object byte[] 32
+    $secretGenerator = [Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $secretGenerator.GetBytes($secretBytes)
+    }
+    finally {
+        $secretGenerator.Dispose()
+    }
     [Environment]::SetEnvironmentVariable(
         "AI_WORKSHOP_SECRET_KEY",
-        [Convert]::ToHexString($secretBytes),
+        ([BitConverter]::ToString($secretBytes)).Replace("-", ""),
         "Process"
     )
     [Environment]::SetEnvironmentVariable("AI_WORKSHOP_ENVIRONMENT", "local", "Process")
@@ -101,34 +154,41 @@ try {
         "from huggingface_hub import snapshot_download; snapshot_download(repo_id='intfloat/multilingual-e5-base', revision='d128750597153bb5987e10b1c3493a34e5a4502a', cache_dir='/models')"
     )
 
-    Write-Host "[smoke] Starting API, worker, and beat"
-    Invoke-Compose @("up", "--detach", "--wait", "api", "worker", "beat")
+    Write-Host "[smoke] Starting the foundation API and worker phase without beat"
+    Invoke-Compose @("up", "--detach", "--wait", "api", "worker")
+    Wait-ApiHealthy
 
-    $healthUri = "http://127.0.0.1:$ApiPort/api/v1/health"
-    $healthy = $false
-    for ($attempt = 1; $attempt -le 60; $attempt++) {
-        try {
-            $response = Invoke-WebRequest -Uri $healthUri -UseBasicParsing -TimeoutSec 2
-            if ($response.StatusCode -eq 200) {
-                $healthy = $true
-                break
-            }
-        }
-        catch {
-            Start-Sleep -Seconds 1
-        }
-    }
-    if (-not $healthy) {
-        throw "API health check did not become ready within 60 seconds."
-    }
+    Write-Host "[smoke] Running foundation E2E and its isolated teardown"
+    Invoke-Compose @(
+        "--profile", "test", "run", "--rm", "--no-deps", "e2e",
+        "pytest", "-p", "no:cacheprovider", "tests/e2e/test_foundation_flow.py", "-q"
+    )
+    Invoke-Compose @("stop", "api", "worker")
 
-    Write-Host "[smoke] Running the foundation and RAG E2E flows"
-    Invoke-Compose @("--profile", "test", "run", "--rm", "e2e")
+    Write-Host "[smoke] Registering the committed public model catalog"
+    Invoke-Compose @("--profile", "model-tools", "run", "--rm", "model-tools")
+
+    Write-Host "[smoke] Starting the RAG API and worker phase without beat"
+    Invoke-Compose @("up", "--detach", "--wait", "api", "worker")
+    Wait-ApiHealthy
+
+    Write-Host "[smoke] Running RAG E2E and its isolated teardown"
+    Invoke-Compose @(
+        "--profile", "test", "run", "--rm", "--no-deps", "e2e",
+        "pytest", "-p", "no:cacheprovider", "tests/e2e/test_rag_search_flow.py", "-q"
+    )
+    Invoke-Compose @("stop", "api", "worker")
+
+    Write-Host "[smoke] Starting beat only after all fixture teardown is complete"
+    Invoke-Compose @("up", "--detach", "beat")
+    Start-Sleep -Seconds 5
+    Assert-ServiceRunning -Service "beat"
     Write-Host "[smoke] Passed"
 }
 catch {
     $exitCode = 1
-    Write-Error "[smoke] Failed: $($_.Exception.Message)"
+    Write-Error "[smoke] Failed: $($_.Exception.Message)" -ErrorAction Continue
+    Write-SmokeDiagnostics
 }
 finally {
     if ($started -and -not $KeepServices) {

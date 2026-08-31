@@ -1,6 +1,6 @@
 # Workboard
 
-- 마지막 갱신일: 2026-08-31
+- 마지막 갱신일: 2026-09-01
 - 현재 단계: 첫 RAG AI 검색 수직 슬라이스 완료
 - 전체 상태: Markdown·TXT·텍스트 PDF의 ingestion부터 검색·근거·평가까지 실제 스택 검증 완료
 
@@ -16,7 +16,7 @@
 - 자산 READY 활성화, 구독별 ingestion handoff, 다중 활성 build alias와 PostgreSQL-authoritative 검색 수명주기를 구현했다.
 - newline-terminated TXT와 빈 parse/chunk 경계를 명시적으로 처리하며, 실패 시 parser나 모델을 조용히 바꾸지 않는다.
 - 보호 Compose smoke에서 원본 세 형식, 기존·신규 검색, keyword·semantic highlight, 원문 뷰어, BM25/E5 평가, 승격 거절과 두 사용자 권한 비노출을 실제 API·worker·Elasticsearch로 검증했다.
-- Task 14 전체 E2E는 같은 보호 프로젝트에서 `6 passed in 113.76s`, `6 passed in 92.64s`로 반복 통과했고 컨테이너·네트워크만 정리하며 named volume을 보존한다.
+- Task 14 강화 E2E는 beat와 fixture teardown을 분리한 같은 보호 프로젝트에서 `12 passed in 82.77s`, `12 passed in 77.20s`로 두 cold/default 실행 모두 첫 시도에 통과했다. 각 실행은 컨테이너·네트워크만 정리하고 named volume을 보존했다.
 - 루트 `surface`, 잠긴 pytest 임시 디렉터리와 개발 Docker 볼륨은 보존했다.
 
 ### 완료 기준

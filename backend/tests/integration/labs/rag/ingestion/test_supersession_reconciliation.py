@@ -421,6 +421,118 @@ async def test_handoff_failure_ledger_bounds_retry_and_resolves_exact_identity()
 
 
 @pytest.mark.asyncio
+async def test_cancelled_handoff_absorbs_late_locked_failure_writers() -> None:
+    from ai_workshop.labs.rag.ingestion.models import RagAssetHandoffFailureRecord
+    from ai_workshop.labs.rag.ingestion.repository import (
+        SqlAlchemyRagAssetHandoffFailureRepository,
+    )
+
+    fixture = await _seed_supersession_fixture()
+    settings = get_settings()
+    engine = create_engine(settings)
+    sessions = create_session_factory(engine)
+    current = datetime(2026, 8, 31, 1, 0, tzinfo=UTC)
+    command = EnsureIndexedCommand(
+        fixture.old_asset_id,
+        fixture.profile_id,
+        fixture.owner_id,
+    )
+    repository = SqlAlchemyRagAssetHandoffFailureRepository(
+        sessions,
+        clock=lambda: current,
+    )
+    writer_select_started = asyncio.Event()
+    stale_writer: asyncio.Task[None] | None = None
+
+    def observe_exact_lock(
+        _connection: Any,
+        _cursor: Any,
+        statement: str,
+        _parameters: Any,
+        _context: Any,
+        _executemany: bool,
+    ) -> None:
+        if "rag_asset_handoff_failures" in statement and "FOR UPDATE" in statement:
+            writer_select_started.set()
+
+    async def terminal_snapshot() -> tuple[Any, ...]:
+        async with sessions() as session:
+            record = await session.get(
+                RagAssetHandoffFailureRecord,
+                (fixture.old_asset_id, fixture.profile_id),
+            )
+        assert record is not None
+        return (
+            record.status,
+            record.requested_by,
+            record.error_class,
+            record.error_code,
+            record.attempt_count,
+            record.last_attempt_at,
+            record.next_retry_at,
+            record.terminal_at,
+            record.last_error_message,
+        )
+
+    try:
+        await repository.record(
+            command,
+            error_class="obsolete",
+            error_code="index_source_inactive",
+            safe_message="The exact source is obsolete.",
+        )
+        expected = await terminal_snapshot()
+        current += timedelta(seconds=10)
+
+        async with sessions.begin() as blocker:
+            locked = await blocker.scalar(
+                select(RagAssetHandoffFailureRecord)
+                .where(
+                    RagAssetHandoffFailureRecord.asset_version_id
+                    == fixture.old_asset_id,
+                    RagAssetHandoffFailureRecord.indexing_profile_id
+                    == fixture.profile_id,
+                )
+                .with_for_update()
+            )
+            assert locked is not None and locked.status == "cancelled"
+            event.listen(engine.sync_engine, "before_cursor_execute", observe_exact_lock)
+            stale_writer = asyncio.create_task(
+                repository.record(
+                    command,
+                    error_class="transient",
+                    error_code="database_transient",
+                    safe_message="A stale transient failure arrived late.",
+                )
+            )
+            await asyncio.wait_for(writer_select_started.wait(), timeout=5)
+            await asyncio.sleep(0)
+            assert not stale_writer.done(), "the stale writer must wait for the exact row lock"
+
+        await stale_writer
+        snapshots = [await terminal_snapshot()]
+        current += timedelta(seconds=10)
+        await repository.record(
+            command,
+            error_class="permanent",
+            error_code="internal_error",
+            safe_message="Internal RAG Asset handoff failure class: ValueError.",
+        )
+        snapshots.append(await terminal_snapshot())
+        await repository.resolve(command)
+        snapshots.append(await terminal_snapshot())
+
+        assert snapshots == [expected, expected, expected]
+    finally:
+        if event.contains(engine.sync_engine, "before_cursor_execute", observe_exact_lock):
+            event.remove(engine.sync_engine, "before_cursor_execute", observe_exact_lock)
+        if stale_writer is not None:
+            await asyncio.gather(stale_writer, return_exceptions=True)
+        await engine.dispose()
+        await _delete_supersession_fixture(fixture)
+
+
+@pytest.mark.asyncio
 async def test_direct_ensure_resolves_quarantine_for_new_and_existing_job_once() -> None:
     from ai_workshop.labs.rag.ingestion.models import RagAssetHandoffFailureRecord
 

@@ -253,6 +253,8 @@ class SqlAlchemyRagAssetHandoffFailureRepository:
                     last_error_message=safe_message[:500],
                 )
                 session.add(record)
+            elif record.status == "cancelled":
+                return
             elif record.status == "resolved":
                 record.attempt_count = 0
             record.requested_by = command.requested_by

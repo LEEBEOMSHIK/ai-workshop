@@ -302,6 +302,19 @@ the same transaction that creates or reuses the idempotent job and restores its
 dispatch. A failed transaction therefore preserves the failure status, while
 `resolved` and obsolete `cancelled` records never have their meaning reversed.
 
+The handoff ledger transition policy is:
+
+| Persisted state | Later transient/permanent record | Later obsolete record | Successful resolve/direct ensure |
+| --- | --- | --- | --- |
+| missing | create under the normal attempt/classification policy | create `cancelled` | no-op |
+| `retrying` / `quarantined` | apply the existing attempt/classification policy | become `cancelled` | become `resolved` |
+| `resolved` | restart the existing attempt/classification policy | become `cancelled` | no-op |
+| `cancelled` | remain unchanged | remain unchanged | remain unchanged |
+
+`cancelled` is an immutable absorbing terminal truth. A late writer rechecks it
+after acquiring the exact ledger row lock and returns before mutating requester,
+attempt count, error class/code, safe diagnostic, retry time, or terminal time.
+
 PostgreSQL is also authoritative for periodic profile-alias convergence. For each
 indexing profile, the intended alias set is derived only from a current active
 `READY` Asset Version whose Projection and immutable Build are both `READY`; neither

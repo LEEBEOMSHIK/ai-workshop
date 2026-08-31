@@ -1,4 +1,5 @@
 import re
+from collections.abc import Iterator
 from uuid import uuid4
 
 from ai_workshop.labs.rag.documents.domain import ParsedDocument, SourceLocation, StructuralElement
@@ -21,20 +22,20 @@ class PlainTextParser:
             raise UnsupportedEncodingError() from error
         normalized = text.replace("\r\n", "\n").replace("\r", "\n")
         elements: list[StructuralElement] = []
-        for match in re.finditer(r"\S(?:.*?\S)?(?=\n{2,}|\Z)", normalized, re.DOTALL):
+        for start, end in _paragraph_spans(normalized):
             element_id = uuid4()
             elements.append(
                 StructuralElement(
                     id=element_id,
                     ordinal=len(elements),
                     kind="paragraph",
-                    text=match.group(),
+                    text=normalized[start:end],
                     section_path=(),
                     location=SourceLocation(
                         element_id=element_id,
                         page=None,
-                        char_start=match.start(),
-                        char_end=match.end(),
+                        char_start=start,
+                        char_end=end,
                         bbox=None,
                     ),
                     parser_name=self.parser_name,
@@ -48,3 +49,26 @@ class PlainTextParser:
             parser_version=self.parser_version,
             elements=tuple(elements),
         )
+
+
+def _paragraph_spans(text: str) -> Iterator[tuple[int, int]]:
+    cursor = 0
+    separators = re.finditer(r"\n[^\S\n]*\n(?:[^\S\n]*\n)*", text)
+    for separator in separators:
+        span = _trimmed_nonempty_span(text, cursor, separator.start())
+        if span is not None:
+            yield span
+        cursor = separator.end()
+    span = _trimmed_nonempty_span(text, cursor, len(text))
+    if span is not None:
+        yield span
+
+
+def _trimmed_nonempty_span(text: str, start: int, end: int) -> tuple[int, int] | None:
+    while start < end and text[start].isspace():
+        start += 1
+    while end > start and text[end - 1].isspace():
+        end -= 1
+    if start < end:
+        return start, end
+    return None

@@ -131,6 +131,7 @@ class RagIngestionWorkflow:
                 document = await self.parser.materialize_and_parse(
                     execution.asset_version, execution.filename
                 )
+                self._require_nonempty_document(document)
                 content = serialize_parsed_document(document)
                 artifact, authoritative_content = await self._publish_artifact(
                     f"rag/parsed/{execution.projection_id}.json", content
@@ -139,6 +140,7 @@ class RagIngestionWorkflow:
                     authoritative_content,
                     asset_version_id=execution.asset_version.id,
                 )
+                self._require_nonempty_document(document)
                 execution = await self.lifecycle.complete_parsing(
                     job_id, document, artifact
                 )
@@ -154,11 +156,13 @@ class RagIngestionWorkflow:
                     await self._read_artifact(execution.parsed_artifact),
                     asset_version_id=execution.asset_version.id,
                 )
+                self._require_nonempty_document(document)
                 result = self.chunker.chunk(
                     document,
                     projection_id=execution.projection_id,
                     config=execution.chunking_config,
                 )
+                self._require_nonempty_chunks(result)
                 content = serialize_chunking_result(result)
                 artifact, authoritative_content = await self._publish_artifact(
                     f"rag/chunks/{execution.projection_id}.json", content
@@ -167,6 +171,7 @@ class RagIngestionWorkflow:
                     authoritative_content,
                     projection_id=execution.projection_id,
                 )
+                self._require_nonempty_chunks(result)
                 execution = await self.lifecycle.complete_chunking(job_id, result, artifact)
                 continue
             if execution.status is ProjectionStatus.EMBEDDING:
@@ -297,6 +302,24 @@ class RagIngestionWorkflow:
                 retryable=False,
             )
         return result
+
+    @staticmethod
+    def _require_nonempty_document(document: ParsedDocument) -> None:
+        if not document.elements:
+            raise RagIngestionError(
+                "parsed_document_empty",
+                "The parsed document contains no structural elements.",
+                retryable=False,
+            )
+
+    @staticmethod
+    def _require_nonempty_chunks(result: ChunkingResult) -> None:
+        if not result.chunks:
+            raise RagIngestionError(
+                "chunking_result_empty",
+                "The chunking result contains no retrieval chunks.",
+                retryable=False,
+            )
 
 
 async def _bytes_source(content: bytes) -> AsyncIterator[bytes]:

@@ -170,6 +170,13 @@ class FixedParser:
         return self.document
 
 
+class ForbiddenParser:
+    async def materialize_and_parse(
+        self, asset_version: AssetVersion, filename: str
+    ) -> ParsedDocument:
+        raise AssertionError("A resumed chunking execution must not parse again.")
+
+
 class CorruptReadBackStore(MemoryObjectStore):
     async def put(self, key: str, source: AsyncIterator[bytes]) -> StoredObject:
         candidate = b"".join([part async for part in source])
@@ -206,6 +213,35 @@ class FixedChunker:
         return self.result
 
 
+class ForbiddenChunker:
+    def chunk(
+        self,
+        document: ParsedDocument,
+        *,
+        projection_id: UUID,
+        config: ChunkingConfig,
+    ) -> ChunkingResult:
+        raise AssertionError("An empty parsed document must not reach chunking.")
+
+
+class EmptyChunker:
+    def __init__(self, document: ParsedDocument, projection_id: UUID) -> None:
+        self.document = document
+        self.projection_id = projection_id
+
+    def chunk(
+        self,
+        document: ParsedDocument,
+        *,
+        projection_id: UUID,
+        config: ChunkingConfig,
+    ) -> ChunkingResult:
+        assert document == self.document
+        assert projection_id == self.projection_id
+        assert config == ChunkingConfig(380, 60, 440)
+        return ChunkingResult(chunks=(), evidence_units=())
+
+
 class ExplicitFakeStages:
     async def embed(self, *, projection_id: UUID, indexing_profile_id: UUID) -> int:
         return 1
@@ -223,6 +259,19 @@ class ExplicitFakeStages:
             indexed_document_count=1,
             alias_verified=True,
         )
+
+
+class ForbiddenStages:
+    async def embed(self, *, projection_id: UUID, indexing_profile_id: UUID) -> int:
+        raise AssertionError("An empty ingestion result must not reach embedding.")
+
+    async def index(self, *, projection_id: UUID, indexing_profile_id: UUID) -> None:
+        raise AssertionError("An empty ingestion result must not reach indexing.")
+
+    async def verify(
+        self, *, projection_id: UUID, indexing_profile_id: UUID
+    ) -> ReadinessVerification:
+        raise AssertionError("An empty ingestion result must not reach verification.")
 
 
 class MemoryLifecycle(RagIngestionLifecycle):
@@ -284,6 +333,11 @@ class MemoryLifecycle(RagIngestionLifecycle):
     async def fail(self, job_id: UUID, *, error_code: str, error_message: str) -> None:
         self.execution = replace(self.execution, status=ProjectionStatus.FAILED)
         self.statuses.append(self.execution.status)
+
+
+class ResumedLifecycle(MemoryLifecycle):
+    async def begin(self, job_id: UUID) -> IngestionExecution:
+        return self.execution
 
 
 @pytest.mark.asyncio
@@ -438,6 +492,136 @@ async def test_unreadable_exact_key_never_advances_parsing_status() -> None:
     assert raised.value.retryable is True
     assert lifecycle.statuses == [ProjectionStatus.PENDING, ProjectionStatus.PARSING]
     assert lifecycle.artifacts == []
+
+
+@pytest.mark.asyncio
+async def test_empty_parse_fails_before_artifact_publication_or_later_stages() -> None:
+    job_id = uuid4()
+    asset_version_id = uuid4()
+    projection_id = uuid4()
+    empty_document = ParsedDocument(
+        asset_version_id=asset_version_id,
+        parser_name="synthetic-parser",
+        parser_version="1.2.3",
+        elements=(),
+    )
+    lifecycle = MemoryLifecycle(
+        ingestion_execution_fixture(
+            job_id=job_id,
+            asset_version_id=asset_version_id,
+            projection_id=projection_id,
+        )
+    )
+    store = MemoryObjectStore()
+    stages = ForbiddenStages()
+    workflow = RagIngestionWorkflow(
+        lifecycle,
+        store,
+        FixedParser(empty_document),
+        ForbiddenChunker(),
+        stages,
+        stages,
+        stages,
+    )
+
+    with pytest.raises(RagIngestionError) as raised:
+        await workflow.run(job_id)
+
+    assert raised.value.code == "parsed_document_empty"
+    assert raised.value.retryable is False
+    assert store.objects == {}
+    assert lifecycle.statuses == [ProjectionStatus.PENDING, ProjectionStatus.PARSING]
+    assert lifecycle.artifacts == []
+
+
+@pytest.mark.asyncio
+async def test_resumed_empty_parsed_artifact_fails_before_chunking_or_later_stages() -> None:
+    job_id = uuid4()
+    asset_version_id = uuid4()
+    projection_id = uuid4()
+    empty_document = ParsedDocument(
+        asset_version_id=asset_version_id,
+        parser_name="synthetic-parser",
+        parser_version="1.2.3",
+        elements=(),
+    )
+    content = serialize_parsed_document(empty_document)
+    parsed_artifact = ArtifactReference(
+        key=f"rag/parsed/{projection_id}.json",
+        sha256=hashlib.sha256(content).hexdigest(),
+    )
+    lifecycle = ResumedLifecycle(
+        replace(
+            ingestion_execution_fixture(
+                job_id=job_id,
+                asset_version_id=asset_version_id,
+                projection_id=projection_id,
+            ),
+            status=ProjectionStatus.CHUNKING,
+            parsed_artifact=parsed_artifact,
+        )
+    )
+    store = MemoryObjectStore()
+    store.objects[parsed_artifact.key] = content
+    stages = ForbiddenStages()
+    workflow = RagIngestionWorkflow(
+        lifecycle,
+        store,
+        ForbiddenParser(),
+        ForbiddenChunker(),
+        stages,
+        stages,
+        stages,
+    )
+
+    with pytest.raises(RagIngestionError) as raised:
+        await workflow.run(job_id)
+
+    assert raised.value.code == "parsed_document_empty"
+    assert raised.value.retryable is False
+    assert lifecycle.statuses == [ProjectionStatus.CHUNKING]
+    assert lifecycle.artifacts == []
+
+
+@pytest.mark.asyncio
+async def test_empty_chunking_result_fails_before_publication_or_embedding() -> None:
+    job_id = uuid4()
+    asset_version_id = uuid4()
+    projection_id = uuid4()
+    document = parsed_fixture(asset_version_id)
+    lifecycle = MemoryLifecycle(
+        ingestion_execution_fixture(
+            job_id=job_id,
+            asset_version_id=asset_version_id,
+            projection_id=projection_id,
+        )
+    )
+    store = MemoryObjectStore()
+    stages = ForbiddenStages()
+    workflow = RagIngestionWorkflow(
+        lifecycle,
+        store,
+        FixedParser(document),
+        EmptyChunker(document, projection_id),
+        stages,
+        stages,
+        stages,
+    )
+
+    with pytest.raises(RagIngestionError) as raised:
+        await workflow.run(job_id)
+
+    assert raised.value.code == "chunking_result_empty"
+    assert raised.value.retryable is False
+    assert list(store.objects) == [f"rag/parsed/{projection_id}.json"]
+    assert lifecycle.statuses == [
+        ProjectionStatus.PENDING,
+        ProjectionStatus.PARSING,
+        ProjectionStatus.CHUNKING,
+    ]
+    assert [artifact.key for artifact in lifecycle.artifacts] == [
+        f"rag/parsed/{projection_id}.json"
+    ]
 
 
 def test_readiness_requires_real_count_and_alias_verification() -> None:

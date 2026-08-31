@@ -106,6 +106,13 @@ class SqlAlchemyJobRepository:
         record = await self.session.get(JobRecord, job_id)
         return _to_domain(record) if record else None
 
+    async def find_by_id_for_update(self, job_id: UUID) -> Job | None:
+        result = await self.session.execute(
+            select(JobRecord).where(JobRecord.id == job_id).with_for_update()
+        )
+        record = result.scalar_one_or_none()
+        return _to_domain(record) if record else None
+
     async def update(self, job: Job) -> Job:
         record = await self.session.get(JobRecord, job.id)
         if record is None:

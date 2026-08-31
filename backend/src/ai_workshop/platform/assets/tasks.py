@@ -2,9 +2,12 @@ import hashlib
 from typing import Protocol
 from uuid import UUID
 
+from sqlalchemy import select
+
 from ai_workshop.config import Settings
 from ai_workshop.infrastructure.object_store.local import LocalObjectStore
-from ai_workshop.platform.assets.domain import AssetVersion
+from ai_workshop.platform.assets.domain import AssetVersion, VersionStatus
+from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecord
 from ai_workshop.platform.assets.repository import SqlAlchemyAssetRepository
 from ai_workshop.platform.assets.storage import ObjectStore
 from ai_workshop.platform.jobs.domain import JobStatus
@@ -140,7 +143,7 @@ class SqlAlchemyAssetVerificationLifecycle:
         try:
             async with session_factory.begin() as session:
                 jobs = SqlAlchemyJobRepository(session)
-                job = await jobs.find_by_id(job_id)
+                job = await jobs.find_by_id_for_update(job_id)
                 if job is None:
                     raise AssetTaskError(
                         "job_not_found",
@@ -149,7 +152,59 @@ class SqlAlchemyAssetVerificationLifecycle:
                     )
                 if job.status is JobStatus.SUCCEEDED:
                     return
-                job.succeed(stage="stored")
+                if job.status is not JobStatus.RUNNING:
+                    raise AssetTaskError(
+                        "job_not_running",
+                        "The background job is not running.",
+                        retryable=False,
+                    )
+                version = await session.scalar(
+                    select(AssetVersionRecord)
+                    .where(AssetVersionRecord.id == job.asset_version_id)
+                    .with_for_update()
+                )
+                if version is None:
+                    raise AssetTaskError(
+                        "asset_version_not_found",
+                        "The asset version does not exist.",
+                        retryable=False,
+                    )
+                document = await session.scalar(
+                    select(DocumentRecord)
+                    .where(DocumentRecord.id == version.document_id)
+                    .with_for_update()
+                )
+                if document is None:
+                    raise AssetTaskError(
+                        "document_not_found",
+                        "The asset version's document does not exist.",
+                        retryable=False,
+                    )
+                if VersionStatus(version.status) is not VersionStatus.STORED:
+                    raise AssetTaskError(
+                        "asset_version_not_stored",
+                        "Only a stored asset version can become ready.",
+                        retryable=False,
+                    )
+
+                active_version_number: int | None = None
+                if document.active_version_id is not None:
+                    active_version_number = await session.scalar(
+                        select(AssetVersionRecord.number).where(
+                            AssetVersionRecord.id == document.active_version_id
+                        )
+                    )
+                    if active_version_number is None:
+                        raise AssetTaskError(
+                            "active_asset_version_not_found",
+                            "The document's active asset version does not exist.",
+                            retryable=False,
+                        )
+
+                version.status = VersionStatus.READY
+                if active_version_number is None or version.number > active_version_number:
+                    document.active_version_id = version.id
+                job.succeed(stage="ready")
                 await jobs.update(job)
         finally:
             await engine.dispose()

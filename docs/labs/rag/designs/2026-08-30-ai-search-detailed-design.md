@@ -76,7 +76,7 @@
 
 - platform/identity: 로그인 사용자와 역할
 - platform/workspaces: 전사, 개인, 임시 지식 공간과 접근권한
-- platform/assets: 원본 파일, 문서, 불변 버전과 활성 버전
+- platform/assets: 원본 파일, 무결성이 검증된 불변 버전과 버전 순서 기반 현재 Knowledge source
 - platform/jobs: 영속 작업 상태, 멱등 생성, 재시도와 실행 이력
 
 Platform은 RAG 파서, 청커, 검색 모델과 Elasticsearch 색인 구조를 알지 않는다.
@@ -110,7 +110,14 @@ PostgreSQL과 객체 저장소가 정본이다. Elasticsearch 색인은 정본 �
 
 ## 5. 문서 처리 상태와 비동기 실행
 
-RAG 문서 버전은 Asset Version과 Indexing Profile Version의 조합으로 처리 상태를 가진다.
+Platform Asset Version은 영속 저장 직후 `STORED`이며 active pointer가 없다. 검증 작업은
+저장 객체의 정확한 크기와 SHA-256을 확인한 뒤 같은 트랜잭션에서 해당 버전을 `READY`로
+바꾸고, 현재 활성 버전보다 번호가 높은 경우에만 `Document.active_version_id`를 갱신하고,
+작업을 `SUCCEEDED`로 끝낸다. `READY`는 원본 객체 무결성 검증 완료를 뜻하며, active
+pointer가 가리키는 가장 높은 검증 버전이 현재 Knowledge source다.
+
+RAG Projection은 Asset Version과 Indexing Profile Version의 조합으로 별도 처리 상태를
+가진다.
 
     PENDING
       -> PARSING
@@ -124,11 +131,14 @@ RAG 문서 버전은 Asset Version과 Indexing Profile Version의 조합으로 �
 - FAILED: 일반 검색에 사용할 수 없다.
 - PARTIAL_READY: 진단 또는 명시적 실험에서만 사용할 수 있다.
 
-일반 검색은 READY인 문서 버전과 활성 색인 버전만 사용한다.
+일반 검색은 현재 활성 `READY` Asset Version에 속하면서, 파싱·청킹·임베딩·색인·개수·
+provenance·alias 검증까지 마친 `READY` RAG Projection과 활성 색인 버전만 사용한다.
 
 ### 처리 흐름
 
-    Asset Version 등록 및 무결성 확인
+    Asset Version STORED 등록
+      -> 크기와 SHA-256 검증
+      -> Asset Version READY 및 현재 Knowledge source 갱신
       -> RAG job 생성
       -> 원본 파싱
       -> 공통 구조와 provenance 저장
@@ -136,7 +146,7 @@ RAG 문서 버전은 Asset Version과 Indexing Profile Version의 조합으로 �
       -> 문서 임베딩 생성
       -> Elasticsearch projection 작성
       -> 청크 수, 벡터 수와 provenance 검증
-      -> 색인 버전 원자적 활성화
+      -> RAG Projection READY 및 색인 버전 원자적 활성화
 
 Celery 메시지에는 원문 본문을 넣지 않고 job_id와 최소 라우팅 정보만 넣는다. 영속 상태와 오류는 PostgreSQL에 기록한다.
 

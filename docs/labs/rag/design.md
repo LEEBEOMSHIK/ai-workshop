@@ -34,18 +34,32 @@
 
 ## 3. 문서 처리 파이프라인
 
+Platform Asset 수명주기는 RAG projection 수명주기보다 먼저 완료된다.
+
 ```text
-원본 파일 등록
-  -> 형식·보안·중복 검사
+원본 파일 영속 저장(STORED, active pointer 없음)
+  -> 저장 객체의 정확한 크기와 SHA-256 검증
+  -> Asset Version READY와 버전 순서 기반 Document.active_version_id 갱신
+```
+
+Asset Version `READY`는 불변 원본 객체가 무결성 검증을 통과했다는 뜻이다. 같은 문서의
+여러 과거 버전이 `READY`일 수 있으며, `Document.active_version_id`가 가리키는 가장 높은
+검증 버전만 현재 Knowledge source다. 검증 실패는 Asset Version 상태와 active pointer를
+바꾸지 않는다.
+
+검증된 현재 Knowledge source는 구독된 Indexing Profile별 RAG projection을 시작한다.
+
+```text
+Asset Version READY
   -> 형식별 파싱 또는 OCR
   -> 공통 문서 모델 변환
   -> 구조 기반 청킹
   -> BM25 색인과 임베딩 생성
-  -> 필요한 색인 완성 확인
-  -> 활성 문서 버전 전환
+  -> 청크·벡터·provenance·alias 완성 검증
+  -> RAG Projection READY와 색인 활성화
 ```
 
-문서 상태는 다음 흐름을 사용한다.
+RAG Projection 상태는 다음 흐름을 사용한다.
 
 ```text
 PENDING -> PARSING -> CHUNKING -> EMBEDDING -> INDEXING -> READY
@@ -53,7 +67,9 @@ PENDING -> PARSING -> CHUNKING -> EMBEDDING -> INDEXING -> READY
 
 처리할 수 없으면 `FAILED`, 일부 요소만 사용할 수 있으면 `PARTIAL_READY`로 기록한다. `READY`가 아닌 버전은 일반 검색에 포함하지 않는다. `PARTIAL_READY`는 사용자가 명시적으로 허용한 진단 또는 실험 검색에서만 사용할 수 있다.
 
-새 버전은 필요한 색인이 모두 완성된 뒤 활성 포인터를 원자적으로 교체한다. 이전 버전은 감사와 실험 재현을 위해 보존 정책에 따라 유지한다.
+RAG Projection `READY`는 Platform Asset `READY`와 별개다. 필요한 파싱과 색인이 모두
+완성되고 개수, provenance와 alias를 검증한 뒤에만 검색 projection을 활성화한다. 이전
+projection은 감사와 실험 재현을 위해 보존 정책에 따라 유지한다.
 
 ## 4. 공통 문서 모델
 

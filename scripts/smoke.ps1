@@ -7,6 +7,8 @@ param(
     [int]$PostgresPort = 15432,
     [ValidateRange(1024, 65535)]
     [int]$RedisPort = 16379,
+    [ValidateRange(1024, 65535)]
+    [int]$ElasticsearchPort = 19200,
     [switch]$KeepServices
 )
 
@@ -24,7 +26,9 @@ $managedEnvironment = @(
     "AI_WORKSHOP_SECRET_KEY",
     "API_PORT",
     "POSTGRES_PORT",
-    "REDIS_PORT"
+    "REDIS_PORT",
+    "ELASTICSEARCH_PORT",
+    "AI_WORKSHOP_ELASTICSEARCH_INDEX_PREFIX"
 )
 $previousEnvironment = @{}
 $exitCode = 0
@@ -62,6 +66,16 @@ try {
     [Environment]::SetEnvironmentVariable("API_PORT", $ApiPort.ToString(), "Process")
     [Environment]::SetEnvironmentVariable("POSTGRES_PORT", $PostgresPort.ToString(), "Process")
     [Environment]::SetEnvironmentVariable("REDIS_PORT", $RedisPort.ToString(), "Process")
+    [Environment]::SetEnvironmentVariable(
+        "ELASTICSEARCH_PORT",
+        $ElasticsearchPort.ToString(),
+        "Process"
+    )
+    [Environment]::SetEnvironmentVariable(
+        "AI_WORKSHOP_ELASTICSEARCH_INDEX_PREFIX",
+        "$ProjectName-rag",
+        "Process"
+    )
 
     Write-Host "[smoke] Validating Compose configuration"
     Invoke-Compose @("config", "--quiet")
@@ -69,15 +83,26 @@ try {
     Write-Host "[smoke] Building the shared backend image"
     Invoke-Compose @("build", "api")
 
-    Write-Host "[smoke] Starting PostgreSQL and Redis"
+    Write-Host "[smoke] Starting PostgreSQL, Redis, and Elasticsearch"
     $started = $true
-    Invoke-Compose @("up", "--detach", "postgres", "redis")
+    Invoke-Compose @("up", "--detach", "--wait", "postgres", "redis", "elasticsearch")
 
     Write-Host "[smoke] Applying migrations once"
     Invoke-Compose @("--profile", "tools", "run", "--rm", "migrate")
 
-    Write-Host "[smoke] Starting API and worker"
-    Invoke-Compose @("up", "--detach", "api", "worker")
+    Write-Host "[smoke] Preparing the pinned local E5 model cache"
+    Invoke-Compose @(
+        "--profile", "model-tools", "run", "--rm", "--no-deps", "--user", "0:0",
+        "model-tools", "chown", "-R", "10001:10001", "/models"
+    )
+    Invoke-Compose @(
+        "--profile", "model-tools", "run", "--rm", "--no-deps", "model-tools",
+        "python", "-c",
+        "from huggingface_hub import snapshot_download; snapshot_download(repo_id='intfloat/multilingual-e5-base', revision='d128750597153bb5987e10b1c3493a34e5a4502a', cache_dir='/models')"
+    )
+
+    Write-Host "[smoke] Starting API, worker, and beat"
+    Invoke-Compose @("up", "--detach", "--wait", "api", "worker", "beat")
 
     $healthUri = "http://127.0.0.1:$ApiPort/api/v1/health"
     $healthy = $false
@@ -97,7 +122,7 @@ try {
         throw "API health check did not become ready within 60 seconds."
     }
 
-    Write-Host "[smoke] Running the foundation E2E flow"
+    Write-Host "[smoke] Running the foundation and RAG E2E flows"
     Invoke-Compose @("--profile", "test", "run", "--rm", "e2e")
     Write-Host "[smoke] Passed"
 }
@@ -107,9 +132,9 @@ catch {
 }
 finally {
     if ($started -and -not $KeepServices) {
-        Write-Host "[smoke] Removing the isolated smoke project"
+        Write-Host "[smoke] Removing isolated containers and network; retaining named volumes"
         try {
-            Invoke-Compose @("down", "--volumes", "--remove-orphans")
+            Invoke-Compose @("down", "--remove-orphans")
         }
         catch {
             $exitCode = 1

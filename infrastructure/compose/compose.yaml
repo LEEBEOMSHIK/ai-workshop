@@ -12,8 +12,11 @@ x-backend: &backend
     AI_WORKSHOP_REDIS_URL: redis://redis:6379/0
     AI_WORKSHOP_OBJECT_STORE_ROOT: /data/objects
     AI_WORKSHOP_ELASTICSEARCH_URL: http://elasticsearch:9200
+    AI_WORKSHOP_ELASTICSEARCH_INDEX_PREFIX: ${AI_WORKSHOP_ELASTICSEARCH_INDEX_PREFIX:-ai-workshop-rag}
+    AI_WORKSHOP_MODEL_CACHE_ROOT: /models
   volumes:
     - object-data:/data/objects
+    - model-cache:/models
 
 services:
   object-store-init:
@@ -33,6 +36,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      elasticsearch:
         condition: service_healthy
     healthcheck:
       test:
@@ -69,6 +74,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
     healthcheck:
       test:
         [
@@ -96,6 +103,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
 
   migrate:
     <<: *backend
@@ -120,6 +129,9 @@ services:
       AI_WORKSHOP_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-ai_workshop}:${POSTGRES_PASSWORD:-ai_workshop}@postgres:5432/${POSTGRES_DB:-ai_workshop}
       AI_WORKSHOP_REDIS_URL: redis://redis:6379/0
       AI_WORKSHOP_OBJECT_STORE_ROOT: /data/objects
+      AI_WORKSHOP_ELASTICSEARCH_URL: http://elasticsearch:9200
+      AI_WORKSHOP_ELASTICSEARCH_INDEX_PREFIX: ${AI_WORKSHOP_ELASTICSEARCH_INDEX_PREFIX:-ai-workshop-rag}
+      AI_WORKSHOP_MODEL_CACHE_ROOT: /models
     depends_on:
       api:
         condition: service_healthy
@@ -133,6 +145,8 @@ services:
         condition: service_healthy
       beat:
         condition: service_started
+      elasticsearch:
+        condition: service_healthy
 
   postgres:
     image: postgres:17-alpine

@@ -30,11 +30,11 @@
 
 ## 현재 프로젝트 단계
 
-- 설계와 1단계 작업소 기반 구현이 완료됐으며 다음 단계는 RAG AI 검색 구현 계획 수립이다.
-- 현재 기반은 로그인, 지식 공간·권한, 문서·불변 버전, 영속 job·worker, 모델·프로파일 레지스트리와 OpenAPI 계약을 포함한다.
+- 1단계 작업소 기반과 첫 RAG AI 검색 수직 슬라이스가 구현됐다.
+- 현재 RAG 범위는 Markdown, TXT와 텍스트 PDF ingestion, 구조 청킹, BM25+dense+RRF 검색, 근거·하이라이트·원문 뷰어, 저장 구성과 평가 비교다.
 - 로컬 실행, migration, owner bootstrap과 smoke 절차는 `docs/runbooks/local-development.md`만 정본으로 사용한다.
-- 미래 `Labs` 영역의 빈 폴더나 예제 구현을 미리 만들지 않는다.
-- 첫 구현 영역은 자산운용 전문 문서 RAG AI 검색이다.
+- 다음 RAG 경계는 DOCX 파서·뷰어 지원이며 그 다음은 스캔 PDF OCR이다.
+- 미래 `Labs` 영역이나 이후 RAG 형식의 빈 폴더와 예제 구현을 미리 만들지 않는다.
 
 ## 아키텍처 경계
 

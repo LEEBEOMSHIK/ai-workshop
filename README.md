@@ -2,13 +2,15 @@
 
 AI Workshop은 AI를 공부한 과정과 실제로 동작하는 기술을 함께 축적하는 개인 작업소다. 내부에서는 메모, 실험, 실패 기록과 민감한 문서를 다루고, 외부에는 검토하고 비식별화한 결과만 공개한다.
 
-첫 번째 기술 연구 영역은 자산운용 전문 문서를 위한 RAG AI 검색이다. 검색은 BM25와 bi-encoder를 결합한 hybrid retrieval을 사용하며, 결과를 원본 문서의 의미상 관련된 위치와 함께 보여주는 것을 목표로 한다.
+첫 번째 기술 연구 영역은 자산운용 전문 문서를 위한 RAG AI 검색이다. 검색은 BM25와 bi-encoder를 결합한 hybrid retrieval을 사용하며, 결과를 권한이 허용된 원본 위치와 함께 보여준다.
 
 ## 현재 상태
 
-1단계 작업소 기반이 구현됐다. React 앱, FastAPI API, PostgreSQL, Redis, Celery worker, 불변 문서 버전, 지식 공간 권한과 교체 가능한 RAG 모델·프로파일 레지스트리를 제공한다.
+1단계 작업소 기반과 첫 RAG 검색 수직 슬라이스가 구현됐다. Markdown, TXT와 텍스트 PDF를 비동기로 파싱·색인하고 BM25 기준선과 E5 hybrid 검색, 원문 근거·하이라이트·뷰어, 저장 구성과 평가 비교를 제공한다.
 
 - [현재 작업 대시보드](WORKBOARD.md)
+- 검색 화면: `/rag/search`
+- RAG 구성·평가 스튜디오: `/rag/configurations`
 
 ## 개발 시작
 
@@ -18,7 +20,7 @@ Copy-Item .env.example .env
 .\scripts\smoke.ps1
 ```
 
-일상 개발 실행, owner 생성, migration, 테스트와 문제 해결 절차는 [로컬 개발 실행서](docs/runbooks/local-development.md)를 따른다. 환경 변수와 비밀값은 추적되지 않는 `.env`에 둔다.
+Elasticsearch와 로컬 모델 cache 준비, 일상 실행, owner 생성, migration, smoke와 장애 복구 절차는 [로컬 개발 실행서](docs/runbooks/local-development.md)를 따른다. 환경 변수와 비밀값은 추적되지 않는 `.env`에 둔다.
 
 ## 설계 문서
 

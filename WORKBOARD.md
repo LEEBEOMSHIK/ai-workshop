@@ -1,68 +1,61 @@
 # Workboard
 
-- 마지막 갱신일: 2026-08-30
-- 현재 단계: 2단계 RAG AI 검색 구현 계획 완료
-- 전체 상태: 승인된 상세 설계를 14개 구현 작업으로 분해했으며 실행 방식 선택 대기 중
+- 마지막 갱신일: 2026-08-31
+- 현재 단계: 첫 RAG AI 검색 수직 슬라이스 완료
+- 전체 상태: Markdown·TXT·텍스트 PDF의 ingestion부터 검색·근거·평가까지 실제 스택 검증 완료
 
 ## 현재 작업
 
 ### 목표
 
-첫 AI 검색 수직 슬라이스 구현 계획을 실행하고, Markdown·TXT·텍스트 PDF에서 근거 하이라이트와 모델 조합 비교까지 검증한다.
+첫 RAG 검색 수직 슬라이스를 안정적인 기준선으로 유지하고 다음 형식 확장을 준비한다.
 
 ### 진행 상태
 
-- 1단계 작업소 기반을 `main`에 통합하고 전체 백엔드·프론트엔드·실제 worker E2E 검증을 완료했다.
-- 기존 승인 설계에서 첫 검색 기준선은 `BM25 + bi-encoder + RRF`, 비교 기준은 BM25 단독으로 확정돼 있다.
-- 색인·검색·생성 프로파일은 분리하며 첫 검색 순위에는 LLM을 사용하지 않는다.
-- 첫 수직 슬라이스는 Markdown, TXT와 텍스트 PDF이며 이후 DOCX, 스캔 PDF OCR 순서로 확장한다.
-- 첫 답변은 LLM 생성문이 아니라 원문 근거 발췌이며 SUPPORTED와 INSUFFICIENT_EVIDENCE를 구분한다.
-- Elasticsearch의 BM25와 dense 결과를 Python 애플리케이션 계층에서 RRF로 결합한다.
-- 사용자 화면의 프로파일은 원자 프로파일을 조합해 이름과 버전으로 저장한 RAG 구성이며, BM25 기준선 외에는 사용자가 저장한 구성만 목록과 비교에 나타난다.
-- 상세 설계 정본은 docs/labs/rag/designs/2026-08-30-ai-search-detailed-design.md에 작성했다.
-- 상세 설계를 docs/superpowers/plans/2026-08-30-rag-ai-search-first-vertical-slice.md의 14개 TDD 작업으로 분해했다.
-- 첫 비교는 BM25, E5 768차원 hybrid, BGE-M3 dense 1024차원 hybrid이며 모델별 별도 색인을 사용한다.
-- 현재 구현에는 지식 공간·권한, 원본 문서·불변 버전, 영속 job·worker, 모델·프로파일 레지스트리가 준비돼 있다.
-- 파서·공통 문서 모델·청킹·Elasticsearch 색인·검색·의미 하이라이트·평가 모듈은 아직 구현되지 않았다.
+- Markdown·TXT·텍스트 PDF 파싱, 구조 청킹, 로컬 E5 임베딩, Elasticsearch BM25+dense, Python RRF, 근거 응답·뷰어, 저장 구성과 평가 UI를 구현했다.
+- 자산 READY 활성화, 구독별 ingestion handoff, 다중 활성 build alias와 PostgreSQL-authoritative 검색 수명주기를 구현했다.
+- newline-terminated TXT와 빈 parse/chunk 경계를 명시적으로 처리하며, 실패 시 parser나 모델을 조용히 바꾸지 않는다.
+- 보호 Compose smoke에서 원본 세 형식, 기존·신규 검색, keyword·semantic highlight, 원문 뷰어, BM25/E5 평가, 승격 거절과 두 사용자 권한 비노출을 실제 API·worker·Elasticsearch로 검증했다.
+- Task 14 전체 E2E는 같은 보호 프로젝트에서 `6 passed in 113.76s`, `6 passed in 92.64s`로 반복 통과했고 컨테이너·네트워크만 정리하며 named volume을 보존한다.
+- 루트 `surface`, 잠긴 pytest 임시 디렉터리와 개발 Docker 볼륨은 보존했다.
 
 ### 완료 기준
 
-- 첫 구현이 독립적으로 검증 가능한 수직 슬라이스들로 나뉜다.
-- 파싱 결과에서 검색 결과와 원문 하이라이트까지 provenance가 끊기지 않는다.
-- 권한 및 검색 범위 필터가 BM25와 dense 검색 전에 적용되는 구조가 명시된다.
-- BM25 단독과 hybrid 검색을 동일한 평가 세트에서 비교할 수 있다.
-- 승인된 상세 설계와 실행 가능한 구현 계획 문서가 작성된다.
+- Markdown·TXT·텍스트 PDF가 일반적인 파일 끝 newline을 포함해 비어 있지 않은 구조 요소와 chunk를 생성한다.
+- 프로파일의 활성 물리 색인이 모든 READY 문서 projection을 포함하고 기존·신규 문서를 함께 검색한다.
+- Task 14 RAG E2E, 전체 백엔드·프론트엔드 검사, Compose smoke와 문서 검사가 모두 실제 exit 0을 반환한다.
+- 권한 밖 문서가 답변, 관련 문서, 하이라이트, 뷰어와 평가 케이스 어디에도 노출되지 않는다.
 
 ## 최근 완료 작업
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. 승인된 상세 설계를 첫 RAG AI 검색 수직 슬라이스의 14개 TDD 구현 작업으로 작성했다.
-2. 자산운용 RAG AI 검색의 처리 흐름, Hybrid retrieval, 근거 응답, 저장형 RAG 구성과 평가 상세 설계 문서를 작성했다. 관련 커밋: `3c2bdfc`
-3. 1단계 작업소 기반을 `main`에 통합하고 전체 테스트·빌드·실제 worker E2E를 재검증했다. 관련 커밋: `14b8171`
-4. 실제 API·Redis worker E2E, 접근 경계, 공통 이미지 Compose, smoke와 로컬 실행서를 구현하고 검증했다.
-5. OpenAPI 공개 계약, 결정적 export와 생성 TypeScript 타입, 공통 typed client를 구현하고 검증했다.
+1. 첫 RAG 검색 수직 슬라이스의 실제 API·worker·Elasticsearch E2E, smoke와 로컬 실행 인계를 완료했다.
+2. newline-terminated TXT와 빈 parse/chunk ingestion 경계를 구현하고 검증했다. 관련 커밋: `b7fbbff`
+3. 검증된 자산의 READY 활성화와 RAG handoff 재시도·격리 수명주기를 구현하고 검증했다. 관련 커밋: `f51b3b9`
+4. RAG 구성 스튜디오, 평가 비교와 승격 UI의 상태·경쟁 조건을 구현하고 검증했다. 관련 커밋: `5b108e5`
+5. 근거 우선 검색, 관련 출처와 원문 뷰어 UI를 구현하고 검증했다. 관련 커밋: `441a76a`
 
 ## 다음 작업
 
-1. 사용자가 선택한 실행 방식으로 Task 1 Elasticsearch 런타임·의존성 기반부터 시작한다.
-2. 각 작업은 실패 테스트, 최소 구현, 검증, 작업 단위 커밋 순서로 진행한다.
+1. DOCX 구조 파서와 권한이 적용된 원문 뷰어 지원을 설계·구현한다.
+2. DOCX 실측 뒤 스캔 PDF OCR ingestion과 페이지 근거 표시를 계획한다.
+3. 검색 precision과 citation 평가 정책을 통과한 뒤에만 LLM 생성 답변을 검토한다.
 
 ## 결정이 필요한 항목
 
-- 구현 실행 방식 선택이 필요하다: 작업별 독립 에이전트와 검토를 사용하는 방식 또는 현재 세션에서 체크포인트 단위로 실행하는 방식.
+- DOCX의 표·목록·각주를 Evidence Unit과 원문 위치로 표현하는 계약을 다음 설계에서 확정해야 한다.
 
 ## 차단 요소
 
-- 현재 기술적 차단 요소는 없다.
+- 현재 차단 요소는 없다.
 
 ## 작업 인계 메모
 
 - 새 작업을 시작하기 전에 이 파일과 루트 `AGENTS.md`를 읽는다.
-- 사용자가 설계를 바탕으로 구현을 명시적으로 요청했다.
-- 현재 저장소에는 Task 1부터 Task 9까지의 실행 가능한 1단계 작업소 기반, smoke와 설계·실행 문서가 있다.
+- 첫 RAG 검색 수직 슬라이스의 검증 증거와 격리 smoke 상태는 무시된 `.superpowers/sdd/2026-08-30-rag-ai-search-first-vertical-slice/task-14-report.md`에 기록했다.
 - 작업 트리의 `.idea/`는 사용자 환경 파일이므로 별도 요청 없이 추적하거나 수정하지 않는다.
-- 전체 6단계를 한 번에 구현하지 않고 1단계 작업소 기반부터 계획과 검증 단위로 진행한다.
+- 다음 작업은 DOCX 구조·뷰어 계약을 먼저 확정하고 파서·검색·권한·원문 근거를 한 수직 슬라이스로 검증한다.
 
 ## 갱신 규칙
 

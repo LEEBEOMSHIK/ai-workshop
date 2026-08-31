@@ -16,6 +16,7 @@ from ai_workshop.labs.rag.retrieval.domain import (
 from ai_workshop.labs.rag.retrieval.elasticsearch import (
     ElasticsearchDenseRetriever,
     ElasticsearchSparseRetriever,
+    build_scope_filter,
     require_concrete_frozen_indices,
 )
 
@@ -197,12 +198,38 @@ def _api_error(status: int) -> ApiError:
     )
 
 
+def test_active_scope_without_authoritative_lifecycle_is_match_none() -> None:
+    actor_id = uuid4()
+
+    filters = build_scope_filter(
+        actor_id,
+        ResolvedSearchScope((uuid4(),), ()),
+    )
+
+    assert filters[-1] == {"match_none": {}}
+    assert not any("asset_version_id" in str(item) for item in filters)
+    assert not any("index_build_id" in str(item) for item in filters)
+
+
 @pytest.mark.asyncio
 async def test_sparse_and_dense_use_equivalent_acl_prefilters_and_hide_vectors() -> None:
     actor_id = UUID("00000000-0000-0000-0000-000000000809")
     workspace_id = UUID("00000000-0000-0000-0000-000000000804")
     folder_id = UUID("00000000-0000-0000-0000-000000000805")
-    scope = ResolvedSearchScope((workspace_id,), (folder_id,))
+    asset_version_ids = (
+        UUID("00000000-0000-0000-0000-000000000803"),
+        UUID("00000000-0000-0000-0000-000000000813"),
+    )
+    index_build_ids = (
+        UUID("00000000-0000-0000-0000-000000000806"),
+        UUID("00000000-0000-0000-0000-000000000816"),
+    )
+    scope = ResolvedSearchScope(
+        (workspace_id,),
+        (folder_id,),
+        asset_version_ids=asset_version_ids,
+        index_build_ids=index_build_ids,
+    )
     client = RecordingClient(_response())
     sparse = ElasticsearchSparseRetriever(cast(AsyncElasticsearch, client))
     dense = ElasticsearchDenseRetriever(cast(AsyncElasticsearch, client))
@@ -232,6 +259,8 @@ async def test_sparse_and_dense_use_equivalent_acl_prefilters_and_hide_vectors()
         {"term": {"allowed_user_ids": str(actor_id)}},
         {"terms": {"folder_id": [str(folder_id)]}},
         {"term": {"status": "ready"}},
+        {"terms": {"asset_version_id": [str(item) for item in asset_version_ids]}},
+        {"terms": {"index_build_id": [str(item) for item in index_build_ids]}},
     ]
     assert all(
         "embedding" not in cast(dict[str, list[str]], call["source"])["includes"]

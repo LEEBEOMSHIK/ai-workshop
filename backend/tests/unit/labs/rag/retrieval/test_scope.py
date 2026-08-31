@@ -18,10 +18,15 @@ class InMemorySearchScopeRepository:
         workspaces: tuple[Workspace, ...],
         memberships: dict[UUID, frozenset[UUID]],
         folders: dict[UUID, UUID] | None = None,
+        searchable_lifecycle: tuple[tuple[UUID, UUID], ...] = (),
     ) -> None:
         self.workspaces = {workspace.id: workspace for workspace in workspaces}
         self.memberships = memberships
         self.folders = folders or {}
+        self.searchable_lifecycle = searchable_lifecycle
+        self.lifecycle_requests: list[
+            tuple[tuple[UUID, ...], tuple[UUID, ...], UUID]
+        ] = []
 
     async def find_workspace_access(
         self,
@@ -45,6 +50,17 @@ class InMemorySearchScopeRepository:
             if (workspace_id := self.folders.get(folder_id)) is not None
         )
 
+    async def find_searchable_lifecycle(
+        self,
+        workspace_ids: tuple[UUID, ...],
+        folder_ids: tuple[UUID, ...],
+        indexing_profile_id: UUID,
+    ) -> tuple[tuple[UUID, UUID], ...]:
+        self.lifecycle_requests.append(
+            (workspace_ids, folder_ids, indexing_profile_id)
+        )
+        return self.searchable_lifecycle
+
 
 NOW = datetime(2026, 8, 30, 12, tzinfo=UTC)
 
@@ -55,15 +71,73 @@ def resolver(
     actor_id: UUID,
     member_workspace_ids: frozenset[UUID],
     folders: dict[UUID, UUID] | None = None,
+    searchable_lifecycle: tuple[tuple[UUID, UUID], ...] = (),
 ) -> SearchScopeResolver:
     return SearchScopeResolver(
         InMemorySearchScopeRepository(
             workspaces=workspaces,
             memberships={actor_id: member_workspace_ids},
             folders=folders,
+            searchable_lifecycle=searchable_lifecycle,
         ),
         now=lambda: NOW,
     )
+
+
+@pytest.mark.asyncio
+async def test_version_switch_excludes_superseded_a1_until_a2_is_searchable() -> None:
+    actor_id = uuid4()
+    company = Workspace(uuid4(), "Company", WorkspaceKind.COMPANY, uuid4())
+    indexing_profile_id = uuid4()
+    a1_asset_id, a1_build_id = uuid4(), uuid4()
+    b_asset_id, b_build_id = uuid4(), uuid4()
+    scope_resolver = resolver(
+        workspaces=(company,),
+        actor_id=actor_id,
+        member_workspace_ids=frozenset({company.id}),
+        # A1 is superseded. A2 is not READY yet. B remains authoritative.
+        searchable_lifecycle=((b_asset_id, b_build_id),),
+    )
+
+    scope = await scope_resolver.resolve(
+        actor_id=actor_id,
+        workspace_ids=(company.id,),
+        folder_ids=(),
+        indexing_profile_id=indexing_profile_id,
+    )
+
+    assert scope.asset_version_ids == (b_asset_id,)
+    assert scope.index_build_ids == (b_build_id,)
+    assert a1_asset_id not in scope.asset_version_ids
+    assert a1_build_id not in scope.index_build_ids
+
+
+@pytest.mark.asyncio
+async def test_db_inactive_a2_after_es_success_is_excluded_while_b_remains() -> None:
+    actor_id = uuid4()
+    company = Workspace(uuid4(), "Company", WorkspaceKind.COMPANY, uuid4())
+    indexing_profile_id = uuid4()
+    a2_asset_id, a2_build_id = uuid4(), uuid4()
+    b_asset_id, b_build_id = uuid4(), uuid4()
+    scope_resolver = resolver(
+        workspaces=(company,),
+        actor_id=actor_id,
+        member_workspace_ids=frozenset({company.id}),
+        # Elasticsearch may contain A2, but DB rollback left its build inactive.
+        searchable_lifecycle=((b_asset_id, b_build_id),),
+    )
+
+    scope = await scope_resolver.resolve(
+        actor_id=actor_id,
+        workspace_ids=(company.id,),
+        folder_ids=(),
+        indexing_profile_id=indexing_profile_id,
+    )
+
+    assert scope.asset_version_ids == (b_asset_id,)
+    assert scope.index_build_ids == (b_build_id,)
+    assert a2_asset_id not in scope.asset_version_ids
+    assert a2_build_id not in scope.index_build_ids
 
 
 @pytest.mark.asyncio
@@ -75,7 +149,12 @@ async def test_company_membership_resolves_requested_workspace() -> None:
         workspaces=(company,),
         actor_id=actor_id,
         member_workspace_ids=frozenset({company.id}),
-    ).resolve(actor_id=actor_id, workspace_ids=(company.id,), folder_ids=())
+    ).resolve(
+        actor_id=actor_id,
+        workspace_ids=(company.id,),
+        folder_ids=(),
+        indexing_profile_id=uuid4(),
+    )
 
     assert scope.workspace_ids == (company.id,)
     assert scope.folder_ids == ()
@@ -92,7 +171,12 @@ async def test_owner_membership_resolves_own_personal_workspace() -> None:
         workspaces=(personal,),
         actor_id=actor_id,
         member_workspace_ids=frozenset({personal.id}),
-    ).resolve(actor_id=actor_id, workspace_ids=(personal.id,), folder_ids=())
+    ).resolve(
+        actor_id=actor_id,
+        workspace_ids=(personal.id,),
+        folder_ids=(),
+        indexing_profile_id=uuid4(),
+    )
 
     assert scope.workspace_ids == (personal.id,)
 
@@ -112,6 +196,7 @@ async def test_another_personal_workspace_is_indistinguishable_from_missing() ->
             actor_id=actor_id,
             workspace_ids=(another_personal.id,),
             folder_ids=(),
+            indexing_profile_id=uuid4(),
         )
 
     assert (error.value.code, error.value.status_code) == ("not_found", 404)
@@ -138,6 +223,7 @@ async def test_expired_temporary_workspace_is_excluded() -> None:
             actor_id=actor_id,
             workspace_ids=(expired.id,),
             folder_ids=(),
+            indexing_profile_id=uuid4(),
         )
 
     assert (error.value.code, error.value.status_code) == ("not_found", 404)
@@ -161,6 +247,7 @@ async def test_folder_filter_must_belong_to_authorized_workspace_scope() -> None
             actor_id=actor_id,
             workspace_ids=(company.id,),
             folder_ids=(requested_folder,),
+            indexing_profile_id=uuid4(),
         )
 
     assert (error.value.code, error.value.status_code) == ("not_found", 404)
@@ -176,6 +263,11 @@ async def test_empty_requested_scope_is_rejected_before_external_search() -> Non
     )
 
     with pytest.raises(AppError) as error:
-        await scope_resolver.resolve(actor_id=actor_id, workspace_ids=(), folder_ids=())
+        await scope_resolver.resolve(
+            actor_id=actor_id,
+            workspace_ids=(),
+            folder_ids=(),
+            indexing_profile_id=uuid4(),
+        )
 
     assert (error.value.code, error.value.status_code) == ("search_scope_empty", 422)

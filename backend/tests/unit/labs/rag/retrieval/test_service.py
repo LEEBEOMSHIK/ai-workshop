@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import replace
 from typing import NoReturn
 from uuid import UUID, uuid4
 
@@ -95,9 +96,24 @@ def _exception_leaves(error: BaseException) -> tuple[BaseException, ...]:
 
 
 class RecordingScopeResolver:
-    def __init__(self, events: list[str], scope: ResolvedSearchScope) -> None:
+    def __init__(
+        self,
+        events: list[str],
+        scope: ResolvedSearchScope,
+        *,
+        allow_empty: bool = False,
+    ) -> None:
         self.events = events
-        self.scope = scope
+        self.scope = (
+            scope
+            if allow_empty or not scope.active_only or scope.asset_version_ids
+            else replace(
+                scope,
+                asset_version_ids=(uuid4(),),
+                index_build_ids=(uuid4(),),
+            )
+        )
+        self.indexing_profile_ids: list[UUID | None] = []
 
     async def resolve(
         self,
@@ -105,8 +121,10 @@ class RecordingScopeResolver:
         actor_id: UUID,
         workspace_ids: tuple[UUID, ...],
         folder_ids: tuple[UUID, ...],
+        indexing_profile_id: UUID | None = None,
     ) -> ResolvedSearchScope:
         del actor_id, workspace_ids, folder_ids
+        self.indexing_profile_ids.append(indexing_profile_id)
         self.events.append("scope")
         return self.scope
 
@@ -282,7 +300,12 @@ class BlockingSparseRetriever:
 @pytest.mark.asyncio
 async def test_hybrid_resolves_scope_and_embedding_before_concurrent_branches() -> None:
     events: list[str] = []
-    scope = ResolvedSearchScope((uuid4(),), ())
+    scope = ResolvedSearchScope(
+        (uuid4(),),
+        (),
+        asset_version_ids=(uuid4(),),
+        index_build_ids=(uuid4(),),
+    )
     duplicate = _chunk(2)
     sparse = RecordingSparseRetriever(
         events,
@@ -298,8 +321,9 @@ async def test_hybrid_resolves_scope_and_embedding_before_concurrent_branches() 
             DenseHit(_chunk(3), rank=2, score=0.8),
         ),
     )
+    scope_resolver = RecordingScopeResolver(events, scope)
     service = HybridRetrievalService(
-        scope_resolver=RecordingScopeResolver(events, scope),
+        scope_resolver=scope_resolver,
         embedding=RecordingEmbedding(events),
         sparse_retriever=sparse,
         dense_retriever=dense,
@@ -320,8 +344,39 @@ async def test_hybrid_resolves_scope_and_embedding_before_concurrent_branches() 
     assert set(events[2:]) == {"sparse", "dense"}
     assert sparse.scope is scope
     assert dense.scope is scope
+    assert scope_resolver.indexing_profile_ids == [INDEXING_PROFILE_ID]
     assert result[0].chunk_id == duplicate.chunk_id
     assert result[0].chunk == duplicate
+
+
+@pytest.mark.asyncio
+async def test_active_scope_without_searchable_lifecycle_returns_empty_fail_closed() -> None:
+    events: list[str] = []
+    scope = ResolvedSearchScope((uuid4(),), ())
+    sparse = RecordingSparseRetriever(events, ())
+    dense = RecordingDenseRetriever(events, ())
+    service = HybridRetrievalService(
+        scope_resolver=RecordingScopeResolver(events, scope, allow_empty=True),
+        embedding=RecordingEmbedding(events),
+        sparse_retriever=sparse,
+        dense_retriever=dense,
+    )
+
+    result = await service.search(
+        actor_id=uuid4(),
+        query="query",
+        workspace_ids=scope.workspace_ids,
+        folder_ids=(),
+        indexing_profile_id=INDEXING_PROFILE_ID,
+        retrieval_profile=_hybrid_profile(),
+        index_alias=_active_alias(),
+        result_limit=10,
+    )
+
+    assert result == ()
+    assert events == ["scope"]
+    assert sparse.calls == 0
+    assert dense.calls == 0
 
 
 @pytest.mark.asyncio

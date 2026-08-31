@@ -7,8 +7,18 @@ from uuid import UUID
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_workshop.labs.rag.documents.domain import ProjectionStatus
+from ai_workshop.labs.rag.documents.models import (
+    RagIndexBuildRecord,
+    RagProjectionRecord,
+)
 from ai_workshop.labs.rag.retrieval.domain import ResolvedSearchScope
-from ai_workshop.platform.assets.models import FolderRecord
+from ai_workshop.platform.assets.domain import VersionStatus
+from ai_workshop.platform.assets.models import (
+    AssetVersionRecord,
+    DocumentRecord,
+    FolderRecord,
+)
 from ai_workshop.platform.workspaces.domain import Workspace, WorkspaceKind
 from ai_workshop.platform.workspaces.models import (
     WorkspaceMembershipRecord,
@@ -33,6 +43,13 @@ class SearchScopeRepository(Protocol):
     async def find_folder_workspaces(
         self,
         folder_ids: tuple[UUID, ...],
+    ) -> tuple[tuple[UUID, UUID], ...]: ...
+
+    async def find_searchable_lifecycle(
+        self,
+        workspace_ids: tuple[UUID, ...],
+        folder_ids: tuple[UUID, ...],
+        indexing_profile_id: UUID,
     ) -> tuple[tuple[UUID, UUID], ...]: ...
 
 
@@ -89,6 +106,46 @@ class SqlAlchemySearchScopeRepository:
         by_id = {folder_id: workspace_id for folder_id, workspace_id in rows}
         return tuple((item, by_id[item]) for item in folder_ids if item in by_id)
 
+    async def find_searchable_lifecycle(
+        self,
+        workspace_ids: tuple[UUID, ...],
+        folder_ids: tuple[UUID, ...],
+        indexing_profile_id: UUID,
+    ) -> tuple[tuple[UUID, UUID], ...]:
+        if not workspace_ids:
+            return ()
+        statement = (
+            select(AssetVersionRecord.id, RagIndexBuildRecord.id)
+            .join(
+                DocumentRecord,
+                DocumentRecord.id == AssetVersionRecord.document_id,
+            )
+            .join(
+                RagProjectionRecord,
+                RagProjectionRecord.asset_version_id == AssetVersionRecord.id,
+            )
+            .join(
+                RagIndexBuildRecord,
+                RagIndexBuildRecord.projection_id == RagProjectionRecord.id,
+            )
+            .where(
+                DocumentRecord.workspace_id.in_(workspace_ids),
+                DocumentRecord.active_version_id == AssetVersionRecord.id,
+                AssetVersionRecord.status == VersionStatus.READY,
+                RagProjectionRecord.indexing_profile_id == indexing_profile_id,
+                RagProjectionRecord.status == ProjectionStatus.READY,
+                RagIndexBuildRecord.indexing_profile_id == indexing_profile_id,
+                RagIndexBuildRecord.status == "ready",
+                RagIndexBuildRecord.is_active.is_(True),
+            )
+            .order_by(AssetVersionRecord.id, RagIndexBuildRecord.id)
+        )
+        if folder_ids:
+            statement = statement.where(DocumentRecord.folder_id.in_(folder_ids))
+        return tuple((asset_id, build_id) for asset_id, build_id in (
+            await self.session.execute(statement)
+        ).all())
+
 
 class SearchScopeResolver:
     def __init__(
@@ -106,6 +163,7 @@ class SearchScopeResolver:
         actor_id: UUID,
         workspace_ids: tuple[UUID, ...],
         folder_ids: tuple[UUID, ...],
+        indexing_profile_id: UUID,
     ) -> ResolvedSearchScope:
         requested_workspaces = tuple(dict.fromkeys(workspace_ids))
         requested_folders = tuple(dict.fromkeys(folder_ids))
@@ -136,7 +194,21 @@ class SearchScopeResolver:
         ):
             self._raise_not_found()
 
-        return ResolvedSearchScope(requested_workspaces, requested_folders)
+        lifecycle = await self.repository.find_searchable_lifecycle(
+            requested_workspaces,
+            requested_folders,
+            indexing_profile_id,
+        )
+        return ResolvedSearchScope(
+            requested_workspaces,
+            requested_folders,
+            asset_version_ids=tuple(
+                dict.fromkeys(asset_version_id for asset_version_id, _ in lifecycle)
+            ),
+            index_build_ids=tuple(
+                dict.fromkeys(index_build_id for _, index_build_id in lifecycle)
+            ),
+        )
 
     def _is_authorized(self, access: WorkspaceAccess, actor_id: UUID) -> bool:
         workspace = access.workspace

@@ -198,6 +198,11 @@ def build_scope_filter(
         filters.append({"terms": {"folder_id": [str(item) for item in scope.folder_ids]}})
     if scope.ready_only:
         filters.append({"term": {"status": "ready"}})
+    if scope.active_only and (
+        not scope.asset_version_ids or not scope.index_build_ids
+    ):
+        filters.append({"match_none": {}})
+        return filters
     if scope.asset_version_ids:
         filters.append(
             {

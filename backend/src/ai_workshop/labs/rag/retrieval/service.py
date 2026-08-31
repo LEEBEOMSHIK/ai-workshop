@@ -26,6 +26,7 @@ class SearchScopeResolverPort(Protocol):
         actor_id: UUID,
         workspace_ids: tuple[UUID, ...],
         folder_ids: tuple[UUID, ...],
+        indexing_profile_id: UUID,
     ) -> ResolvedSearchScope: ...
 
 
@@ -96,7 +97,12 @@ class HybridRetrievalService:
             actor_id=actor_id,
             workspace_ids=workspace_ids,
             folder_ids=folder_ids,
+            indexing_profile_id=indexing_profile_id,
         )
+        if scope.active_only and (
+            not scope.asset_version_ids or not scope.index_build_ids
+        ):
+            return ()
 
         if dense_top_k is None:
             try:

@@ -145,9 +145,20 @@ class RecordingScopeResolver:
         actor_id: UUID,
         workspace_ids: tuple[UUID, ...],
         folder_ids: tuple[UUID, ...],
+        indexing_profile_id: UUID,
     ) -> ResolvedSearchScope:
         assert actor_id == ACTOR_ID
-        return ResolvedSearchScope(workspace_ids, folder_ids)
+        assert indexing_profile_id == INDEXING_PROFILE_ID
+        return ResolvedSearchScope(
+            workspace_ids,
+            folder_ids,
+            asset_version_ids=(
+                UUID("a0000000-0000-0000-0000-000000000001"),
+            ),
+            index_build_ids=(
+                UUID("b0000000-0000-0000-0000-000000000001"),
+            ),
+        )
 
 
 class SparseRetriever:

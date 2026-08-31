@@ -240,10 +240,23 @@ Elasticsearch 교체 뒤 DB commit이 실패한 재시도도 같은 정본 집�
 
 BM25와 dense 검색에는 동일한 Workspace, Folder, 권한, 활성 버전과 상태 필터를 검색 전에 적용한다.
 
+일반 검색은 alias 자체를 활성 수명주기의 정본으로 간주하지 않는다. 권한이 확인된
+Workspace/Folder와 선택한 Indexing Profile을 기준으로 PostgreSQL에서
+`Document.active_version_id`와 정확히 일치하는 `READY` Asset Version,
+`READY` projection, 그리고 `status=ready AND is_active=true`인 정확한 Index Build
+식별자 집합을 먼저 확정한다. 이 불변 식별자 집합을 같은 `ResolvedSearchScope`로
+BM25와 dense 양쪽에 전달해 순위 후보 생성 전에 필터링한다. 현재 검색 가능한 대상이
+하나도 없으면 Elasticsearch를 호출하지 않고 빈 검색 결과를 반환하며, 빈 식별자
+필터를 생략해 alias 전체를 검색해서는 안 된다.
+
+평가 검색은 실행 생성 시 고정한 Asset Version과 물리 Index Build 식별자를
+`active_only=false` scope로 계속 사용한다. 현재 `active_version_id`나 `is_active`를
+다시 조회해 고정 평가 대상을 바꾸지 않는다.
+
 ## 9. Hybrid 검색 흐름
 
 1. 호출 사용자와 검색 범위 확정
-2. 허용 Workspace, Folder와 문서 버전 필터 생성
+2. 허용 Workspace, Folder와 선택 Indexing Profile에서 정본 활성 Asset Version 및 Index Build 필터 확정
 3. 질의 정규화
 4. 선택 구성에 필요한 경우 질의 임베딩 생성
 5. Elasticsearch에서 BM25와 dense 검색 병렬 실행

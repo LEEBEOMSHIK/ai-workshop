@@ -69,8 +69,9 @@ class FrozenResolvedScope:
         actor_id: UUID,
         workspace_ids: tuple[UUID, ...],
         folder_ids: tuple[UUID, ...],
+        indexing_profile_id: UUID,
     ) -> ResolvedSearchScope:
-        del actor_id
+        del actor_id, indexing_profile_id
         if (
             workspace_ids != self.value.workspace_ids
             or folder_ids != self.value.folder_ids

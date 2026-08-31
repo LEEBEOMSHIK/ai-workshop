@@ -287,7 +287,7 @@ async def test_postgres_outbox_is_atomic_claimed_safely_and_recovers_delivery(
                     assert pending is not None
                     assert pending.status == "pending"
                     assert pending.attempt_count == 3
-                    assert pending.last_error == "broker unavailable"
+                    assert pending.last_error == "broker_delivery_failed:OSError"
                     retry_at = pending.available_at
 
                 recovered = await reconciler.run_once(now=retry_at)

@@ -16,6 +16,7 @@ pytestmark = pytest.mark.integration
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 REVISION_0011 = "0011_active_rag_builds"
 REVISION_0012 = "0012_terminal_rag_handoffs"
+REVISION_0013 = "0013_system_baseline_indexing"
 
 
 def _database_url(base_url: str, database: str) -> str:
@@ -227,7 +228,7 @@ def test_0012_round_trip_preserves_terminal_non_delivery_schema(
             with psycopg.connect(_sync_url(isolated_url)) as connection:
                 assert connection.execute(
                     "SELECT version_num FROM alembic_version"
-                ).fetchone() == (REVISION_0012,)
+                ).fetchone() == (REVISION_0013,)
     finally:
         get_settings.cache_clear()
         _drop_database(base_settings.database_url, database)

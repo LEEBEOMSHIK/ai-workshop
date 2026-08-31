@@ -48,12 +48,12 @@ export function ModelLabPage({
   const [profileSaving, setProfileSaving] = useState(false);
   const mounted = useRef(true);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
       mounted.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   async function handleModelSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

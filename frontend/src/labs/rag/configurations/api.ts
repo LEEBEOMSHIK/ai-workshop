@@ -22,7 +22,7 @@ export interface ConfigurationStudioData {
 
 export async function loadConfigurationStudio(): Promise<ConfigurationStudioData> {
   const [configurations, modelLab, workspaces, runs] = await Promise.all([
-    apiRequest<SavedConfiguration[]>("/api/v1/rag/configurations"),
+    loadConfigurations(),
     loadModelLab(),
     apiRequest<Workspace[]>("/api/v1/workspaces"),
     apiRequest<EvaluationRun[]>("/api/v1/rag/evaluation-runs?limit=20"),
@@ -34,6 +34,10 @@ export async function loadConfigurationStudio(): Promise<ConfigurationStudioData
     workspaces,
     runs,
   };
+}
+
+export function loadConfigurations(signal?: AbortSignal): Promise<SavedConfiguration[]> {
+  return apiRequest<SavedConfiguration[]>("/api/v1/rag/configurations", { signal });
 }
 
 export function saveConfiguration(

@@ -8,7 +8,12 @@ import type {
   EvaluationRunCreate,
   SavedConfiguration,
 } from "./api";
-import { loadEvaluationRun, promoteConfiguration, startEvaluationRun } from "./api";
+import {
+  loadConfigurations,
+  loadEvaluationRun,
+  promoteConfiguration,
+  startEvaluationRun,
+} from "./api";
 
 interface ComparisonPanelProps {
   configurations: SavedConfiguration[];
@@ -55,12 +60,21 @@ export function ComparisonPanel({
   onConfigurationUpdated,
 }: ComparisonPanelProps) {
   const baseline = configurations.find((configuration) => configuration.is_system);
+  const selectableVersionIds = useMemo(
+    () => new Set(
+      configurations
+        .filter((configuration) => !configuration.is_system)
+        .map((configuration) => configuration.version_id),
+    ),
+    [configurations],
+  );
   const initialRun = initialRuns[0] ?? null;
   const initialRunVersionIds = initialRun?.candidates
     .map((candidate) => candidate.configuration_version_id)
-    .filter((versionId) => versionId !== baseline?.version_id) ?? [];
+    .filter((versionId) => selectableVersionIds.has(versionId)) ?? [];
   const [selectedVersionIds, setSelectedVersionIds] = useState<string[]>(() =>
-    unique([...initialSelectedVersionIds, ...initialRunVersionIds]),
+    unique([...initialSelectedVersionIds, ...initialRunVersionIds])
+      .filter((versionId) => selectableVersionIds.has(versionId)),
   );
   const [datasetSnapshotId, setDatasetSnapshotId] = useState(
     initialRun?.dataset_snapshot_id ?? "",
@@ -75,7 +89,9 @@ export function ComparisonPanel({
   const [refreshing, setRefreshing] = useState(false);
   const [promotingId, setPromotingId] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const generation = useRef(0);
+  const mounted = useRef(false);
+  const runGeneration = useRef(0);
+  const promotionGeneration = useRef(0);
   const startController = useRef<AbortController | null>(null);
   const refreshController = useRef<AbortController | null>(null);
   const promotionController = useRef<AbortController | null>(null);
@@ -91,31 +107,47 @@ export function ComparisonPanel({
     });
   }, [configurations, selectedVersionIds]);
 
-  useEffect(
-    () => () => {
-      generation.current += 1;
+  const historicalCandidateCount = activeRun?.candidates.filter(
+    (candidate) =>
+      candidate.configuration_version_id !== baseline?.version_id &&
+      !selectableVersionIds.has(candidate.configuration_version_id),
+  ).length ?? 0;
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      runGeneration.current += 1;
+      promotionGeneration.current += 1;
       startController.current?.abort();
       refreshController.current?.abort();
       promotionController.current?.abort();
-    },
-    [],
-  );
+    };
+  }, []);
 
   useEffect(() => {
     if (!activeRun || (activeRun.status !== "pending" && activeRun.status !== "running")) return;
     const controller = new AbortController();
     refreshController.current?.abort();
     refreshController.current = controller;
-    const currentGeneration = generation.current;
+    const currentGeneration = runGeneration.current;
     const timeout = window.setTimeout(() => {
       void loadEvaluationRun(activeRun.id, controller.signal)
         .then((loaded) => {
-          if (generation.current === currentGeneration && !controller.signal.aborted) {
+          if (
+            mounted.current &&
+            runGeneration.current === currentGeneration &&
+            !controller.signal.aborted
+          ) {
             setActiveRun(loaded);
           }
         })
         .catch((caught: unknown) => {
-          if (generation.current === currentGeneration && !controller.signal.aborted) {
+          if (
+            mounted.current &&
+            runGeneration.current === currentGeneration &&
+            !controller.signal.aborted
+          ) {
             setError(evaluationErrorMessage(caught));
           }
         });
@@ -128,11 +160,7 @@ export function ComparisonPanel({
   }, [activeRun]);
 
   function changeSelection(versionId: string, selected: boolean) {
-    generation.current += 1;
-    startController.current?.abort();
-    refreshController.current?.abort();
-    refreshController.current = null;
-    setRefreshing(false);
+    cancelRunOperations();
     setActiveRun(null);
     setError("");
     setSelectedVersionIds((current) =>
@@ -144,16 +172,16 @@ export function ComparisonPanel({
     event.preventDefault();
     const snapshotId = datasetSnapshotId.trim();
     if (!snapshotId || starting) return;
-    startController.current?.abort();
-    refreshController.current?.abort();
+    cancelRunOperations();
     const controller = new AbortController();
     startController.current = controller;
-    const currentGeneration = generation.current + 1;
-    generation.current = currentGeneration;
+    const currentGeneration = runGeneration.current;
     const request: EvaluationRunCreate = {
       dataset_snapshot_id: snapshotId,
       evaluation_policy_version_id: evaluationPolicyVersionId.trim() || null,
-      configuration_version_ids: selectedVersionIds,
+      configuration_version_ids: selectedVersionIds.filter((versionId) =>
+        selectableVersionIds.has(versionId)
+      ),
       metric_definition_version: 1,
       retrieval_k: retrievalK,
       repetition_count: repetitionCount,
@@ -162,15 +190,29 @@ export function ComparisonPanel({
     setError("");
     try {
       const started = await startEvaluationRun(request, controller.signal);
-      if (generation.current === currentGeneration && !controller.signal.aborted) {
+      if (
+        mounted.current &&
+        runGeneration.current === currentGeneration &&
+        startController.current === controller &&
+        !controller.signal.aborted
+      ) {
         setActiveRun(started);
       }
     } catch (caught) {
-      if (generation.current === currentGeneration && !controller.signal.aborted) {
+      if (
+        mounted.current &&
+        runGeneration.current === currentGeneration &&
+        startController.current === controller &&
+        !controller.signal.aborted
+      ) {
         setError(evaluationErrorMessage(caught));
       }
     } finally {
-      if (generation.current === currentGeneration) {
+      if (
+        mounted.current &&
+        runGeneration.current === currentGeneration &&
+        startController.current === controller
+      ) {
         startController.current = null;
         setStarting(false);
       }
@@ -180,51 +222,102 @@ export function ComparisonPanel({
   async function refreshRun() {
     if (!activeRun || refreshing) return;
     refreshController.current?.abort();
+    runGeneration.current += 1;
     const controller = new AbortController();
     refreshController.current = controller;
-    const currentGeneration = generation.current;
+    const currentGeneration = runGeneration.current;
     setRefreshing(true);
     setError("");
     try {
       const loaded = await loadEvaluationRun(activeRun.id, controller.signal);
-      if (generation.current === currentGeneration && !controller.signal.aborted) {
+      if (
+        mounted.current &&
+        runGeneration.current === currentGeneration &&
+        refreshController.current === controller &&
+        !controller.signal.aborted
+      ) {
         setActiveRun(loaded);
       }
     } catch (caught) {
-      if (generation.current === currentGeneration && !controller.signal.aborted) {
+      if (
+        mounted.current &&
+        runGeneration.current === currentGeneration &&
+        refreshController.current === controller &&
+        !controller.signal.aborted
+      ) {
         setError(evaluationErrorMessage(caught));
       }
     } finally {
-      if (generation.current === currentGeneration) {
-        if (refreshController.current === controller) refreshController.current = null;
+      if (
+        mounted.current &&
+        runGeneration.current === currentGeneration &&
+        refreshController.current === controller
+      ) {
+        refreshController.current = null;
         setRefreshing(false);
       }
     }
   }
 
   async function promote(configuration: SavedConfiguration) {
-    if (configuration.evaluation_state !== "passed" || promotingId) return;
+    const candidate = activeRun?.candidates.find(
+      (item) => item.configuration_version_id === configuration.version_id,
+    );
+    if (!hasAuthoritativePromotionEvidence(activeRun, configuration, candidate) || promotingId) {
+      return;
+    }
     promotionController.current?.abort();
     const controller = new AbortController();
     promotionController.current = controller;
-    const currentGeneration = generation.current;
+    const currentGeneration = promotionGeneration.current + 1;
+    promotionGeneration.current = currentGeneration;
     setPromotingId(configuration.id);
     setError("");
     try {
       const promoted = await promoteConfiguration(configuration.id, controller.signal);
-      if (generation.current === currentGeneration && !controller.signal.aborted) {
-        onConfigurationUpdated(promoted);
+      if (!isCurrentPromotion(currentGeneration, controller)) return;
+      let synchronized: SavedConfiguration[];
+      try {
+        synchronized = await loadConfigurations(controller.signal);
+      } catch {
+        if (!isCurrentPromotion(currentGeneration, controller)) return;
+        synchronized = configurations.map((current) => {
+          if (current.id === promoted.id) return promoted;
+          return current.is_default ? { ...current, is_default: false } : current;
+        });
+      }
+      if (isCurrentPromotion(currentGeneration, controller)) {
+        synchronized.forEach(onConfigurationUpdated);
       }
     } catch (caught) {
-      if (generation.current === currentGeneration && !controller.signal.aborted) {
+      if (isCurrentPromotion(currentGeneration, controller)) {
         setError(promotionErrorMessage(caught));
       }
     } finally {
-      if (generation.current === currentGeneration) {
+      if (isCurrentPromotion(currentGeneration, controller)) {
         promotionController.current = null;
         setPromotingId(null);
       }
     }
+  }
+
+  function cancelRunOperations() {
+    runGeneration.current += 1;
+    startController.current?.abort();
+    refreshController.current?.abort();
+    startController.current = null;
+    refreshController.current = null;
+    setStarting(false);
+    setRefreshing(false);
+  }
+
+  function isCurrentPromotion(currentGeneration: number, controller: AbortController) {
+    return (
+      mounted.current &&
+      promotionGeneration.current === currentGeneration &&
+      promotionController.current === controller &&
+      !controller.signal.aborted
+    );
   }
 
   return (
@@ -256,6 +349,11 @@ export function ComparisonPanel({
               {configuration.name} v{configuration.version} · {configuration.version_id}
             </label>
           ))}
+          {historicalCandidateCount > 0 ? (
+            <p className="unmeasured-state">
+              현재 저장 목록에 없는 과거 후보 {historicalCandidateCount}개는 읽기 전용이며 새 실행 선택에서 제외됩니다.
+            </p>
+          ) : null}
         </fieldset>
         <div className="evaluation-input-grid">
           <label>
@@ -323,11 +421,17 @@ export function ComparisonPanel({
           const candidate = activeRun?.candidates.find(
             (item) => item.configuration_version_id === configuration.version_id,
           );
+          const canPromote = hasAuthoritativePromotionEvidence(
+            activeRun,
+            configuration,
+            candidate,
+          );
           return (
             <CandidateResult
               key={configuration.version_id}
               configuration={configuration}
               candidate={candidate}
+              canPromote={canPromote}
               promoting={promotingId === configuration.id}
               onPromote={() => void promote(configuration)}
             />
@@ -341,11 +445,13 @@ export function ComparisonPanel({
 function CandidateResult({
   configuration,
   candidate,
+  canPromote,
   promoting,
   onPromote,
 }: {
   configuration: SavedConfiguration;
   candidate: EvaluationCandidate | undefined;
+  canPromote: boolean;
   promoting: boolean;
   onPromote: () => void;
 }) {
@@ -385,6 +491,7 @@ function CandidateResult({
                 </a>
                 <span>질의 해시 {evaluationCase.query_sha256}</span>
                 <span>기대 근거 {evaluationCase.expected_evidence_ids.join(", ") || "없음"}</span>
+                <span>관찰된 실패 신호 {failureSignals(evaluationCase).join(" · ")}</span>
               </li>
             ))}
           </ul>
@@ -392,10 +499,11 @@ function CandidateResult({
       ) : null}
 
       <p>평가 상태: {configuration.evaluation_state}</p>
+      {canPromote ? <p>정책 근거 확인됨 · 서버 최종 판정 필요</p> : null}
       <button
         type="button"
         disabled={
-          configuration.evaluation_state !== "passed" ||
+          !canPromote ||
           configuration.is_default ||
           promoting
         }
@@ -408,11 +516,39 @@ function CandidateResult({
 }
 
 function isFailedCase(evaluationCase: EvaluationCandidate["case_results"][number]): boolean {
-  return (
-    evaluationCase.correct_supported === false ||
-    evaluationCase.false_grounding === true ||
-    evaluationCase.access_leaks > 0 ||
-    !evaluationCase.reproducible
+  return failureSignals(evaluationCase).length > 0;
+}
+
+function failureSignals(
+  evaluationCase: EvaluationCandidate["case_results"][number],
+): string[] {
+  const signals: string[] = [];
+  if (evaluationCase.recall_at_k === 0) signals.push("Recall@K=0");
+  if (evaluationCase.reciprocal_rank === 0) signals.push("Reciprocal Rank=0");
+  if (evaluationCase.ndcg === 0) signals.push("nDCG=0");
+  if (evaluationCase.highlight_iou === 0) signals.push("Highlight IoU=0");
+  if (evaluationCase.correct_supported === false) signals.push("SUPPORTED 판정=false");
+  if (evaluationCase.false_grounding === true) signals.push("잘못된 근거=true");
+  if (evaluationCase.access_leaks > 0) {
+    signals.push(`접근권한 누출=${evaluationCase.access_leaks}`);
+  }
+  if (!evaluationCase.reproducible) signals.push("재현 가능=false");
+  return signals;
+}
+
+function hasAuthoritativePromotionEvidence(
+  run: EvaluationRun | null,
+  configuration: SavedConfiguration,
+  candidate: EvaluationCandidate | undefined,
+): boolean {
+  return Boolean(
+    !configuration.is_system &&
+    run?.status === "completed" &&
+    run.evaluation_policy_version_id &&
+    !run.failure &&
+    candidate?.configuration_version_id === configuration.version_id &&
+    candidate.status === "completed" &&
+    !candidate.failure,
   );
 }
 

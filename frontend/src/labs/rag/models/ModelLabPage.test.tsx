@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, vi } from "vitest";
@@ -122,6 +123,56 @@ describe("ModelLabPage", () => {
       "/api/v1/rag/profiles/retrieval/yaml",
     ]);
   });
+
+  it("releases both async registration controls and applies responses under StrictMode", async () => {
+    const modelRequest = deferred<Response>();
+    const profileRequest = deferred<Response>();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        if (input === "/api/v1/rag/models") return modelRequest.promise;
+        if (input === "/api/v1/rag/profiles/retrieval/yaml") return profileRequest.promise;
+        throw new Error(`Unexpected request: ${String(input)}`);
+      }),
+    );
+
+    const user = userEvent.setup();
+    render(
+      <StrictMode>
+        <ModelLabPage initialModels={[]} initialProfiles={[]} />
+      </StrictMode>,
+    );
+
+    await user.type(screen.getByRole("textbox", { name: "이름" }), "strict-embedding");
+    await user.click(screen.getByRole("button", { name: "모델 버전 등록" }));
+    expect(screen.getByRole("button", { name: "등록 중…" })).toBeDisabled();
+    modelRequest.resolve(jsonResponse({
+      id: "strict-model-id",
+      kind: "embedding",
+      name: "strict-embedding",
+      version: 1,
+      config: {},
+    }, 201));
+    expect(await screen.findByText("strict-embedding")).toBeVisible();
+    expect(screen.getByRole("button", { name: "모델 버전 등록" })).toBeEnabled();
+
+    const profileForm = screen.getByRole("heading", { name: "새 프로파일 버전" }).closest("form");
+    expect(profileForm).not.toBeNull();
+    await user.click(within(profileForm!).getByRole("button", { name: "YAML 프로파일 등록" }));
+    expect(within(profileForm!).getByRole("button", { name: "등록 중…" })).toBeDisabled();
+    profileRequest.resolve(jsonResponse({
+      id: "strict-profile-id",
+      kind: "retrieval",
+      name: "strict-retrieval",
+      version: 1,
+      config: { indexing_profile_id: "indexing-1", bm25: {}, dense: {}, rrf: {} },
+      bindings: [],
+      evaluation_state: "draft",
+      is_default: false,
+    }, 201));
+    expect(await screen.findByText("strict-retrieval")).toBeVisible();
+    expect(within(profileForm!).getByRole("button", { name: "YAML 프로파일 등록" })).toBeEnabled();
+  });
 });
 
 function jsonResponse(body: unknown, status = 200) {
@@ -129,4 +180,12 @@ function jsonResponse(body: unknown, status = 200) {
     status,
     headers: { "content-type": "application/json" },
   });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
 }

@@ -20,8 +20,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ai_workshop.config import Settings
 from ai_workshop.infrastructure.object_store.local import LocalObjectStore
 from ai_workshop.infrastructure.search.elasticsearch import create_elasticsearch
-from ai_workshop.labs.rag.chunking.contracts import ChunkingResult
-from ai_workshop.labs.rag.documents.domain import ProjectionStatus
+from ai_workshop.labs.rag.chunking.contracts import ChunkingConfig, ChunkingResult
+from ai_workshop.labs.rag.chunking.service import ChunkOverflowError, StructuralChunker
+from ai_workshop.labs.rag.documents.domain import ParsedDocument, ProjectionStatus
 from ai_workshop.labs.rag.documents.models import (
     RagIndexBuildRecord,
     RagProjectionRecord,
@@ -33,6 +34,7 @@ from ai_workshop.labs.rag.embeddings.contracts import (
     EmbeddingModelConfig,
     EmbeddingPort,
     EmbeddingResult,
+    EmbeddingRuntimeUnavailableError,
     EmbeddingValidationError,
     EmbeddingVector,
 )
@@ -168,6 +170,99 @@ def validate_indexing_inputs(
 
 type EmbeddingFactory = Callable[[EmbeddingModelConfig, Path], EmbeddingPort]
 type SearchIndexSession = Callable[[], AbstractAsyncContextManager[SearchIndexPort]]
+
+
+class EmbeddingRuntimeProvider:
+    def __init__(self, factory: EmbeddingFactory | None = None) -> None:
+        self.factory = factory or _default_embedding_factory
+        self._runtimes: dict[tuple[EmbeddingModelConfig, Path], EmbeddingPort] = {}
+
+    def get(self, config: EmbeddingModelConfig, cache_folder: Path) -> EmbeddingPort:
+        key = (config, cache_folder)
+        runtime = self._runtimes.get(key)
+        if runtime is None:
+            runtime = self.factory(config, cache_folder)
+            self._runtimes[key] = runtime
+        return runtime
+
+
+class _EmbeddingTokenCounter:
+    def __init__(self, embedding: EmbeddingPort) -> None:
+        self.embedding = embedding
+
+    def count(self, text: str) -> int:
+        return self.embedding.count_tokens(text)
+
+
+def chunk_with_model_tokenizer(
+    document: ParsedDocument,
+    *,
+    projection_id: UUID,
+    config: ChunkingConfig,
+    embedding: EmbeddingPort,
+) -> ChunkingResult:
+    try:
+        return StructuralChunker(_EmbeddingTokenCounter(embedding)).chunk(
+            document,
+            projection_id=projection_id,
+            config=config,
+        )
+    except EmbeddingRuntimeUnavailableError as exc:
+        raise RagIngestionError(
+            "chunk_tokenizer_unavailable",
+            "The pinned embedding tokenizer is temporarily unavailable.",
+            retryable=True,
+        ) from exc
+    except EmbeddingValidationError as exc:
+        raise RagIngestionError(
+            "chunk_tokenizer_invalid",
+            "The pinned embedding tokenizer returned invalid token IDs.",
+            retryable=False,
+        ) from exc
+    except ChunkOverflowError as exc:
+        raise RagIngestionError(
+            "chunk_token_limit_exceeded",
+            "A structural evidence unit exceeds the pinned model token limit.",
+            retryable=False,
+        ) from exc
+
+
+class ProductionChunkingStage:
+    def __init__(
+        self,
+        settings: Settings,
+        runtime_provider: EmbeddingRuntimeProvider,
+    ) -> None:
+        self.settings = settings
+        self.runtime_provider = runtime_provider
+
+    async def chunk(
+        self,
+        document: ParsedDocument,
+        *,
+        projection_id: UUID,
+        indexing_profile_id: UUID,
+        config: ChunkingConfig,
+    ) -> ChunkingResult:
+        engine = create_engine(self.settings)
+        sessions = create_session_factory(engine)
+        try:
+            async with sessions() as session:
+                resolved = await _resolve_embedding(
+                    session,
+                    projection_id=projection_id,
+                    indexing_profile_id=indexing_profile_id,
+                )
+        finally:
+            await engine.dispose()
+        return chunk_with_model_tokenizer(
+            document,
+            projection_id=projection_id,
+            config=config,
+            embedding=self.runtime_provider.get(
+                resolved.config, self.settings.model_cache_root
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -367,10 +462,13 @@ class ProductionEmbeddingStage:
         object_store: LocalObjectStore,
         *,
         embedding_factory: EmbeddingFactory = _default_embedding_factory,
+        runtime_provider: EmbeddingRuntimeProvider | None = None,
     ) -> None:
         self.settings = settings
         self.object_store = object_store
-        self.embedding_factory = embedding_factory
+        self.runtime_provider = runtime_provider or EmbeddingRuntimeProvider(
+            embedding_factory
+        )
 
     async def embed(self, *, projection_id: UUID, indexing_profile_id: UUID) -> int:
         engine = create_engine(self.settings)
@@ -432,7 +530,7 @@ class ProductionEmbeddingStage:
             try:
                 result = embed_chunks(
                     chunks,
-                    embedding=self.embedding_factory(
+                    embedding=self.runtime_provider.get(
                         resolved.config, self.settings.model_cache_root
                     ),
                     descriptor=resolved.descriptor,

@@ -200,25 +200,28 @@ class FixedChunker:
         self.document = document
         self.result = result
 
-    def chunk(
+    async def chunk(
         self,
         document: ParsedDocument,
         *,
         projection_id: UUID,
+        indexing_profile_id: UUID,
         config: ChunkingConfig,
     ) -> ChunkingResult:
         assert document == self.document
         assert projection_id == self.result.chunks[0].projection_id
+        assert isinstance(indexing_profile_id, UUID)
         assert config == ChunkingConfig(380, 60, 440)
         return self.result
 
 
 class ForbiddenChunker:
-    def chunk(
+    async def chunk(
         self,
         document: ParsedDocument,
         *,
         projection_id: UUID,
+        indexing_profile_id: UUID,
         config: ChunkingConfig,
     ) -> ChunkingResult:
         raise AssertionError("An empty parsed document must not reach chunking.")
@@ -229,11 +232,12 @@ class EmptyChunker:
         self.document = document
         self.projection_id = projection_id
 
-    def chunk(
+    async def chunk(
         self,
         document: ParsedDocument,
         *,
         projection_id: UUID,
+        indexing_profile_id: UUID,
         config: ChunkingConfig,
     ) -> ChunkingResult:
         assert document == self.document

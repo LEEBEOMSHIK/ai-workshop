@@ -1,12 +1,17 @@
 from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
-from ai_workshop.labs.rag.chunking.contracts import ChunkingResult
-from ai_workshop.labs.rag.documents.domain import RetrievalChunk
+from ai_workshop.labs.rag.chunking.contracts import ChunkingConfig, ChunkingResult
+from ai_workshop.labs.rag.documents.domain import (
+    ParsedDocument,
+    RetrievalChunk,
+    SourceLocation,
+    StructuralElement,
+)
 from ai_workshop.labs.rag.embeddings.contracts import (
     EmbeddingDescriptor,
     EmbeddingModelConfig,
@@ -15,7 +20,10 @@ from ai_workshop.labs.rag.embeddings.contracts import (
 from ai_workshop.labs.rag.embeddings.sentence_transformers import (
     SentenceTransformerEmbedding,
 )
+from ai_workshop.labs.rag.ingestion.domain import RagIngestionError
 from ai_workshop.labs.rag.ingestion.stages import (
+    EmbeddingRuntimeProvider,
+    chunk_with_model_tokenizer,
     embed_chunks,
     validate_indexing_inputs,
 )
@@ -115,6 +123,76 @@ def boundary_embedding(model: BoundaryModel) -> SentenceTransformerEmbedding:
         cache_folder=Path("unused-test-cache"),
         loader=lambda *args, **kwargs: model,
     )
+
+
+def model_config() -> EmbeddingModelConfig:
+    return EmbeddingModelConfig(
+        repo_id="synthetic/model",
+        revision="a" * 40,
+        dimension=3,
+        max_tokens=32,
+        query_prefix="query: ",
+        document_prefix="passage: ",
+        normalize=True,
+        device="cpu",
+        dtype="float32",
+        output_mode="dense",
+        data_policy="local_only",
+        batch_size=2,
+    )
+
+
+def test_embedding_runtime_provider_loads_exact_config_once_per_workflow() -> None:
+    calls: list[EmbeddingModelConfig] = []
+    embedding = RecordingEmbedding([[1.0, 0.0, 0.0]])
+    provider = EmbeddingRuntimeProvider(
+        lambda config, _cache: calls.append(config) or embedding
+    )
+    config = model_config()
+
+    assert provider.get(config, Path("unused")) is embedding
+    assert provider.get(config, Path("unused")) is embedding
+    assert calls == [config]
+
+
+def test_model_tokenizer_rejects_korean_subword_overflow_before_embedding() -> None:
+    element_id = uuid4()
+    document = ParsedDocument(
+        asset_version_id=uuid4(),
+        parser_name="synthetic",
+        parser_version="2",
+        elements=(
+            StructuralElement(
+                id=element_id,
+                ordinal=0,
+                kind="paragraph",
+                text="한국어하위단어토큰초과문장입니다.",
+                section_path=(),
+                location=SourceLocation(element_id, None, 0, 18, None),
+                parser_name="synthetic",
+                parser_version="2",
+                confidence=1.0,
+            ),
+        ),
+    )
+
+    class KoreanSubwordEmbedding(RecordingEmbedding):
+        def count_tokens(self, text: str) -> int:
+            return len(text) * 2
+
+        def encode_documents(self, texts: Sequence[str]) -> list[list[float]]:
+            raise AssertionError("Oversized content must fail before embedding.")
+
+    with pytest.raises(RagIngestionError) as error:
+        chunk_with_model_tokenizer(
+            document,
+            projection_id=uuid4(),
+            config=ChunkingConfig(8, 0, 10),
+            embedding=KoreanSubwordEmbedding([]),
+        )
+
+    assert error.value.code == "chunk_token_limit_exceeded"
+    assert error.value.retryable is False
 
 
 def test_embedding_stage_validates_every_token_count_before_encoding() -> None:

@@ -83,6 +83,17 @@ class WordTokenCounter:
         return len(text.split())
 
 
+class AsyncTestChunker:
+    def __init__(self) -> None:
+        self.delegate = StructuralChunker(WordTokenCounter())
+
+    async def chunk(self, document, *, projection_id, indexing_profile_id, config):
+        del indexing_profile_id
+        return self.delegate.chunk(
+            document, projection_id=projection_id, config=config
+        )
+
+
 def elasticsearch_api_error(status: int) -> ApiError:
     return ApiError(
         "synthetic Elasticsearch response",
@@ -367,7 +378,7 @@ def workflow(
         lifecycle or SqlAlchemyRagIngestionLifecycle(settings),
         store,
         ParsingService(store, ParserRegistry((PlainTextParser(),))),
-        StructuralChunker(WordTokenCounter()),
+        AsyncTestChunker(),
         ProductionEmbeddingStage(settings, store, embedding_factory=fake_embedding),
         indexing or ProductionIndexingStage(settings, store),
         verifier,

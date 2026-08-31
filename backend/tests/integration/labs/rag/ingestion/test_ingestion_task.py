@@ -184,6 +184,17 @@ class WordTokenCounter:
         return len(text.split())
 
 
+class AsyncTestChunker:
+    def __init__(self) -> None:
+        self.delegate = StructuralChunker(WordTokenCounter())
+
+    async def chunk(self, document, *, projection_id, indexing_profile_id, config):
+        del indexing_profile_id
+        return self.delegate.chunk(
+            document, projection_id=projection_id, config=config
+        )
+
+
 class ExplicitVerifiedStages:
     def __init__(self, settings, object_store) -> None:
         self.settings = settings
@@ -351,7 +362,7 @@ def workflow_factory(settings, parser, *, lifecycle=None, object_store=None):
         lifecycle or SqlAlchemyRagIngestionLifecycle(settings),
         store,
         parser,
-        StructuralChunker(WordTokenCounter()),
+        AsyncTestChunker(),
         stages,
         stages,
         stages,

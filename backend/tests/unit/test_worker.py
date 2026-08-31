@@ -16,6 +16,11 @@ from ai_workshop.labs.rag.ingestion.handoff import (
     RagAssetHandoffResult,
     RagAssetHandoffRunError,
 )
+from ai_workshop.labs.rag.ingestion.stages import (
+    ProductionChunkingStage,
+    ProductionEmbeddingStage,
+)
+from ai_workshop.labs.rag.ingestion.tasks import create_rag_ingestion_workflow
 from ai_workshop.platform.assets.tasks import AssetTaskError
 from ai_workshop.platform.jobs.models import JobRecord
 from ai_workshop.worker import (
@@ -263,6 +268,21 @@ def test_rag_ingestion_task_uses_late_ack_and_worker_loss_redelivery() -> None:
     assert task.acks_late is True
     assert task.reject_on_worker_lost is True
     assert task.max_retries == 1
+
+
+def test_production_chunking_and_embedding_share_one_pinned_model_runtime() -> None:
+    settings = Settings(
+        _env_file=None,
+        environment="test",
+        secret_key="x" * 32,
+        redis_url="redis://unused:6379/0",
+    )
+
+    workflow = create_rag_ingestion_workflow(settings)
+
+    assert isinstance(workflow.chunker, ProductionChunkingStage)
+    assert isinstance(workflow.embeddings, ProductionEmbeddingStage)
+    assert workflow.chunker.runtime_provider is workflow.embeddings.runtime_provider
 
 
 def test_asset_verification_uses_late_ack_worker_loss_and_bounded_retry() -> None:

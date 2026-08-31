@@ -71,11 +71,12 @@ class ParsingPort(Protocol):
 
 
 class ChunkingPort(Protocol):
-    def chunk(
+    async def chunk(
         self,
         document: ParsedDocument,
         *,
         projection_id: UUID,
+        indexing_profile_id: UUID,
         config: ChunkingConfig,
     ) -> ChunkingResult: ...
 
@@ -157,9 +158,10 @@ class RagIngestionWorkflow:
                     asset_version_id=execution.asset_version.id,
                 )
                 self._require_nonempty_document(document)
-                result = self.chunker.chunk(
+                result = await self.chunker.chunk(
                     document,
                     projection_id=execution.projection_id,
+                    indexing_profile_id=execution.indexing_profile_id,
                     config=execution.chunking_config,
                 )
                 self._require_nonempty_chunks(result)

@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_workshop.config import Settings
 from ai_workshop.infrastructure.object_store.local import LocalObjectStore
-from ai_workshop.labs.rag.chunking import ChunkingConfig, StructuralChunker
+from ai_workshop.labs.rag.chunking import ChunkingConfig
 from ai_workshop.labs.rag.chunking.contracts import ChunkingResult
 from ai_workshop.labs.rag.documents.domain import (
     ParsedDocument,
@@ -25,6 +25,8 @@ from ai_workshop.labs.rag.ingestion.locking import lock_ingestion_source
 from ai_workshop.labs.rag.ingestion.models import RagIngestionJobRecord
 from ai_workshop.labs.rag.ingestion.service import RagIngestionWorkflow
 from ai_workshop.labs.rag.ingestion.stages import (
+    EmbeddingRuntimeProvider,
+    ProductionChunkingStage,
     ProductionEmbeddingStage,
     ProductionIndexingStage,
     ProductionReadinessVerifier,
@@ -449,13 +451,9 @@ def _chunking_config(profile_config: dict[str, Any]) -> ChunkingConfig:
     return ChunkingConfig(target, overlap, ceiling)
 
 
-class _WhitespaceTokenCounter:
-    def count(self, text: str) -> int:
-        return len(text.split())
-
-
 def create_rag_ingestion_workflow(settings: Settings) -> RagIngestionWorkflow:
     object_store = LocalObjectStore(settings.object_store_root)
+    runtime_provider = EmbeddingRuntimeProvider()
     return RagIngestionWorkflow(
         SqlAlchemyRagIngestionLifecycle(settings),
         object_store,
@@ -463,8 +461,10 @@ def create_rag_ingestion_workflow(settings: Settings) -> RagIngestionWorkflow:
             object_store,
             ParserRegistry((PlainTextParser(), MarkdownParser(), PdfParser())),
         ),
-        StructuralChunker(_WhitespaceTokenCounter()),
-        ProductionEmbeddingStage(settings, object_store),
+        ProductionChunkingStage(settings, runtime_provider),
+        ProductionEmbeddingStage(
+            settings, object_store, runtime_provider=runtime_provider
+        ),
         ProductionIndexingStage(settings, object_store),
         ProductionReadinessVerifier(settings),
     )

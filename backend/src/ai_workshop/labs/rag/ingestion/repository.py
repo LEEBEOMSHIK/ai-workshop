@@ -40,6 +40,16 @@ class SqlAlchemyRagIngestionCommandRepository:
                 "The indexing profile does not exist.",
                 retryable=False,
             )
+        handoff_failure = await self.session.scalar(
+            select(RagAssetHandoffFailureRecord)
+            .where(
+                RagAssetHandoffFailureRecord.asset_version_id
+                == command.asset_version_id,
+                RagAssetHandoffFailureRecord.indexing_profile_id
+                == command.indexing_profile_id,
+            )
+            .with_for_update()
+        )
 
         existing = await self.session.scalar(
             select(RagIngestionJobRecord).where(
@@ -62,6 +72,8 @@ class SqlAlchemyRagIngestionCommandRepository:
                     )
                 )
                 await self.session.flush()
+            _resolve_handoff_failure_record(handoff_failure, now=datetime.now(UTC))
+            await self.session.flush()
             return existing.job_id
 
         projection_record = await self.session.scalar(
@@ -126,6 +138,8 @@ class SqlAlchemyRagIngestionCommandRepository:
                 sent_at=None,
             )
         )
+        await self.session.flush()
+        _resolve_handoff_failure_record(handoff_failure, now=datetime.now(UTC))
         await self.session.flush()
         return job.id
 
@@ -273,15 +287,23 @@ class SqlAlchemyRagAssetHandoffFailureRepository:
                 )
                 .with_for_update()
             )
-            if record is None or record.status == "resolved":
-                return
-            record.status = "resolved"
-            record.error_class = None
-            record.error_code = None
-            record.last_error_message = None
-            record.next_retry_at = None
-            record.terminal_at = now
+            _resolve_handoff_failure_record(record, now=now)
             await session.flush()
+
+
+def _resolve_handoff_failure_record(
+    record: RagAssetHandoffFailureRecord | None,
+    *,
+    now: datetime,
+) -> None:
+    if record is None or record.status not in {"retrying", "quarantined"}:
+        return
+    record.status = "resolved"
+    record.error_class = None
+    record.error_code = None
+    record.last_error_message = None
+    record.next_retry_at = None
+    record.terminal_at = now
 
 
 class DispatchClaimLostError(RuntimeError):

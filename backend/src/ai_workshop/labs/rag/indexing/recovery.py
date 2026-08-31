@@ -155,39 +155,52 @@ class SqlAlchemyRagAliasParityReconciler:
         engine = create_engine(self.settings)
         sessions = create_session_factory(engine)
         try:
-            async with sessions() as session:
-                statement = (
-                    select(ProfileRecord.id)
-                    .where(ProfileRecord.kind == "indexing")
-                    .order_by(ProfileRecord.id)
-                    .limit(self.batch_size)
-                )
-                if profile_id is not None:
-                    statement = statement.where(ProfileRecord.id == profile_id)
-                profile_ids = tuple(await session.scalars(statement))
-
+            claimed = 0
             reconciled = 0
             failures: list[RagAliasParityFailure] = []
-            for candidate_id in profile_ids:
-                try:
-                    async with sessions.begin() as session:
-                        await self._reconcile_profile(session, candidate_id)
-                    reconciled += 1
-                except Exception as exc:
-                    error_code, retryable = _classify_failure(exc)
-                    if len(failures) < _MAX_REPORTED_FAILURES:
-                        failures.append(
-                            RagAliasParityFailure(
-                                profile_id=candidate_id,
-                                error_code=error_code,
-                                retryable=retryable,
-                                cause_class=_safe_cause_class(exc),
-                            )
+            last_profile_id: UUID | None = None
+            while True:
+                async with sessions() as session:
+                    statement = select(ProfileRecord.id).where(
+                        ProfileRecord.kind == "indexing"
+                    )
+                    if profile_id is not None:
+                        statement = statement.where(ProfileRecord.id == profile_id)
+                    elif last_profile_id is not None:
+                        statement = statement.where(ProfileRecord.id > last_profile_id)
+                    profile_ids = tuple(
+                        await session.scalars(
+                            statement.order_by(ProfileRecord.id).limit(self.batch_size)
                         )
+                    )
+                if not profile_ids:
+                    break
+
+                claimed += len(profile_ids)
+                for candidate_id in profile_ids:
+                    try:
+                        async with sessions.begin() as session:
+                            await self._reconcile_profile(session, candidate_id)
+                        reconciled += 1
+                    except Exception as exc:
+                        error_code, retryable = _classify_failure(exc)
+                        if len(failures) < _MAX_REPORTED_FAILURES:
+                            failures.append(
+                                RagAliasParityFailure(
+                                    profile_id=candidate_id,
+                                    error_code=error_code,
+                                    retryable=retryable,
+                                    cause_class=_safe_cause_class(exc),
+                                )
+                            )
+                if profile_id is not None:
+                    break
+                last_profile_id = profile_ids[-1]
+
             return RagAliasParityResult(
-                claimed=len(profile_ids),
+                claimed=claimed,
                 reconciled=reconciled,
-                failed=len(profile_ids) - reconciled,
+                failed=claimed - reconciled,
                 failures=tuple(failures),
             )
         finally:

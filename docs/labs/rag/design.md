@@ -295,6 +295,12 @@ log carry a bounded list of exact Asset Version and indexing profile UUID pairs 
 operators can locate the durable ledger rows. Quarantined identities are excluded
 from later source batches, allowing healthy commands beyond the batch boundary to
 make progress. The batch processes other commands before failing visibly.
+Normal direct and configuration/API ingestion commands share the same command
+repository boundary. That boundary locks the exact failure-ledger identity after
+source/profile validation and resolves only `retrying` or `quarantined` records in
+the same transaction that creates or reuses the idempotent job and restores its
+dispatch. A failed transaction therefore preserves the failure status, while
+`resolved` and obsolete `cancelled` records never have their meaning reversed.
 
 PostgreSQL is also authoritative for periodic profile-alias convergence. For each
 indexing profile, the intended alias set is derived only from a current active
@@ -324,6 +330,11 @@ the serialization boundary, so Elasticsearch connection/timeout failures are typ
 retryable failures and lock duration may grow to the external timeout. A failed
 profile does not stop other profiles in the batch; beat emits a bounded aggregate
 failure signal after all claimed profiles have been processed.
+The unrestricted periodic run keyset-pages indexing profile UUIDs in ascending order
+until exhaustion, using a fresh read session for each bounded page and a separate
+transaction per profile. A failure in an early page is accumulated but cannot starve
+later pages. A profile-scoped recovery call bypasses pagination and processes exactly
+that requested profile once.
 
 ## 12. 첫 AI 검색 완료 기준
 

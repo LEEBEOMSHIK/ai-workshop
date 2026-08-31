@@ -8,7 +8,9 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, event, func, select
+from sqlalchemy.engine import Engine
+from sqlalchemy.exc import OperationalError
 
 from ai_workshop.config import get_settings
 from ai_workshop.infrastructure.object_store.local import LocalObjectStore
@@ -414,6 +416,255 @@ async def test_handoff_failure_ledger_bounds_retry_and_resolves_exact_identity()
         assert obsolete.error_class == "obsolete"
         assert obsolete.next_retry_at is None
     finally:
+        await engine.dispose()
+        await _delete_supersession_fixture(fixture)
+
+
+@pytest.mark.asyncio
+async def test_direct_ensure_resolves_quarantine_for_new_and_existing_job_once() -> None:
+    from ai_workshop.labs.rag.ingestion.models import RagAssetHandoffFailureRecord
+
+    fixture = await _seed_supersession_fixture()
+    settings = get_settings()
+    engine = create_engine(settings)
+    sessions = create_session_factory(engine)
+    command = EnsureIndexedCommand(
+        fixture.old_asset_id,
+        fixture.profile_id,
+        fixture.owner_id,
+    )
+    try:
+        async with sessions.begin() as session:
+            session.add(
+                RagAssetHandoffFailureRecord(
+                    asset_version_id=fixture.old_asset_id,
+                    indexing_profile_id=fixture.profile_id,
+                    requested_by=fixture.owner_id,
+                    status="quarantined",
+                    error_class="permanent",
+                    error_code="internal_error",
+                    attempt_count=1,
+                    last_attempt_at=datetime.now(UTC),
+                    next_retry_at=None,
+                    terminal_at=datetime.now(UTC),
+                    last_error_message="Internal failure class: ValueError.",
+                )
+            )
+
+        async with sessions.begin() as session:
+            service = RagIngestionService(
+                SqlAlchemyRagIngestionCommandRepository(session)
+            )
+            created_job_id = await service.ensure_indexed(command)
+            existing_job_id = await service.ensure_indexed(command)
+
+        assert existing_job_id == created_job_id
+        async with sessions() as session:
+            failure = await session.get(
+                RagAssetHandoffFailureRecord,
+                (fixture.old_asset_id, fixture.profile_id),
+            )
+            job_count = await session.scalar(
+                select(func.count())
+                .select_from(RagIngestionJobRecord)
+                .where(
+                    RagIngestionJobRecord.asset_version_id == fixture.old_asset_id,
+                    RagIngestionJobRecord.indexing_profile_id == fixture.profile_id,
+                )
+            )
+        assert failure is not None
+        assert failure.status == "resolved"
+        assert failure.error_class is None
+        assert failure.error_code is None
+        assert failure.last_error_message is None
+        assert failure.next_retry_at is None
+        assert failure.terminal_at is not None
+        assert job_count == 1
+    finally:
+        await engine.dispose()
+        await _delete_supersession_fixture(fixture)
+
+
+@pytest.mark.asyncio
+async def test_existing_job_success_resolves_later_exact_quarantine_without_duplicate() -> None:
+    from ai_workshop.labs.rag.ingestion.models import RagAssetHandoffFailureRecord
+
+    fixture = await _seed_supersession_fixture()
+    settings = get_settings()
+    engine = create_engine(settings)
+    sessions = create_session_factory(engine)
+    command = EnsureIndexedCommand(
+        fixture.old_asset_id,
+        fixture.profile_id,
+        fixture.owner_id,
+    )
+    try:
+        async with sessions.begin() as session:
+            original_job_id = await RagIngestionService(
+                SqlAlchemyRagIngestionCommandRepository(session)
+            ).ensure_indexed(command)
+        async with sessions.begin() as session:
+            session.add(
+                RagAssetHandoffFailureRecord(
+                    asset_version_id=fixture.old_asset_id,
+                    indexing_profile_id=fixture.profile_id,
+                    requested_by=fixture.owner_id,
+                    status="quarantined",
+                    error_class="permanent",
+                    error_code="internal_error",
+                    attempt_count=1,
+                    last_attempt_at=datetime.now(UTC),
+                    next_retry_at=None,
+                    terminal_at=datetime.now(UTC),
+                    last_error_message="Internal failure class: TypeError.",
+                )
+            )
+
+        async with sessions.begin() as session:
+            returned_job_id = await RagIngestionService(
+                SqlAlchemyRagIngestionCommandRepository(session)
+            ).ensure_indexed(command)
+
+        assert returned_job_id == original_job_id
+        async with sessions() as session:
+            failure = await session.get(
+                RagAssetHandoffFailureRecord,
+                (fixture.old_asset_id, fixture.profile_id),
+            )
+            job_count = await session.scalar(
+                select(func.count())
+                .select_from(RagIngestionJobRecord)
+                .where(
+                    RagIngestionJobRecord.asset_version_id == fixture.old_asset_id,
+                    RagIngestionJobRecord.indexing_profile_id == fixture.profile_id,
+                )
+            )
+        assert failure is not None and failure.status == "resolved"
+        assert job_count == 1
+    finally:
+        await engine.dispose()
+        await _delete_supersession_fixture(fixture)
+
+
+@pytest.mark.asyncio
+async def test_direct_ensure_does_not_reverse_an_obsolete_cancelled_ledger() -> None:
+    from ai_workshop.labs.rag.ingestion.models import RagAssetHandoffFailureRecord
+
+    fixture = await _seed_supersession_fixture()
+    settings = get_settings()
+    engine = create_engine(settings)
+    sessions = create_session_factory(engine)
+    command = EnsureIndexedCommand(
+        fixture.old_asset_id,
+        fixture.profile_id,
+        fixture.owner_id,
+    )
+    try:
+        async with sessions.begin() as session:
+            session.add(
+                RagAssetHandoffFailureRecord(
+                    asset_version_id=fixture.old_asset_id,
+                    indexing_profile_id=fixture.profile_id,
+                    requested_by=fixture.owner_id,
+                    status="cancelled",
+                    error_class="obsolete",
+                    error_code="index_source_inactive",
+                    attempt_count=1,
+                    last_attempt_at=datetime.now(UTC),
+                    next_retry_at=None,
+                    terminal_at=datetime.now(UTC),
+                    last_error_message="The exact source is obsolete.",
+                )
+            )
+
+        async with sessions.begin() as session:
+            await RagIngestionService(
+                SqlAlchemyRagIngestionCommandRepository(session)
+            ).ensure_indexed(command)
+
+        async with sessions() as session:
+            failure = await session.get(
+                RagAssetHandoffFailureRecord,
+                (fixture.old_asset_id, fixture.profile_id),
+            )
+        assert failure is not None
+        assert failure.status == "cancelled"
+        assert failure.error_class == "obsolete"
+        assert failure.error_code == "index_source_inactive"
+    finally:
+        await engine.dispose()
+        await _delete_supersession_fixture(fixture)
+
+
+@pytest.mark.asyncio
+async def test_failed_new_job_commit_does_not_falsely_resolve_quarantine() -> None:
+    from ai_workshop.labs.rag.ingestion.models import RagAssetHandoffFailureRecord
+
+    fixture = await _seed_supersession_fixture()
+    settings = get_settings()
+    engine = create_engine(settings)
+    sessions = create_session_factory(engine)
+    command = EnsureIndexedCommand(
+        fixture.old_asset_id,
+        fixture.profile_id,
+        fixture.owner_id,
+    )
+    commit_attempted = False
+
+    def fail_commit(_connection) -> None:
+        nonlocal commit_attempted
+        commit_attempted = True
+        raise OperationalError(
+            "synthetic direct ensure commit failure",
+            {},
+            OSError("connection lost"),
+        )
+
+    try:
+        async with sessions.begin() as session:
+            session.add(
+                RagAssetHandoffFailureRecord(
+                    asset_version_id=fixture.old_asset_id,
+                    indexing_profile_id=fixture.profile_id,
+                    requested_by=fixture.owner_id,
+                    status="quarantined",
+                    error_class="permanent",
+                    error_code="internal_error",
+                    attempt_count=1,
+                    last_attempt_at=datetime.now(UTC),
+                    next_retry_at=None,
+                    terminal_at=datetime.now(UTC),
+                    last_error_message="Internal failure class: RuntimeError.",
+                )
+            )
+        event.listen(Engine, "commit", fail_commit)
+
+        with pytest.raises(OperationalError):
+            async with sessions.begin() as session:
+                await RagIngestionService(
+                    SqlAlchemyRagIngestionCommandRepository(session)
+                ).ensure_indexed(command)
+
+        assert commit_attempted is True
+        async with sessions() as session:
+            failure = await session.get(
+                RagAssetHandoffFailureRecord,
+                (fixture.old_asset_id, fixture.profile_id),
+            )
+            job_count = await session.scalar(
+                select(func.count())
+                .select_from(RagIngestionJobRecord)
+                .where(
+                    RagIngestionJobRecord.asset_version_id == fixture.old_asset_id,
+                    RagIngestionJobRecord.indexing_profile_id == fixture.profile_id,
+                )
+            )
+        assert failure is not None and failure.status == "quarantined"
+        assert failure.error_code == "internal_error"
+        assert job_count == 0
+    finally:
+        if event.contains(Engine, "commit", fail_commit):
+            event.remove(Engine, "commit", fail_commit)
         await engine.dispose()
         await _delete_supersession_fixture(fixture)
 

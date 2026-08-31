@@ -545,3 +545,196 @@ async def test_failed_profile_does_not_block_later_profile_convergence() -> None
             )
         await engine.dispose()
         await _delete_alias_parity_fixture(settings, fixture)
+
+
+@pytest.mark.asyncio
+async def test_keyset_pages_reach_101st_profile_after_first_page_failure() -> None:
+    settings = get_settings().model_copy(
+        update={"elasticsearch_index_prefix": f"rag-keyset-fairness-{uuid4().hex}"}
+    )
+    profile_ids = tuple(UUID(int=value) for value in range(1, 101)) + (
+        UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"),
+    )
+    first_profile_id = profile_ids[0]
+    last_profile_id = profile_ids[-1]
+    owner_id = uuid4()
+    workspace_id = uuid4()
+    document_id = uuid4()
+    asset_version_id = uuid4()
+    projection_id = uuid4()
+    build_id = uuid4()
+    descriptor = IndexDescriptor(3, "cosine")
+    index_name = descriptor.concrete_index_name(
+        settings.elasticsearch_index_prefix,
+        last_profile_id,
+        build_id,
+    )
+    first_alias = descriptor.active_alias(
+        settings.elasticsearch_index_prefix,
+        first_profile_id,
+    )
+    last_alias = descriptor.active_alias(
+        settings.elasticsearch_index_prefix,
+        last_profile_id,
+    )
+    engine = create_engine(settings)
+    sessions = create_session_factory(engine)
+    client: AsyncElasticsearch = create_elasticsearch(settings)
+    delegate = ElasticsearchSearchIndex(client)
+    calls: list[str] = []
+
+    class FailFirstProfileIndex:
+        async def reconcile_active_targets(
+            self, alias: str, index_names: Sequence[str]
+        ) -> bool:
+            calls.append(alias)
+            if alias == first_alias:
+                raise RagAliasParityError(
+                    "alias_parity_search_transient",
+                    "Synthetic first-page profile failure.",
+                    retryable=True,
+                )
+            return await delegate.reconcile_active_targets(alias, index_names)
+
+        async def active_targets(self, alias: str) -> tuple[str, ...]:
+            return await delegate.active_targets(alias)
+
+    failing_index = FailFirstProfileIndex()
+
+    @asynccontextmanager
+    async def failing_session() -> AsyncIterator[FailFirstProfileIndex]:
+        yield failing_index
+
+    try:
+        async with sessions.begin() as session:
+            session.add(
+                UserRecord(
+                    id=owner_id,
+                    display_name="Synthetic Keyset Fairness Owner",
+                    email=f"keyset-fairness-{owner_id}@example.test",
+                    normalized_email=f"keyset-fairness-{owner_id}@example.test",
+                    password_hash="synthetic-password-hash",
+                    role="owner",
+                    is_active=True,
+                )
+            )
+            await session.flush()
+            session.add(
+                WorkspaceRecord(
+                    id=workspace_id,
+                    name=f"Synthetic Keyset Fairness Workspace {workspace_id}",
+                    kind="personal",
+                    created_by=owner_id,
+                    expires_at=None,
+                )
+            )
+            session.add_all(
+                ProfileRecord(
+                    id=profile_id,
+                    kind="indexing",
+                    name=f"synthetic-keyset-fairness-{profile_id}",
+                    version=1,
+                    config={},
+                    evaluation_state="draft",
+                    is_default=False,
+                )
+                for profile_id in profile_ids
+            )
+            await session.flush()
+            session.add(
+                DocumentRecord(
+                    id=document_id,
+                    workspace_id=workspace_id,
+                    folder_id=None,
+                    name="keyset-fairness.txt",
+                    active_version_id=None,
+                )
+            )
+            await session.flush()
+            session.add(
+                AssetVersionRecord(
+                    id=asset_version_id,
+                    document_id=document_id,
+                    number=1,
+                    object_key=f"synthetic/keyset-fairness-{asset_version_id}.txt",
+                    sha256="d" * 64,
+                    media_type="text/plain",
+                    size=24,
+                    status="ready",
+                )
+            )
+            await session.flush()
+            document = await session.get(DocumentRecord, document_id)
+            assert document is not None
+            document.active_version_id = asset_version_id
+            session.add(
+                RagProjectionRecord(
+                    id=projection_id,
+                    asset_version_id=asset_version_id,
+                    indexing_profile_id=last_profile_id,
+                    status="ready",
+                )
+            )
+            await session.flush()
+            session.add(
+                RagIndexBuildRecord(
+                    id=build_id,
+                    projection_id=projection_id,
+                    indexing_profile_id=last_profile_id,
+                    index_name=index_name,
+                    expected_document_count=1,
+                    indexed_document_count=1,
+                    vector_dimension=3,
+                    status="ready",
+                    is_active=False,
+                )
+            )
+
+        await delegate.create(
+            descriptor.for_index(
+                index_name,
+                indexing_profile_id=last_profile_id,
+                index_build_id=build_id,
+                projection_id=projection_id,
+            )
+        )
+        result = await SqlAlchemyRagAliasParityReconciler(
+            settings,
+            search_index_session=failing_session,
+            batch_size=100,
+        ).run_once()
+
+        assert first_alias in calls
+        assert last_alias in calls
+        assert calls.index(last_alias) > calls.index(first_alias)
+        assert result.claimed >= 101
+        assert result.failed == 1
+        assert result.reconciled == result.claimed - 1
+        assert result.failures[0].profile_id == first_profile_id
+        assert await delegate.active_targets(last_alias) == (index_name,)
+        async with sessions() as session:
+            last_build = await session.get(RagIndexBuildRecord, build_id)
+        assert last_build is not None and last_build.is_active is True
+
+        calls.clear()
+        exact = await SqlAlchemyRagAliasParityReconciler(
+            settings,
+            search_index_session=failing_session,
+            batch_size=1,
+        ).run_once(profile_id=last_profile_id)
+        assert (exact.claimed, exact.reconciled, exact.failed) == (1, 1, 0)
+        assert calls == [last_alias]
+    finally:
+        try:
+            await client.indices.delete(index=index_name, ignore_unavailable=True)
+        finally:
+            await client.close()
+        async with sessions.begin() as session:
+            await session.execute(
+                delete(WorkspaceRecord).where(WorkspaceRecord.id == workspace_id)
+            )
+            await session.execute(
+                delete(ProfileRecord).where(ProfileRecord.id.in_(profile_ids))
+            )
+            await session.execute(delete(UserRecord).where(UserRecord.id == owner_id))
+        await engine.dispose()

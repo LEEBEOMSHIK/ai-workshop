@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 import psycopg
 import pytest
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from psycopg import sql
 from sqlalchemy import make_url
 
@@ -192,10 +193,12 @@ def test_0011_allows_multiple_active_builds_and_downgrades_deterministically(
             command.upgrade(config, "head")
             command.current(config, check_heads=True)
             command.check(config)
+            configured_heads = ScriptDirectory.from_config(config).get_heads()
+            assert len(configured_heads) == 1
             with psycopg.connect(_sync_url(isolated_url)) as connection:
                 assert connection.execute(
                     "SELECT version_num FROM alembic_version"
-                ).fetchone() == (REVISION_0011,)
+                ).fetchone() == (configured_heads[0],)
                 assert connection.execute(
                     "SELECT to_regclass('uq_rag_index_builds_active_profile')"
                 ).fetchone() == (None,)

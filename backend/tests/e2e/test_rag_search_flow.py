@@ -29,9 +29,11 @@ from ai_workshop.labs.rag.configurations.models import (
     AnswerPolicyVersionRecord,
     RagConfigurationRecord,
     RagConfigurationVersionRecord,
+    RagSystemIndexingSubscriptionRecord,
 )
 from ai_workshop.labs.rag.documents.models import (
     EvidenceUnitRecord,
+    RagIndexBuildRecord,
     RagProjectionRecord,
     RetrievalChunkRecord,
     StructuralElementRecord,
@@ -52,7 +54,10 @@ from ai_workshop.platform.identity.repository import SqlAlchemyUserRepository
 from ai_workshop.platform.identity.service import Argon2PasswordHasher
 from ai_workshop.platform.jobs.models import JobRecord
 from ai_workshop.platform.workspaces.domain import MembershipRole
-from ai_workshop.platform.workspaces.models import WorkspaceMembershipRecord
+from ai_workshop.platform.workspaces.models import (
+    WorkspaceMembershipRecord,
+    WorkspaceRecord,
+)
 from ai_workshop.shared.db import create_engine, create_session_factory
 from ai_workshop.worker import (
     RAG_ASSET_HANDOFF_RECONCILE_TASK,
@@ -83,6 +88,9 @@ OWNER_EMAIL = "rag.owner.e2e@example.com"
 MEMBER_EMAIL = "rag.member.e2e@example.com"
 TEST_PASSWORD = "task14-public-synthetic-password"
 INSUFFICIENT_QUERY = "ZXQJ987654321NOMATCH"
+SYSTEM_BASELINE_SUBSCRIPTION_ID = UUID(
+    "00000000-0000-0000-0000-000000000504"
+)
 IMPORTED_E5_MODEL_ID = "00000000-0000-0000-0000-000000000101"
 IMPORTED_E5_MODEL_CONFIG: dict[str, object] = {
     "repo_id": "intfloat/multilingual-e5-base",
@@ -424,45 +432,65 @@ async def _seed_system_baseline(indexing_profile_id: UUID, retrieval_profile_id:
     settings = get_settings()
     engine = create_engine(settings)
     sessions = create_session_factory(engine)
+    configuration, policy, version, subscription = _system_baseline_records(
+        indexing_profile_id,
+        retrieval_profile_id,
+    )
     try:
         async with sessions.begin() as session:
-            session.add(
-                RagConfigurationRecord(
-                    id=BM25_BASELINE_CONFIGURATION_ID,
-                    owner_id=None,
-                    name=BM25_BASELINE_NAME,
-                    is_system=True,
-                )
-            )
+            session.add(configuration)
             await session.flush()
-            session.add(
-                AnswerPolicyVersionRecord(
-                    id=BM25_BASELINE_ANSWER_POLICY_VERSION_ID,
-                    configuration_id=BM25_BASELINE_CONFIGURATION_ID,
-                    version=1,
-                    mode="extractive",
-                    min_semantic_score=0.0,
-                    min_keyword_coverage=0.5,
-                    require_complete_provenance=True,
-                    conflict_mode="separate_sources",
-                )
-            )
+            session.add(policy)
             await session.flush()
-            session.add(
-                RagConfigurationVersionRecord(
-                    id=BM25_BASELINE_CONFIGURATION_VERSION_ID,
-                    configuration_id=BM25_BASELINE_CONFIGURATION_ID,
-                    version=1,
-                    indexing_profile_id=indexing_profile_id,
-                    retrieval_profile_id=retrieval_profile_id,
-                    generation_profile_id=None,
-                    answer_policy_version_id=BM25_BASELINE_ANSWER_POLICY_VERSION_ID,
-                    evaluation_state="pending",
-                    is_default=False,
-                )
-            )
+            session.add(version)
+            await session.flush()
+            session.add(subscription)
     finally:
         await engine.dispose()
+
+
+def _system_baseline_records(
+    indexing_profile_id: UUID,
+    retrieval_profile_id: UUID,
+) -> tuple[
+    RagConfigurationRecord,
+    AnswerPolicyVersionRecord,
+    RagConfigurationVersionRecord,
+    RagSystemIndexingSubscriptionRecord,
+]:
+    return (
+        RagConfigurationRecord(
+            id=BM25_BASELINE_CONFIGURATION_ID,
+            owner_id=None,
+            name=BM25_BASELINE_NAME,
+            is_system=True,
+        ),
+        AnswerPolicyVersionRecord(
+            id=BM25_BASELINE_ANSWER_POLICY_VERSION_ID,
+            configuration_id=BM25_BASELINE_CONFIGURATION_ID,
+            version=1,
+            mode="extractive",
+            min_semantic_score=0.8,
+            min_keyword_coverage=0.7,
+            require_complete_provenance=True,
+            conflict_mode="separate_sources",
+        ),
+        RagConfigurationVersionRecord(
+            id=BM25_BASELINE_CONFIGURATION_VERSION_ID,
+            configuration_id=BM25_BASELINE_CONFIGURATION_ID,
+            version=1,
+            indexing_profile_id=indexing_profile_id,
+            retrieval_profile_id=retrieval_profile_id,
+            generation_profile_id=None,
+            answer_policy_version_id=BM25_BASELINE_ANSWER_POLICY_VERSION_ID,
+            evaluation_state="pending",
+            is_default=False,
+        ),
+        RagSystemIndexingSubscriptionRecord(
+            id=SYSTEM_BASELINE_SUBSCRIPTION_ID,
+            configuration_version_id=BM25_BASELINE_CONFIGURATION_VERSION_ID,
+        ),
+    )
 
 
 def test_projection_failure_diagnostics_are_safe_and_bounded() -> None:
@@ -708,6 +736,31 @@ def test_standalone_system_baseline_seed_loads_profile_metadata() -> None:
     assert ProfileRecord.__table__ is RagConfigurationVersionRecord.metadata.tables[
         "rag_profiles"
     ]
+
+
+def test_standalone_system_baseline_seed_includes_indexing_subscription() -> None:
+    indexing_profile_id = uuid4()
+    retrieval_profile_id = uuid4()
+
+    records = _system_baseline_records(
+        indexing_profile_id,
+        retrieval_profile_id,
+    )
+
+    assert len(records) == 4
+    configuration, policy, version, subscription = records
+    assert configuration.id == BM25_BASELINE_CONFIGURATION_ID
+    assert configuration.owner_id is None
+    assert configuration.is_system is True
+    assert policy.id == BM25_BASELINE_ANSWER_POLICY_VERSION_ID
+    assert version.id == BM25_BASELINE_CONFIGURATION_VERSION_ID
+    assert version.indexing_profile_id == indexing_profile_id
+    assert version.retrieval_profile_id == retrieval_profile_id
+    assert subscription.id == SYSTEM_BASELINE_SUBSCRIPTION_ID
+    assert (
+        subscription.configuration_version_id
+        == BM25_BASELINE_CONFIGURATION_VERSION_ID
+    )
 
 
 def test_prepared_state_enqueues_registered_tasks_in_production_order() -> None:
@@ -1218,6 +1271,105 @@ async def _load_ground_truth(
         await engine.dispose()
 
 
+async def _load_system_baseline_handoff_ground_truth(
+    *,
+    asset_version_id: object,
+) -> dict[str, object]:
+    settings = get_settings()
+    engine = create_engine(settings)
+    sessions = create_session_factory(engine)
+    try:
+        async with sessions() as session:
+            rows = (
+                await session.execute(
+                    select(
+                        RagConfigurationRecord.id,
+                        RagConfigurationRecord.owner_id,
+                        RagConfigurationRecord.is_system,
+                        RagConfigurationVersionRecord.id,
+                        RagConfigurationVersionRecord.indexing_profile_id,
+                        RagConfigurationVersionRecord.retrieval_profile_id,
+                        RagConfigurationVersionRecord.evaluation_state,
+                        RagConfigurationVersionRecord.is_default,
+                        RagSystemIndexingSubscriptionRecord.id,
+                        RagProjectionRecord.id,
+                        RagProjectionRecord.status,
+                        RagIngestionJobRecord.requested_by,
+                        WorkspaceRecord.created_by,
+                        JobRecord.status,
+                        RagIndexBuildRecord.status,
+                        RagIndexBuildRecord.is_active,
+                    )
+                    .select_from(RagSystemIndexingSubscriptionRecord)
+                    .join(
+                        RagConfigurationVersionRecord,
+                        RagConfigurationVersionRecord.id
+                        == RagSystemIndexingSubscriptionRecord.configuration_version_id,
+                    )
+                    .join(
+                        RagConfigurationRecord,
+                        RagConfigurationRecord.id
+                        == RagConfigurationVersionRecord.configuration_id,
+                    )
+                    .join(
+                        RagProjectionRecord,
+                        RagProjectionRecord.indexing_profile_id
+                        == RagConfigurationVersionRecord.indexing_profile_id,
+                    )
+                    .join(
+                        RagIngestionJobRecord,
+                        RagIngestionJobRecord.projection_id
+                        == RagProjectionRecord.id,
+                    )
+                    .join(JobRecord, JobRecord.id == RagIngestionJobRecord.job_id)
+                    .join(
+                        AssetVersionRecord,
+                        AssetVersionRecord.id == RagProjectionRecord.asset_version_id,
+                    )
+                    .join(
+                        DocumentRecord,
+                        DocumentRecord.id == AssetVersionRecord.document_id,
+                    )
+                    .join(
+                        WorkspaceRecord,
+                        WorkspaceRecord.id == DocumentRecord.workspace_id,
+                    )
+                    .join(
+                        RagIndexBuildRecord,
+                        RagIndexBuildRecord.projection_id == RagProjectionRecord.id,
+                    )
+                    .where(
+                        RagProjectionRecord.asset_version_id
+                        == UUID(str(asset_version_id)),
+                        RagConfigurationVersionRecord.id
+                        == BM25_BASELINE_CONFIGURATION_VERSION_ID,
+                    )
+                )
+            ).all()
+        assert len(rows) == 1, "Expected one baseline-owned ingestion path."
+        row = rows[0]
+        return {
+            "configuration_id": str(row[0]),
+            "owner_id": row[1],
+            "is_system": row[2],
+            "configuration_version_id": str(row[3]),
+            "indexing_profile_id": str(row[4]),
+            "retrieval_profile_id": str(row[5]),
+            "evaluation_state": row[6],
+            "is_default": row[7],
+            "subscription_id": str(row[8]),
+            "projection_id": str(row[9]),
+            "projection_status": row[10],
+            "requested_by": str(row[11]),
+            "workspace_created_by": str(row[12]),
+            "job_status": row[13],
+            "build_status": row[14],
+            "build_is_active": row[15],
+        }
+    finally:
+        await engine.dispose()
+
+
 async def _load_private_leak_values(
     *,
     workspace_id: object,
@@ -1631,6 +1783,93 @@ async def test_first_rag_search_vertical_slice_on_actual_stack(
             media_type="text/markdown",
             content=markdown,
         )
+        await _verify_stored_object(markdown_version["id"], markdown)
+
+        indexing, _bm25, hybrid = await _register_rag_components(owner)
+        configurations = await owner.get("/api/v1/rag/configurations")
+        assert configurations.status_code == 200
+        assert len(configurations.json()) == 1
+        baseline = configurations.json()[0]
+        assert baseline == {
+            "id": str(BM25_BASELINE_CONFIGURATION_ID),
+            "version_id": str(BM25_BASELINE_CONFIGURATION_VERSION_ID),
+            "owner_id": None,
+            "name": BM25_BASELINE_NAME,
+            "version": 1,
+            "indexing_profile_id": indexing["id"],
+            "retrieval_profile_id": _bm25["id"],
+            "generation_profile_id": None,
+            "answer_policy": {
+                "id": str(BM25_BASELINE_ANSWER_POLICY_VERSION_ID),
+                "version": 1,
+                "mode": "extractive",
+                "min_semantic_score": 0.8,
+                "min_keyword_coverage": 0.7,
+                "require_complete_provenance": True,
+                "conflict_mode": "separate_sources",
+            },
+            "workspace_ids": [],
+            "evaluation_state": "pending",
+            "is_system": True,
+            "is_default": False,
+            "experimental": True,
+        }
+        projections = await _prepare_ready_projections(
+            [markdown_version["id"]], indexing["id"]
+        )
+        markdown_exact_truth = await _load_ground_truth(
+            document_id=markdown_document["id"],
+            asset_version_id=markdown_version["id"],
+            projection_id=projections[str(markdown_version["id"])],
+            expected_text=exact_sentence,
+        )
+        baseline_handoff = await _load_system_baseline_handoff_ground_truth(
+            asset_version_id=markdown_version["id"]
+        )
+        assert baseline_handoff == {
+            "configuration_id": str(BM25_BASELINE_CONFIGURATION_ID),
+            "owner_id": None,
+            "is_system": True,
+            "configuration_version_id": str(
+                BM25_BASELINE_CONFIGURATION_VERSION_ID
+            ),
+            "indexing_profile_id": indexing["id"],
+            "retrieval_profile_id": _bm25["id"],
+            "evaluation_state": "pending",
+            "is_default": False,
+            "subscription_id": str(SYSTEM_BASELINE_SUBSCRIPTION_ID),
+            "projection_id": projections[str(markdown_version["id"])],
+            "projection_status": "ready",
+            "requested_by": baseline_handoff["workspace_created_by"],
+            "workspace_created_by": baseline_handoff["workspace_created_by"],
+            "job_status": "succeeded",
+            "build_status": "ready",
+            "build_is_active": True,
+        }
+
+        exact_query = "COMPANY-RISK-CODE-AX17"
+        baseline_status, baseline_result = await _search(
+            owner,
+            query=exact_query,
+            configuration_id=BM25_BASELINE_CONFIGURATION_ID,
+            workspace_ids=[company["id"]],
+        )
+        assert baseline_status == 200
+        assert baseline_result["status"] == "supported"
+        assert isinstance(baseline_result["answer"], dict)
+        _assert_grounded_answer(
+            baseline_result["answer"],
+            ground_truth=markdown_exact_truth,
+            expected_excerpt=exact_sentence,
+            expected_highlights=_expected_keyword_highlights(
+                markdown_exact_truth,
+                ("COMPANY", "RISK", "CODE", "AX17"),
+            ),
+        )
+        assert baseline_result["configuration_version"]["version_id"] == str(
+            BM25_BASELINE_CONFIGURATION_VERSION_ID
+        )
+
         private_document, private_version = await _upload(
             owner,
             personal["id"],
@@ -1638,10 +1877,7 @@ async def test_first_rag_search_vertical_slice_on_actual_stack(
             media_type="text/plain",
             content=private_text,
         )
-        await _verify_stored_object(markdown_version["id"], markdown)
         await _verify_stored_object(private_version["id"], private_text)
-
-        indexing, _bm25, hybrid = await _register_rag_components(owner)
         saved_response = await owner.post(
             "/api/v1/rag/configurations",
             json={
@@ -1660,14 +1896,10 @@ async def test_first_rag_search_vertical_slice_on_actual_stack(
         )
         assert saved_response.status_code == 201
         saved = saved_response.json()
-        projections = await _prepare_ready_projections(
-            [markdown_version["id"], private_version["id"]], indexing["id"]
-        )
-        markdown_exact_truth = await _load_ground_truth(
-            document_id=markdown_document["id"],
-            asset_version_id=markdown_version["id"],
-            projection_id=projections[str(markdown_version["id"])],
-            expected_text=exact_sentence,
+        projections.update(
+            await _prepare_ready_projections(
+                [private_version["id"]], indexing["id"]
+            )
         )
         markdown_semantic_truth = await _load_ground_truth(
             document_id=markdown_document["id"],
@@ -1684,7 +1916,6 @@ async def test_first_rag_search_vertical_slice_on_actual_stack(
             marker="PRIVATE-OWNER-MARKER-Q91",
         )
 
-        exact_query = "COMPANY-RISK-CODE-AX17"
         status, exact = await _search(
             owner,
             query=exact_query,

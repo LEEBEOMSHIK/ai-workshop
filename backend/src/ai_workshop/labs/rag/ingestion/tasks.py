@@ -21,6 +21,7 @@ from ai_workshop.labs.rag.ingestion.domain import (
     RagIngestionError,
     ReadinessVerification,
 )
+from ai_workshop.labs.rag.ingestion.locking import lock_ingestion_source
 from ai_workshop.labs.rag.ingestion.models import RagIngestionJobRecord
 from ai_workshop.labs.rag.ingestion.service import RagIngestionWorkflow
 from ai_workshop.labs.rag.ingestion.stages import (
@@ -286,22 +287,57 @@ class SqlAlchemyRagIngestionLifecycle:
                 "The RAG ingestion job does not exist.",
                 retryable=False,
             )
-        projection = await session.get(RagProjectionRecord, ingestion.projection_id)
-        asset = await session.get(AssetVersionRecord, ingestion.asset_version_id)
-        profile = await session.get(ProfileRecord, ingestion.indexing_profile_id)
-        job = await SqlAlchemyJobRepository(session).find_by_id(job_id)
-        if projection is None or asset is None or profile is None or job is None:
+        jobs = SqlAlchemyJobRepository(session)
+        job = (
+            await jobs.find_by_id_for_update(job_id)
+            if lock
+            else await jobs.find_by_id(job_id)
+        )
+        projection_statement = select(RagProjectionRecord).where(
+            RagProjectionRecord.id == ingestion.projection_id
+        )
+        if lock:
+            projection_statement = projection_statement.with_for_update()
+        projection = await session.scalar(projection_statement)
+        if projection is None or job is None:
             raise RagIngestionError(
                 "ingestion_dependency_missing",
                 "A durable RAG ingestion dependency is missing.",
                 retryable=False,
             )
         projection.status = ProjectionStatus(projection.status)
-        document = await session.get(DocumentRecord, asset.document_id)
-        if document is None:
+        terminal = projection.status in {
+            ProjectionStatus.READY,
+            ProjectionStatus.PARTIAL_READY,
+            ProjectionStatus.FAILED,
+        }
+        asset: AssetVersionRecord | None
+        document: DocumentRecord | None
+        if lock:
+            source = await lock_ingestion_source(
+                session,
+                ingestion.asset_version_id,
+                require_active=not terminal,
+            )
+            asset = source.asset
+            document = source.document
+        else:
+            asset = await session.get(AssetVersionRecord, ingestion.asset_version_id)
+            document = (
+                await session.get(DocumentRecord, asset.document_id)
+                if asset is not None
+                else None
+            )
+        profile_statement = select(ProfileRecord).where(
+            ProfileRecord.id == ingestion.indexing_profile_id
+        )
+        if lock:
+            profile_statement = profile_statement.with_for_update()
+        profile = await session.scalar(profile_statement)
+        if asset is None or document is None or profile is None:
             raise RagIngestionError(
                 "ingestion_dependency_missing",
-                "The RAG ingestion source document is missing.",
+                "A durable RAG ingestion dependency is missing.",
                 retryable=False,
             )
         if (

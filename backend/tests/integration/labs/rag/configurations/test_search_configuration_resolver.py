@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -26,7 +27,8 @@ from ai_workshop.labs.rag.configurations.repository import (
 )
 from ai_workshop.labs.rag.configurations.service import RagConfigurationService
 from ai_workshop.labs.rag.documents.models import RagIndexBuildRecord, RagProjectionRecord
-from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand
+from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand, RagIngestionError
+from ai_workshop.labs.rag.ingestion.models import RagAssetHandoffFailureRecord
 from ai_workshop.labs.rag.ingestion.repository import (
     SqlAlchemyRagIngestionCommandRepository,
 )
@@ -296,7 +298,7 @@ async def test_postgres_versions_visibility_jobs_subscriptions_and_exact_resolve
             assert await repository.subscriptions_for_asset(newer_active_version_id) == (
                 (E5_INDEXING_PROFILE_ID, owner_id),
             )
-            with pytest.raises(LookupError, match="active READY"):
+            with pytest.raises(RagIngestionError) as inactive_source:
                 await RagIngestionService(
                     SqlAlchemyRagIngestionCommandRepository(session)
                 ).ensure_indexed(
@@ -306,6 +308,7 @@ async def test_postgres_versions_visibility_jobs_subscriptions_and_exact_resolve
                         owner_id,
                     )
                 )
+            assert inactive_source.value.code == "index_source_inactive"
 
             from ai_workshop.labs.rag.ingestion.handoff import (
                 RagAssetHandoffReconciler,
@@ -315,9 +318,48 @@ async def test_postgres_versions_visibility_jobs_subscriptions_and_exact_resolve
             )
 
             handoff_source = SqlAlchemyRagAssetHandoffSource(session)
+
+            retry_record = RagAssetHandoffFailureRecord(
+                asset_version_id=newer_active_version_id,
+                indexing_profile_id=E5_INDEXING_PROFILE_ID,
+                requested_by=owner_id,
+                status="retrying",
+                error_class="transient",
+                error_code="database_transient",
+                attempt_count=1,
+                last_attempt_at=datetime.now(UTC),
+                next_retry_at=datetime.now(UTC) + timedelta(minutes=5),
+                terminal_at=None,
+                last_error_message="A safe transient handoff failure occurred.",
+            )
+            session.add(retry_record)
+            await session.flush()
+            assert await handoff_source.pending(limit=10) == ()
+            retry_record.next_retry_at = datetime.now(UTC) - timedelta(seconds=1)
+            await session.flush()
+
+            class SessionFailureStore:
+                async def record(self, command, **failure) -> None:
+                    del command, failure
+
+                async def resolve(self, command) -> None:
+                    record = await session.get(
+                        RagAssetHandoffFailureRecord,
+                        (command.asset_version_id, command.indexing_profile_id),
+                    )
+                    assert record is not None
+                    record.status = "resolved"
+                    record.error_class = None
+                    record.error_code = None
+                    record.last_error_message = None
+                    record.next_retry_at = None
+                    record.terminal_at = datetime.now(UTC)
+                    await session.flush()
+
             handoff_reconciler = RagAssetHandoffReconciler(
                 handoff_source,
                 RagIngestionService(SqlAlchemyRagIngestionCommandRepository(session)),
+                SessionFailureStore(),
             )
             pending_handoffs = await handoff_source.pending(limit=10)
             assert pending_handoffs == (

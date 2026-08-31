@@ -6,6 +6,10 @@ from sqlalchemy.exc import DisconnectionError, IntegrityError, OperationalError,
 import ai_workshop.worker as worker_module
 from ai_workshop.config import Settings
 from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand
+from ai_workshop.labs.rag.ingestion.handoff import (
+    RagAssetHandoffResult,
+    RagAssetHandoffRunError,
+)
 from ai_workshop.platform.assets.tasks import AssetTaskError
 from ai_workshop.platform.jobs.models import JobRecord
 from ai_workshop.worker import (
@@ -18,6 +22,7 @@ from ai_workshop.worker import (
     CeleryRagJobSender,
     VerifiedAssetSubscription,
     _rag_error,
+    _raise_on_handoff_failures,
     celery_app,
     create_celery,
 )
@@ -44,6 +49,17 @@ def test_celery_cli_app_is_available_without_loading_application_secrets() -> No
         "task": "ai_workshop.rag.reconcile_asset_handoffs",
         "schedule": 5.0,
     }
+
+
+def test_handoff_beat_failure_is_logged_and_signaled_after_batch(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    result = RagAssetHandoffResult(claimed=3, created=2, failed=1)
+
+    with caplog.at_level("ERROR"), pytest.raises(RagAssetHandoffRunError):
+        _raise_on_handoff_failures(result)
+
+    assert "rag_asset_handoff_reconcile_failed claimed=3 created=2 failed=1" in caplog.text
 
 
 def test_worker_registers_every_table_referenced_by_jobs() -> None:

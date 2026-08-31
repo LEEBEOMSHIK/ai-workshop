@@ -1,4 +1,5 @@
-from datetime import UTC, datetime
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from sqlalchemy import and_, or_, select, update
@@ -11,8 +12,10 @@ from ai_workshop.labs.rag.documents.domain import ProjectionStatus, RagProjectio
 from ai_workshop.labs.rag.documents.models import RagProjectionRecord
 from ai_workshop.labs.rag.documents.repository import SqlAlchemyRagDocumentRepository
 from ai_workshop.labs.rag.ingestion.dispatch import DispatchClaim
-from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand
+from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand, RagIngestionError
+from ai_workshop.labs.rag.ingestion.locking import lock_ingestion_source
 from ai_workshop.labs.rag.ingestion.models import (
+    RagAssetHandoffFailureRecord,
     RagIngestionDispatchRecord,
     RagIngestionJobRecord,
 )
@@ -27,23 +30,16 @@ class SqlAlchemyRagIngestionCommandRepository:
         self.session = session
 
     async def ensure(self, command: EnsureIndexedCommand, *, idempotency_key: str) -> UUID:
-        asset_result = await self.session.execute(
-            select(AssetVersionRecord, DocumentRecord.workspace_id)
-            .join(DocumentRecord, DocumentRecord.id == AssetVersionRecord.document_id)
-            .where(
-                AssetVersionRecord.id == command.asset_version_id,
-                AssetVersionRecord.status == "ready",
-                DocumentRecord.active_version_id == AssetVersionRecord.id,
-            )
-            .with_for_update(of=AssetVersionRecord)
-        )
-        asset_row = asset_result.one_or_none()
-        if asset_row is None:
-            raise LookupError("Asset version is not the active READY source.")
-        asset_version, workspace_id = asset_row
+        source = await lock_ingestion_source(self.session, command.asset_version_id)
+        asset_version = source.asset
+        workspace_id = source.document.workspace_id
         profile = await self.session.get(ProfileRecord, command.indexing_profile_id)
         if profile is None or profile.kind != "indexing":
-            raise LookupError("Indexing profile does not exist.")
+            raise RagIngestionError(
+                "indexing_profile_missing",
+                "The indexing profile does not exist.",
+                retryable=False,
+            )
 
         existing = await self.session.scalar(
             select(RagIngestionJobRecord).where(
@@ -151,8 +147,8 @@ class SqlAlchemyRagAssetHandoffSource:
         commands: list[EnsureIndexedCommand] = []
         configurations = SqlAlchemyRagConfigurationRepository(self.session)
         for asset_version_id in asset_version_ids:
-            for indexing_profile_id, requested_by in (
-                await configurations.subscriptions_for_asset(asset_version_id)
+            for indexing_profile_id, requested_by in await configurations.subscriptions_for_asset(
+                asset_version_id
             ):
                 exists = await self.session.scalar(
                     select(RagIngestionJobRecord.job_id).where(
@@ -160,7 +156,23 @@ class SqlAlchemyRagAssetHandoffSource:
                         RagIngestionJobRecord.indexing_profile_id == indexing_profile_id,
                     )
                 )
+                failure = await self.session.get(
+                    RagAssetHandoffFailureRecord,
+                    (asset_version_id, indexing_profile_id),
+                )
                 if exists is None:
+                    should_handoff = (
+                        failure is None
+                        or failure.status == "resolved"
+                        or (
+                            failure.status == "retrying"
+                            and failure.next_retry_at is not None
+                            and failure.next_retry_at <= datetime.now(UTC)
+                        )
+                    )
+                else:
+                    should_handoff = failure is not None and failure.status != "resolved"
+                if should_handoff:
                     commands.append(
                         EnsureIndexedCommand(
                             asset_version_id,
@@ -171,6 +183,100 @@ class SqlAlchemyRagAssetHandoffSource:
                     if len(commands) >= limit:
                         return tuple(commands)
         return tuple(commands)
+
+
+class SqlAlchemyRagAssetHandoffFailureRepository:
+    def __init__(
+        self,
+        sessions: async_sessionmaker[AsyncSession],
+        *,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        max_attempts: int = 5,
+        base_backoff_seconds: int = 5,
+    ) -> None:
+        self.sessions = sessions
+        self.clock = clock
+        self.max_attempts = max_attempts
+        self.base_backoff_seconds = base_backoff_seconds
+
+    async def record(
+        self,
+        command: EnsureIndexedCommand,
+        *,
+        error_class: str,
+        error_code: str,
+        safe_message: str,
+    ) -> None:
+        if error_class not in {"transient", "permanent", "obsolete"}:
+            raise ValueError("Unknown RAG Asset handoff error class.")
+        now = self.clock()
+        async with self.sessions.begin() as session:
+            record = await session.scalar(
+                select(RagAssetHandoffFailureRecord)
+                .where(
+                    RagAssetHandoffFailureRecord.asset_version_id == command.asset_version_id,
+                    RagAssetHandoffFailureRecord.indexing_profile_id == command.indexing_profile_id,
+                )
+                .with_for_update()
+            )
+            if record is None:
+                record = RagAssetHandoffFailureRecord(
+                    asset_version_id=command.asset_version_id,
+                    indexing_profile_id=command.indexing_profile_id,
+                    requested_by=command.requested_by,
+                    status="retrying",
+                    error_class="transient",
+                    error_code=error_code[:100],
+                    attempt_count=0,
+                    last_attempt_at=None,
+                    next_retry_at=now,
+                    terminal_at=None,
+                    last_error_message=safe_message[:500],
+                )
+                session.add(record)
+            elif record.status == "resolved":
+                record.attempt_count = 0
+            record.requested_by = command.requested_by
+            record.attempt_count += 1
+            record.last_attempt_at = now
+            record.error_class = error_class
+            record.error_code = error_code[:100]
+            record.last_error_message = safe_message[:500]
+            if error_class == "obsolete":
+                record.status = "cancelled"
+                record.next_retry_at = None
+                record.terminal_at = now
+            elif error_class == "permanent" or record.attempt_count >= self.max_attempts:
+                record.status = "quarantined"
+                record.next_retry_at = None
+                record.terminal_at = now
+            else:
+                delay = self.base_backoff_seconds * (2 ** (record.attempt_count - 1))
+                record.status = "retrying"
+                record.next_retry_at = now + timedelta(seconds=delay)
+                record.terminal_at = None
+            await session.flush()
+
+    async def resolve(self, command: EnsureIndexedCommand) -> None:
+        now = self.clock()
+        async with self.sessions.begin() as session:
+            record = await session.scalar(
+                select(RagAssetHandoffFailureRecord)
+                .where(
+                    RagAssetHandoffFailureRecord.asset_version_id == command.asset_version_id,
+                    RagAssetHandoffFailureRecord.indexing_profile_id == command.indexing_profile_id,
+                )
+                .with_for_update()
+            )
+            if record is None or record.status == "resolved":
+                return
+            record.status = "resolved"
+            record.error_class = None
+            record.error_code = None
+            record.last_error_message = None
+            record.next_retry_at = None
+            record.terminal_at = now
+            await session.flush()
 
 
 class DispatchClaimLostError(RuntimeError):
@@ -189,44 +295,65 @@ class SqlAlchemyRagDispatchRepository:
         limit: int,
     ) -> tuple[DispatchClaim, ...]:
         async with self.sessions.begin() as session:
-            result = await session.execute(
-                select(RagIngestionDispatchRecord)
-                .join(
-                    RagIngestionJobRecord,
-                    RagIngestionJobRecord.job_id == RagIngestionDispatchRecord.job_id,
-                )
-                .join(
-                    AssetVersionRecord,
-                    AssetVersionRecord.id == RagIngestionJobRecord.asset_version_id,
-                )
-                .join(
-                    DocumentRecord,
-                    DocumentRecord.id == AssetVersionRecord.document_id,
-                )
-                .where(
-                    AssetVersionRecord.status == "ready",
-                    DocumentRecord.active_version_id == AssetVersionRecord.id,
-                    or_(
-                        and_(
-                            RagIngestionDispatchRecord.status == "pending",
-                            RagIngestionDispatchRecord.available_at <= now,
-                        ),
-                        and_(
-                            RagIngestionDispatchRecord.status == "claimed",
-                            RagIngestionDispatchRecord.claimed_at <= stale_before,
+            ingestions = list(
+                await session.scalars(
+                    select(RagIngestionJobRecord)
+                    .join(
+                        RagIngestionDispatchRecord,
+                        RagIngestionDispatchRecord.job_id == RagIngestionJobRecord.job_id,
+                    )
+                    .join(
+                        AssetVersionRecord,
+                        AssetVersionRecord.id == RagIngestionJobRecord.asset_version_id,
+                    )
+                    .join(
+                        DocumentRecord,
+                        DocumentRecord.id == AssetVersionRecord.document_id,
+                    )
+                    .where(
+                        AssetVersionRecord.status == "ready",
+                        DocumentRecord.active_version_id == AssetVersionRecord.id,
+                        or_(
+                            and_(
+                                RagIngestionDispatchRecord.status == "pending",
+                                RagIngestionDispatchRecord.available_at <= now,
+                            ),
+                            and_(
+                                RagIngestionDispatchRecord.status == "claimed",
+                                RagIngestionDispatchRecord.claimed_at <= stale_before,
+                            ),
                         ),
                     )
+                    .order_by(
+                        RagIngestionDispatchRecord.available_at,
+                        RagIngestionDispatchRecord.created_at,
+                    )
+                    .limit(limit)
+                    .with_for_update(of=RagIngestionJobRecord, skip_locked=True)
                 )
-                .order_by(
-                    RagIngestionDispatchRecord.available_at,
-                    RagIngestionDispatchRecord.created_at,
-                )
-                .limit(limit)
-                .with_for_update(of=RagIngestionDispatchRecord, skip_locked=True)
             )
-            records = result.scalars().all()
             claims: list[DispatchClaim] = []
-            for record in records:
+            for ingestion in ingestions:
+                try:
+                    await lock_ingestion_source(session, ingestion.asset_version_id)
+                except RagIngestionError as exc:
+                    if exc.code == "index_source_inactive":
+                        continue
+                    raise
+                record = await session.scalar(
+                    select(RagIngestionDispatchRecord)
+                    .where(RagIngestionDispatchRecord.job_id == ingestion.job_id)
+                    .with_for_update()
+                )
+                if record is None or not (
+                    (record.status == "pending" and record.available_at <= now)
+                    or (
+                        record.status == "claimed"
+                        and record.claimed_at is not None
+                        and record.claimed_at <= stale_before
+                    )
+                ):
+                    continue
                 token = uuid4()
                 record.status = "claimed"
                 record.claimed_at = now

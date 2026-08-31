@@ -2,6 +2,7 @@ from asyncio import run
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
+from logging import getLogger
 from os import environ
 from typing import Annotated, Protocol
 from uuid import UUID
@@ -22,8 +23,16 @@ from ai_workshop.labs.rag.evaluation.service import EvaluationWorkflow
 from ai_workshop.labs.rag.evaluation.tasks import create_evaluation_workflow
 from ai_workshop.labs.rag.ingestion.dispatch import RagDispatchReconciler
 from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand, RagIngestionError
-from ai_workshop.labs.rag.ingestion.handoff import RagAssetHandoffReconciler
+from ai_workshop.labs.rag.ingestion.handoff import (
+    RagAssetHandoffReconciler,
+    RagAssetHandoffResult,
+    RagAssetHandoffRunError,
+)
+from ai_workshop.labs.rag.ingestion.recovery import (
+    SqlAlchemyInactiveRagIngestionReconciler,
+)
 from ai_workshop.labs.rag.ingestion.repository import (
+    SqlAlchemyRagAssetHandoffFailureRepository,
     SqlAlchemyRagAssetHandoffSource,
     SqlAlchemyRagDispatchRepository,
     SqlAlchemyRagIngestionCommandRepository,
@@ -52,6 +61,7 @@ RAG_EVALUATION_DISPATCH_RECONCILE_TASK = (
 )
 
 load_models()
+logger = getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -369,13 +379,39 @@ async def _reconcile_rag_asset_handoffs(settings: Settings) -> None:
     engine = create_engine(settings)
     sessions = create_session_factory(engine)
     try:
+        await SqlAlchemyInactiveRagIngestionReconciler(sessions).run_once()
         async with sessions() as session:
-            await RagAssetHandoffReconciler(
-                SqlAlchemyRagAssetHandoffSource(session),
-                PersistentRagIngestionJobCreator(settings),
-            ).run_once()
+            try:
+                result = await RagAssetHandoffReconciler(
+                    SqlAlchemyRagAssetHandoffSource(session),
+                    PersistentRagIngestionJobCreator(settings),
+                    SqlAlchemyRagAssetHandoffFailureRepository(sessions),
+                ).run_once()
+            except RagAssetHandoffRunError as exc:
+                logger.error(
+                    "rag_asset_handoff_reconcile_unexpected_failure "
+                    "claimed=%d created=%d failed=%d cause_type=%s",
+                    exc.result.claimed,
+                    exc.result.created,
+                    exc.result.failed,
+                    type(exc.__cause__).__name__,
+                )
+                raise
+            _raise_on_handoff_failures(result)
     finally:
         await engine.dispose()
+
+
+def _raise_on_handoff_failures(result: RagAssetHandoffResult) -> None:
+    if not result.failed:
+        return
+    logger.error(
+        "rag_asset_handoff_reconcile_failed claimed=%d created=%d failed=%d",
+        result.claimed,
+        result.created,
+        result.failed,
+    )
+    raise RagAssetHandoffRunError(result)
 
 
 async def _reconcile_asset_verification_dispatches(

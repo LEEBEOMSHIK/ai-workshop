@@ -56,6 +56,7 @@ from ai_workshop.labs.rag.ingestion.domain import (
     RagIngestionError,
     ReadinessVerification,
 )
+from ai_workshop.labs.rag.ingestion.locking import lock_ingestion_source
 from ai_workshop.labs.rag.ingestion.models import RagIngestionJobRecord
 from ai_workshop.labs.rag.ingestion.serialization import (
     deserialize_chunking_result,
@@ -182,6 +183,38 @@ class _IndexSource:
     folder_id: UUID | None
     title: str
     allowed_user_ids: tuple[UUID, ...]
+
+
+async def _lock_active_stage_rows(
+    session: AsyncSession,
+    projection_id: UUID,
+) -> tuple[RagIngestionJobRecord, RagProjectionRecord]:
+    """Lock ingestion -> Job -> Projection -> AssetVersion -> Document."""
+    ingestion = await session.scalar(
+        select(RagIngestionJobRecord)
+        .where(RagIngestionJobRecord.projection_id == projection_id)
+        .with_for_update()
+    )
+    if ingestion is None:
+        raise RagIngestionError(
+            "ingestion_job_not_found",
+            "The durable RAG ingestion job does not exist.",
+            retryable=False,
+        )
+    job = await SqlAlchemyJobRepository(session).find_by_id_for_update(ingestion.job_id)
+    projection = await session.scalar(
+        select(RagProjectionRecord)
+        .where(RagProjectionRecord.id == projection_id)
+        .with_for_update()
+    )
+    if job is None or projection is None:
+        raise RagIngestionError(
+            "ingestion_dependency_missing",
+            "A durable RAG ingestion dependency is missing.",
+            retryable=False,
+        )
+    await lock_ingestion_source(session, ingestion.asset_version_id)
+    return ingestion, projection
 
 
 def _canonical_hash(value: object) -> str:
@@ -425,17 +458,9 @@ class ProductionEmbeddingStage:
                 expected_descriptor=resolved.descriptor,
             )
             async with sessions.begin() as session:
-                ingestion = await session.scalar(
-                    select(RagIngestionJobRecord)
-                    .where(RagIngestionJobRecord.projection_id == projection_id)
-                    .with_for_update()
+                ingestion, _projection = await _lock_active_stage_rows(
+                    session, projection_id
                 )
-                if ingestion is None:
-                    raise RagIngestionError(
-                        "ingestion_job_not_found",
-                        "The durable RAG ingestion job does not exist.",
-                        retryable=False,
-                    )
                 current = await _resolve_embedding(
                     session,
                     projection_id=projection_id,
@@ -602,14 +627,12 @@ class ProductionIndexingStage:
                     documents=documents,
                 )
             async with sessions.begin() as session:
+                ingestion, _projection = await _lock_active_stage_rows(
+                    session, projection_id
+                )
                 build = await session.scalar(
                     select(RagIndexBuildRecord)
                     .where(RagIndexBuildRecord.id == build_id)
-                    .with_for_update()
-                )
-                ingestion = await session.scalar(
-                    select(RagIngestionJobRecord)
-                    .where(RagIngestionJobRecord.projection_id == projection_id)
                     .with_for_update()
                 )
                 if build is None or ingestion is None or ingestion.index_build_id != build.id:
@@ -634,16 +657,11 @@ class ProductionIndexingStage:
         indexing_profile_id: UUID,
     ) -> UUID:
         async with sessions.begin() as session:
-            ingestion = await session.scalar(
-                select(RagIngestionJobRecord)
-                .where(RagIngestionJobRecord.projection_id == projection_id)
-                .with_for_update()
+            ingestion, projection = await _lock_active_stage_rows(
+                session, projection_id
             )
-            projection = await session.get(RagProjectionRecord, projection_id)
             if (
-                ingestion is None
-                or projection is None
-                or projection.status != ProjectionStatus.INDEXING
+                projection.status != ProjectionStatus.INDEXING
                 or ingestion.indexing_profile_id != indexing_profile_id
             ):
                 raise RagIngestionError(
@@ -712,8 +730,30 @@ class ProductionReadinessVerifier:
         sessions = create_session_factory(engine)
         try:
             async with sessions.begin() as session:
-                projection = await session.get(RagProjectionRecord, projection_id)
-                if projection is None or projection.indexing_profile_id != indexing_profile_id:
+                ingestion = await session.scalar(
+                    select(RagIngestionJobRecord)
+                    .where(RagIngestionJobRecord.projection_id == projection_id)
+                    .with_for_update()
+                )
+                if ingestion is None or ingestion.index_build_id is None:
+                    raise RagIngestionError(
+                        "index_build_conflict",
+                        "The final activation requires a durable prepared build.",
+                        retryable=False,
+                    )
+                job = await SqlAlchemyJobRepository(session).find_by_id_for_update(
+                    ingestion.job_id
+                )
+                projection = await session.scalar(
+                    select(RagProjectionRecord)
+                    .where(RagProjectionRecord.id == projection_id)
+                    .with_for_update()
+                )
+                if (
+                    projection is None
+                    or projection.indexing_profile_id != indexing_profile_id
+                    or job is None
+                ):
                     raise RagIngestionError(
                         "indexing_stage_conflict",
                         "The prepared projection does not match its indexing profile.",
@@ -728,6 +768,11 @@ class ProductionReadinessVerifier:
                         "The final activation requires an INDEXING or READY projection.",
                         retryable=False,
                     )
+                await lock_ingestion_source(
+                    session,
+                    projection.asset_version_id,
+                    require_active=projection.status != ProjectionStatus.READY,
+                )
                 profile = await session.scalar(
                     select(ProfileRecord)
                     .where(ProfileRecord.id == indexing_profile_id)
@@ -739,18 +784,11 @@ class ProductionReadinessVerifier:
                         "The final activation lock profile does not exist.",
                         retryable=False,
                     )
-                ingestion = await session.scalar(
-                    select(RagIngestionJobRecord)
-                    .where(RagIngestionJobRecord.projection_id == projection_id)
+                build = await session.scalar(
+                    select(RagIndexBuildRecord)
+                    .where(RagIndexBuildRecord.id == ingestion.index_build_id)
                     .with_for_update()
                 )
-                if ingestion is None or ingestion.index_build_id is None:
-                    raise RagIngestionError(
-                        "index_build_conflict",
-                        "The final activation requires a durable prepared build.",
-                        retryable=False,
-                    )
-                build = await session.get(RagIndexBuildRecord, ingestion.index_build_id)
                 resolved = await _resolve_embedding(
                     session,
                     projection_id=projection_id,
@@ -771,25 +809,6 @@ class ProductionReadinessVerifier:
                         "The final activation requires a fully prepared immutable build.",
                         retryable=False,
                     )
-                current_asset = await session.get(
-                    AssetVersionRecord, projection.asset_version_id
-                )
-                current_document = (
-                    await session.get(DocumentRecord, current_asset.document_id)
-                    if current_asset is not None
-                    else None
-                )
-                if (
-                    current_asset is None
-                    or current_document is None
-                    or current_asset.status != VersionStatus.READY
-                    or current_document.active_version_id != current_asset.id
-                ):
-                    raise RagIngestionError(
-                        "index_source_inactive",
-                        "The prepared build must belong to the current READY Asset Version.",
-                        retryable=False,
-                    )
                 verification = ReadinessVerification(
                     parsed_element_count=ingestion.parsed_element_count or 0,
                     chunk_count=ingestion.chunk_count or 0,
@@ -806,6 +825,8 @@ class ProductionReadinessVerifier:
                         "Persisted stage and prepared index counts do not match.",
                         retryable=False,
                     )
+                if projection.status == ProjectionStatus.READY:
+                    return verification
                 active_rows = (
                     await session.execute(
                         select(
@@ -907,17 +928,9 @@ class ProductionReadinessVerifier:
                 build.status = "ready"
                 ingestion.indexed_document_count = build.indexed_document_count
                 ingestion.index_alias_verified = True
-                if projection.status != ProjectionStatus.READY:
-                    await SqlAlchemyRagDocumentRepository(session).mark_status(
-                        projection_id, ProjectionStatus.READY
-                    )
-                job = await SqlAlchemyJobRepository(session).find_by_id(ingestion.job_id)
-                if job is None:
-                    raise RagIngestionError(
-                        "ingestion_dependency_missing",
-                        "The final activation job does not exist.",
-                        retryable=False,
-                    )
+                await SqlAlchemyRagDocumentRepository(session).mark_status(
+                    projection_id, ProjectionStatus.READY
+                )
                 if job.status is JobStatus.RUNNING:
                     job.succeed(stage=ProjectionStatus.READY.value)
                     await SqlAlchemyJobRepository(session).update(job)

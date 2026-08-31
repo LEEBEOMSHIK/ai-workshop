@@ -260,6 +260,36 @@ LLM 변경은 검색 색인을 다시 만들지 않는다. 검색 실험과 생�
 - 파서 또는 모델의 자동 대체는 정책에 명시되고 실행 기록에 남아야 한다.
 - 일부 문서만 색인된 상태에서 새 버전을 활성화하지 않는다.
 
+### Supersession serialization and durable handoff recovery
+
+RAG state-changing transactions use one row-lock order: ingestion job, Platform Job,
+Projection, exact Asset Version, owning Document, then profile or build rows when the
+boundary needs them. Command creation starts at the shared source order of exact
+Asset Version then Document. Every boundary rechecks that the version is both
+`READY` and the Document's exact active version after those two locks are held.
+The Document lock serializes only the current transaction; a legitimate higher
+version may supersede it after commit.
+
+Final alias activation holds the exact Asset Version and Document locks through the
+Elasticsearch alias call and the database `READY` commit. This prevents a version
+that already lost a concurrent activation race from committing an alias or `READY`
+projection. The external call increases lock duration, so connection/timeout failures
+remain explicit retryable activation errors and are never hidden.
+
+A periodic inactive-source reconciler locks rows in the same order and converges an
+inactive nonterminal ingestion Job and Projection to `FAILED` with stable code
+`index_source_inactive`. Its pending, claimed, or sent dispatch becomes terminal
+`cancelled`; a delivered/running worker rechecks the terminal truth and cannot revive
+it. Terminal historical projection redelivery is an idempotent no-op.
+
+Asset-to-RAG handoff failures are stored by exact `(asset_version_id,
+indexing_profile_id)` identity. The record contains only a stable error code/class,
+bounded sanitized message, attempts, last/next retry timestamps, and one of
+`retrying`, `resolved`, `quarantined`, or `cancelled`. Transient errors use bounded
+exponential backoff, deterministic errors quarantine, obsolete sources cancel, and
+success resolves the record. Unexpected programming errors are not recorded as
+ordinary retries; the batch processes other commands and then fails visibly.
+
 ## 12. 첫 AI 검색 완료 기준
 
 - 모든 정상 검색 결과가 권한이 허용된 원문 위치로 이동한다.

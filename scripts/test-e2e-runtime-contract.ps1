@@ -21,6 +21,19 @@ if ($foundation -match "TRUNCATE" -or $rag -match "TRUNCATE") {
 if ($foundation -notmatch "validate_prepared_e2e" -or $rag -notmatch "validate_prepared_e2e") {
     throw "Both actual-stack fixtures must enforce the prepared E2E contract."
 }
+$actualStackMarkers = [regex]::Matches($rag, "(?m)^@actual_stack\s*$")
+$actualStackTests = [regex]::Matches(
+    $rag,
+    "(?ms)@actual_stack\s+@pytest\.mark\.asyncio\s+async def (?<name>[a-z0-9_]+)\((?<parameters>.*?)\)\s*->"
+)
+if ($actualStackTests.Count -eq 0 -or $actualStackTests.Count -ne $actualStackMarkers.Count) {
+    throw "Every actual-stack RAG test must use the recognized prepared fixture contract."
+}
+foreach ($actualStackTest in $actualStackTests) {
+    if ($actualStackTest.Groups["parameters"].Value -notmatch "prepared_rag_stack\s*:\s*None") {
+        throw "Actual-stack test must inject the prepared RAG fixture: $($actualStackTest.Groups['name'].Value)"
+    }
+}
 if ($foundation -notmatch "await wait_for_jobs\(") {
     throw "The foundation ACL flow must await every uploaded verification job."
 }

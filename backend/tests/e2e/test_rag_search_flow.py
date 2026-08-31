@@ -5,13 +5,14 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from hashlib import sha256
 from os import environ
-from typing import Protocol
+from typing import Protocol, cast
 from unittest.mock import patch
 from uuid import UUID, uuid4
 
 import pymupdf
 import pytest
 from celery import Celery  # type: ignore[import-untyped]
+from elasticsearch import AsyncElasticsearch
 from httpx import AsyncClient, MockTransport, Request, Response
 from sqlalchemy import func, select
 
@@ -137,8 +138,11 @@ def _document(
 
 @actual_stack
 @pytest.mark.asyncio
-async def test_ready_documents_remain_searchable_after_another_projection_activates() -> None:
+async def test_ready_documents_remain_searchable_after_another_projection_activates(
+    prepared_rag_stack: None,
+) -> None:
     """A profile-wide active search view must retain every READY document."""
+    del prepared_rag_stack
     settings = get_settings()
     client = create_elasticsearch(settings)
     descriptor = IndexDescriptor(vector_dimension=2, similarity="cosine")
@@ -202,7 +206,19 @@ async def test_ready_documents_remain_searchable_after_another_projection_activa
 
         assert observed_chunk_ids == {FIRST_CHUNK_ID, SECOND_CHUNK_ID}
     finally:
-        await client.indices.delete(index=list(concrete_indices), ignore_unavailable=True)
+        await _delete_stack_indices_and_close(client, concrete_indices)
+
+
+async def _delete_stack_indices_and_close(
+    client: AsyncElasticsearch,
+    concrete_indices: Sequence[str],
+) -> None:
+    try:
+        await client.indices.delete(
+            index=list(concrete_indices),
+            ignore_unavailable=True,
+        )
+    finally:
         await client.close()
 
 
@@ -782,6 +798,30 @@ def test_expected_snapshot_pairs_fail_closed_on_duplicate_asset_versions() -> No
     assert _expected_snapshot_pairs({document_one: version}) == {(document_one, version)}
     with pytest.raises(AssertionError):
         _expected_snapshot_pairs({document_one: version, document_two: version})
+
+
+@pytest.mark.asyncio
+async def test_stack_index_cleanup_closes_client_when_index_delete_fails() -> None:
+    class FailingIndices:
+        async def delete(self, **_kwargs: object) -> None:
+            raise RuntimeError("synthetic delete failure")
+
+    class Client:
+        indices = FailingIndices()
+        closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    client = Client()
+
+    with pytest.raises(RuntimeError, match="synthetic delete failure"):
+        await _delete_stack_indices_and_close(
+            cast(AsyncElasticsearch, client),
+            ("synthetic-index",),
+        )
+
+    assert client.closed is True
 
 
 def _projection_diagnostics(

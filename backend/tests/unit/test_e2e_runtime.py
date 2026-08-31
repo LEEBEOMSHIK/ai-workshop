@@ -46,6 +46,47 @@ def test_reset_cli_module_entrypoint_reaches_safe_contract_check() -> None:
     assert "Traceback" not in result.stderr
 
 
+def test_unprepared_actual_elasticsearch_test_fails_before_client_attempt() -> None:
+    backend_root = Path(__file__).resolve().parents[2]
+    result = run(
+        [
+            executable,
+            "-m",
+            "pytest",
+            "-p",
+            "no:cacheprovider",
+            (
+                "tests/e2e/test_rag_search_flow.py::"
+                "test_ready_documents_remain_searchable_after_another_projection_activates"
+            ),
+            "-q",
+        ],
+        cwd=backend_root,
+        env={
+            **environ,
+            "PYTHONPATH": str(backend_root / "src"),
+            "AI_WORKSHOP_ENVIRONMENT": "test",
+            "AI_WORKSHOP_SECRET_KEY": "x" * 32,
+            "AI_WORKSHOP_E2E": "1",
+            "AI_WORKSHOP_E2E_PREPARED": "0",
+            "AI_WORKSHOP_E2E_RESET": "0",
+            "AI_WORKSHOP_E2E_PROJECT": PROJECT,
+            "AI_WORKSHOP_E2E_BASE_URL": "http://127.0.0.1:1",
+            "AI_WORKSHOP_ELASTICSEARCH_URL": "http://127.0.0.1:1",
+            "AI_WORKSHOP_ELASTICSEARCH_INDEX_PREFIX": f"{PROJECT}-rag",
+        },
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    output = result.stdout + result.stderr
+
+    assert result.returncode == 1
+    assert "Prepared E2E state is required; run scripts/smoke.ps1." in output
+    assert "ConnectionError" not in output
+    assert "Connection refused" not in output
+
+
 def _settings(**overrides: object) -> Settings:
     values: dict[str, object] = {
         "environment": "test",

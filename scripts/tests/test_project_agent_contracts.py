@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -85,6 +87,31 @@ EXPECTED_WORKFLOW_SIGNALS = {
 @pytest.fixture
 def repository_root() -> Path:
     return Path(__file__).parents[2]
+
+
+def run_cli(*arguments: str) -> subprocess.CompletedProcess[str]:
+    repository_root = Path(__file__).parents[2]
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        git = Path(temporary_directory) / "git"
+        git.write_text(
+            "#!/bin/sh\n"
+            "case \"$*\" in\n"
+            "  *rev-parse*) printf '%s\\n' true ;;\n"
+            "  *) exit 0 ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        git.chmod(0o755)
+        environment = os.environ.copy()
+        environment["PATH"] = f"{temporary_directory}{os.pathsep}{environment['PATH']}"
+        return subprocess.run(
+            [sys.executable, "scripts/verify_project_agent_contracts.py", *arguments],
+            cwd=repository_root,
+            check=False,
+            capture_output=True,
+            env=environment,
+            text=True,
+        )
 
 
 def load_repository_roles(repository_root: Path) -> tuple[RoleContract, ...]:
@@ -261,6 +288,22 @@ def test_unresolved_activation_reference_is_rejected(tmp_path: Path) -> None:
     issues = validate_repository(tmp_path)
 
     assert any(issue.code == "unresolved_activation_reference" for issue in issues)
+
+
+def test_repository_ignores_unrelated_activation_rule_documents(tmp_path: Path) -> None:
+    write_minimal_repository(tmp_path)
+    write_role(tmp_path, "roles/a.md", role_id="backend-engineer")
+    write_activation_rules(
+        tmp_path,
+        "  - signal: feature-implementation\n    required_roles: [backend-engineer]",
+    )
+    unrelated_rules = tmp_path / "unrelated" / "activation-rules.md"
+    unrelated_rules.parent.mkdir()
+    unrelated_rules.write_text("not a contract\n", encoding="utf-8")
+
+    issues = validate_repository(tmp_path)
+
+    assert not any(issue.path == unrelated_rules for issue in issues)
 
 
 def test_load_activation_rules_reads_typed_frontmatter(tmp_path: Path) -> None:
@@ -499,6 +542,48 @@ def test_validate_cli_reports_issues_and_exit_status(tmp_path: Path) -> None:
 
     assert result.returncode == 1
     assert "missing_frontmatter" in result.stdout
+
+
+def test_cli_validate_returns_zero_for_repository(repository_root: Path) -> None:
+    result = run_cli("validate", "--root", str(repository_root))
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_cli_select_prints_sorted_mandatory_roles(repository_root: Path) -> None:
+    result = run_cli(
+        "select",
+        "--root",
+        str(repository_root),
+        "--signal",
+        "react-ui",
+        "--signal",
+        "feature-implementation",
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.splitlines() == [
+        "frontend-engineer",
+        "integration-e2e-verifier",
+        "test-designer",
+    ]
+
+
+def test_cli_select_rejects_unknown_signal(repository_root: Path) -> None:
+    result = run_cli("select", "--root", str(repository_root), "--signal", "unknown-signal")
+
+    assert result.returncode == 2
+    assert "unknown activation signal(s): unknown-signal" in result.stderr
+
+
+def test_root_instructions_link_project_agent_canon_and_codex_adapter(
+    repository_root: Path,
+) -> None:
+    agents = (repository_root / "AGENTS.md").read_text(encoding="utf-8")
+
+    assert "docs/project-agents/README.md" in agents
+    assert "docs/guidelines/codex/project-agent-orchestration.md" in agents
+    assert len(agents.splitlines()) <= 200
 
 
 def test_repository_contains_exact_initial_project_roles(repository_root: Path) -> None:

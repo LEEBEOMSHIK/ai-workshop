@@ -25,6 +25,8 @@
 - Codex 참고 문서 구조: `docs/guidelines/codex/README.md`
 - 캐시·Docker 산출물 정책: `CACHE_POLICY.md`
 - worktree 작업과 종료: `docs/guidelines/codex/worktree-lifecycle.md`
+- 프로젝트 개발 에이전트 정본: `docs/project-agents/README.md`
+- Codex 프로젝트 개발 에이전트 호출·인계: `docs/guidelines/codex/project-agent-orchestration.md`
 - RAG 작업: `docs/labs/rag/design.md`
 - 기술 결정: `docs/decisions/`
 
@@ -76,6 +78,16 @@
 - 정해진 알고리즘으로 처리할 수 있는 작업에는 LLM 에이전트를 사용하지 않는다.
 - 캐릭터, 서비스 작업자와 LLM 에이전트를 구분한다.
 - 에이전트는 승인된 애플리케이션 도구만 사용하며 호출 사용자의 권한을 넘을 수 없다.
+
+## 프로젝트 개발 에이전트
+
+- 작업 전 `WORKBOARD.md`를 읽고 작업 등급과 위험을 분류한다.
+- 정본의 활성화 신호로 최소 필수 역할을 선택하고 실제 범위에 필요한 역할만 추가한다.
+- 배정 전에 작업 등급·위험, 참여 역할과 이유, 의미 있는 제외 역할과 이유를 사용자에게 알린다.
+- 하위 에이전트에는 구체적이고 경계가 겹치지 않는 수정 범위만 배정한다.
+- 구현 책임은 독립 검증 또는 독립 코드 리뷰 책임과 분리한다.
+- 범위가 확장되면 배정을 멈추고 역할 명단을 다시 계산해 고지한다.
+- 메인 Codex만 통합, `WORKBOARD.md` 마감, staging, commit과 push를 결정한다.
 
 ## 구현과 검증
 

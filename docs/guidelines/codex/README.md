@@ -36,6 +36,7 @@
 | 기술 결정과 근거 | `docs/decisions/` |
 | 캐시·worktree·Docker 정리 정책 | `CACHE_POLICY.md` |
 | worktree 생성·인계·제거 절차 | `docs/guidelines/codex/worktree-lifecycle.md` |
+| 프로젝트 개발 에이전트 Codex 호출·인계 | `docs/guidelines/codex/project-agent-orchestration.md` |
 | Codex 전용 상세 절차 | `docs/guidelines/codex/<topic>.md` |
 
 Codex 전용 참고 문서를 추가하면 루트 또는 해당 하위 `AGENTS.md`에 작업 조건과 링크를 한 줄로 추가한다. 모든 참고 문서를 매 작업마다 읽도록 강제하지 않고, 작업 범위와 관련된 문서만 읽게 한다.

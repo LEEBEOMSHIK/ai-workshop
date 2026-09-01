@@ -284,7 +284,7 @@ def _validate_role_references(roles: Iterable[RoleContract]) -> list[ValidationI
 def _validate_activation_references(root: Path, roles: Iterable[RoleContract]) -> list[ValidationIssue]:
     role_ids = frozenset(role.role_id for role in roles)
     issues: list[ValidationIssue] = []
-    for path in root.rglob("activation-rules.md"):
+    for path in _activation_rule_paths(root):
         try:
             rules = load_activation_rules(path)
         except RoleContractError as error:
@@ -306,7 +306,7 @@ def _validate_activation_references(root: Path, roles: Iterable[RoleContract]) -
 def _validate_workflow_references(root: Path) -> list[ValidationIssue]:
     known_signals: set[str] = set()
     issues: list[ValidationIssue] = []
-    for activation_path in root.rglob("activation-rules.md"):
+    for activation_path in _activation_rule_paths(root):
         try:
             known_signals.update(rule.signal for rule in load_activation_rules(activation_path))
         except RoleContractError:
@@ -352,6 +352,11 @@ def _validate_workflow_references(root: Path) -> list[ValidationIssue]:
                     )
                 )
     return issues
+
+
+def _activation_rule_paths(root: Path) -> tuple[Path, ...]:
+    path = root / "docs" / "project-agents" / "governance" / "activation-rules.md"
+    return (path,) if path.is_file() else ()
 
 
 def _workflow_paths(root: Path) -> list[Path]:

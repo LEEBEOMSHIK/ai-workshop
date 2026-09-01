@@ -1,14 +1,14 @@
 # Workboard
 
-- 마지막 갱신일: 2026-09-01
-- 현재 단계: 캐시·worktree·Docker 정리 완료, DOCX 구조 파서·원문 뷰어 설계 준비
-- 전체 상태: 승인된 캐시와 프로젝트 소유 Docker 이미지를 정리했고, 관리자 ACL 잔여 경로까지 제거·검증했다.
+- 마지막 갱신일: 2026-09-02
+- 현재 단계: Docker 캐시 재발 방지와 호스트 물리 용량 회수 완료, 잔여 BuildKit 계보의 선택적 추가 승인 대기
+- 전체 상태: 백엔드 이미지를 16.664GB에서 5.960GB로 축소하고 VHDX를 약 227.536GB에서 57.250GB로 압축해 host 공간 약 170.283GB를 회수했다. 보존한 모든 서비스와 volume은 정상이며 승인 범위 밖 캐시는 삭제하지 않았다.
 
 ## 현재 작업
 
 ### 목표
 
-프론트 Node 의존성을 `frontend/`에 한정하고, 완료된 worktree와 프로젝트 소유 Docker 이미지 캐시의 정리 절차를 `CACHE_POLICY.md`와 Codex 지침에 반영한다.
+프론트 Node 의존성을 `frontend/`에 한정하고 완료된 worktree와 프로젝트 소유 Docker 산출물을 정리하며, 이미지 캐시 재발 방지와 Docker Desktop 물리 용량 회수 절차를 검증 가능한 정책으로 남긴다.
 
 ### 진행 상태
 
@@ -27,6 +27,12 @@
 - PostgreSQL·Redis·Elasticsearch를 기존 named volume에 연결한 채 main Compose 경로로 재생성했고 모두 healthy다.
 - 루트 Node 의존성·pnpm junction과 접근 가능한 캐시·임시물을 제거했다. 독립 프론트 구조에서 frozen lockfile, 58개 테스트, 타입 검사, 린트, 빌드와 OpenAPI 계약을 다시 검증했다.
 - Docker가 `root:root`, mode `111`로 만든 두 물리 worktree와 네 임시 폴더를 PowerShell 7 관리자 경로에서 제거하고, 승인 경로 부재와 보존 대상 존재를 확인했다.
+- Docker 용량 미회수 후속 조사에서 BuildKit 192.5 GB와 비-sparse `docker_data.vhdx` 219.079 GB를 확인했다. `uv` 캐시 5.0 GB가 이미지 레이어에 포함되고 `/app` 5.3 GB 전체 chown이 반복 copy-up되는 것이 원인이며, AI Workshop 전용 private cache ID 31개 143.849 GB를 분리했다.
+- `uv` cache mount와 `/app` chown 제거를 적용한 이미지는 5.960 GB, 내장 uv cache 0 B이며 runtime·data ownership·Dockerfile build check를 통과했다.
+- 구형 image와 승인된 구형 BuildKit chain 7개를 정확한 ID로 제거했다. 승인된 parent 2개는 승인 밖 child 2개가 참조해 보존했고 넓은 prune은 실행하지 않았다.
+- Docker Desktop과 네 DB·검색 서비스를 정상 중단해 VHDX를 오프라인 압축했다. VHDX는 약 227.536 GB에서 57.250 GB, host 여유 공간은 약 32.624 GB에서 202.907 GB가 됐다.
+- 재기동 후 AI Workshop PostgreSQL·Redis·Elasticsearch와 다른 프로젝트 PostgreSQL의 동일 container ID·volume mount·실제 응답을 확인했으며 Docker volume 52개를 모두 보존했다.
+- 최종 검증에서 백엔드 테스트 424개·Ruff·mypy·OpenAPI 계약과 프론트 테스트 58개·타입 검사·린트·빌드가 통과했다.
 
 ### 완료 기준
 
@@ -41,25 +47,26 @@
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. Docker 생성 ACL과 긴 경로가 남은 두 물리 worktree와 네 테스트 임시 폴더를 승인 경계 안에서 제거하고 보존 대상을 재검증했다. 관련 문서: `docs/worklogs/2026-09-01-cache-audit.md`
-2. 캐시 정책을 적용해 Compose를 main 경로로 이전하고 AI Workshop 반복 빌드 이미지 36개, 루트 Node 의존성과 접근 가능한 캐시를 정리·재검증했다. 관련 문서: `CACHE_POLICY.md`, `docs/worklogs/2026-09-01-cache-audit.md`
-3. 첫 RAG 검색 수직 슬라이스를 전체 검증하고 기능 브랜치와 main에 원격 반영했다. 관련 커밋: `47cba3a`
-4. 첫 RAG 검색의 provenance, worker redelivery, system BM25 색인, 결정적 검색과 모델 tokenizer 경계를 최종 리뷰 기준으로 강화하고 실제 스택에서 검증했다. 관련 커밋: `b6a2074..fda000b`
-5. 첫 RAG 검색 수직 슬라이스의 실제 API·worker·Elasticsearch E2E, smoke와 로컬 실행 인계를 완료했다. 관련 커밋: `a559c2d..a041ab6`
+1. Dockerfile의 uv cache·copy-up 중복을 제거하고 구형 전용 산출물을 정리한 뒤 VHDX를 압축해 host 공간 약 170.283 GB를 실제 회수했다. 관련 문서: `CACHE_POLICY.md`, `docs/worklogs/2026-09-01-cache-audit.md`
+2. Docker 생성 ACL과 긴 경로가 남은 두 물리 worktree와 네 테스트 임시 폴더를 승인 경계 안에서 제거하고 보존 대상을 재검증했다. 관련 문서: `docs/worklogs/2026-09-01-cache-audit.md`
+3. 캐시 정책을 적용해 Compose를 main 경로로 이전하고 AI Workshop 반복 빌드 이미지 36개, 루트 Node 의존성과 접근 가능한 캐시를 정리·재검증했다. 관련 문서: `CACHE_POLICY.md`, `docs/worklogs/2026-09-01-cache-audit.md`
+4. 첫 RAG 검색 수직 슬라이스를 전체 검증하고 기능 브랜치와 main에 원격 반영했다. 관련 커밋: `47cba3a`
+5. 첫 RAG 검색의 provenance, worker redelivery, system BM25 색인, 결정적 검색과 모델 tokenizer 경계를 최종 리뷰 기준으로 강화하고 실제 스택에서 검증했다. 관련 커밋: `b6a2074..fda000b`
 
 ## 다음 작업
 
-1. DOCX 구조 파서와 권한이 적용된 원문 뷰어 지원을 설계·구현한다.
-2. DOCX 실측 뒤 스캔 PDF OCR ingestion과 페이지 근거 표시를 계획한다.
-3. 검색 precision과 citation 평가 정책을 통과한 뒤에만 LLM 생성 답변을 검토한다.
+1. 선택적으로 승인 밖 child 2개와 그 parent 2개의 정확한 BuildKit ID 제거 여부를 결정한다.
+2. DOCX의 표·목록·각주를 Evidence Unit과 원문 위치로 표현하는 계약을 설계한다.
+3. 승인된 DOCX 계약에 따라 구조 파서와 권한이 적용된 원문 뷰어 지원을 구현한다.
 
 ## 결정이 필요한 항목
 
+- 잔여 BuildKit child `2grrs1kvnhl00wv6a3woxrse4`, `k3p9ksb7i2e3voptv9mm7tnxn`과 parent `gbcue4z865u4ftzwjtt4ns1s6`, `tm85fl7429z9egnrocphk8aes`의 선택적 제거 여부를 결정해야 한다.
 - DOCX의 표·목록·각주를 Evidence Unit과 원문 위치로 표현하는 계약을 다음 설계에서 확정해야 한다.
 
 ## 차단 요소
 
-- 현재 차단 요소는 없다.
+- 필수 차단 요소는 없다. 잔여 BuildKit 네 레코드는 새 승인을 받기 전까지 보존한다.
 
 ## 작업 인계 메모
 
@@ -70,6 +77,7 @@
 - 루트 `.pnpm-store` junction과 `node_modules`는 제거됐다.
 - 프론트 의존성은 `frontend/node_modules/.pnpm`에 독립 설치됐으며 루트 `node_modules`는 감사 보고서의 레거시 제거 후보로 확정했다.
 - 캐시 정책과 정리를 완료한 뒤 DOCX 구조·뷰어 계약을 먼저 확정한다.
+- 최종 Docker 상태와 잔여 BuildKit 계보는 `docs/worklogs/2026-09-01-cache-audit.md`를 정본으로 사용한다.
 
 ## 갱신 규칙
 

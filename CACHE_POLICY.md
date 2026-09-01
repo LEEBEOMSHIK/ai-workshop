@@ -62,13 +62,23 @@ destructive_approval: required
 - AI Workshop 저장소에서 생성됐음을 증명할 수 있는 미태그 이미지 중 어떤 컨테이너도 참조하지 않는 정확한 이미지 ID를 후보로 보고한다.
 - 현재 검증 기준으로 보존할 태그 이미지 한 개와 그 기반 이미지는 후보에서 제외한다.
 - 완료된 격리 검증의 중지 컨테이너는 AI Workshop 전용 Compose project와 service 라벨, mount와 종료 상태가 확인된 경우에만 후보로 보고한다.
+- BuildKit cache는 커밋된 AI Workshop Dockerfile의 고유 명령 또는 그 전용 build chain으로 소유권을 증명하고, `private`, `reclaimable`, 현재 이미지와 비공유 상태를 모두 확인한 정확한 cache ID만 후보로 보고한다.
 
 ### 차단 및 공유 리소스
 
 - 프로젝트 단독 소유권을 증명할 수 없는 BuildKit 캐시는 정리하지 않고 사용량만 보고한다.
+- 현재 이미지 또는 다른 리소스와 `shared` 상태인 BuildKit cache는 제거하지 않는다.
 - 전역 일괄 정리 기능은 다른 프로젝트의 이미지, 컨테이너와 캐시를 포함할 수 있으므로 사용하지 않는다.
 - Docker 볼륨은 회수 가능으로 표시되더라도 이 정책의 제거 대상이 아니다.
 - 이미지가 다른 이미지의 기반이거나 컨테이너 참조 관계가 불명확하면 보존한다.
+
+### Docker Desktop 저장소 회수
+
+- BuildKit과 image의 논리 삭제량, Docker Desktop 가상 디스크의 실제 할당량과 Windows host 여유 공간을 각각 측정한다.
+- 가상 디스크 압축은 논리 정리 뒤 자동 회수가 실패한 경우에만 별도 후보로 보고한다.
+- 압축 전에 모든 AI Workshop 서비스를 정상 종료하고 Docker Desktop과 WSL이 가상 디스크를 사용하지 않는지 확인한다.
+- 정확한 `docker_data.vhdx` 한 개만 대상으로 하며 Docker Desktop의 data reset, volume 삭제 또는 광범위한 WSL 정리는 사용하지 않는다.
+- 서비스 중단과 가상 디스크 압축은 BuildKit cache 삭제 승인과 분리해 별도 승인을 받는다.
 
 ## 조사 보고 형식
 

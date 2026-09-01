@@ -9,18 +9,20 @@ ENV PATH="/app/.venv/bin:$PATH" \
 WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --all-groups --no-install-project
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --all-groups --no-install-project
 
 COPY alembic ./alembic
 COPY src ./src
 COPY tests ./tests
 COPY tools ./tools
 COPY alembic.ini ./
-RUN uv sync --frozen --all-groups
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --all-groups
 
-RUN useradd --create-home --uid 10001 workshop \
+RUN useradd --no-log-init --create-home --uid 10001 workshop \
     && mkdir -p /data/objects \
-    && chown -R workshop:workshop /app /data
+    && chown -R workshop:workshop /data
 
 USER workshop
 

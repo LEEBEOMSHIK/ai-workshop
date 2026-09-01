@@ -1,7 +1,8 @@
 # 캐시·worktree·Docker 정리 승인 보고
 
-- 상태: 승인 범위 적용과 관리자 ACL 잔여물 제거 완료
+- 상태: 승인 범위 적용, Docker 이미지 재발 방지와 VHDX 물리 용량 회수 완료
 - 조사일: 2026-09-01
+- 최종 검증일: 2026-09-02
 - 기준 정책: `CACHE_POLICY.md`
 - 측정 기준: junction과 symlink target을 따라가지 않은 논리 파일 크기, Docker의 image unique size
 
@@ -97,7 +98,7 @@ sha256:7970d2a0809cd00c580d2ca9bd6daaf3f4d33a9eeaf5a40cdf3ffdd67f2c5ae4
 - `.local-data` 루트와 향후 `objects`, `models` 영속 데이터 영역을 보존한다.
 - `.superpowers\brainstorm\1609-1788023204\content`의 RAG 구성 스튜디오 HTML 목업 두 개를 보존한다.
 - 실행 중인 AI Workshop PostgreSQL, Redis, Elasticsearch는 각 한 개이며 모두 healthy 상태다.
-- 현재 기준 이미지 `ai-workshop-backend:local` (`sha256:d6a1de7e3c390e74adc8f0f2983d5da9f569fb7fcae8957d139760b20619ef6e`)와 PostgreSQL·Redis·Elasticsearch 기반 이미지를 보존한다.
+- 현재 기준 이미지 `ai-workshop-backend:local` (`sha256:ff7e74a63b7a069eab3b5f8ce2632e641ea3c514b12d03f34e9551bced84fb06`)와 PostgreSQL·Redis·Elasticsearch 기반 이미지를 보존한다.
 - 모든 AI Workshop named volume과 업로드·DB·검색·모델 데이터를 보존한다.
 
 ## 3. 차단 대상
@@ -143,3 +144,115 @@ Docker가 `root:root`, mode `111`로 만든 하위 디렉터리는 일반 권한
 - `C:\projects\ai-workshop\.tmp-t10-green-host1`
 
 최종 검증에서 위 여섯 경로는 모두 부재했다. `frontend/node_modules/.pnpm`, `.local-data`, 선별 HTML 목업, Docker volume과 shared BuildKit cache는 그대로 보존됐으며, 검증 시점의 C 드라이브 여유 공간은 39.42 GB였다. 관리자용 일회성 삭제 스크립트도 저장소에서 제거했다.
+
+## 2026-09-01 BuildKit 용량 미회수 후속 조사
+
+이미지 참조 제거만으로는 실제 Docker 저장소 용량이 회수되지 않았다. 후속 측정에서 Docker image는 24.64 GB였지만 BuildKit cache는 192.5 GB, 그중 회수 가능 표시는 173.9 GB였다. `C:\Users\bumci\AppData\Local\Docker\wsl\disk\docker_data.vhdx`는 논리 크기와 실제 할당 크기가 모두 219.079 GB이고 sparse file이 아니었다.
+
+직접 원인은 `backend/Dockerfile`의 두 레이어다. 첫 `uv sync`는 최종 5.3 GB 가상환경 외에 `/root/.cache/uv` 5.0 GB를 같은 이미지 레이어에 남겨 10.7 GB가 됐다. 이후 `chown -R workshop:workshop /app /data`는 `/app` 전체를 copy-up해 빌드마다 약 5.5 GB 레이어를 다시 만들었다. 현재 이미지의 해당 레이어는 공유 상태이므로 보존하지만, 같은 AI Workshop 고유 명령을 가진 private·reclaimable 레코드 31개는 프로젝트 전용 후보로 식별됐다.
+
+### 제거 후보
+
+다음 정확한 BuildKit ID 31개의 논리 합계는 143.849 GB다.
+
+```text
+0tvwklu18skiss70pw1u2zw19
+17e9a5jf8ih4cj8pk36rq5bdh
+1rrout5wxz2peuq1hy80d8ni6
+4k331tfvro7g7e0a0igqzwan1
+5i0gobsx2b29tfvcn1t86pcge
+bb6fhsm5f5xzrb51qvtnemkld
+cqx3tgp632mmay58wtueu0b6b
+d5pqc87ys1h0rzs4hg36k5bxo
+dymrcop1acponr5b1movfsxnz
+f021xp154pir1jtzrz9km0cm3
+hhfjz77912qtlkswh5zdkiwfg
+hyilwukigf2039id0in57s5zz
+l26yc26109tis1gy51ojspfzk
+lluq0c420ysd809xwv0eh9x2q
+ox1qc285lh5alai40hkkqvzyw
+poooo2jb1lo11p1sfm5004muj
+qiazsdj600vv0ju1fjy1nk37b
+r54owwdp4xwfmxx9lj4hzwdy3
+rb9bmdpws5u39zi1jw7fahsrb
+rec9grd7g50bp10wltl9gve96
+rrwyzceejt3by4ytipwtzzqr6
+rz1okp8tbgdlw179aje8ptl3u
+stzocwbsp0k4s2a8oup8a0orx
+t7ij29ja741oxk0wqiwyy7jzv
+tg1qqvz5t47pn2tvwf3fhdljm
+uogeam94r5tejhzjpprt0pqjs
+v5bfwcq0dkrs944j7ebvb5l65
+wa7evwhf4xaxa7dvwgoehg7zq
+x96zs1t81lwqrdnbddyj4s78u
+yuh2r9bbzbt7vi8puol6bdwsr
+z83fg5qsbaxynovlgtah5f5z0
+```
+
+### 보존·차단 경계
+
+- 현재 이미지와 공유되는 `h28gnjvptb3c5adlm80i74a4r` 5.497 GB 레코드는 보존한다.
+- 실행 중 컨테이너, 이미지, Docker volume 52개와 AI Workshop 고유성이 입증되지 않은 나머지 BuildKit 레코드는 변경하지 않는다.
+- `CACHE_POLICY.md`에 private·reclaimable·프로젝트 고유 BuildKit ID의 후보 조건을 먼저 반영하고, 위 ID 목록에 대한 파괴 작업 승인을 받은 뒤에만 제거한다.
+- BuildKit 논리 삭제 뒤 VHDX 실제 할당량과 호스트 여유 공간을 다시 측정한다. 자동 회수가 일어나지 않을 경우 Docker와 WSL을 정상 종료한 VHDX 압축은 별도 승인 대상으로 다룬다.
+
+### 재발 방지 적용
+
+새 Dockerfile은 `uv` 다운로드 캐시를 BuildKit cache mount로 분리하고 `/app` 전체 chown을 제거했다. 실제 후보 이미지 검증에서 image size는 16.664 GB에서 5.960 GB로 감소했고 내장 uv cache는 5.218 GB에서 0 B가 됐다. 비권한 runtime import와 `/data/objects`의 `10001:10001` 소유권도 유지됐다. 검증된 image `sha256:ff7e74a63b7a069eab3b5f8ce2632e641ea3c514b12d03f34e9551bced84fb06`을 `ai-workshop-backend:local`로 승격했다.
+
+후보 image를 빌드하는 동안 BuildKit 자동 GC가 위 31개 승인 ID를 먼저 제거했다. 삭제 명령은 사전 검증에서 선택 ID가 0개인 것을 확인하고 실행되지 않았다. Build cache는 192.5 GB에서 41.15 GB로 줄었지만 VHDX 실제 할당량은 227.568 GB로 증가했고 Windows host 여유 공간은 30.877 GB로 감소했다.
+
+구형 미태그 image `sha256:d6a1de7e3c390e74adc8f0f2983d5da9f569fb7fcae8957d139760b20619ef6e` 16.664 GB는 컨테이너 참조가 없다. 이 image를 제거한 뒤 private 상태로 바뀌는 구형 전용 BuildKit chain은 다음 9개 ID, 논리 합계 16.468 GB다.
+
+```text
+gbcue4z865u4ftzwjtt4ns1s6
+h28gnjvptb3c5adlm80i74a4r
+ckmv7tu9kbbf0unjznnxk3nm9
+so9utccs1lsabbmmpl77ex5q1
+kvzds856r9j23ecn092e5ncm8
+tgs6zi6knoy8ygogtk2l0oid8
+tm85fl7429z9egnrocphk8aes
+uxp32catlcehrlmdub4k89i5d
+hx6boq7i795gm0ps5bcvepno0
+```
+
+### 승인 범위 정리 결과
+
+- 구형 미태그 image `sha256:d6a1de7e3c390e74adc8f0f2983d5da9f569fb7fcae8957d139760b20619ef6e`를 제거하고 부재를 재확인했다.
+- 승인된 구형 전용 BuildKit chain 9개 중 의존 자식이 없던 다음 7개를 정확한 ID로 제거해 논리 5.778 GB를 회수했다.
+
+```text
+h28gnjvptb3c5adlm80i74a4r
+ckmv7tu9kbbf0unjznnxk3nm9
+so9utccs1lsabbmmpl77ex5q1
+kvzds856r9j23ecn092e5ncm8
+tgs6zi6knoy8ygogtk2l0oid8
+uxp32catlcehrlmdub4k89i5d
+hx6boq7i795gm0ps5bcvepno0
+```
+
+- 승인된 parent `gbcue4z865u4ftzwjtt4ns1s6` 10.69 GB와 `tm85fl7429z9egnrocphk8aes` 221.4 kB는 승인 목록 밖의 다음 자식 레코드가 참조하고 있어 정확한 재시도에서도 0 B가 제거됐다.
+
+```text
+2grrs1kvnhl00wv6a3woxrse4  367.1 kB  [5/11] COPY alembic ./alembic
+k3p9ksb7i2e3voptv9mm7tnxn  1.726 MB [6/11] COPY src ./src
+```
+
+- 두 자식은 기존 승인 범위 밖이므로 넓은 prune이나 임의 확장 삭제를 하지 않았다. 네 레코드는 모두 `private`, `reclaimable`, `shared=false`지만 추가 제거에는 정확한 네 ID에 대한 새 승인이 필요하다.
+- Docker Desktop 재기동 뒤 Build cache는 24.25 GB, 회수 가능 표시는 16.33 GB다. 이 수치는 승인 범위 밖의 다른 캐시를 포함하므로 합계만으로 추가 제거하지 않는다.
+
+### VHDX 물리 용량 회수 결과
+
+- AI Workshop PostgreSQL·Redis·Elasticsearch와 다른 프로젝트의 `tpmp-db-local-55432`를 중단하고, Docker Desktop·WSL 종료와 VHDX exclusive open을 확인했다.
+- 정확한 `C:\Users\bumci\AppData\Local\Docker\wsl\disk\docker_data.vhdx`만 DiskPart `compact vdisk`로 압축했다. Docker data reset, volume 삭제와 광범위한 prune은 실행하지 않았다.
+- 압축 직전 약 227.536 GB였던 VHDX 실제 크기는 압축 직후 57.250 GB로 감소했다. Windows host 여유 공간은 약 32.624 GB에서 202.907 GB로 늘어 약 170.283 GB가 실제 회수됐다.
+- Docker Desktop과 네 컨테이너를 다시 시작한 최종 측정은 VHDX 57,283,706,880 B, host 여유 공간 202,819,457,024 B다.
+- AI Workshop 세 컨테이너와 `tpmp-db-local-55432`의 ID 및 기존 named volume mount는 중단 전과 동일하다. PostgreSQL `SELECT 1`, Redis `PONG`, Elasticsearch green, 다른 프로젝트 PostgreSQL `pg_isready`를 확인했다.
+- Docker volume은 압축 전후 모두 52개이며 하나도 제거하지 않았다. 관리자용 임시 압축 스크립트·DiskPart 파일·로그도 최종 제거했다.
+
+### 최종 회귀 검증
+
+- 백엔드 image footprint: 5,959,896,736 B, 내장 uv cache 0 B, 비권한 runtime import 성공, `/data/objects` 소유자 `10001:10001`.
+- Dockerfile build check는 경고 없이 통과했다.
+- 백엔드 단위·API·계약 테스트 424개, Ruff, mypy 130개 source file과 OpenAPI 계약 검사가 통과했다.
+- 프론트 frozen install, 테스트 58개, 타입 검사, 린트와 production build가 통과했다. 검증 산출물 `frontend/dist`는 정책에 따라 다시 제거했다.

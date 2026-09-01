@@ -5,6 +5,7 @@ category: quality
 scope: project
 activation: conditional
 independent_from: [frontend-engineer, python-backend-engineer, ai-engineer, database-administrator, infrastructure-docker-engineer]
+prohibits_same_change_implementation: true
 ---
 
 # 데이터 프라이버시 검증 담당

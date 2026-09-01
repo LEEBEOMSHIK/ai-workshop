@@ -1,14 +1,14 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-02
-- 현재 단계: 승인된 프로젝트 개발 에이전트 조직의 상세 구현 계획 작성
-- 전체 상태: 도구 독립 역할 계약과 온디맨드 오케스트레이션 명세가 승인됐으며, 계약 검증기부터 공통·RAG 역할과 Codex 어댑터까지 TDD로 도입할 계획을 작성하고 있다.
+- 현재 단계: DOCX 구조 파서·원문 뷰어 계약 설계
+- 전체 상태: 프로젝트 개발 에이전트 조직의 도구 독립 정본, Codex 어댑터, 계약 검증과 대표 시나리오 검증을 완료했다. 다음 RAG 확장 경계의 계약 설계를 시작한다.
 
 ## 현재 작업
 
 ### 목표
 
-프로젝트 개발에 필요한 전문 역할을 파일로 관리하고, 메인 오케스트레이터가 작업 영향도에 따라 필요한 역할만 호출하는 도구 독립 온디맨드 에이전트 조직을 설계한다.
+DOCX 구조 파서와 원문 뷰어가 RAG 공통 문서 모델, Evidence Unit과 권한·provenance 경계를 보존하도록 계약을 설계한다.
 
 ### 진행 상태
 
@@ -36,6 +36,8 @@
 - 추가 승인된 BuildKit child 2개와 parent 2개를 자식부터 제거해 Build cache를 24.25 GB에서 13.55 GB로 줄였다. VHDX 실제 크기와 host 여유 공간은 이번 논리 정리만으로 추가 감소하지 않았다.
 - 프로젝트 개발 에이전트와 제품 런타임 에이전트를 분리하고, 공통 프로젝트 역할과 RAG 책임자 아래 전문 역할을 갖는 계층형 조직 설계를 사용자와 확정했다.
 - 역할 선택·사전 고지, 구현과 독립 검증 분리, 전체 소스 하드코딩 방지, 성공 시 임시 기록 자동 정리와 계약 자동 검증 기준을 명세로 작성했다.
+- 격리 worktree `C:\projects\ai-workshop\.worktrees\project-development-agent-organization`을 생성했다. 구현·전체 검증·원격 반영·main 통합과 미추적 파일 조사가 끝난 뒤 별도 승인으로 제거한다.
+- 프로젝트 개발 에이전트 역할 계약, activation rule, workflow, 임시 기록 수명주기, Codex 어댑터와 자동 검증기를 구현하고 대표 역할 선택 시나리오를 검증했다.
 
 ### 완료 기준
 
@@ -50,25 +52,23 @@
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. Dockerfile의 uv cache·copy-up 중복을 제거하고 승인된 전용 BuildKit 계보까지 정리한 뒤 VHDX를 압축해 host 공간 약 170.283 GB를 실제 회수했다. 관련 문서: `CACHE_POLICY.md`, `docs/worklogs/2026-09-01-cache-audit.md`
-2. Docker 생성 ACL과 긴 경로가 남은 두 물리 worktree와 네 테스트 임시 폴더를 승인 경계 안에서 제거하고 보존 대상을 재검증했다. 관련 문서: `docs/worklogs/2026-09-01-cache-audit.md`
-3. 캐시 정책을 적용해 Compose를 main 경로로 이전하고 AI Workshop 반복 빌드 이미지 36개, 루트 Node 의존성과 접근 가능한 캐시를 정리·재검증했다. 관련 문서: `CACHE_POLICY.md`, `docs/worklogs/2026-09-01-cache-audit.md`
-4. 첫 RAG 검색 수직 슬라이스를 전체 검증하고 기능 브랜치와 main에 원격 반영했다. 관련 커밋: `47cba3a`
-5. 첫 RAG 검색의 provenance, worker redelivery, system BM25 색인, 결정적 검색과 모델 tokenizer 경계를 최종 리뷰 기준으로 강화하고 실제 스택에서 검증했다. 관련 커밋: `b6a2074..fda000b`
+1. 프로젝트 개발 에이전트 조직의 역할 계약, activation rule, workflow, 수명주기, Codex 어댑터와 자동 검증을 구현하고 대표 시나리오를 검증했다. 관련 설계: `docs/superpowers/specs/2026-09-02-project-development-agent-organization-design.md`
+2. Dockerfile의 uv cache·copy-up 중복을 제거하고 승인된 전용 BuildKit 계보까지 정리한 뒤 VHDX를 압축해 host 공간 약 170.283 GB를 실제 회수했다. 관련 문서: `CACHE_POLICY.md`, `docs/worklogs/2026-09-01-cache-audit.md`
+3. Docker 생성 ACL과 긴 경로가 남은 두 물리 worktree와 네 테스트 임시 폴더를 승인 경계 안에서 제거하고 보존 대상을 재검증했다. 관련 문서: `docs/worklogs/2026-09-01-cache-audit.md`
+4. 캐시 정책을 적용해 Compose를 main 경로로 이전하고 AI Workshop 반복 빌드 이미지 36개, 루트 Node 의존성과 접근 가능한 캐시를 정리·재검증했다. 관련 문서: `CACHE_POLICY.md`, `docs/worklogs/2026-09-01-cache-audit.md`
+5. 첫 RAG 검색 수직 슬라이스를 전체 검증하고 기능 브랜치와 main에 원격 반영했다. 관련 커밋: `47cba3a`
 
 ## 다음 작업
 
-1. 프로젝트 개발 에이전트 조직 구현 계획의 실행 방식을 확정한다.
-2. 역할 계약·오케스트레이션 어댑터·임시 기록 수명주기·검증 도구를 구현한다.
-3. 프로젝트 에이전트 조직 도입 뒤 DOCX 구조 파서·원문 뷰어 계약 설계로 복귀한다.
+1. DOCX 구조 파서·원문 뷰어 계약 설계
 
 ## 결정이 필요한 항목
 
-- 구현 계획 실행을 subagent-driven 방식과 inline 방식 중에서 선택해야 한다.
+- 없음.
 
 ## 차단 요소
 
-- 구현 계획 실행 방식 선택 전에는 구현 파일을 생성하지 않는다.
+- 없음.
 
 ## 작업 인계 메모
 
@@ -78,7 +78,7 @@
 - RAG worktree의 Git 등록과 물리 폴더, 미등록 foundation 복사본, 네 테스트 임시 폴더가 모두 제거됐다. 상세 결과는 캐시 감사 보고서를 따른다.
 - 루트 `.pnpm-store` junction과 `node_modules`는 제거됐다.
 - 프론트 의존성은 `frontend/node_modules/.pnpm`에 독립 설치됐으며 루트 `node_modules`는 감사 보고서의 레거시 제거 후보로 확정했다.
-- 캐시 정책과 정리를 완료한 뒤 DOCX 구조·뷰어 계약을 먼저 확정한다.
+- 다음 작업은 `DOCX 구조 파서·원문 뷰어 계약 설계`이며, RAG 설계의 공통 문서 모델·형식별 뷰어·권한 경계를 정본으로 삼는다.
 - 최종 Docker 상태와 잔여 BuildKit 계보는 `docs/worklogs/2026-09-01-cache-audit.md`를 정본으로 사용한다.
 - 추가 승인된 잔여 BuildKit 네 레코드는 모두 제거됐으며 추가 Docker 정리는 새 조사와 승인 없이 진행하지 않는다.
 - 프로젝트 개발 에이전트 조직 설계 정본은 `docs/superpowers/specs/2026-09-02-project-development-agent-organization-design.md`다.

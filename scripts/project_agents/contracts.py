@@ -42,6 +42,18 @@ REQUIRED_ROLE_HEADINGS = (
     "## 중단·에스컬레이션",
 )
 TEMPORARY_AGENT_WORK_ROOT = PurePosixPath(".local-data/project-agent-work")
+IMPLEMENTATION_CATEGORIES = frozenset({"engineering", "operations", "domain-specialist"})
+REQUIRED_INDEPENDENT_REVIEW_ROLE_IDS = frozenset(
+    {"integration-e2e-verifier", "independent-code-reviewer"}
+)
+INDEPENDENT_APPROVAL_ROLE_IDS = frozenset(
+    {
+        "integration-e2e-verifier",
+        "independent-code-reviewer",
+        "security-permission-verifier",
+        "data-privacy-verifier",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -52,6 +64,7 @@ class RoleContract:
     scope: str
     activation: str
     independent_from: tuple[str, ...]
+    prohibits_same_change_implementation: bool
     path: Path
 
 
@@ -91,6 +104,9 @@ def load_role(path: Path) -> RoleContract:
         scope=_required_string(frontmatter, "scope"),
         activation=_required_string(frontmatter, "activation"),
         independent_from=_independent_from(frontmatter),
+        prohibits_same_change_implementation=_optional_boolean(
+            frontmatter, "prohibits_same_change_implementation"
+        ),
         path=path,
     )
 
@@ -193,6 +209,13 @@ def _independent_from(frontmatter: Mapping[str, object]) -> tuple[str, ...]:
     return tuple(item.strip() for item in value)
 
 
+def _optional_boolean(frontmatter: Mapping[str, object], field: str) -> bool:
+    value = frontmatter.get(field, False)
+    if not isinstance(value, bool):
+        raise RoleContractError("invalid_boolean_frontmatter_value", f"{field} must be boolean")
+    return value
+
+
 def _required_role_ids(frontmatter: Mapping[str, object]) -> tuple[str, ...]:
     value = frontmatter.get("required_roles")
     if not isinstance(value, list) or not value:
@@ -233,10 +256,14 @@ def _role_paths(root: Path) -> list[Path]:
 def _validate_role_body(path: Path, body: str) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     for heading in REQUIRED_ROLE_HEADINGS:
-        match = re.search(rf"^{re.escape(heading)}\s*$", body, re.MULTILINE)
-        if match is None:
+        matches = tuple(re.finditer(rf"^{re.escape(heading)}\s*$", body, re.MULTILINE))
+        if not matches:
             issues.append(ValidationIssue("missing_role_section", path, f"missing required section {heading}"))
             continue
+        if len(matches) > 1:
+            issues.append(ValidationIssue("duplicate_role_section", path, f"required section {heading} is duplicated"))
+            continue
+        match = matches[0]
         next_heading = re.search(r"^##\s+", body[match.end() :], re.MULTILINE)
         section_end = match.end() + next_heading.start() if next_heading else len(body)
         if not body[match.end() : section_end].strip():
@@ -255,6 +282,22 @@ def _validate_role_values(role: RoleContract) -> list[ValidationIssue]:
     ):
         if value not in allowed:
             issues.append(ValidationIssue(code, role.path, f"{field} has unsupported value {value!r}"))
+    if role.role_id == "project-orchestrator" and role.activation != "always":
+        issues.append(
+            ValidationIssue(
+                "project_orchestrator_must_be_always",
+                role.path,
+                "project-orchestrator must use activation 'always'",
+            )
+        )
+    if role.role_id != "project-orchestrator" and role.activation != "conditional":
+        issues.append(
+            ValidationIssue(
+                "non_orchestrator_must_be_conditional",
+                role.path,
+                "only project-orchestrator may use activation 'always'",
+            )
+        )
     return issues
 
 
@@ -279,6 +322,28 @@ def _validate_role_references(roles: Iterable[RoleContract]) -> list[ValidationI
                         f"independent_from references unknown role_id {reference!r}",
                     )
                 )
+        if (
+            role.category in IMPLEMENTATION_CATEGORIES
+            and not REQUIRED_INDEPENDENT_REVIEW_ROLE_IDS.issubset(role.independent_from)
+        ):
+            issues.append(
+                ValidationIssue(
+                    "missing_independent_review_relationship",
+                    role.path,
+                    "implementation and domain-specialist roles must declare independent verifier and reviewer relationships",
+                )
+            )
+        if (
+            role.role_id in INDEPENDENT_APPROVAL_ROLE_IDS
+            and not role.prohibits_same_change_implementation
+        ):
+            issues.append(
+                ValidationIssue(
+                    "independent_role_missing_implementation_prohibition",
+                    role.path,
+                    "independent verifier and reviewer roles must prohibit implementing the same change",
+                )
+            )
     return issues
 
 
@@ -431,18 +496,17 @@ def _validate_tracked_temporary_paths(root: Path) -> list[ValidationIssue]:
     for raw_path in result.stdout.split("\0"):
         if not raw_path:
             continue
-        if "\\" in raw_path:
+        relative_path = _temporary_agent_work_path(raw_path)
+        if relative_path is None:
             issues.append(_temporary_agent_work_check_failure(root, "git ls-files path validation"))
             continue
-        relative_path = _temporary_agent_work_path(raw_path)
-        if relative_path is not None:
-            issues.append(
-                ValidationIssue(
-                    "tracked_temporary_agent_work",
-                    root.joinpath(*relative_path.parts),
-                    "temporary project-agent work must not be tracked",
-                )
+        issues.append(
+            ValidationIssue(
+                "tracked_temporary_agent_work",
+                root.joinpath(*relative_path.parts),
+                "temporary project-agent work must not be tracked",
             )
+        )
     return issues
 
 

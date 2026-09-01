@@ -84,6 +84,30 @@ EXPECTED_WORKFLOW_SIGNALS = {
     "destructive-operation": ("significant-change-or-merge",),
 }
 
+REPRESENTATIVE_SELECTION_SCENARIOS = {
+    frozenset({"react-ui", "feature-implementation"}): {
+        "frontend-engineer",
+        "test-designer",
+        "integration-e2e-verifier",
+    },
+    frozenset({"python-api-or-worker", "database-or-migration", "feature-implementation"}): {
+        "python-backend-engineer",
+        "database-administrator",
+        "test-designer",
+        "integration-e2e-verifier",
+    },
+    frozenset({"ai-model-or-runtime", "rag-behavior", "feature-implementation"}): {
+        "ai-engineer",
+        "rag-lead",
+        "test-designer",
+        "integration-e2e-verifier",
+    },
+    frozenset({"authentication-permission-or-exposure", "privacy-or-external-transfer"}): {
+        "security-permission-verifier",
+        "data-privacy-verifier",
+    },
+}
+
 
 @pytest.fixture
 def repository_root() -> Path:
@@ -264,6 +288,35 @@ def test_missing_required_heading_is_rejected(tmp_path: Path) -> None:
     assert any(issue.code == "missing_role_section" for issue in issues)
 
 
+def test_duplicate_required_heading_is_rejected(tmp_path: Path) -> None:
+    write_minimal_repository(tmp_path)
+    role = write_role(tmp_path, "roles/a.md", role_id="backend-engineer")
+    role.write_text(
+        role.read_text(encoding="utf-8").replace(
+            "## 목적\n내용", "## 목적\n내용\n\n## 목적\n반복", 1
+        ),
+        encoding="utf-8",
+    )
+
+    issues = validate_repository(tmp_path)
+
+    assert any(issue.code == "duplicate_role_section" for issue in issues)
+
+
+def test_non_orchestrator_always_activation_is_rejected(tmp_path: Path) -> None:
+    write_minimal_repository(tmp_path)
+    write_role(
+        tmp_path,
+        "roles/frontend.md",
+        role_id="frontend-engineer",
+        activation="always",
+    )
+
+    issues = validate_repository(tmp_path)
+
+    assert any(issue.code == "non_orchestrator_must_be_conditional" for issue in issues)
+
+
 def test_unresolved_independent_role_is_rejected(tmp_path: Path) -> None:
     write_minimal_repository(tmp_path)
     write_role(
@@ -276,6 +329,59 @@ def test_unresolved_independent_role_is_rejected(tmp_path: Path) -> None:
     issues = validate_repository(tmp_path)
 
     assert any(issue.code == "unresolved_independent_from" for issue in issues)
+
+
+@pytest.mark.parametrize(
+    ("role_id", "category", "scope"),
+    (
+        ("frontend-engineer", "engineering", "project"),
+        ("document-structure-parser", "domain-specialist", "rag"),
+    ),
+)
+def test_implementation_or_rag_specialist_missing_independent_review_relationship_is_rejected(
+    tmp_path: Path,
+    role_id: str,
+    category: str,
+    scope: str,
+) -> None:
+    write_minimal_repository(tmp_path)
+    write_role(
+        tmp_path,
+        "roles/implementation.md",
+        role_id=role_id,
+        category=category,
+        scope=scope,
+        independent_from=("integration-e2e-verifier",),
+    )
+    write_role(tmp_path, "roles/integration.md", role_id="integration-e2e-verifier")
+    write_role(tmp_path, "roles/reviewer.md", role_id="independent-code-reviewer")
+
+    issues = validate_repository(tmp_path)
+
+    assert any(issue.code == "missing_independent_review_relationship" for issue in issues)
+
+
+@pytest.mark.parametrize(
+    "role_id",
+    (
+        "integration-e2e-verifier",
+        "independent-code-reviewer",
+        "security-permission-verifier",
+        "data-privacy-verifier",
+    ),
+)
+def test_independent_verifier_or_reviewer_without_implementation_prohibition_is_rejected(
+    tmp_path: Path,
+    role_id: str,
+) -> None:
+    write_minimal_repository(tmp_path)
+    write_role(tmp_path, "roles/independent.md", role_id=role_id)
+
+    issues = validate_repository(tmp_path)
+
+    assert any(
+        issue.code == "independent_role_missing_implementation_prohibition" for issue in issues
+    )
 
 
 def test_unresolved_activation_reference_is_rejected(tmp_path: Path) -> None:
@@ -411,6 +517,45 @@ def test_selector_unions_mandatory_roles_without_duplicates() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("signals", "expected_roles"),
+    REPRESENTATIVE_SELECTION_SCENARIOS.items(),
+)
+def test_representative_selection_scenarios_use_exact_mandatory_baselines(
+    repository_root: Path,
+    signals: frozenset[str],
+    expected_roles: set[str],
+) -> None:
+    rules = load_activation_rules(
+        repository_root / "docs" / "project-agents" / "governance" / "activation-rules.md"
+    )
+
+    assert set(select_required_roles(signals, rules)) == expected_roles
+
+
+def test_documentation_only_trivial_typo_needs_no_domain_roles(
+    repository_root: Path,
+) -> None:
+    rules = load_activation_rules(
+        repository_root / "docs" / "project-agents" / "governance" / "activation-rules.md"
+    )
+    workflows = load_repository_workflows(repository_root)
+    feature_workflow = next(
+        workflow for workflow in workflows if workflow.workflow_id == "feature-development"
+    )
+    entry_point = (repository_root / "docs" / "project-agents" / "README.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert select_required_roles((), rules) == ()
+    assert all("rag-behavior" not in workflow.default_signals for workflow in workflows)
+    assert set(select_required_roles(feature_workflow.default_signals, rules)).isdisjoint(
+        EXPECTED_RAG_ROLE_IDS
+    )
+    assert "사소한 오탈자" in entry_point
+    assert "프로젝트 오케스트레이터 단독" in entry_point
+
+
 def test_unknown_signal_is_reported() -> None:
     with pytest.raises(UnknownActivationSignalError, match="unknown-signal"):
         select_required_roles({"unknown-signal"}, ())
@@ -483,7 +628,7 @@ def test_tracked_temporary_agent_work_path_is_rejected(
     assert any(issue.code == "tracked_temporary_agent_work" for issue in issues)
 
 
-def test_temporary_work_validator_does_not_report_git_output_with_path_escape(
+def test_temporary_work_validator_reports_posix_path_escape_as_check_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -506,6 +651,7 @@ def test_temporary_work_validator_does_not_report_git_output_with_path_escape(
 
     issues = validate_repository(tmp_path)
 
+    assert any(issue.code == "temporary_agent_work_check_failed" for issue in issues)
     assert not any(issue.code == "tracked_temporary_agent_work" for issue in issues)
 
 

@@ -7,11 +7,14 @@ from pathlib import Path
 
 import pytest
 
+from scripts import project_agents
 from scripts.project_agents.contracts import (
     ActivationRule,
     RoleContract,
+    WorkflowContract,
     load_activation_rules,
     load_role,
+    load_workflow,
     validate_repository,
 )
 from scripts.project_agents.selection import (
@@ -54,6 +57,30 @@ EXPECTED_PROJECT_ROLE_IDS = {
     "design-adr-documentation-manager",
 }
 
+EXPECTED_RAG_ROLE_IDS = {
+    "rag-lead",
+    "document-structure-parser",
+    "chunking-evidence-unit-specialist",
+    "embedding-model-specialist",
+    "indexing-specialist",
+    "retrieval-fusion-specialist",
+    "evidence-highlight-viewer-specialist",
+    "generation-llm-specialist",
+    "rag-evaluation-specialist",
+}
+
+EXPECTED_WORKFLOW_SIGNALS = {
+    "feature-development": ("requirements-or-behavior", "feature-implementation"),
+    "bug-fix": ("feature-implementation",),
+    "architecture-change": (
+        "requirements-or-behavior",
+        "cross-module-or-public-contract",
+        "significant-change-or-merge",
+        "design-adr-or-document-structure",
+    ),
+    "destructive-operation": ("significant-change-or-merge",),
+}
+
 
 @pytest.fixture
 def repository_root() -> Path:
@@ -63,6 +90,16 @@ def repository_root() -> Path:
 def load_repository_roles(repository_root: Path) -> tuple[RoleContract, ...]:
     role_directory = repository_root / "docs" / "project-agents" / "roles"
     return tuple(load_role(path) for path in sorted(role_directory.rglob("*.md")))
+
+
+def load_repository_rag_roles(repository_root: Path) -> tuple[RoleContract, ...]:
+    domain_directory = repository_root / "docs" / "project-agents" / "domains"
+    return tuple(load_role(path) for path in sorted(domain_directory.rglob("*.md")))
+
+
+def load_repository_workflows(repository_root: Path) -> tuple[WorkflowContract, ...]:
+    workflow_directory = repository_root / "docs" / "project-agents" / "workflows"
+    return tuple(load_workflow(path) for path in sorted(workflow_directory.glob("*.md")))
 
 
 def write_minimal_repository(root: Path) -> None:
@@ -104,6 +141,23 @@ def write_activation_rules(root: Path, rules: str) -> Path:
     path = root / "docs" / "project-agents" / "governance" / "activation-rules.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(f"---\nschema_version: 1\nrules:\n{rules}\n---\n\nRules explain activation.\n", encoding="utf-8")
+    return path
+
+
+def write_workflow(root: Path, *, workflow_id: str, default_signals: tuple[str, ...]) -> Path:
+    path = root / "docs" / "project-agents" / "workflows" / f"{workflow_id}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    signals = "\n".join(f"  - {signal}" for signal in default_signals)
+    path.write_text(
+        "---\n"
+        "schema_version: 1\n"
+        f"workflow_id: {workflow_id}\n"
+        "default_signals:\n"
+        f"{signals}\n"
+        "---\n\n"
+        "Workflow guidance.\n",
+        encoding="utf-8",
+    )
     return path
 
 
@@ -218,6 +272,84 @@ def test_load_activation_rules_reads_typed_frontmatter(tmp_path: Path) -> None:
     rules = load_activation_rules(path)
 
     assert rules == (ActivationRule("react-ui", ("frontend-engineer",)),)
+
+
+def test_load_workflow_reads_typed_frontmatter(tmp_path: Path) -> None:
+    path = write_workflow(
+        tmp_path,
+        workflow_id="feature-development",
+        default_signals=("requirements-or-behavior", "feature-implementation"),
+    )
+
+    workflow = load_workflow(path)
+
+    assert workflow == WorkflowContract(
+        "feature-development",
+        ("requirements-or-behavior", "feature-implementation"),
+        path,
+    )
+
+
+def test_package_exports_workflow_contract_interfaces() -> None:
+    assert project_agents.WorkflowContract is WorkflowContract
+    assert project_agents.load_workflow is load_workflow
+
+
+def test_workflow_signal_must_exist_in_activation_rules(tmp_path: Path) -> None:
+    write_minimal_repository(tmp_path)
+    write_role(tmp_path, "roles/a.md", role_id="backend-engineer")
+    write_activation_rules(
+        tmp_path,
+        "  - signal: feature-implementation\n    required_roles: [backend-engineer]",
+    )
+    write_workflow(
+        tmp_path,
+        workflow_id="feature-development",
+        default_signals=("missing-signal",),
+    )
+
+    issues = validate_repository(tmp_path)
+
+    assert any(issue.code == "unresolved_workflow_signal" for issue in issues)
+
+
+def test_duplicate_workflow_id_is_rejected(tmp_path: Path) -> None:
+    write_minimal_repository(tmp_path)
+    write_role(tmp_path, "roles/a.md", role_id="backend-engineer")
+    write_activation_rules(
+        tmp_path,
+        "  - signal: feature-implementation\n    required_roles: [backend-engineer]",
+    )
+    workflow = write_workflow(
+        tmp_path,
+        workflow_id="feature-development",
+        default_signals=("feature-implementation",),
+    )
+    duplicate = workflow.with_name("feature-development-copy.md")
+    duplicate.write_text(workflow.read_text(encoding="utf-8"), encoding="utf-8")
+
+    issues = validate_repository(tmp_path)
+
+    assert sum(issue.code == "duplicate_workflow_id" for issue in issues) == 2
+
+
+def test_workflow_filename_must_match_workflow_id(tmp_path: Path) -> None:
+    write_minimal_repository(tmp_path)
+    write_role(tmp_path, "roles/a.md", role_id="backend-engineer")
+    write_activation_rules(
+        tmp_path,
+        "  - signal: feature-implementation\n    required_roles: [backend-engineer]",
+    )
+    workflow = write_workflow(
+        tmp_path,
+        workflow_id="feature-development",
+        default_signals=("feature-implementation",),
+    )
+    workflow.rename(workflow.with_name("different-name.md"))
+
+    issues = validate_repository(tmp_path)
+
+    assert any(issue.code == "workflow_filename_mismatch" for issue in issues)
 
 
 def test_selector_unions_mandatory_roles_without_duplicates() -> None:
@@ -374,3 +506,25 @@ def test_repository_contains_exact_initial_project_roles(repository_root: Path) 
     project_ids = {role.role_id for role in roles if role.scope == "project"}
 
     assert project_ids == EXPECTED_PROJECT_ROLE_IDS
+
+
+def test_repository_contains_exact_rag_role_catalog(repository_root: Path) -> None:
+    roles = load_repository_rag_roles(repository_root)
+
+    assert {role.role_id for role in roles} == EXPECTED_RAG_ROLE_IDS
+    assert {role.scope for role in roles} == {"rag"}
+
+
+def test_repository_workflows_have_expected_activation_signals(repository_root: Path) -> None:
+    workflows = load_repository_workflows(repository_root)
+    rules = load_activation_rules(
+        repository_root / "docs" / "project-agents" / "governance" / "activation-rules.md"
+    )
+
+    assert len(workflows) == len(EXPECTED_WORKFLOW_SIGNALS)
+    assert len({workflow.workflow_id for workflow in workflows}) == len(workflows)
+    assert {workflow.path.stem for workflow in workflows} == set(EXPECTED_WORKFLOW_SIGNALS)
+    assert {workflow.workflow_id: workflow.default_signals for workflow in workflows} == EXPECTED_WORKFLOW_SIGNALS
+    assert {
+        signal for workflow in workflows for signal in workflow.default_signals
+    } <= {rule.signal for rule in rules}

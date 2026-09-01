@@ -5,8 +5,10 @@ from .contracts import (
     ActivationRule,
     RoleContract,
     ValidationIssue,
+    WorkflowContract,
     load_activation_rules,
     load_role,
+    load_workflow,
     validate_repository,
 )
 from .selection import UnknownActivationSignalError, select_required_roles
@@ -16,8 +18,10 @@ __all__ = [
     "RoleContract",
     "UnknownActivationSignalError",
     "ValidationIssue",
+    "WorkflowContract",
     "load_activation_rules",
     "load_role",
+    "load_workflow",
     "select_required_roles",
     "validate_repository",
 ]

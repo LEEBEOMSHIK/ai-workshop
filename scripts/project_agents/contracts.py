@@ -73,6 +73,13 @@ class ActivationRule:
     required_roles: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class WorkflowContract:
+    workflow_id: str
+    default_signals: tuple[str, ...]
+    path: Path
+
+
 def load_role(path: Path) -> RoleContract:
     """Load the typed YAML contract at the beginning of a role document."""
     frontmatter, _ = _split_frontmatter(path.read_text(encoding="utf-8"))
@@ -112,6 +119,19 @@ def load_activation_rules(path: Path) -> tuple[ActivationRule, ...]:
     return tuple(rules)
 
 
+def load_workflow(path: Path) -> WorkflowContract:
+    """Load the typed YAML contract at the beginning of a workflow document."""
+    frontmatter, _ = _split_frontmatter(path.read_text(encoding="utf-8"))
+    schema_version = frontmatter.get("schema_version")
+    if schema_version != 1 or isinstance(schema_version, bool):
+        raise RoleContractError("unsupported_workflow_schema", "schema_version must be integer 1")
+    return WorkflowContract(
+        workflow_id=_required_string(frontmatter, "workflow_id"),
+        default_signals=_required_signals(frontmatter),
+        path=path,
+    )
+
+
 def validate_repository(root: Path) -> list[ValidationIssue]:
     """Validate role documents and repository-level project-agent guardrails."""
     issues: list[ValidationIssue] = []
@@ -130,6 +150,7 @@ def validate_repository(root: Path) -> list[ValidationIssue]:
 
     issues.extend(_validate_role_references(roles))
     issues.extend(_validate_activation_references(root, roles))
+    issues.extend(_validate_workflow_references(root))
     issues.extend(_validate_agents_file(root))
     issues.extend(_validate_workboard(root))
     issues.extend(_validate_tracked_temporary_paths(root))
@@ -181,6 +202,18 @@ def _required_role_ids(frontmatter: Mapping[str, object]) -> tuple[str, ...]:
     if len(role_ids) != len(set(role_ids)):
         raise RoleContractError("duplicate_required_role", "required_roles must not contain duplicates")
     return role_ids
+
+
+def _required_signals(frontmatter: Mapping[str, object]) -> tuple[str, ...]:
+    value = frontmatter.get("default_signals")
+    if not isinstance(value, list) or not value:
+        raise RoleContractError("invalid_default_signals", "default_signals must be a non-empty list of signals")
+    if any(not isinstance(item, str) or not item.strip() for item in value):
+        raise RoleContractError("invalid_default_signals", "default_signals must be a non-empty list of signals")
+    signals = tuple(item.strip() for item in value)
+    if len(signals) != len(set(signals)):
+        raise RoleContractError("duplicate_default_signal", "default_signals must not contain duplicates")
+    return signals
 
 
 def _role_paths(root: Path) -> list[Path]:
@@ -268,6 +301,64 @@ def _validate_activation_references(root: Path, roles: Iterable[RoleContract]) -
                         )
                     )
     return issues
+
+
+def _validate_workflow_references(root: Path) -> list[ValidationIssue]:
+    known_signals: set[str] = set()
+    issues: list[ValidationIssue] = []
+    for activation_path in root.rglob("activation-rules.md"):
+        try:
+            known_signals.update(rule.signal for rule in load_activation_rules(activation_path))
+        except RoleContractError:
+            continue
+
+    workflows: list[WorkflowContract] = []
+    for workflow_path in _workflow_paths(root):
+        try:
+            workflow = load_workflow(workflow_path)
+        except RoleContractError as error:
+            issues.append(ValidationIssue(error.code, workflow_path, str(error)))
+            continue
+        workflows.append(workflow)
+        if workflow.path.stem != workflow.workflow_id:
+            issues.append(
+                ValidationIssue(
+                    "workflow_filename_mismatch",
+                    workflow.path,
+                    f"workflow filename {workflow.path.stem!r} must match workflow_id {workflow.workflow_id!r}",
+                )
+            )
+        for signal in workflow.default_signals:
+            if signal not in known_signals:
+                issues.append(
+                    ValidationIssue(
+                        "unresolved_workflow_signal",
+                        workflow.path,
+                        f"workflow references unknown activation signal {signal!r}",
+                    )
+                )
+
+    ids_to_workflows: dict[str, list[WorkflowContract]] = {}
+    for workflow in workflows:
+        ids_to_workflows.setdefault(workflow.workflow_id, []).append(workflow)
+    for workflow_id, matching_workflows in ids_to_workflows.items():
+        if len(matching_workflows) > 1:
+            for workflow in matching_workflows:
+                issues.append(
+                    ValidationIssue(
+                        "duplicate_workflow_id",
+                        workflow.path,
+                        f"workflow_id {workflow_id!r} is duplicated",
+                    )
+                )
+    return issues
+
+
+def _workflow_paths(root: Path) -> list[Path]:
+    directory = root / "docs" / "project-agents" / "workflows"
+    if not directory.is_dir():
+        return []
+    return sorted(directory.glob("*.md"))
 
 
 def _validate_agents_file(root: Path) -> list[ValidationIssue]:

@@ -1,6 +1,6 @@
 # 캐시·worktree·Docker 정리 승인 보고
 
-- 상태: 삭제 전 조사 완료, 승인 대기
+- 상태: 승인 범위 적용 완료, 관리자 ACL 잔여물 후속 필요
 - 조사일: 2026-09-01
 - 기준 정책: `CACHE_POLICY.md`
 - 측정 기준: junction과 symlink target을 따라가지 않은 논리 파일 크기, Docker의 image unique size
@@ -120,3 +120,24 @@ sha256:7970d2a0809cd00c580d2ca9bd6daaf3f4d33a9eeaf5a40cdf3ffdd67f2c5ae4
 4. 나열된 정적 분석·테스트·빌드·도구 산출물만 제거한다.
 5. 나열된 36개 Docker image ID만 제거한다. 전역 prune은 사용하지 않는다.
 6. Git 상태, worktree 목록, 프론트 고정 설치·테스트·타입 검사·린트·빌드·API 계약과 Docker health를 다시 검증한다.
+
+## 2026-09-01 적용 결과
+
+- PostgreSQL·Redis·Elasticsearch를 기존 named volume에 연결한 채 main Compose 경로로 재생성했다. 세 컨테이너 모두 healthy이며 config file과 working directory 라벨이 main 경로를 가리킨다.
+- 정상 종료된 `ai-workshop-object-store-init-1`과 승인된 미태그 이미지 36개를 제거했다.
+- Docker image 논리 사용량은 198.4 GB에서 24.64 GB로 173.76 GB 감소했다. 현재 `ai-workshop-backend:local`과 다른 프로젝트 이미지는 보존됐다.
+- 이미지 제거 뒤 BuildKit 회수 가능 표시는 173.9 GB로 바뀌었지만 shared cache이므로 정책에 따라 제거하지 않았다.
+- Docker volume은 하나도 제거하지 않았다. 총 52개와 6.12 GB가 그대로 보존됐다.
+- 루트 `node_modules`, `.pnpm-store`, 정적 분석 캐시, 접근 가능한 테스트 임시물과 선별된 `.superpowers` 중간 상태를 제거했다.
+- `frontend/node_modules` 독립 구조에서 frozen lockfile, 58개 테스트, 타입 검사, 린트, 빌드와 Docker 기반 OpenAPI 계약 검사를 통과했다. 검증 뒤 `frontend/dist`는 다시 제거했다.
+- Git worktree 등록에는 main만 남았다.
+- Windows host 여유 공간은 조사 시점 대비 약 43.6 MiB 증가했다. pnpm hard link와 Docker Desktop VM 저장소 특성 때문에 Docker 논리 감소량이 host 여유 공간에 즉시 동일하게 반영되지는 않는다.
+
+다음 승인 대상은 삭제 의도가 아니라 실행 권한만 남은 동일 경로다. Docker가 `root:root`, mode `111`로 만든 하위 디렉터리 때문에 현재 Codex 프로세스는 ACL을 읽거나 변경할 수 없다. 우회 권한 변경은 중단했으며 관리자 권한에서 기존 승인 경로만 제거해야 한다.
+
+- `C:\projects\ai-workshop\.worktrees\rag-ai-search-first-slice`
+- `C:\projects\ai-workshop\.worktrees\workshop-foundation`
+- `C:\projects\ai-workshop\.tmp-review-t9-fix1`
+- `C:\projects\ai-workshop\.tmp-review-t9-fix1-final`
+- `C:\projects\ai-workshop\.tmp-t10-base`
+- `C:\projects\ai-workshop\.tmp-t10-green-host1`

@@ -1,8 +1,8 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-01
-- 현재 단계: 캐시 정책·worktree 수명주기·프론트 의존성 경계 정비
-- 전체 상태: 캐시 정책, worktree 수명주기와 프론트 독립 의존성 구조를 구현·검증했고 정확한 정리 대상에 대한 파괴적 작업 승인을 기다린다.
+- 현재 단계: 승인된 캐시·worktree·Docker 정리 적용과 ACL 잔여물 인계
+- 전체 상태: 정책 적용과 Docker 이미지 정리는 완료했고, Docker가 만든 관리자 ACL 물리 폴더만 후속 제거가 필요하다.
 
 ## 현재 작업
 
@@ -23,7 +23,10 @@
 - 병합 검증용 PostgreSQL·Redis·Elasticsearch와 전용 네트워크만 제거해 AI Workshop 서비스는 종류별 한 개씩 유지했다.
 - 루트 캐시를 재점검해 pnpm 의존성 연결, 영속 로컬 데이터, 도구 목업, 테스트 임시물과 worktree를 구분했다. 실제 삭제는 정책 승인 뒤 별도 범위로 진행한다.
 - 루트 `CACHE_POLICY.md`, worktree 수명주기 지침과 Codex 연결 규칙을 구현했다. 프론트 package·lockfile·가상 저장소를 `frontend/`에 한정하고 58개 테스트, 타입 검사, 린트, 빌드와 Docker 기반 OpenAPI 계약 검사를 통과했다.
-- 삭제 전 감사 보고서에서 약 2.43 GiB의 파일시스템 후보와 AI Workshop 반복 빌드 이미지 36개(고유 크기 약 133.98 GB)를 정확한 경로·ID로 확정했다. 실제 삭제와 Compose 관리 경로 이전은 별도 승인을 기다린다.
+- 승인된 미태그 AI Workshop 이미지 36개와 종료 컨테이너를 제거해 Docker image 사용량을 `198.4 GB → 24.64 GB`로 줄였다. 볼륨과 shared BuildKit cache는 제거하지 않았다.
+- PostgreSQL·Redis·Elasticsearch를 기존 named volume에 연결한 채 main Compose 경로로 재생성했고 모두 healthy다.
+- 루트 Node 의존성·pnpm junction과 접근 가능한 캐시·임시물을 제거했다. 독립 프론트 구조에서 frozen lockfile, 58개 테스트, 타입 검사, 린트, 빌드와 OpenAPI 계약을 다시 검증했다.
+- RAG worktree의 Git 등록은 제거됐지만 Docker가 `root:root`, mode `111`로 만든 하위 디렉터리 때문에 두 물리 worktree와 네 임시 폴더는 관리자 ACL 정리가 필요하다.
 
 ### 완료 기준
 
@@ -38,7 +41,7 @@
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. 캐시·Docker 정책과 worktree 완료 수명주기, 프론트 독립 pnpm 구조를 구현하고 삭제 전 감사를 완료했다. 관련 문서: `CACHE_POLICY.md`, `docs/worklogs/2026-09-01-cache-audit.md`
+1. 캐시 정책을 적용해 Compose를 main 경로로 이전하고 AI Workshop 반복 빌드 이미지 36개, 루트 Node 의존성과 접근 가능한 캐시를 정리·재검증했다. 관련 문서: `CACHE_POLICY.md`, `docs/worklogs/2026-09-01-cache-audit.md`
 2. 첫 RAG 검색 수직 슬라이스를 전체 검증하고 기능 브랜치와 main에 원격 반영했다. 관련 커밋: `47cba3a`
 3. 첫 RAG 검색의 provenance, worker redelivery, system BM25 색인, 결정적 검색과 모델 tokenizer 경계를 최종 리뷰 기준으로 강화하고 실제 스택에서 검증했다. 관련 커밋: `b6a2074..fda000b`
 4. 첫 RAG 검색 수직 슬라이스의 실제 API·worker·Elasticsearch E2E, smoke와 로컬 실행 인계를 완료했다. 관련 커밋: `a559c2d..a041ab6`
@@ -46,27 +49,27 @@
 
 ## 다음 작업
 
-1. `docs/worklogs/2026-09-01-cache-audit.md`의 정확한 대상 승인을 받은 뒤 Compose 관리 경로 이전, 완료 worktree·레거시 Node 의존성·캐시와 AI Workshop 반복 빌드 이미지를 정리하고 재검증한다.
+1. 관리자 권한에서 감사 보고서의 ACL 잔여 경로 여섯 개만 제거하고, 물리 경로 부재·Git 상태·Docker health를 최종 확인한다.
 2. 캐시 정리 후 DOCX 구조 파서와 권한이 적용된 원문 뷰어 지원을 설계·구현한다.
 3. DOCX 실측 뒤 스캔 PDF OCR ingestion과 페이지 근거 표시를 계획한다.
 4. 검색 precision과 citation 평가 정책을 통과한 뒤에만 LLM 생성 답변을 검토한다.
 
 ## 결정이 필요한 항목
 
-- 삭제 전 감사 보고서에 나열된 경로, 컨테이너와 Docker image ID의 제거 승인이 필요하다.
+- 관리자 권한이 필요한 Docker 생성 ACL 잔여 폴더를 Codex 외부에서 제거할지 결정해야 한다.
 - DOCX의 표·목록·각주를 Evidence Unit과 원문 위치로 표현하는 계약을 다음 설계에서 확정해야 한다.
 
 ## 차단 요소
 
-- Compose 관리 경로 이전과 실제 정리는 정확한 삭제 대상 승인을 기다린다.
+- Docker가 만든 `root:root`, mode `111` 폴더는 현재 Codex 프로세스에서 ACL 조회·소유권 회수·삭제가 거절된다.
 
 ## 작업 인계 메모
 
 - 새 작업을 시작하기 전에 이 파일과 루트 `AGENTS.md`를 읽는다.
 - 첫 RAG 검색 수직 슬라이스의 최종 증거와 선별 실패 기록은 `docs/worklogs/2026-09-01-rag-integration-verification.md`로 공식 인계했다.
 - 작업 트리의 `.idea/`는 사용자 환경 파일이므로 별도 요청 없이 추적하거나 수정하지 않는다.
-- 활성 RAG worktree는 main과 같은 커밋이지만 미추적 `surface`와 pytest 산출물을 분류한 뒤 Git worktree 절차로만 제거한다.
-- `.pnpm-store` junction은 미등록 `.worktrees/workshop-foundation` 복사본을 가리키므로 두 경로를 하나의 정리 단위로 취급한다.
+- RAG worktree의 Git 등록은 제거됐다. 물리 폴더와 미등록 foundation 복사본은 관리자 ACL 후속 대상이며 상세 경로는 캐시 감사 보고서를 따른다.
+- 루트 `.pnpm-store` junction과 `node_modules`는 제거됐다.
 - 프론트 의존성은 `frontend/node_modules/.pnpm`에 독립 설치됐으며 루트 `node_modules`는 감사 보고서의 레거시 제거 후보로 확정했다.
 - 캐시 정책과 정리를 완료한 뒤 DOCX 구조·뷰어 계약을 먼저 확정한다.
 

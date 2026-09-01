@@ -1,6 +1,6 @@
 # 캐시·worktree·Docker 정리 승인 보고
 
-- 상태: 승인 범위 적용 완료, 관리자 ACL 잔여물 후속 필요
+- 상태: 승인 범위 적용과 관리자 ACL 잔여물 제거 완료
 - 조사일: 2026-09-01
 - 기준 정책: `CACHE_POLICY.md`
 - 측정 기준: junction과 symlink target을 따라가지 않은 논리 파일 크기, Docker의 image unique size
@@ -133,7 +133,7 @@ sha256:7970d2a0809cd00c580d2ca9bd6daaf3f4d33a9eeaf5a40cdf3ffdd67f2c5ae4
 - Git worktree 등록에는 main만 남았다.
 - Windows host 여유 공간은 조사 시점 대비 약 43.6 MiB 증가했다. pnpm hard link와 Docker Desktop VM 저장소 특성 때문에 Docker 논리 감소량이 host 여유 공간에 즉시 동일하게 반영되지는 않는다.
 
-다음 승인 대상은 삭제 의도가 아니라 실행 권한만 남은 동일 경로다. Docker가 `root:root`, mode `111`로 만든 하위 디렉터리 때문에 현재 Codex 프로세스는 ACL을 읽거나 변경할 수 없다. 우회 권한 변경은 중단했으며 관리자 권한에서 기존 승인 경로만 제거해야 한다.
+Docker가 `root:root`, mode `111`로 만든 하위 디렉터리는 일반 권한에서 ACL 조회·소유권 회수·삭제가 거절됐다. 첫 관리자 실행에서는 Windows PowerShell 5.1이 긴 `torch` 라이선스 경로를 순회하지 못해 일부만 제거됐다. 동일 승인 경계를 유지한 채 PowerShell 7 관리자 프로세스에서 소유권과 ACL을 회수하고 긴 경로 형식으로 다음 여섯 경로만 제거했다.
 
 - `C:\projects\ai-workshop\.worktrees\rag-ai-search-first-slice`
 - `C:\projects\ai-workshop\.worktrees\workshop-foundation`
@@ -141,3 +141,5 @@ sha256:7970d2a0809cd00c580d2ca9bd6daaf3f4d33a9eeaf5a40cdf3ffdd67f2c5ae4
 - `C:\projects\ai-workshop\.tmp-review-t9-fix1-final`
 - `C:\projects\ai-workshop\.tmp-t10-base`
 - `C:\projects\ai-workshop\.tmp-t10-green-host1`
+
+최종 검증에서 위 여섯 경로는 모두 부재했다. `frontend/node_modules/.pnpm`, `.local-data`, 선별 HTML 목업, Docker volume과 shared BuildKit cache는 그대로 보존됐으며, 검증 시점의 C 드라이브 여유 공간은 39.42 GB였다. 관리자용 일회성 삭제 스크립트도 저장소에서 제거했다.

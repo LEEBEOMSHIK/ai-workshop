@@ -256,3 +256,22 @@ k3p9ksb7i2e3voptv9mm7tnxn  1.726 MB [6/11] COPY src ./src
 - Dockerfile build check는 경고 없이 통과했다.
 - 백엔드 단위·API·계약 테스트 424개, Ruff, mypy 130개 source file과 OpenAPI 계약 검사가 통과했다.
 - 프론트 frozen install, 테스트 58개, 타입 검사, 린트와 production build가 통과했다. 검증 산출물 `frontend/dist`는 정책에 따라 다시 제거했다.
+
+### 2026-09-02 잔여 BuildKit 추가 승인 결과
+
+사용자가 이전 승인 범위 밖 child 2개와 그 parent 2개의 정확한 ID 제거를 추가 승인했다. 삭제 직전 네 레코드가 모두 `private`, `reclaimable`, `shared=false`이고 같은 구형 AI Workshop Dockerfile chain임을 다시 확인했다.
+
+자식부터 다음 순서로만 제거했다.
+
+```text
+k3p9ksb7i2e3voptv9mm7tnxn  1.726 MB
+2grrs1kvnhl00wv6a3woxrse4  367.1 kB
+gbcue4z865u4ftzwjtt4ns1s6  10.69 GB
+tm85fl7429z9egnrocphk8aes  221.4 kB
+```
+
+- Docker가 보고한 논리 회수량은 합계 약 10.692 GB다. 네 exact ID는 정리 후 모두 부재한다.
+- Build cache는 24.25 GB에서 13.55 GB, 회수 가능 표시는 16.33 GB에서 5.634 GB로 감소했다.
+- VHDX는 57,283,706,880 B로 동일하고 Windows host 여유 공간도 약 202.807 GB로 사실상 변하지 않았다. 이번 단계는 Docker 내부 논리 회수이며 추가 오프라인 압축은 실행하지 않았다.
+- 현재 backend image ID와 5,959,896,736 B 크기는 유지됐다. AI Workshop PostgreSQL·Redis·Elasticsearch와 다른 프로젝트 PostgreSQL의 실제 응답, 기존 mount와 Docker volume 52개를 재확인했다.
+- 나머지 BuildKit cache, image, container와 volume은 조사·승인 범위 밖이므로 변경하지 않았다.

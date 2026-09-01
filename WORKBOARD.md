@@ -1,8 +1,8 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-02
-- 현재 단계: Docker 캐시 재발 방지와 호스트 물리 용량 회수 완료, 잔여 BuildKit 계보의 선택적 추가 승인 대기
-- 전체 상태: 백엔드 이미지를 16.664GB에서 5.960GB로 축소하고 VHDX를 약 227.536GB에서 57.250GB로 압축해 host 공간 약 170.283GB를 회수했다. 보존한 모든 서비스와 volume은 정상이며 승인 범위 밖 캐시는 삭제하지 않았다.
+- 현재 단계: Docker 캐시 정리 완료, DOCX 구조 파서·원문 뷰어 계약 설계 준비
+- 전체 상태: 백엔드 이미지를 16.664GB에서 5.960GB로 축소하고 VHDX 압축으로 host 공간 약 170.283GB를 회수했다. 추가 승인된 잔여 BuildKit 계보 10.692GB도 정확한 ID로 제거했으며 보존한 모든 서비스와 volume은 정상이다.
 
 ## 현재 작업
 
@@ -33,6 +33,7 @@
 - Docker Desktop과 네 DB·검색 서비스를 정상 중단해 VHDX를 오프라인 압축했다. VHDX는 약 227.536 GB에서 57.250 GB, host 여유 공간은 약 32.624 GB에서 202.907 GB가 됐다.
 - 재기동 후 AI Workshop PostgreSQL·Redis·Elasticsearch와 다른 프로젝트 PostgreSQL의 동일 container ID·volume mount·실제 응답을 확인했으며 Docker volume 52개를 모두 보존했다.
 - 최종 검증에서 백엔드 테스트 424개·Ruff·mypy·OpenAPI 계약과 프론트 테스트 58개·타입 검사·린트·빌드가 통과했다.
+- 추가 승인된 BuildKit child 2개와 parent 2개를 자식부터 제거해 Build cache를 24.25 GB에서 13.55 GB로 줄였다. VHDX 실제 크기와 host 여유 공간은 이번 논리 정리만으로 추가 감소하지 않았다.
 
 ### 완료 기준
 
@@ -47,7 +48,7 @@
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. Dockerfile의 uv cache·copy-up 중복을 제거하고 구형 전용 산출물을 정리한 뒤 VHDX를 압축해 host 공간 약 170.283 GB를 실제 회수했다. 관련 문서: `CACHE_POLICY.md`, `docs/worklogs/2026-09-01-cache-audit.md`
+1. Dockerfile의 uv cache·copy-up 중복을 제거하고 승인된 전용 BuildKit 계보까지 정리한 뒤 VHDX를 압축해 host 공간 약 170.283 GB를 실제 회수했다. 관련 문서: `CACHE_POLICY.md`, `docs/worklogs/2026-09-01-cache-audit.md`
 2. Docker 생성 ACL과 긴 경로가 남은 두 물리 worktree와 네 테스트 임시 폴더를 승인 경계 안에서 제거하고 보존 대상을 재검증했다. 관련 문서: `docs/worklogs/2026-09-01-cache-audit.md`
 3. 캐시 정책을 적용해 Compose를 main 경로로 이전하고 AI Workshop 반복 빌드 이미지 36개, 루트 Node 의존성과 접근 가능한 캐시를 정리·재검증했다. 관련 문서: `CACHE_POLICY.md`, `docs/worklogs/2026-09-01-cache-audit.md`
 4. 첫 RAG 검색 수직 슬라이스를 전체 검증하고 기능 브랜치와 main에 원격 반영했다. 관련 커밋: `47cba3a`
@@ -55,18 +56,17 @@
 
 ## 다음 작업
 
-1. 선택적으로 승인 밖 child 2개와 그 parent 2개의 정확한 BuildKit ID 제거 여부를 결정한다.
-2. DOCX의 표·목록·각주를 Evidence Unit과 원문 위치로 표현하는 계약을 설계한다.
-3. 승인된 DOCX 계약에 따라 구조 파서와 권한이 적용된 원문 뷰어 지원을 구현한다.
+1. DOCX의 표·목록·각주를 Evidence Unit과 원문 위치로 표현하는 계약을 설계한다.
+2. 승인된 DOCX 계약에 따라 구조 파서와 권한이 적용된 원문 뷰어 지원을 구현한다.
+3. DOCX 실측 뒤 스캔 PDF OCR ingestion과 페이지 근거 표시를 계획한다.
 
 ## 결정이 필요한 항목
 
-- 잔여 BuildKit child `2grrs1kvnhl00wv6a3woxrse4`, `k3p9ksb7i2e3voptv9mm7tnxn`과 parent `gbcue4z865u4ftzwjtt4ns1s6`, `tm85fl7429z9egnrocphk8aes`의 선택적 제거 여부를 결정해야 한다.
 - DOCX의 표·목록·각주를 Evidence Unit과 원문 위치로 표현하는 계약을 다음 설계에서 확정해야 한다.
 
 ## 차단 요소
 
-- 필수 차단 요소는 없다. 잔여 BuildKit 네 레코드는 새 승인을 받기 전까지 보존한다.
+- 현재 차단 요소는 없다.
 
 ## 작업 인계 메모
 
@@ -78,6 +78,7 @@
 - 프론트 의존성은 `frontend/node_modules/.pnpm`에 독립 설치됐으며 루트 `node_modules`는 감사 보고서의 레거시 제거 후보로 확정했다.
 - 캐시 정책과 정리를 완료한 뒤 DOCX 구조·뷰어 계약을 먼저 확정한다.
 - 최종 Docker 상태와 잔여 BuildKit 계보는 `docs/worklogs/2026-09-01-cache-audit.md`를 정본으로 사용한다.
+- 추가 승인된 잔여 BuildKit 네 레코드는 모두 제거됐으며 추가 Docker 정리는 새 조사와 승인 없이 진행하지 않는다.
 
 ## 갱신 규칙
 

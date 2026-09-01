@@ -1,6 +1,6 @@
 # 프로젝트 개발 에이전트 조직 설계
 
-- 상태: 사용자 검토 대기
+- 상태: 승인됨
 - 기준일: 2026-09-02
 - 적용 범위: AI Workshop 저장소의 설계·구현·검증 작업
 
@@ -81,7 +81,8 @@ docs/project-agents/
 │  ├─ architecture/
 │  ├─ engineering/
 │  ├─ operations/
-│  └─ quality/
+│  ├─ quality/
+│  └─ documentation/
 ├─ domains/
 │  └─ rag/
 │     ├─ rag-lead.md

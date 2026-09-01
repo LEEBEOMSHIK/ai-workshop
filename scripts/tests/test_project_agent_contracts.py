@@ -9,6 +9,7 @@ import pytest
 
 from scripts.project_agents.contracts import (
     ActivationRule,
+    RoleContract,
     load_activation_rules,
     load_role,
     validate_repository,
@@ -35,6 +36,33 @@ REQUIRED_HEADINGS = (
     "## 완료 조건",
     "## 중단·에스컬레이션",
 )
+
+EXPECTED_PROJECT_ROLE_IDS = {
+    "project-orchestrator",
+    "requirements-implementation-designer",
+    "system-architect",
+    "frontend-engineer",
+    "python-backend-engineer",
+    "ai-engineer",
+    "database-administrator",
+    "infrastructure-docker-engineer",
+    "test-designer",
+    "integration-e2e-verifier",
+    "security-permission-verifier",
+    "data-privacy-verifier",
+    "independent-code-reviewer",
+    "design-adr-documentation-manager",
+}
+
+
+@pytest.fixture
+def repository_root() -> Path:
+    return Path(__file__).parents[2]
+
+
+def load_repository_roles(repository_root: Path) -> tuple[RoleContract, ...]:
+    role_directory = repository_root / "docs" / "project-agents" / "roles"
+    return tuple(load_role(path) for path in sorted(role_directory.rglob("*.md")))
 
 
 def write_minimal_repository(root: Path) -> None:
@@ -339,3 +367,10 @@ def test_validate_cli_reports_issues_and_exit_status(tmp_path: Path) -> None:
 
     assert result.returncode == 1
     assert "missing_frontmatter" in result.stdout
+
+
+def test_repository_contains_exact_initial_project_roles(repository_root: Path) -> None:
+    roles = load_repository_roles(repository_root)
+    project_ids = {role.role_id for role in roles if role.scope == "project"}
+
+    assert project_ids == EXPECTED_PROJECT_ROLE_IDS

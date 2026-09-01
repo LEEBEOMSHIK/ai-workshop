@@ -1,14 +1,14 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-01
-- 현재 단계: 첫 RAG AI 검색 수직 슬라이스 완료, DOCX 확장 준비
-- 전체 상태: 최종 리뷰 강화와 실제 스택 검증을 완료했고 다음 작업은 DOCX 구조·뷰어 계약이다.
+- 현재 단계: 첫 RAG AI 검색 수직 슬라이스 main 통합 완료, 캐시 정책 확정
+- 전체 상태: RAG 브랜치와 main 원격 반영을 완료했고 루트 캐시·임시 산출물의 보존 및 정리 기준을 확정하는 중이다.
 
 ## 현재 작업
 
 ### 목표
 
-완료된 첫 RAG 검색 수직 슬라이스를 재현 가능한 기준선으로 인계하고 다음 형식 확장을 준비한다.
+병합된 첫 RAG 검색 기준선을 보존하면서 `CACHE_POLICY.md`와 안전한 정리 절차를 확정한다.
 
 ### 진행 상태
 
@@ -19,6 +19,9 @@
 - Task 14 강화 E2E는 live runtime 밖의 격리 DB·Redis·Elasticsearch reset, foundation/RAG API·worker phase와 beat-only phase를 분리한 보호 프로젝트에서 두 cold/default 실행과 최종 리뷰 실행 모두 통과했다. 최종 실행은 foundation `2 passed`, RAG `17 passed in 110.70s`, beat-only liveness와 post-reset을 검증하고 컨테이너·네트워크만 정리했다.
 - 문장 단위 정확한 provenance와 PDF bbox 제한, ingestion redelivery·오류 위생, system BM25 독립 색인 구독, 검색 tie-break, 고정 모델 tokenizer 기반 청킹·질의 한도를 구현·검증했다.
 - 루트 `surface`, 잠긴 pytest 임시 디렉터리와 개발 Docker 볼륨은 보존했다.
+- `feature/rag-ai-search-first-slice`와 `main`을 동일한 검증 커밋 `47cba3a`로 원격에 반영했다.
+- 병합 검증용 PostgreSQL·Redis·Elasticsearch와 전용 네트워크만 제거해 AI Workshop 서비스는 종류별 한 개씩 유지했다.
+- 루트 캐시를 재점검해 pnpm 의존성 연결, 영속 로컬 데이터, 도구 목업, 테스트 임시물과 worktree를 구분했다. 실제 삭제는 정책 승인 뒤 별도 범위로 진행한다.
 
 ### 완료 기준
 
@@ -26,37 +29,43 @@
 - 프로파일의 활성 물리 색인이 모든 READY 문서 projection을 포함하고 기존·신규 문서를 함께 검색한다.
 - Task 14 RAG E2E, 전체 백엔드·프론트엔드 검사, Compose smoke와 문서 검사가 모두 실제 exit 0을 반환한다.
 - 권한 밖 문서가 답변, 관련 문서, 하이라이트, 뷰어와 평가 케이스 어디에도 노출되지 않는다.
+- 캐시 정책이 영속 데이터, 재생성 가능 캐시, 테스트 임시물, 의존성, 도구 산출물과 worktree의 삭제 조건을 구분한다.
 
 ## 최근 완료 작업
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. 첫 RAG 검색의 provenance, worker redelivery, system BM25 색인, 결정적 검색과 모델 tokenizer 경계를 최종 리뷰 기준으로 강화하고 실제 스택에서 검증했다. 관련 커밋: `b6a2074..fda000b`
-2. 첫 RAG 검색 수직 슬라이스의 실제 API·worker·Elasticsearch E2E, smoke와 로컬 실행 인계를 완료했다. 관련 커밋: `a559c2d..a041ab6`
-3. newline-terminated TXT와 빈 parse/chunk ingestion 경계를 구현하고 검증했다. 관련 커밋: `b7fbbff`
-4. 검증된 자산의 READY 활성화와 RAG handoff 재시도·격리 수명주기를 구현하고 검증했다. 관련 커밋: `f51b3b9`
-5. RAG 구성 스튜디오, 평가 비교와 승격 UI의 상태·경쟁 조건을 구현하고 검증했다. 관련 커밋: `5b108e5`
+1. 첫 RAG 검색 수직 슬라이스를 전체 검증하고 기능 브랜치와 main에 원격 반영했다. 관련 커밋: `47cba3a`
+2. 첫 RAG 검색의 provenance, worker redelivery, system BM25 색인, 결정적 검색과 모델 tokenizer 경계를 최종 리뷰 기준으로 강화하고 실제 스택에서 검증했다. 관련 커밋: `b6a2074..fda000b`
+3. 첫 RAG 검색 수직 슬라이스의 실제 API·worker·Elasticsearch E2E, smoke와 로컬 실행 인계를 완료했다. 관련 커밋: `a559c2d..a041ab6`
+4. newline-terminated TXT와 빈 parse/chunk ingestion 경계를 구현하고 검증했다. 관련 커밋: `b7fbbff`
+5. 검증된 자산의 READY 활성화와 RAG handoff 재시도·격리 수명주기를 구현하고 검증했다. 관련 커밋: `f51b3b9`
 
 ## 다음 작업
 
-1. DOCX 구조 파서와 권한이 적용된 원문 뷰어 지원을 설계·구현한다.
-2. DOCX 실측 뒤 스캔 PDF OCR ingestion과 페이지 근거 표시를 계획한다.
-3. 검색 precision과 citation 평가 정책을 통과한 뒤에만 LLM 생성 답변을 검토한다.
+1. 승인된 설계로 루트 `CACHE_POLICY.md`를 만들고 정책에 따른 정확한 정리 대상을 별도 승인받는다.
+2. 캐시 정리 후 DOCX 구조 파서와 권한이 적용된 원문 뷰어 지원을 설계·구현한다.
+3. DOCX 실측 뒤 스캔 PDF OCR ingestion과 페이지 근거 표시를 계획한다.
+4. 검색 precision과 citation 평가 정책을 통과한 뒤에만 LLM 생성 답변을 검토한다.
 
 ## 결정이 필요한 항목
 
+- `CACHE_POLICY.md`의 분류·승인·worktree 및 junction 처리 설계 승인이 필요하다.
+- 다른 프로젝트 소유의 실행 중 PostgreSQL `tpmp-db-local-55432`를 전역 Docker 정리 범위에 포함할지는 별도 결정이 필요하다.
 - DOCX의 표·목록·각주를 Evidence Unit과 원문 위치로 표현하는 계약을 다음 설계에서 확정해야 한다.
 
 ## 차단 요소
 
-- 현재 차단 요소는 없다.
+- 캐시 정책 파일 생성과 실제 정리는 설계 및 정확한 삭제 대상 승인을 기다린다.
 
 ## 작업 인계 메모
 
 - 새 작업을 시작하기 전에 이 파일과 루트 `AGENTS.md`를 읽는다.
-- 첫 RAG 검색 수직 슬라이스의 검증 증거와 격리 smoke 상태는 무시된 `.superpowers/sdd/2026-08-30-rag-ai-search-first-vertical-slice/task-14-report.md`에 기록했다.
+- 첫 RAG 검색 수직 슬라이스의 검증 증거와 격리 smoke 상태는 활성 RAG worktree의 무시된 `.superpowers/sdd/2026-08-30-rag-ai-search-first-vertical-slice/task-14-report.md`에 기록돼 있으므로 worktree 정리 전에 선별 보존한다.
 - 작업 트리의 `.idea/`는 사용자 환경 파일이므로 별도 요청 없이 추적하거나 수정하지 않는다.
-- 다음 작업은 DOCX 구조·뷰어 계약을 먼저 확정하고 파서·검색·권한·원문 근거를 한 수직 슬라이스로 검증한다.
+- 활성 RAG worktree는 main과 같은 커밋이지만 미추적 `surface`와 pytest 산출물을 분류한 뒤 Git worktree 절차로만 제거한다.
+- `.pnpm-store` junction은 미등록 `.worktrees/workshop-foundation` 복사본을 가리키므로 두 경로를 하나의 정리 단위로 취급한다.
+- 캐시 정책과 정리를 완료한 뒤 DOCX 구조·뷰어 계약을 먼저 확정한다.
 
 ## 갱신 규칙
 

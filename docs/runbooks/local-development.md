@@ -8,7 +8,7 @@
 ## 1. 준비물
 
 - Docker Desktop과 Docker Compose v2
-- Node.js 22.12 이상과 pnpm 11.20
+- Node.js 22.13 이상과 pnpm 11.20
 - 호스트에서 Python 명령을 실행할 경우 Python 3.13과 uv
 - Elasticsearch 1 GiB heap과 E5 worker를 함께 실행할 수 있도록 Docker Desktop에 최소 4 GiB, smoke 중에는 6 GiB 이상 메모리 권장
 
@@ -16,7 +16,7 @@
 
 ```powershell
 Copy-Item .env.example .env
-pnpm install
+pnpm --dir frontend install --frozen-lockfile
 cd backend
 uv sync --all-groups
 cd ..

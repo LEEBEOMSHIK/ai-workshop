@@ -15,7 +15,7 @@ AI Workshop은 AI를 공부한 과정과 실제로 동작하는 기술을 함께
 ## 개발 시작
 
 ```powershell
-pnpm install
+pnpm --dir frontend install --frozen-lockfile
 Copy-Item .env.example .env
 .\scripts\smoke.ps1
 ```
@@ -25,12 +25,14 @@ Elasticsearch와 로컬 모델 cache 준비, 일상 실행, owner 생성, migrat
 ## 설계 문서
 
 - [Codex 프로젝트 지침](AGENTS.md)
+- [프로젝트 캐시 정책](CACHE_POLICY.md)
 - [프로젝트 비전](docs/vision/project-vision.md)
 - [전체 시스템 설계](docs/architecture/system-design.md)
 - [저장소 구조](docs/architecture/repository-structure.md)
 - [개발 및 운영 지침](docs/guidelines/development-guidelines.md)
 - [로컬 개발 실행서](docs/runbooks/local-development.md)
 - [Codex 참고 문서 구조](docs/guidelines/codex/README.md)
+- [완료 worktree 수명주기](docs/guidelines/codex/worktree-lifecycle.md)
 - [RAG AI 검색 설계](docs/labs/rag/design.md)
 - [ADR-0001: 모듈형 모놀리스](docs/decisions/0001-modular-monolith.md)
 - [ADR-0002: 로컬 우선 데이터 경계](docs/decisions/0002-local-first-data-boundary.md)

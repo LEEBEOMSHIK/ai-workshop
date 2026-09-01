@@ -23,6 +23,8 @@
 - 공통 개발 규칙: `docs/guidelines/development-guidelines.md`
 - 로컬 실행과 검증: `docs/runbooks/local-development.md`
 - Codex 참고 문서 구조: `docs/guidelines/codex/README.md`
+- 캐시·Docker 산출물 정책: `CACHE_POLICY.md`
+- worktree 작업과 종료: `docs/guidelines/codex/worktree-lifecycle.md`
 - RAG 작업: `docs/labs/rag/design.md`
 - 기술 결정: `docs/decisions/`
 
@@ -102,3 +104,5 @@
 - 대용량 원본, 임베딩, 모델 가중치와 생성 색인은 Git에 추가하지 않는다.
 - 사용자 또는 다른 도구가 만든 관련 없는 변경을 덮어쓰거나 정리하지 않는다.
 - 커밋에는 현재 작업에 해당하는 파일만 포함한다.
+- 기능이 `main`과 원격에 반영되면 worktree 인계와 정리를 완료 조건에 포함하고 상세 절차를 따른다.
+- 캐시와 Docker 산출물은 `CACHE_POLICY.md`의 조사·승인·재검증 순서 없이 제거하지 않는다.

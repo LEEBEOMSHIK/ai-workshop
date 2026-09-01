@@ -1,14 +1,14 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-01
-- 현재 단계: 첫 RAG AI 검색 수직 슬라이스 main 통합 완료, 캐시 정책 확정
-- 전체 상태: RAG 브랜치와 main 원격 반영을 완료했고 루트 캐시·임시 산출물의 보존 및 정리 기준을 확정하는 중이다.
+- 현재 단계: 캐시 정책·worktree 수명주기·프론트 의존성 경계 정비
+- 전체 상태: 캐시 정책, worktree 수명주기와 프론트 독립 의존성 구조를 구현·검증했고 정확한 정리 대상에 대한 파괴적 작업 승인을 기다린다.
 
 ## 현재 작업
 
 ### 목표
 
-병합된 첫 RAG 검색 기준선을 보존하면서 `CACHE_POLICY.md`와 안전한 정리 절차를 확정한다.
+프론트 Node 의존성을 `frontend/`에 한정하고, 완료된 worktree와 프로젝트 소유 Docker 이미지 캐시의 정리 절차를 `CACHE_POLICY.md`와 Codex 지침에 반영한다.
 
 ### 진행 상태
 
@@ -22,6 +22,8 @@
 - `feature/rag-ai-search-first-slice`와 `main`을 동일한 검증 커밋 `47cba3a`로 원격에 반영했다.
 - 병합 검증용 PostgreSQL·Redis·Elasticsearch와 전용 네트워크만 제거해 AI Workshop 서비스는 종류별 한 개씩 유지했다.
 - 루트 캐시를 재점검해 pnpm 의존성 연결, 영속 로컬 데이터, 도구 목업, 테스트 임시물과 worktree를 구분했다. 실제 삭제는 정책 승인 뒤 별도 범위로 진행한다.
+- 루트 `CACHE_POLICY.md`, worktree 수명주기 지침과 Codex 연결 규칙을 구현했다. 프론트 package·lockfile·가상 저장소를 `frontend/`에 한정하고 58개 테스트, 타입 검사, 린트, 빌드와 Docker 기반 OpenAPI 계약 검사를 통과했다.
+- 삭제 전 감사 보고서에서 약 2.43 GiB의 파일시스템 후보와 AI Workshop 반복 빌드 이미지 36개(고유 크기 약 133.98 GB)를 정확한 경로·ID로 확정했다. 실제 삭제와 Compose 관리 경로 이전은 별도 승인을 기다린다.
 
 ### 완료 기준
 
@@ -30,41 +32,42 @@
 - Task 14 RAG E2E, 전체 백엔드·프론트엔드 검사, Compose smoke와 문서 검사가 모두 실제 exit 0을 반환한다.
 - 권한 밖 문서가 답변, 관련 문서, 하이라이트, 뷰어와 평가 케이스 어디에도 노출되지 않는다.
 - 캐시 정책이 영속 데이터, 재생성 가능 캐시, 테스트 임시물, 의존성, 도구 산출물과 worktree의 삭제 조건을 구분한다.
+- 프론트 설치 기준은 `frontend/package.json`과 `frontend/pnpm-lock.yaml` 하나이며 루트 Node package 파일에 의존하지 않는다.
 
 ## 최근 완료 작업
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. 첫 RAG 검색 수직 슬라이스를 전체 검증하고 기능 브랜치와 main에 원격 반영했다. 관련 커밋: `47cba3a`
-2. 첫 RAG 검색의 provenance, worker redelivery, system BM25 색인, 결정적 검색과 모델 tokenizer 경계를 최종 리뷰 기준으로 강화하고 실제 스택에서 검증했다. 관련 커밋: `b6a2074..fda000b`
-3. 첫 RAG 검색 수직 슬라이스의 실제 API·worker·Elasticsearch E2E, smoke와 로컬 실행 인계를 완료했다. 관련 커밋: `a559c2d..a041ab6`
-4. newline-terminated TXT와 빈 parse/chunk ingestion 경계를 구현하고 검증했다. 관련 커밋: `b7fbbff`
-5. 검증된 자산의 READY 활성화와 RAG handoff 재시도·격리 수명주기를 구현하고 검증했다. 관련 커밋: `f51b3b9`
+1. 캐시·Docker 정책과 worktree 완료 수명주기, 프론트 독립 pnpm 구조를 구현하고 삭제 전 감사를 완료했다. 관련 문서: `CACHE_POLICY.md`, `docs/worklogs/2026-09-01-cache-audit.md`
+2. 첫 RAG 검색 수직 슬라이스를 전체 검증하고 기능 브랜치와 main에 원격 반영했다. 관련 커밋: `47cba3a`
+3. 첫 RAG 검색의 provenance, worker redelivery, system BM25 색인, 결정적 검색과 모델 tokenizer 경계를 최종 리뷰 기준으로 강화하고 실제 스택에서 검증했다. 관련 커밋: `b6a2074..fda000b`
+4. 첫 RAG 검색 수직 슬라이스의 실제 API·worker·Elasticsearch E2E, smoke와 로컬 실행 인계를 완료했다. 관련 커밋: `a559c2d..a041ab6`
+5. newline-terminated TXT와 빈 parse/chunk ingestion 경계를 구현하고 검증했다. 관련 커밋: `b7fbbff`
 
 ## 다음 작업
 
-1. 승인된 설계로 루트 `CACHE_POLICY.md`를 만들고 정책에 따른 정확한 정리 대상을 별도 승인받는다.
+1. `docs/worklogs/2026-09-01-cache-audit.md`의 정확한 대상 승인을 받은 뒤 Compose 관리 경로 이전, 완료 worktree·레거시 Node 의존성·캐시와 AI Workshop 반복 빌드 이미지를 정리하고 재검증한다.
 2. 캐시 정리 후 DOCX 구조 파서와 권한이 적용된 원문 뷰어 지원을 설계·구현한다.
 3. DOCX 실측 뒤 스캔 PDF OCR ingestion과 페이지 근거 표시를 계획한다.
 4. 검색 precision과 citation 평가 정책을 통과한 뒤에만 LLM 생성 답변을 검토한다.
 
 ## 결정이 필요한 항목
 
-- `CACHE_POLICY.md`의 분류·승인·worktree 및 junction 처리 설계 승인이 필요하다.
-- 다른 프로젝트 소유의 실행 중 PostgreSQL `tpmp-db-local-55432`를 전역 Docker 정리 범위에 포함할지는 별도 결정이 필요하다.
+- 삭제 전 감사 보고서에 나열된 경로, 컨테이너와 Docker image ID의 제거 승인이 필요하다.
 - DOCX의 표·목록·각주를 Evidence Unit과 원문 위치로 표현하는 계약을 다음 설계에서 확정해야 한다.
 
 ## 차단 요소
 
-- 캐시 정책 파일 생성과 실제 정리는 설계 및 정확한 삭제 대상 승인을 기다린다.
+- Compose 관리 경로 이전과 실제 정리는 정확한 삭제 대상 승인을 기다린다.
 
 ## 작업 인계 메모
 
 - 새 작업을 시작하기 전에 이 파일과 루트 `AGENTS.md`를 읽는다.
-- 첫 RAG 검색 수직 슬라이스의 검증 증거와 격리 smoke 상태는 활성 RAG worktree의 무시된 `.superpowers/sdd/2026-08-30-rag-ai-search-first-vertical-slice/task-14-report.md`에 기록돼 있으므로 worktree 정리 전에 선별 보존한다.
+- 첫 RAG 검색 수직 슬라이스의 최종 증거와 선별 실패 기록은 `docs/worklogs/2026-09-01-rag-integration-verification.md`로 공식 인계했다.
 - 작업 트리의 `.idea/`는 사용자 환경 파일이므로 별도 요청 없이 추적하거나 수정하지 않는다.
 - 활성 RAG worktree는 main과 같은 커밋이지만 미추적 `surface`와 pytest 산출물을 분류한 뒤 Git worktree 절차로만 제거한다.
 - `.pnpm-store` junction은 미등록 `.worktrees/workshop-foundation` 복사본을 가리키므로 두 경로를 하나의 정리 단위로 취급한다.
+- 프론트 의존성은 `frontend/node_modules/.pnpm`에 독립 설치됐으며 루트 `node_modules`는 감사 보고서의 레거시 제거 후보로 확정했다.
 - 캐시 정책과 정리를 완료한 뒤 DOCX 구조·뷰어 계약을 먼저 확정한다.
 
 ## 갱신 규칙

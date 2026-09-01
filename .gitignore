@@ -3,9 +3,14 @@
 .idea/
 .env
 .local-data/
+.pnpm-store/
 .uv-cache/
 .uv-python/
 node_modules/
+/.tmp-review-*/
+/.tmp-t10-*/
+/.t7fix*/
+/pytest-task*/
 frontend/dist/
 backend/.venv/
 backend/build/

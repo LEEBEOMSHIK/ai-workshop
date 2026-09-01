@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -453,7 +454,10 @@ def test_more_than_five_recent_completions_is_rejected(tmp_path: Path) -> None:
     assert any(issue.code == "too_many_recent_completions" for issue in issues)
 
 
-def test_tracked_temporary_work_path_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tracked_temporary_agent_work_path_is_rejected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     write_minimal_repository(tmp_path)
     write_role(tmp_path, "roles/a.md", role_id="backend-engineer")
     temporary_path = tmp_path / ".local-data" / "project-agent-work" / "task-1" / "handoff.md"
@@ -467,7 +471,7 @@ def test_tracked_temporary_work_path_is_rejected(tmp_path: Path, monkeypatch: py
         "#!/bin/sh\n"
         "case \"$*\" in\n"
         "  *rev-parse*) printf '%s\\n' true ;;\n"
-        "  *) printf '%s\\n' '.local-data/project-agent-work/task-1/handoff.md' ;;\n"
+        "  *) printf '%s' '.local-data/project-agent-work/task-1/handoff.md'; printf '\\000' ;;\n"
         "esac\n",
         encoding="utf-8",
     )
@@ -476,7 +480,60 @@ def test_tracked_temporary_work_path_is_rejected(tmp_path: Path, monkeypatch: py
 
     issues = validate_repository(tmp_path)
 
-    assert any(issue.code == "tracked_temporary_work_path" for issue in issues)
+    assert any(issue.code == "tracked_temporary_agent_work" for issue in issues)
+
+
+def test_temporary_work_validator_does_not_report_git_output_with_path_escape(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    write_minimal_repository(tmp_path)
+    write_role(tmp_path, "roles/a.md", role_id="backend-engineer")
+    (tmp_path / ".git").mkdir()
+    executable_directory = tmp_path / "bin"
+    executable_directory.mkdir()
+    git = executable_directory / "git"
+    git.write_text(
+        "#!/bin/sh\n"
+        "case \"$*\" in\n"
+        "  *rev-parse*) printf '%s\\n' true ;;\n"
+        "  *) printf '%s' '.local-data/project-agent-work/task-1/../../outside.txt'; printf '\\000' ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    git.chmod(0o755)
+    monkeypatch.setenv("PATH", str(executable_directory))
+
+    issues = validate_repository(tmp_path)
+
+    assert not any(issue.code == "tracked_temporary_agent_work" for issue in issues)
+
+
+def test_temporary_work_validator_does_not_report_git_output_with_windows_path_escape(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    write_minimal_repository(tmp_path)
+    write_role(tmp_path, "roles/a.md", role_id="backend-engineer")
+    (tmp_path / ".git").mkdir()
+    executable_directory = tmp_path / "bin"
+    executable_directory.mkdir()
+    git = executable_directory / "git"
+    git.write_text(
+        "#!/bin/sh\n"
+        "case \"$*\" in\n"
+        "  *rev-parse*) printf '%s\\n' true ;;\n"
+        "  *) printf '%s' '.local-data/project-agent-work/task-1\\\\..\\\\outside.txt'; printf '\\000' ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    git.chmod(0o755)
+    monkeypatch.setenv("PATH", str(executable_directory))
+
+    issues = validate_repository(tmp_path)
+
+    assert any(issue.code == "temporary_agent_work_check_failed" for issue in issues)
+    assert not any(issue.code == "tracked_temporary_agent_work" for issue in issues)
 
 
 def test_temporary_work_check_skips_non_git_roots(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -487,7 +544,7 @@ def test_temporary_work_check_skips_non_git_roots(tmp_path: Path, monkeypatch: p
     executable_directory.mkdir()
     git = executable_directory / "git"
     git.write_text(
-        "#!/bin/sh\nprintf '%s\\n' '.local-data/project-agent-work/task-1/handoff.md'\n",
+        "#!/bin/sh\nprintf '%s\\n' false\n",
         encoding="utf-8",
     )
     git.chmod(0o755)
@@ -495,7 +552,59 @@ def test_temporary_work_check_skips_non_git_roots(tmp_path: Path, monkeypatch: p
 
     issues = validate_repository(tmp_path)
 
-    assert not any(issue.code == "tracked_temporary_work_path" for issue in issues)
+    assert not any(issue.code == "temporary_agent_work_check_failed" for issue in issues)
+
+
+def test_temporary_work_check_reports_when_git_repository_probe_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    write_minimal_repository(tmp_path)
+    write_role(tmp_path, "roles/a.md", role_id="backend-engineer")
+    (tmp_path / ".git").mkdir()
+    executable_directory = tmp_path / "bin"
+    executable_directory.mkdir()
+    git = executable_directory / "git"
+    git.write_text(
+        "#!/bin/sh\n"
+        "case \"$*\" in\n"
+        "  *rev-parse*) exit 17 ;;\n"
+        "  *) exit 0 ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    git.chmod(0o755)
+    monkeypatch.setenv("PATH", str(executable_directory))
+
+    issues = validate_repository(tmp_path)
+
+    assert any(issue.code == "temporary_agent_work_check_failed" for issue in issues)
+
+
+def test_temporary_work_check_reports_when_git_tracked_path_query_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    write_minimal_repository(tmp_path)
+    write_role(tmp_path, "roles/a.md", role_id="backend-engineer")
+    (tmp_path / ".git").mkdir()
+    executable_directory = tmp_path / "bin"
+    executable_directory.mkdir()
+    git = executable_directory / "git"
+    git.write_text(
+        "#!/bin/sh\n"
+        "case \"$*\" in\n"
+        "  *rev-parse*) printf '%s\\n' true ;;\n"
+        "  *) exit 23 ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    git.chmod(0o755)
+    monkeypatch.setenv("PATH", str(executable_directory))
+
+    issues = validate_repository(tmp_path)
+
+    assert any(issue.code == "temporary_agent_work_check_failed" for issue in issues)
 
 
 def test_temporary_work_check_reports_when_git_is_unavailable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -509,6 +618,27 @@ def test_temporary_work_check_reports_when_git_is_unavailable(tmp_path: Path, mo
     issues = validate_repository(tmp_path)
 
     assert any(issue.code == "git_unavailable" for issue in issues)
+
+
+def test_repository_ignores_project_agent_temporary_root(repository_root: Path) -> None:
+    if shutil.which("git") is None:
+        pytest.skip("git is not available in this test image")
+    result = subprocess.run(
+        ["git", "check-ignore", ".local-data/project-agent-work/example/task-brief.md"],
+        cwd=repository_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+
+
+def test_cache_policy_classifies_agent_work_as_temporary(repository_root: Path) -> None:
+    policy = (repository_root / "CACHE_POLICY.md").read_text(encoding="utf-8")
+
+    assert ".local-data/project-agent-work" in policy
+    assert "verified" in policy
 
 
 def test_placeholder_text_is_rejected(tmp_path: Path) -> None:

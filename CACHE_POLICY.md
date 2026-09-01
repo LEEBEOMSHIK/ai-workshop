@@ -34,8 +34,11 @@ destructive_approval: required
 | 레거시 루트 패키지 캐시 | `.pnpm-store` | 모든 junction 대상과 프론트 설치 검증을 확인한 뒤에만 일회성 제거 후보로 보고한다. |
 | 정적 분석 캐시 | `.mypy_cache`, `.ruff_cache`, `backend/.mypy_cache`, `backend/.ruff_cache` | 생성 도구가 실행 중이 아니면 재생성 가능한 후보로 보고한다. |
 | 테스트 임시물 | `.local-data/pytest-tmp`, `backend/.pytest-tmp`와 루트의 명시적으로 식별된 pytest 임시 디렉터리 | 실제 테스트 데이터가 아닌지 확인한 뒤 후보로 보고한다. |
+| 프로젝트 에이전트 임시 기록 | `.local-data/project-agent-work/<task-id>/` | 미해결 작업은 보존한다. `verified` 작업만 정확한 task 경로 정리 후보이며, reparse point 또는 임시 루트 밖 경로는 차단한다. |
 | 빌드 산출물 | `frontend/dist`, `backend/build` | 해당 빌드가 재현 가능하고 배포 입력으로 사용 중이지 않을 때 후보로 보고한다. |
 | 도구 산출물 | `.superpowers` | 목업, 최종 검증 보고서와 선별 실패 기록을 먼저 보존하고 중간 상태와 재생성 가능한 diff만 후보로 보고한다. |
+
+프로젝트 에이전트 임시 기록의 상태 전이와 정리 게이트는 [temporary work lifecycle](docs/project-agents/governance/temporary-work-lifecycle.md)를 정본으로 사용한다.
 
 ## worktree 수명주기
 

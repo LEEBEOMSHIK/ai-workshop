@@ -5,7 +5,7 @@ import re
 import subprocess
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import cast
 
 import yaml
@@ -41,6 +41,7 @@ REQUIRED_ROLE_HEADINGS = (
     "## 완료 조건",
     "## 중단·에스컬레이션",
 )
+TEMPORARY_AGENT_WORK_ROOT = PurePosixPath(".local-data/project-agent-work")
 
 
 @dataclass(frozen=True)
@@ -397,10 +398,21 @@ def _validate_workboard(root: Path) -> list[ValidationIssue]:
 
 def _validate_tracked_temporary_paths(root: Path) -> list[ValidationIssue]:
     try:
-        if not _is_git_repository(root):
+        is_repository, repository_issue = _is_git_repository(root)
+        if repository_issue is not None:
+            return [repository_issue]
+        if not is_repository:
             return []
         result = subprocess.run(
-            ["git", "-C", str(root), "ls-files", "--", ".local-data/project-agent-work"],
+            [
+                "git",
+                "-C",
+                str(root),
+                "ls-files",
+                "-z",
+                "--",
+                f"{TEMPORARY_AGENT_WORK_ROOT}/",
+            ],
             check=False,
             capture_output=True,
             text=True,
@@ -414,20 +426,68 @@ def _validate_tracked_temporary_paths(root: Path) -> list[ValidationIssue]:
             )
         ]
     if result.returncode != 0:
-        return []
-    return [
-        ValidationIssue("tracked_temporary_work_path", root / relative_path, "temporary project-agent work must not be tracked")
-        for relative_path in result.stdout.splitlines()
-    ]
+        return [_temporary_agent_work_check_failure(root, "git ls-files")]
+    issues: list[ValidationIssue] = []
+    for raw_path in result.stdout.split("\0"):
+        if not raw_path:
+            continue
+        if "\\" in raw_path:
+            issues.append(_temporary_agent_work_check_failure(root, "git ls-files path validation"))
+            continue
+        relative_path = _temporary_agent_work_path(raw_path)
+        if relative_path is not None:
+            issues.append(
+                ValidationIssue(
+                    "tracked_temporary_agent_work",
+                    root.joinpath(*relative_path.parts),
+                    "temporary project-agent work must not be tracked",
+                )
+            )
+    return issues
 
 
-def _is_git_repository(root: Path) -> bool:
-    if not (root / ".git").exists():
-        return False
-    result = subprocess.run(
-        ["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"],
-        check=False,
-        capture_output=True,
-        text=True,
+def _temporary_agent_work_path(raw_path: str) -> PurePosixPath | None:
+    if "\\" in raw_path:
+        return None
+    relative_path = PurePosixPath(raw_path)
+    if (
+        relative_path.is_absolute()
+        or len(relative_path.parts) < 3
+        or relative_path.parts[:2] != TEMPORARY_AGENT_WORK_ROOT.parts
+        or any(part in {".", ".."} for part in relative_path.parts)
+    ):
+        return None
+    return relative_path
+
+
+def _temporary_agent_work_check_failure(root: Path, operation: str) -> ValidationIssue:
+    return ValidationIssue(
+        "temporary_agent_work_check_failed",
+        root,
+        f"{operation} failed; cannot safely verify tracked temporary project-agent work",
     )
-    return result.returncode == 0 and result.stdout.strip() == "true"
+
+
+def _is_git_repository(root: Path) -> tuple[bool, ValidationIssue | None]:
+    if not (root / ".git").exists():
+        return False, None
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        return False, ValidationIssue(
+            "git_unavailable",
+            root,
+            "git executable is unavailable; cannot verify tracked temporary project-agent work",
+        )
+    if result.returncode != 0:
+        return False, _temporary_agent_work_check_failure(root, "git rev-parse")
+    if result.stdout.strip() == "true":
+        return True, None
+    if result.stdout.strip() == "false":
+        return False, None
+    return False, _temporary_agent_work_check_failure(root, "git rev-parse")

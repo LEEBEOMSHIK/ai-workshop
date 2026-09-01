@@ -67,6 +67,12 @@ class RoleContractError(ValueError):
         self.code = code
 
 
+@dataclass(frozen=True)
+class ActivationRule:
+    signal: str
+    required_roles: tuple[str, ...]
+
+
 def load_role(path: Path) -> RoleContract:
     """Load the typed YAML contract at the beginning of a role document."""
     frontmatter, _ = _split_frontmatter(path.read_text(encoding="utf-8"))
@@ -79,6 +85,31 @@ def load_role(path: Path) -> RoleContract:
         independent_from=_independent_from(frontmatter),
         path=path,
     )
+
+
+def load_activation_rules(path: Path) -> tuple[ActivationRule, ...]:
+    """Load typed mandatory-role rules from activation-rule document frontmatter."""
+    frontmatter, _ = _split_frontmatter(path.read_text(encoding="utf-8"))
+    schema_version = frontmatter.get("schema_version")
+    if schema_version != 1 or isinstance(schema_version, bool):
+        raise RoleContractError("unsupported_activation_schema", "schema_version must be integer 1")
+
+    raw_rules = frontmatter.get("rules")
+    if not isinstance(raw_rules, list):
+        raise RoleContractError("invalid_activation_rules", "rules must be a list")
+
+    rules: list[ActivationRule] = []
+    signals: set[str] = set()
+    for raw_rule in raw_rules:
+        if not isinstance(raw_rule, Mapping):
+            raise RoleContractError("invalid_activation_rule", "each activation rule must be a mapping")
+        signal = _required_string(raw_rule, "signal")
+        required_roles = _required_role_ids(raw_rule)
+        if signal in signals:
+            raise RoleContractError("duplicate_activation_signal", f"activation signal {signal!r} is duplicated")
+        signals.add(signal)
+        rules.append(ActivationRule(signal, required_roles))
+    return tuple(rules)
 
 
 def validate_repository(root: Path) -> list[ValidationIssue]:
@@ -107,7 +138,7 @@ def validate_repository(root: Path) -> list[ValidationIssue]:
 
 def _split_frontmatter(document: str) -> tuple[Mapping[str, object], str]:
     if not document.startswith("---\n"):
-        raise RoleContractError("missing_frontmatter", "role document must start with YAML frontmatter")
+        raise RoleContractError("missing_frontmatter", "document must start with YAML frontmatter")
     closing_marker = document.find("\n---\n", 4)
     if closing_marker == -1:
         raise RoleContractError("invalid_frontmatter", "YAML frontmatter must have a closing delimiter")
@@ -138,6 +169,18 @@ def _independent_from(frontmatter: Mapping[str, object]) -> tuple[str, ...]:
             "independent_from must be a list of non-empty role IDs",
         )
     return tuple(item.strip() for item in value)
+
+
+def _required_role_ids(frontmatter: Mapping[str, object]) -> tuple[str, ...]:
+    value = frontmatter.get("required_roles")
+    if not isinstance(value, list) or not value:
+        raise RoleContractError("invalid_required_roles", "required_roles must be a non-empty list of role IDs")
+    if any(not isinstance(item, str) or not item.strip() for item in value):
+        raise RoleContractError("invalid_required_roles", "required_roles must be a non-empty list of role IDs")
+    role_ids = tuple(item.strip() for item in value)
+    if len(role_ids) != len(set(role_ids)):
+        raise RoleContractError("duplicate_required_role", "required_roles must not contain duplicates")
+    return role_ids
 
 
 def _role_paths(root: Path) -> list[Path]:
@@ -209,22 +252,22 @@ def _validate_activation_references(root: Path, roles: Iterable[RoleContract]) -
     role_ids = frozenset(role.role_id for role in roles)
     issues: list[ValidationIssue] = []
     for path in root.rglob("activation-rules.md"):
-        for reference in _activation_references(path.read_text(encoding="utf-8")):
-            if reference not in role_ids:
-                issues.append(
-                    ValidationIssue(
-                        "unresolved_activation_reference",
-                        path,
-                        f"activation rule references unknown role_id {reference!r}",
+        try:
+            rules = load_activation_rules(path)
+        except RoleContractError as error:
+            issues.append(ValidationIssue(error.code, path, str(error)))
+            continue
+        for rule in rules:
+            for reference in rule.required_roles:
+                if reference not in role_ids:
+                    issues.append(
+                        ValidationIssue(
+                            "unresolved_activation_reference",
+                            path,
+                            f"activation rule references unknown role_id {reference!r}",
+                        )
                     )
-                )
     return issues
-
-
-def _activation_references(document: str) -> set[str]:
-    references = set(re.findall(r"`([a-z0-9]+(?:-[a-z0-9]+)+)`", document))
-    references.update(re.findall(r"^\s*-\s*([a-z0-9]+(?:-[a-z0-9]+)+)\s*$", document, re.MULTILINE))
-    return references
 
 
 def _validate_agents_file(root: Path) -> list[ValidationIssue]:
@@ -257,14 +300,23 @@ def _validate_workboard(root: Path) -> list[ValidationIssue]:
 
 
 def _validate_tracked_temporary_paths(root: Path) -> list[ValidationIssue]:
-    if not _is_git_repository(root):
-        return []
-    result = subprocess.run(
-        ["git", "-C", str(root), "ls-files", "--", ".local-data/project-agent-work"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        if not _is_git_repository(root):
+            return []
+        result = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "--", ".local-data/project-agent-work"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        return [
+            ValidationIssue(
+                "git_unavailable",
+                root,
+                "git executable is unavailable; cannot verify tracked temporary project-agent work",
+            )
+        ]
     if result.returncode != 0:
         return []
     return [

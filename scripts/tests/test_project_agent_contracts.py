@@ -7,7 +7,16 @@ from pathlib import Path
 
 import pytest
 
-from scripts.project_agents.contracts import load_role, validate_repository
+from scripts.project_agents.contracts import (
+    ActivationRule,
+    load_activation_rules,
+    load_role,
+    validate_repository,
+)
+from scripts.project_agents.selection import (
+    UnknownActivationSignalError,
+    select_required_roles,
+)
 
 REQUIRED_HEADINGS = (
     "## 목적",
@@ -61,6 +70,13 @@ def write_role(
         encoding="utf-8",
     )
     return role_path
+
+
+def write_activation_rules(root: Path, rules: str) -> Path:
+    path = root / "docs" / "project-agents" / "governance" / "activation-rules.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"---\nschema_version: 1\nrules:\n{rules}\n---\n\nRules explain activation.\n", encoding="utf-8")
+    return path
 
 
 def test_load_role_reads_valid_frontmatter(tmp_path: Path) -> None:
@@ -155,14 +171,59 @@ def test_unresolved_independent_role_is_rejected(tmp_path: Path) -> None:
 def test_unresolved_activation_reference_is_rejected(tmp_path: Path) -> None:
     write_minimal_repository(tmp_path)
     write_role(tmp_path, "roles/a.md", role_id="backend-engineer")
-    (tmp_path / "activation-rules.md").write_text(
-        "# Activation rules\n\n- `unknown-role`\n",
-        encoding="utf-8",
+    write_activation_rules(
+        tmp_path,
+        "  - signal: api-change\n    required_roles: [unknown-role]",
     )
 
     issues = validate_repository(tmp_path)
 
     assert any(issue.code == "unresolved_activation_reference" for issue in issues)
+
+
+def test_load_activation_rules_reads_typed_frontmatter(tmp_path: Path) -> None:
+    path = write_activation_rules(
+        tmp_path,
+        "  - signal: react-ui\n    required_roles: [frontend-engineer]",
+    )
+
+    rules = load_activation_rules(path)
+
+    assert rules == (ActivationRule("react-ui", ("frontend-engineer",)),)
+
+
+def test_selector_unions_mandatory_roles_without_duplicates() -> None:
+    rules = (
+        ActivationRule("react-ui", ("frontend-engineer", "integration-e2e-verifier")),
+        ActivationRule("feature-implementation", ("test-designer", "integration-e2e-verifier")),
+    )
+
+    selected = select_required_roles({"react-ui", "feature-implementation"}, rules)
+
+    assert selected == (
+        "frontend-engineer",
+        "integration-e2e-verifier",
+        "test-designer",
+    )
+
+
+def test_unknown_signal_is_reported() -> None:
+    with pytest.raises(UnknownActivationSignalError, match="unknown-signal"):
+        select_required_roles({"unknown-signal"}, ())
+
+
+def test_valid_activation_rules_resolve_to_existing_roles(tmp_path: Path) -> None:
+    write_minimal_repository(tmp_path)
+    write_role(tmp_path, "roles/frontend.md", role_id="frontend-engineer")
+    write_role(tmp_path, "roles/verifier.md", role_id="integration-e2e-verifier")
+    write_activation_rules(
+        tmp_path,
+        "  - signal: react-ui\n    required_roles: [frontend-engineer, integration-e2e-verifier]",
+    )
+
+    issues = validate_repository(tmp_path)
+
+    assert not any(issue.code == "unresolved_activation_reference" for issue in issues)
 
 
 def test_agents_file_over_200_lines_is_rejected(tmp_path: Path) -> None:
@@ -232,6 +293,19 @@ def test_temporary_work_check_skips_non_git_roots(tmp_path: Path, monkeypatch: p
     issues = validate_repository(tmp_path)
 
     assert not any(issue.code == "tracked_temporary_work_path" for issue in issues)
+
+
+def test_temporary_work_check_reports_when_git_is_unavailable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    write_minimal_repository(tmp_path)
+    write_role(tmp_path, "roles/a.md", role_id="backend-engineer")
+    (tmp_path / ".git").mkdir()
+    missing_executable_directory = tmp_path / "missing-bin"
+    missing_executable_directory.mkdir()
+    monkeypatch.setenv("PATH", str(missing_executable_directory))
+
+    issues = validate_repository(tmp_path)
+
+    assert any(issue.code == "git_unavailable" for issue in issues)
 
 
 def test_placeholder_text_is_rejected(tmp_path: Path) -> None:

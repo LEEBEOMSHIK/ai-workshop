@@ -1,7 +1,5 @@
-export default function HomePage() {
-  return (
-    <main className="workshop-shell">
-      <h1>AI Workshop</h1>
-    </main>
-  );
+import { HomePage } from "../features/home/HomePage";
+
+export default function HomeRoute() {
+  return <HomePage />;
 }

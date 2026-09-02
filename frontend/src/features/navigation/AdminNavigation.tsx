@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import type { SessionUser } from "../../platform/identity/session";
+import type { SessionUser } from "../identity/session";
 
 export function AdminNavigation({ user }: { user: SessionUser }) {
   return (

@@ -1,6 +1,6 @@
-import { Link } from "react-router-dom";
+import Link from "next/link";
 
-export function App() {
+export function HomePage() {
   return (
     <main className="workshop-shell">
       <div className="ambient ambient-one" aria-hidden="true" />
@@ -26,9 +26,9 @@ export function App() {
             준비하고 있습니다.
           </p>
           <nav className="lab-card-actions" aria-label="Asset Management RAG 바로가기">
-            <Link to="/rag/search">근거 검색</Link>
-            <Link to="/rag/configurations">RAG 구성</Link>
-            <Link to="/rag/models">모델 관리</Link>
+            <Link href="/app/rag/search">근거 검색</Link>
+            <Link href="/app/rag/configurations">RAG 구성</Link>
+            <Link href="/admin/rag/models">모델 관리</Link>
           </nav>
           <span className="card-state">검색 수직 슬라이스 사용 가능</span>
         </article>

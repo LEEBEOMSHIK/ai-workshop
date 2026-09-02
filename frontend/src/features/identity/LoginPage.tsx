@@ -1,16 +1,23 @@
-import { type FormEvent, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+"use client";
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { type FormEvent, useState } from "react";
+
+import { safeReturnPath } from "../../shared/auth/access";
 import { login } from "./api";
 import type { SessionUser } from "./session";
 
 interface LoginPageProps {
+  nextPath?: string;
   authenticate?: (email: string, password: string) => Promise<SessionUser>;
 }
 
-export function LoginPage({ authenticate = login }: LoginPageProps) {
-  const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+export function LoginPage({
+  nextPath = "/app/workspaces",
+  authenticate = login,
+}: LoginPageProps) {
+  const router = useRouter();
   const [user, setUser] = useState<SessionUser | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -26,7 +33,7 @@ export function LoginPage({ authenticate = login }: LoginPageProps) {
         String(form.get("password")),
       );
       setUser(authenticated);
-      navigate(safeReturnPath(searchParams.get("next")), { replace: true });
+      router.replace(safeReturnPath(nextPath));
     } catch {
       setError("이메일 또는 비밀번호를 확인해 주세요.");
     } finally {
@@ -40,9 +47,9 @@ export function LoginPage({ authenticate = login }: LoginPageProps) {
         <section className="auth-card">
           <p className="eyebrow">AUTHENTICATED</p>
           <h1 className="auth-title">{user.display_name}님, 환영합니다.</h1>
-          <a className="primary-link" href="/">
+          <Link className="primary-link" href="/app/workspaces">
             작업소 둘러보기
-          </a>
+          </Link>
         </section>
       </main>
     );
@@ -78,9 +85,4 @@ export function LoginPage({ authenticate = login }: LoginPageProps) {
       </section>
     </main>
   );
-}
-
-function safeReturnPath(candidate: string | null): string {
-  if (!candidate?.startsWith("/") || candidate.startsWith("//")) return "/workspaces";
-  return candidate;
 }

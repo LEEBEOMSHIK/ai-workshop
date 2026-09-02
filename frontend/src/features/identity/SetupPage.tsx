@@ -1,5 +1,7 @@
+"use client";
+
+import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
-import { useNavigate } from "react-router-dom";
 
 import { ApiError } from "../../shared/api/client";
 import { setupOwner, type OwnerSetupRequest } from "./api";
@@ -10,7 +12,7 @@ interface SetupPageProps {
 }
 
 export function SetupPage({ createOwner = setupOwner }: SetupPageProps) {
-  const navigate = useNavigate();
+  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -33,7 +35,7 @@ export function SetupPage({ createOwner = setupOwner }: SetupPageProps) {
     setIsSubmitting(true);
     try {
       await createOwner(request);
-      navigate("/workspaces", { replace: true });
+      router.replace("/app/workspaces");
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 409) {
         setError("관리자 설정이 이미 완료되었습니다. 로그인해 주세요.");

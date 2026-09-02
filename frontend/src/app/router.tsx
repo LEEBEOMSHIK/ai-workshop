@@ -14,12 +14,12 @@ import { SearchPage } from "../labs/rag/search/SearchPage";
 import { SourceViewerRoute } from "../labs/rag/search/SourceViewer";
 import { DocumentPage } from "../platform/assets/DocumentPage";
 import { ApiError } from "../shared/api/client";
-import { getCurrentUser, getSetupStatus } from "../platform/identity/api";
-import { LoginPage } from "../platform/identity/LoginPage";
-import { SetupPage } from "../platform/identity/SetupPage";
+import { getCurrentUser, getSetupStatus } from "../features/identity/api";
+import { LoginPage } from "../features/identity/LoginPage";
+import { SetupPage } from "../features/identity/SetupPage";
 import { listWorkspaces } from "../platform/workspaces/api";
 import { WorkspacePageRoute } from "../platform/workspaces/WorkspacePage";
-import { App } from "./App";
+import { HomePage } from "../features/home/HomePage";
 
 async function documentLoader({ params }: LoaderFunctionArgs) {
   if (!params.workspaceId) return [];
@@ -76,7 +76,7 @@ async function protectedModelLoader(args: LoaderFunctionArgs) {
 export const routes: RouteObject[] = [
   {
     path: "/",
-    element: <App />,
+    element: <HomePage />,
   },
   {
     path: "/login",

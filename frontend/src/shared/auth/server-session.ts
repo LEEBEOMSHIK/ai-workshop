@@ -1,8 +1,8 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-import type { SessionUser } from "../../platform/identity/session";
-import type { SetupStatus } from "../../platform/identity/api";
+import type { SetupStatus } from "../../features/identity/api";
+import type { SessionUser } from "../../features/identity/session";
 import { ApiError } from "../api/client";
 import { serverApiRequest } from "../api/server-client";
 import { canAccessAdmin, unauthenticatedDestination } from "./access";

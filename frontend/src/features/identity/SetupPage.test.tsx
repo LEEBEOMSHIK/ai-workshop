@@ -1,36 +1,34 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createMemoryRouter, RouterProvider } from "react-router-dom";
+import { beforeEach, vi } from "vitest";
 
 import { SetupPage } from "./SetupPage";
+
+const replace = vi.fn();
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace }),
+}));
+
+beforeEach(() => replace.mockClear());
 
 describe("SetupPage", () => {
   it("creates the first administrator and opens the workspace", async () => {
     const user = userEvent.setup();
     const requests: Array<Record<string, string>> = [];
-    const router = createMemoryRouter(
-      [
-        {
-          path: "/setup",
-          element: (
-            <SetupPage
-              createOwner={async (request) => {
-                requests.push(request);
-                return {
-                  id: "6806a6c1-04c4-4f2c-87d8-8cd1bf06e898",
-                  display_name: request.display_name,
-                  email: request.email,
-                  role: "owner",
-                };
-              }}
-            />
-          ),
-        },
-        { path: "/workspaces", element: <h1>지식 공간</h1> },
-      ],
-      { initialEntries: ["/setup"] },
+    render(
+      <SetupPage
+        createOwner={async (request) => {
+          requests.push(request);
+          return {
+            id: "6806a6c1-04c4-4f2c-87d8-8cd1bf06e898",
+            display_name: request.display_name,
+            email: request.email,
+            role: "owner",
+          };
+        }}
+      />,
     );
-    render(<RouterProvider router={router} />);
 
     await user.type(screen.getByLabelText("이름"), "LEE BEOMSHIK");
     await user.type(screen.getByLabelText("이메일"), "bumcity135@naver.com");
@@ -38,7 +36,7 @@ describe("SetupPage", () => {
     await user.type(screen.getByLabelText("비밀번호 확인"), "correct-password");
     await user.click(screen.getByRole("button", { name: "관리자 계정 만들기" }));
 
-    expect(await screen.findByRole("heading", { name: "지식 공간" })).toBeVisible();
+    expect(replace).toHaveBeenCalledWith("/app/workspaces");
     expect(requests).toEqual([
       {
         display_name: "LEE BEOMSHIK",
@@ -52,23 +50,14 @@ describe("SetupPage", () => {
   it("shows a local error when password confirmation does not match", async () => {
     const user = userEvent.setup();
     let called = false;
-    const router = createMemoryRouter(
-      [
-        {
-          path: "/setup",
-          element: (
-            <SetupPage
-              createOwner={async () => {
-                called = true;
-                throw new Error("must not be called");
-              }}
-            />
-          ),
-        },
-      ],
-      { initialEntries: ["/setup"] },
+    render(
+      <SetupPage
+        createOwner={async () => {
+          called = true;
+          throw new Error("must not be called");
+        }}
+      />,
     );
-    render(<RouterProvider router={router} />);
 
     await user.type(screen.getByLabelText("이름"), "LEE BEOMSHIK");
     await user.type(screen.getByLabelText("이메일"), "bumcity135@naver.com");

@@ -458,10 +458,18 @@ describe("SearchPage", () => {
     expect(screen.queryByText(/비공개 문서 제목/)).not.toBeInTheDocument();
   });
 
-  it("registers the evidence search workspace at the public app route", async () => {
+  it("registers the evidence search workspace at the protected app route", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
+        if (input === "/api/v1/auth/me") {
+          return jsonResponse({
+            id: "owner-1",
+            display_name: "LEE BEOMSHIK",
+            email: "bumcity135@naver.com",
+            role: "owner",
+          });
+        }
         if (input === "/api/v1/workspaces") return jsonResponse([]);
         if (input === "/api/v1/rag/configurations") return jsonResponse([]);
         throw new Error(`Unexpected request: ${String(input)}`);
@@ -472,6 +480,51 @@ describe("SearchPage", () => {
     render(<RouterProvider router={router} />);
 
     expect(await screen.findByRole("heading", { name: "근거부터 확인하는 검색" })).toBeVisible();
+  });
+
+  it("redirects an unauthenticated protected search route to login before loading options", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (input === "/api/v1/auth/me") {
+        return jsonResponse({ error: { code: "unauthorized", message: "Unauthorized", correlation_id: "test" } }, 401);
+      }
+      if (input === "/api/v1/setup/status") {
+        return jsonResponse({ setup_required: false });
+      }
+      throw new Error(`Unexpected request: ${String(input)}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const router = createMemoryRouter(routes, { initialEntries: ["/rag/search"] });
+
+    render(<RouterProvider router={router} />);
+
+    expect(await screen.findByRole("heading", { name: "다시 오셨군요." })).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/auth/me",
+      expect.objectContaining({ credentials: "include" }),
+    );
+  });
+
+  it("reports an initial 401 without claiming that authorized data is empty", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (input === "/api/v1/workspaces" || input === "/api/v1/rag/configurations") {
+          return jsonResponse({ error: { code: "unauthorized", message: "Unauthorized", correlation_id: "test" } }, 401);
+        }
+        throw new Error(`Unexpected request: ${String(input)}`);
+      }),
+    );
+
+    render(
+      <MemoryRouter>
+        <SearchPage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("로그인이 필요합니다.");
+    expect(screen.queryByText("검색할 수 있는 지식 공간이 없습니다.")).not.toBeInTheDocument();
+    expect(screen.queryByText("사용할 수 있는 저장 구성이 없습니다.")).not.toBeInTheDocument();
   });
 
   it("announces empty authorized scopes and saved configurations", async () => {

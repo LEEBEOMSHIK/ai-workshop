@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     elasticsearch_url: str = "http://127.0.0.1:9200"
     elasticsearch_index_prefix: str = "ai-workshop-rag"
     model_cache_root: Path = Path(".local-data/models")
+    setup_company_workspace_name: str = "전사 자산운용 지식"
+    setup_personal_workspace_name: str = "개인 연구"
 
     @property
     def secure_cookies(self) -> bool:

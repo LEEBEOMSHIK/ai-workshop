@@ -2,7 +2,7 @@
 
 - 마지막 갱신일: 2026-09-02
 - 현재 단계: DOCX 구조 파서·원문 뷰어 계약 설계
-- 전체 상태: 프로젝트 개발 에이전트 조직의 도구 독립 정본, Codex 어댑터, 계약 검증과 대표 시나리오 검증을 완료했다. 다음 RAG 확장 경계의 계약 설계를 시작한다.
+- 전체 상태: 최초 관리자 UI와 로컬 인증·RAG 진입 흐름을 구현·검증했다. 다음 RAG 문서 형식 확장 계약을 설계한다.
 
 ## 현재 작업
 
@@ -12,6 +12,10 @@ DOCX 구조 파서와 원문 뷰어가 RAG 공통 문서 모델, Evidence Unit�
 
 ### 진행 상태
 
+- 최초 관리자 설정 서비스·공개 상태 API·`/setup` UI, 생성 직후 세션 발급과 보호 경로의 setup/login 분기를 구현했다.
+- 관리자와 전사·개인 기본 지식 공간을 동일 트랜잭션에서 생성하고 PostgreSQL table lock으로 동시 최초 설정을 직렬화한다.
+- CLI owner bootstrap은 정상 사용자 흐름에서 제외하고 같은 계약을 따르는 복구 수단으로 한정했다.
+- 깨끗한 로컬 DB의 설정 필요 상태를 호스트 API와 Vite proxy에서 확인했으며 실제 사용자 비밀번호나 임의 관리자 계정은 만들지 않았다.
 - Markdown·TXT·텍스트 PDF 파싱, 구조 청킹, 로컬 E5 임베딩, Elasticsearch BM25+dense, Python RRF, 근거 응답·뷰어, 저장 구성과 평가 UI를 구현했다.
 - 자산 READY 활성화, 구독별 ingestion handoff, 다중 활성 build alias와 PostgreSQL-authoritative 검색 수명주기를 구현했다.
 - newline-terminated TXT와 빈 parse/chunk 경계를 명시적으로 처리하며, 실패 시 parser나 모델을 조용히 바꾸지 않는다.
@@ -41,22 +45,21 @@ DOCX 구조 파서와 원문 뷰어가 RAG 공통 문서 모델, Evidence Unit�
 
 ### 완료 기준
 
-- 역할 계약은 도구 독립 정본과 Codex 어댑터를 분리한다.
-- 오케스트레이터가 activation rule에 따라 필요한 역할과 제외 이유를 고지한다.
-- 구현자와 독립 검증자·리뷰어를 분리한다.
-- 하드코딩 방지 계약을 프론트, 백엔드, DB, 인프라, AI와 미래 Labs에 적용한다.
-- 성공한 임시 에이전트 기록은 자동 정리하고 실패·차단 기록은 해결에 필요한 최소 범위만 유지한다.
-- 역할 파일, 참조, `AGENTS.md` 200줄과 `WORKBOARD.md` 최근 완료 5개 제한을 자동 검증한다.
+- DOCX 제목, 문단, 목록과 표를 공통 Structural Element로 매핑하는 규칙을 정한다.
+- Evidence Unit에서 DOCX 원문 위치로 돌아가는 불변 provenance 계약을 정한다.
+- 형식별 원문 뷰어와 정확·의미 하이라이트 표시 경계를 정한다.
+- 손상 문서, 지원하지 않는 요소와 부분 파싱을 조용히 성공 처리하지 않는 실패 계약을 정한다.
+- 공개·합성 fixture와 파서·뷰어 검증 범위를 구현 전에 확정한다.
 
 ## 최근 완료 작업
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. 프로젝트 개발 에이전트 조직의 역할 계약, activation rule, workflow, 수명주기, Codex 어댑터와 자동 검증을 구현하고 대표 시나리오를 검증했다. 관련 설계: `docs/superpowers/specs/2026-09-02-project-development-agent-organization-design.md`
-2. Dockerfile의 uv cache·copy-up 중복을 제거하고 승인된 전용 BuildKit 계보까지 정리한 뒤 VHDX를 압축해 host 공간 약 170.283 GB를 실제 회수했다. 관련 문서: `CACHE_POLICY.md`, `docs/worklogs/2026-09-01-cache-audit.md`
-3. Docker 생성 ACL과 긴 경로가 남은 두 물리 worktree와 네 테스트 임시 폴더를 승인 경계 안에서 제거하고 보존 대상을 재검증했다. 관련 문서: `docs/worklogs/2026-09-01-cache-audit.md`
-4. 캐시 정책을 적용해 Compose를 main 경로로 이전하고 AI Workshop 반복 빌드 이미지 36개, 루트 Node 의존성과 접근 가능한 캐시를 정리·재검증했다. 관련 문서: `CACHE_POLICY.md`, `docs/worklogs/2026-09-01-cache-audit.md`
-5. 첫 RAG 검색 수직 슬라이스를 전체 검증하고 기능 브랜치와 main에 원격 반영했다. 관련 커밋: `47cba3a`
+1. 최초 관리자 1명을 만드는 `/setup` UI와 API, 전사·개인 기본 공간의 원자적 생성, 동시 설정 방지, setup/login 보호 경로 분기와 복구용 CLI 계약을 구현·검증했다. 관련 결정: `docs/decisions/0004-first-owner-ui-setup.md`
+2. 프로젝트 개발 에이전트 조직의 역할 계약, activation rule, workflow, 수명주기, Codex 어댑터와 자동 검증을 구현하고 대표 시나리오를 검증했다. 관련 설계: `docs/superpowers/specs/2026-09-02-project-development-agent-organization-design.md`
+3. Dockerfile의 uv cache·copy-up 중복을 제거하고 승인된 전용 BuildKit 계보까지 정리한 뒤 VHDX를 압축해 host 공간 약 170.283 GB를 실제 회수했다. 관련 문서: `CACHE_POLICY.md`, `docs/worklogs/2026-09-01-cache-audit.md`
+4. Docker 생성 ACL과 긴 경로가 남은 두 물리 worktree와 네 테스트 임시 폴더를 승인 경계 안에서 제거하고 보존 대상을 재검증했다. 관련 문서: `docs/worklogs/2026-09-01-cache-audit.md`
+5. 캐시 정책을 적용해 Compose를 main 경로로 이전하고 AI Workshop 반복 빌드 이미지 36개, 루트 Node 의존성과 접근 가능한 캐시를 정리·재검증했다. 관련 문서: `CACHE_POLICY.md`, `docs/worklogs/2026-09-01-cache-audit.md`
 
 ## 다음 작업
 

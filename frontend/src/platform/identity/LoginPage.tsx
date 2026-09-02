@@ -1,4 +1,5 @@
 import { type FormEvent, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { login } from "./api";
 import type { SessionUser } from "./session";
@@ -8,6 +9,8 @@ interface LoginPageProps {
 }
 
 export function LoginPage({ authenticate = login }: LoginPageProps) {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [user, setUser] = useState<SessionUser | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -18,9 +21,12 @@ export function LoginPage({ authenticate = login }: LoginPageProps) {
     setError(null);
     setIsSubmitting(true);
     try {
-      setUser(
-        await authenticate(String(form.get("email")), String(form.get("password"))),
+      const authenticated = await authenticate(
+        String(form.get("email")),
+        String(form.get("password")),
       );
+      setUser(authenticated);
+      navigate(safeReturnPath(searchParams.get("next")), { replace: true });
     } catch {
       setError("이메일 또는 비밀번호를 확인해 주세요.");
     } finally {
@@ -72,4 +78,9 @@ export function LoginPage({ authenticate = login }: LoginPageProps) {
       </section>
     </main>
   );
+}
+
+function safeReturnPath(candidate: string | null): string {
+  if (!candidate?.startsWith("/") || candidate.startsWith("//")) return "/workspaces";
+  return candidate;
 }

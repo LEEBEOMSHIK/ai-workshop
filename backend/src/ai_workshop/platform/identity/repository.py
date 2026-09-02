@@ -1,7 +1,7 @@
 from typing import Protocol
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_workshop.platform.identity.domain import User, UserRole
@@ -50,6 +50,10 @@ class SqlAlchemyUserRepository:
             select(UserRecord.id).where(UserRecord.role == UserRole.OWNER).limit(1)
         )
         return result.scalar_one_or_none() is not None
+
+    async def lock_owner_setup(self) -> None:
+        """Serialize the one-time owner setup within the current transaction."""
+        await self.session.execute(text("LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE"))
 
     async def add(self, user: User) -> User:
         record = UserRecord(

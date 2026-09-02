@@ -11,6 +11,8 @@ EXPECTED_PATHS = {
     "/api/v1/auth/login",
     "/api/v1/auth/logout",
     "/api/v1/auth/me",
+    "/api/v1/setup/status",
+    "/api/v1/setup/owner",
     "/api/v1/documents/{document_id}/versions",
     "/api/v1/health",
     "/api/v1/jobs/{job_id}",
@@ -31,7 +33,13 @@ EXPECTED_PATHS = {
     "/api/v1/workspaces/{workspace_id}/documents",
     "/api/v1/workspaces/{workspace_id}/folders",
 }
-PUBLIC_PATHS = {"/api/v1/auth/login", "/api/v1/auth/logout", "/api/v1/health"}
+PUBLIC_PATHS = {
+    "/api/v1/auth/login",
+    "/api/v1/auth/logout",
+    "/api/v1/health",
+    "/api/v1/setup/status",
+    "/api/v1/setup/owner",
+}
 COMMON_ERROR_STATUSES = {"401", "404", "409", "422"}
 
 

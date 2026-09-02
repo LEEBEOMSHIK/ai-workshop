@@ -121,6 +121,14 @@ describe("ConfigurationStudioPage", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
+        if (input === "/api/v1/auth/me") {
+          return jsonResponse({
+            id: "owner-1",
+            display_name: "LEE BEOMSHIK",
+            email: "bumcity135@naver.com",
+            role: "owner",
+          });
+        }
         if (input === "/api/v1/rag/configurations") return jsonResponse([baselineConfiguration()]);
         if (input === "/api/v1/rag/models") return jsonResponse([]);
         if (String(input).startsWith("/api/v1/rag/profiles/")) return jsonResponse([]);

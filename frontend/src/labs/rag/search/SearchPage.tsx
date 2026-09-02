@@ -35,6 +35,7 @@ export function SearchPage() {
     context: SearchSubmissionContext;
   } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [optionsLoadFailed, setOptionsLoadFailed] = useState(false);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState("");
   const requestGeneration = useRef(0);
@@ -44,10 +45,16 @@ export function SearchPage() {
     let active = true;
     loadSearchOptions()
       .then((loaded) => {
-        if (active) setOptions(loaded);
+        if (active) {
+          setOptions(loaded);
+          setOptionsLoadFailed(false);
+        }
       })
-      .catch(() => {
-        if (active) setError("검색 범위와 구성을 불러오지 못했습니다.");
+      .catch((caught: unknown) => {
+        if (active) {
+          setOptionsLoadFailed(true);
+          setError(searchOptionsErrorMessage(caught));
+        }
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -183,7 +190,7 @@ export function SearchPage() {
       {loading ? <p role="status">검색 옵션을 불러오는 중…</p> : null}
       {error ? <p className="form-error" role="alert">{error}</p> : null}
 
-      {!loading ? (
+      {!loading && !optionsLoadFailed ? (
         <form className="search-controls" onSubmit={handleSubmit}>
           <fieldset disabled={searching}>
             <legend>검색할 지식 공간</legend>
@@ -320,4 +327,9 @@ function searchErrorMessage(error: unknown): string {
     return "검색 서비스가 일시적으로 준비되지 않았습니다. 잠시 후 다시 시도해 주세요.";
   }
   return "검색 요청을 완료하지 못했습니다.";
+}
+
+function searchOptionsErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.status === 401) return "로그인이 필요합니다.";
+  return "검색 범위와 구성을 불러오지 못했습니다.";
 }

@@ -157,6 +157,21 @@ h1 {
   color: #6f7b87;
 }
 
+.lab-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin: 1.25rem 0 0;
+}
+
+.lab-card-actions a {
+  color: var(--ink-strong);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.25rem;
+}
+
 @media (max-width: 780px) {
   .workshop-shell {
     padding: 2rem 1.25rem 4rem;
@@ -251,6 +266,12 @@ h1 {
   margin: 0;
   color: #ff9d8f;
   font-size: 0.86rem;
+}
+
+.auth-hint {
+  margin: -0.35rem 0 0;
+  color: #7f8c97;
+  font-size: 0.78rem;
 }
 
 .workspace-shell {

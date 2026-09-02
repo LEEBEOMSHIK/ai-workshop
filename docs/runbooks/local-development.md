@@ -1,7 +1,7 @@
 # 로컬 개발 실행서
 
 - 상태: 현재 구현 기준
-- 기준일: 2026-09-01
+- 기준일: 2026-09-02
 
 이 문서는 AI Workshop 기반을 로컬에서 설치하고 실행·검증하는 절차의 정본이다. 원본 문서와 비밀값은 Git에 추가하지 않는다.
 
@@ -22,14 +22,29 @@ uv sync --all-groups
 cd ..
 ```
 
-## 2. 권장 실행: 백엔드 컨테이너 + 호스트 프론트엔드
+## 2. 로컬 인프라 준비
 
-API, worker, beat와 migration은 모두 `backend/Dockerfile`로 만든 같은 이미지를 쓴다. API, worker나 beat가 스키마를 자동 변경하지 않으며 migration은 매번 명시적으로 한 번 실행한다. Elasticsearch는 1 GiB 고정 heap의 single-node 로컬 인스턴스다.
+로컬 개발에서는 PostgreSQL, Redis와 Elasticsearch만 Docker로 실행한다. React, FastAPI, Celery worker와 beat는 호스트에서 실행하며 애플리케이션 컨테이너를 함께 띄우지 않는다. API, worker와 beat는 스키마를 자동 변경하지 않으므로 migration은 명시적으로 한 번 실행한다.
 
 ```powershell
-docker compose -f infrastructure/compose/compose.yaml build api
 docker compose -f infrastructure/compose/compose.yaml up -d --wait postgres redis elasticsearch
-docker compose -f infrastructure/compose/compose.yaml --profile tools run --rm migrate
+```
+
+각 호스트 터미널을 저장소 루트에서 열고 Git 제외 `.env`를 해당 프로세스 환경으로 읽는다. 이 명령은 값 자체를 출력하지 않는다.
+
+```powershell
+Get-Content .env | ForEach-Object {
+  if ($_ -match '^([^#][^=]*)=(.*)$') {
+    [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process')
+  }
+}
+```
+
+Windows에서는 psycopg async 연결에 Selector 이벤트 루프를 사용해 migration과 초기화 명령을 실행한다.
+
+```powershell
+backend\.venv\Scripts\python.exe -c "import asyncio; asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()); from alembic.config import main; main(argv=['-c','backend/alembic.ini','upgrade','head'])"
+backend\.venv\Scripts\python.exe -c "import asyncio; asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()); from ai_workshop.cli import main; main(['register-rag-models'])"
 ```
 
 Elasticsearch가 yellow 이상인지 확인한다. single-node 환경의 yellow는 replica가 배치되지 않은 정상 로컬 상태다.
@@ -38,11 +53,7 @@ Elasticsearch가 yellow 이상인지 확인한다. single-node 환경의 yellow�
 Invoke-RestMethod "http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=10s"
 ```
 
-커밋된 공개 모델 정의를 멱등 등록한다. 이 명령은 저장 RAG 구성을 자동 생성하지 않는다.
-
-```powershell
-docker compose -f infrastructure/compose/compose.yaml --profile model-tools run --rm model-tools
-```
+커밋된 공개 모델 정의 등록은 멱등하며 저장 RAG 구성을 자동 생성하지 않는다.
 
 E5 hybrid를 사용할 때만 pinned 모델을 shared `model-cache` volume에 한 번 내려받는다. worker는 `local_files_only`로 cache를 읽으며 실행 중 다른 모델이나 revision으로 조용히 전환하지 않는다. 네트워크가 허용된 초기화 시점에만 다음 명령을 사용한다.
 
@@ -51,54 +62,49 @@ docker compose -f infrastructure/compose/compose.yaml --profile model-tools run 
 docker compose -f infrastructure/compose/compose.yaml --profile model-tools run --rm --no-deps model-tools python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='intfloat/multilingual-e5-base', revision='d128750597153bb5987e10b1c3493a34e5a4502a', cache_dir='/models')"
 ```
 
-최초 한 번 소유자를 만든다. 비밀번호는 명령행이나 로그에 남지 않도록 대화형 입력을 사용한다.
+## 3. 호스트 애플리케이션 실행
+
+각각 별도 터미널에서 위 `.env` 로드 블록을 먼저 실행한다. Windows Celery worker는 `--pool=solo`를 사용하며 애플리케이션 진입 시 psycopg와 호환되는 Selector 정책을 설정한다.
 
 ```powershell
-docker compose -f infrastructure/compose/compose.yaml run --rm api ai-workshop bootstrap-owner --name "Local Owner" --email "owner@example.com"
+backend\.venv\Scripts\python.exe -m uvicorn ai_workshop.main:app --reload --host 127.0.0.1 --port $env:API_PORT
 ```
 
-API, worker와 주기적 검증·handoff·outbox reconciler를 실행하는 beat를 시작한 뒤 별도 터미널에서 프론트엔드를 실행한다.
+```powershell
+backend\.venv\Scripts\python.exe -m celery -A ai_workshop.worker:celery_app worker --pool=solo --loglevel=INFO
+```
 
 ```powershell
-docker compose -f infrastructure/compose/compose.yaml up -d api worker beat
+backend\.venv\Scripts\python.exe -m celery -A ai_workshop.worker:celery_app beat --loglevel=INFO --schedule .local-data/celerybeat-schedule
+```
+
+```powershell
 pnpm --dir frontend dev
 ```
 
+Vite는 루트 `.env`의 `API_PORT`를 읽어 `/api` proxy 대상을 구성하므로 다른 프로젝트와 포트가 충돌하면 `.env`의 값만 바꾸고 프론트와 API를 재시작한다.
+
 - 프론트엔드: `http://127.0.0.1:5173`
-- API 상태: `http://127.0.0.1:8000/api/v1/health`
-- API 문서: `http://127.0.0.1:8000/api/docs`
+- API 상태: `http://127.0.0.1:$env:API_PORT/api/v1/health`
+- API 문서: `http://127.0.0.1:$env:API_PORT/api/docs`
 - Elasticsearch 상태: `http://127.0.0.1:9200/_cluster/health`
 - 근거 검색: `http://127.0.0.1:5173/rag/search`
 - RAG 구성·평가 스튜디오: `http://127.0.0.1:5173/rag/configurations`
 
-종료할 때는 데이터 볼륨을 유지한다.
+관리자가 없는 새 로컬 DB에서 보호 화면에 처음 접근하면 `/setup`으로 이동한다. 이름,
+이메일, 12자 이상의 비밀번호와 비밀번호 확인을 입력하면 소유자 1명, 전사 지식 공간과
+개인 연구 공간을 하나의 DB 트랜잭션으로 만들고 즉시 로그인해 `/workspaces`로 이동한다.
+관리자가 만들어진 뒤에는 `/setup`을 다시 열 수 없으며 `/login`으로 이동한다.
+
+CLI `bootstrap-owner`는 설정 UI를 실행할 수 없는 복구 상황에서만 사용한다. 정상 로컬
+초기화 절차로 사용하지 않는다. 복구 명령도 같은 중복 방지 잠금과 기본 공간 생성 계약을
+따르며 비밀번호는 명령행이나 로그가 아닌 대화형 입력으로 받는다.
 
 ```powershell
-docker compose -f infrastructure/compose/compose.yaml down
+backend\.venv\Scripts\python.exe -c "import asyncio; asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()); from ai_workshop.cli import main; main(['bootstrap-owner','--name','Recovery Owner','--email','owner@example.com'])"
 ```
 
-## 3. 호스트 백엔드 실행
-
-PostgreSQL, Redis와 Elasticsearch를 컨테이너로 시작하고 migration·모델 등록·필요한 로컬 모델 cache를 위 절차대로 준비한 다음 아래 명령을 각각 별도 터미널에서 실행할 수 있다. 호스트 worker의 `AI_WORKSHOP_MODEL_CACHE_ROOT`는 같은 cache를 가리켜야 한다.
-
-```powershell
-cd backend
-uv run alembic upgrade head
-uv run ai-workshop bootstrap-owner --name "Local Owner" --email "owner@example.com"
-uv run uvicorn ai_workshop.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-```powershell
-cd backend
-uv run celery -A ai_workshop.worker:celery_app worker --loglevel=INFO
-```
-
-```powershell
-cd backend
-uv run celery -A ai_workshop.worker:celery_app beat --loglevel=INFO
-```
-
-Windows ARM64에서 psycopg 바이너리를 불러오지 못하거나 `WinError 193`이 발생하면 호스트 백엔드 대신 권장 컨테이너 실행을 사용한다.
+종료할 때 호스트 애플리케이션 프로세스를 먼저 중지한다. 인프라도 중지할 경우 `docker compose -f infrastructure/compose/compose.yaml stop postgres redis elasticsearch`를 사용해 데이터 볼륨을 유지한다.
 
 ## 4. RAG ingestion, 검색과 평가
 
@@ -216,7 +222,7 @@ docker compose -f infrastructure/compose/compose.yaml logs api worker beat postg
 - Projection이 `failed`임: Job의 bounded `error_code`와 stage, worker 로그의 안전한 예외 분류를 확인한다. `parsed_document_empty`와 `chunking_result_empty`는 입력·파싱 또는 chunking 계약을 수정한 새 Asset Version/Profile로 재처리해야 하는 terminal 오류다. 기존 terminal Projection을 READY나 PENDING으로 되돌리지 않는다. transient 의존성 오류는 원인을 복구한 뒤 영속 dispatch/reconciler의 기존 멱등 흐름으로 재시도한다.
 - 저장된 RAG 작업이 worker로 전달되지 않음: beat가 실행 중인지 확인하고 beat 로그에서 `ai_workshop.rag.reconcile_dispatches` 실행 여부를 확인한다.
 - 객체 저장 권한 오류: `object-store-init` 서비스가 성공 종료했는지 `docker compose ps -a`로 확인한다.
-- owner 중복 오류: owner bootstrap은 최초 한 번만 허용된다. 기존 계정으로 로그인한다.
+- 관리자 설정 중복 오류: `/setup`은 최초 한 번만 허용된다. 기존 계정으로 `/login`에서 로그인한다. UI를 사용할 수 없는 복구 상황에서만 `bootstrap-owner`를 사용한다.
 - OpenAPI 타입 불일치: 백엔드 계약을 바꾼 뒤 `pnpm --dir frontend api:generate`를 실행하고 생성 파일을 함께 커밋한다.
 
 볼륨 삭제는 PostgreSQL, Redis, Elasticsearch 색인, 모델 cache와 업로드 문서를 복구하기 어렵게 제거하므로 일반 문제 해결 절차로 사용하지 않는다. smoke에서도 `down -v`나 `down --volumes`를 사용하지 않는다.

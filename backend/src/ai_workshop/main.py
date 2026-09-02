@@ -8,6 +8,7 @@ from ai_workshop.labs.rag.search.api import router as rag_search_router
 from ai_workshop.platform.assets.api import router as asset_router
 from ai_workshop.platform.identity.api import router as identity_router
 from ai_workshop.platform.jobs.api import router as job_router
+from ai_workshop.platform.setup.api import router as setup_router
 from ai_workshop.platform.workspaces.api import router as workspace_router
 from ai_workshop.shared.errors import COMMON_ERROR_RESPONSES, register_error_handlers
 from ai_workshop.shared.request_context import CorrelationIdMiddleware
@@ -37,6 +38,7 @@ def create_app() -> FastAPI:
     application.include_router(rag_evaluation_router)
     application.include_router(rag_model_router)
     application.include_router(rag_search_router)
+    application.include_router(setup_router)
     application.include_router(workspace_router)
 
     @application.get("/api/v1/health", tags=["system"])

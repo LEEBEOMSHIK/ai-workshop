@@ -1,5 +1,6 @@
 import {
   createBrowserRouter,
+  redirect,
   type LoaderFunctionArgs,
   type RouteObject,
 } from "react-router-dom";
@@ -12,13 +13,58 @@ import { ModelLabRoute } from "../labs/rag/models/ModelLabPage";
 import { SearchPage } from "../labs/rag/search/SearchPage";
 import { SourceViewerRoute } from "../labs/rag/search/SourceViewer";
 import { DocumentPage } from "../platform/assets/DocumentPage";
+import { ApiError } from "../shared/api/client";
+import { getCurrentUser, getSetupStatus } from "../platform/identity/api";
 import { LoginPage } from "../platform/identity/LoginPage";
+import { SetupPage } from "../platform/identity/SetupPage";
 import { WorkspacePage } from "../platform/workspaces/WorkspacePage";
 import { App } from "./App";
 
 async function documentLoader({ params }: LoaderFunctionArgs) {
   if (!params.workspaceId) return [];
   return listDocuments(params.workspaceId);
+}
+
+async function requireSession({ request }: LoaderFunctionArgs) {
+  try {
+    return await getCurrentUser();
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) {
+      const url = new URL(request.url);
+      const returnTo = `${url.pathname}${url.search}`;
+      const { setup_required: setupRequired } = await getSetupStatus();
+      const destination = setupRequired ? "/setup" : "/login";
+      throw redirect(`${destination}?next=${encodeURIComponent(returnTo)}`);
+    }
+    throw error;
+  }
+}
+
+async function setupLoader() {
+  const { setup_required: setupRequired } = await getSetupStatus();
+  if (!setupRequired) throw redirect("/login");
+  return null;
+}
+
+async function loginLoader() {
+  const { setup_required: setupRequired } = await getSetupStatus();
+  if (setupRequired) throw redirect("/setup");
+  return null;
+}
+
+async function protectedDocumentLoader(args: LoaderFunctionArgs) {
+  await requireSession(args);
+  return documentLoader(args);
+}
+
+async function protectedConfigurationLoader(args: LoaderFunctionArgs) {
+  await requireSession(args);
+  return loadConfigurationStudio();
+}
+
+async function protectedModelLoader(args: LoaderFunctionArgs) {
+  await requireSession(args);
+  return loadModelLab();
 }
 
 export const routes: RouteObject[] = [
@@ -29,34 +75,43 @@ export const routes: RouteObject[] = [
   {
     path: "/login",
     element: <LoginPage />,
+    loader: loginLoader,
+  },
+  {
+    path: "/setup",
+    element: <SetupPage />,
+    loader: setupLoader,
   },
   {
     path: "/workspaces",
     element: <WorkspacePage />,
+    loader: requireSession,
   },
   {
     path: "/workspaces/:workspaceId/documents",
     element: <DocumentPage />,
-    loader: documentLoader,
+    loader: protectedDocumentLoader,
   },
   {
     path: "/rag/configurations",
     element: <ConfigurationStudioRoute />,
     hydrateFallbackElement: <p role="status">RAG 구성 스튜디오를 불러오는 중…</p>,
-    loader: loadConfigurationStudio,
+    loader: protectedConfigurationLoader,
   },
   {
     path: "/rag/models",
     element: <ModelLabRoute />,
-    loader: loadModelLab,
+    loader: protectedModelLoader,
   },
   {
     path: "/rag/search",
     element: <SearchPage />,
+    loader: requireSession,
   },
   {
     path: "/rag/sources/:assetVersionId",
     element: <SourceViewerRoute />,
+    loader: requireSession,
   },
 ];
 

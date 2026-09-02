@@ -1,0 +1,3 @@
+from ai_workshop.shared.asyncio_policy import configure_windows_selector_policy
+
+configure_windows_selector_policy()

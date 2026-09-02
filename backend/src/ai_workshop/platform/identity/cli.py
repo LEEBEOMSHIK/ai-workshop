@@ -5,10 +5,13 @@ import asyncio
 from getpass import getpass
 
 from ai_workshop.config import get_settings
-from ai_workshop.platform.identity.domain import User
 from ai_workshop.platform.identity.repository import SqlAlchemyUserRepository
-from ai_workshop.platform.identity.service import Argon2PasswordHasher
+from ai_workshop.platform.identity.service import Argon2PasswordHasher, JwtTokenService
+from ai_workshop.platform.setup.service import SystemSetupService
+from ai_workshop.platform.workspaces.repository import SqlAlchemyWorkspaceRepository
+from ai_workshop.platform.workspaces.service import WorkspaceService
 from ai_workshop.shared.db import create_engine, create_session_factory
+from ai_workshop.shared.errors import AppError
 
 
 async def bootstrap_owner(name: str, email: str) -> None:
@@ -19,21 +22,27 @@ async def bootstrap_owner(name: str, email: str) -> None:
     if len(password) < 12:
         raise SystemExit("Password must contain at least 12 characters.")
 
-    engine = create_engine(get_settings())
+    settings = get_settings()
+    engine = create_engine(settings)
     session_factory = create_session_factory(engine)
     try:
         async with session_factory.begin() as session:
-            repository = SqlAlchemyUserRepository(session)
-            if await repository.owner_exists():
-                raise SystemExit("An owner already exists.")
-            hasher = Argon2PasswordHasher()
-            await repository.add(
-                User.create_owner(
+            service = SystemSetupService(
+                SqlAlchemyUserRepository(session),
+                WorkspaceService(SqlAlchemyWorkspaceRepository(session)),
+                Argon2PasswordHasher(),
+                JwtTokenService(settings),
+                settings,
+            )
+            try:
+                await service.create_owner(
                     display_name=name,
                     email=email,
-                    password_hash=hasher.hash(password),
+                    password=password,
+                    password_confirmation=confirmation,
                 )
-            )
+            except AppError as exc:
+                raise SystemExit(exc.message) from exc
     finally:
         await engine.dispose()
 
@@ -51,6 +60,9 @@ def main() -> None:
 def add_bootstrap_owner_parser(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-    bootstrap = subparsers.add_parser("bootstrap-owner")
+    bootstrap = subparsers.add_parser(
+        "bootstrap-owner",
+        help="Recovery-only owner bootstrap when the setup UI cannot be used.",
+    )
     bootstrap.add_argument("--name", required=True)
     bootstrap.add_argument("--email", required=True)

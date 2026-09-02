@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+
 export function App() {
   return (
     <main className="workshop-shell">
@@ -23,7 +25,12 @@ export function App() {
             전문 문서를 찾고, 근거 위치를 의미 단위로 강조하는 AI 검색을
             준비하고 있습니다.
           </p>
-          <span className="card-state">Foundation in progress</span>
+          <nav className="lab-card-actions" aria-label="Asset Management RAG 바로가기">
+            <Link to="/rag/search">근거 검색</Link>
+            <Link to="/rag/configurations">RAG 구성</Link>
+            <Link to="/rag/models">모델 관리</Link>
+          </nav>
+          <span className="card-state">검색 수직 슬라이스 사용 가능</span>
         </article>
         <article className="lab-card">
           <p className="card-index">KNOWLEDGE</p>

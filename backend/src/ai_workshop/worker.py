@@ -50,6 +50,7 @@ from ai_workshop.platform.assets.dispatch import (
     SqlAlchemyAssetVerificationDispatchRepository,
 )
 from ai_workshop.platform.assets.tasks import AssetTaskError, create_asset_verification_workflow
+from ai_workshop.shared.asyncio_policy import configure_windows_selector_policy
 from ai_workshop.shared.db import create_engine, create_session_factory
 from ai_workshop.shared.model_registry import load_models
 
@@ -65,6 +66,7 @@ RAG_EVALUATION_DISPATCH_RECONCILE_TASK = (
     "ai_workshop.rag.reconcile_evaluation_dispatches"
 )
 
+configure_windows_selector_policy()
 load_models()
 logger = getLogger(__name__)
 

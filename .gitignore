@@ -11,7 +11,9 @@ node_modules/
 /.tmp-t10-*/
 /.t7fix*/
 /pytest-task*/
+frontend/.next/
 frontend/dist/
+frontend/tsconfig.tsbuildinfo
 backend/.venv/
 backend/build/
 __pycache__/

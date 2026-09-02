@@ -33,6 +33,22 @@ export interface ApiRequestOptions extends Omit<RequestInit, "body"> {
   json?: unknown;
 }
 
+export async function decodeApiResponse<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    const candidate: unknown = await response.json().catch(() => undefined);
+    const envelope = isErrorEnvelope(candidate) ? candidate : undefined;
+    throw new ApiError(
+      envelope?.error.message ?? "요청을 완료하지 못했습니다.",
+      response.status,
+      envelope?.error.code ?? "request_failed",
+      envelope?.error.correlation_id,
+    );
+  }
+
+  if (response.status === 204) return undefined as T;
+  return (await response.json()) as T;
+}
+
 export async function apiRequest<T = void>(
   path: string,
   options: ApiRequestOptions = {},
@@ -56,17 +72,5 @@ export async function apiRequest<T = void>(
     ...(requestBody !== undefined ? { body: requestBody } : {}),
   });
 
-  if (!response.ok) {
-    const candidate: unknown = await response.json().catch(() => undefined);
-    const envelope = isErrorEnvelope(candidate) ? candidate : undefined;
-    throw new ApiError(
-      envelope?.error.message ?? "요청을 완료하지 못했습니다.",
-      response.status,
-      envelope?.error.code ?? "request_failed",
-      envelope?.error.correlation_id,
-    );
-  }
-
-  if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
+  return decodeApiResponse<T>(response);
 }

@@ -1,0 +1,20 @@
+{
+  "labs": [
+    {
+      "slug": "rag",
+      "name": "RAG 기술 연구실",
+      "eyebrow": "RETRIEVAL · EVIDENCE · GENERATION",
+      "description": "문서를 찾고 원문 근거와 함께 답하는 AI 검색 기술을 연구합니다.",
+      "status": "researching",
+      "statusLabel": "연구 중",
+      "href": "/labs/rag",
+      "manager": {
+        "name": "RAG 총괄",
+        "role": "RAG 기술 총괄",
+        "intro": "나는 문서 검색과 근거 기반 답변 기술을 관리하는 RAG 총괄 에이전트야.",
+        "invitation": "내가 관리하는 검색 기술과 해결 과정을 보러 갈래?",
+        "ctaLabel": "RAG 연구실 들어가기"
+      }
+    }
+  ]
+}

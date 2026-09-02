@@ -1,0 +1,22 @@
+.navigation {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  justify-content: space-between;
+}
+
+.brand {
+  font-weight: 700;
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+}
+
+.navigation a:focus-visible {
+  outline: 3px solid currentColor;
+  outline-offset: 3px;
+}

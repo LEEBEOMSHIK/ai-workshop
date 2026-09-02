@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 
 import type { PublicLab } from "./catalog";
 import styles from "./PublicLabScene.module.css";
@@ -110,37 +111,40 @@ export function AgentCharacter({ lab, variant }: AgentCharacterProps) {
         </span>
       </button>
 
-      {isOpen ? (
-        <div className={styles.dialogLayer}>
-          <div
-            className={styles.dialog}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={titleId}
-            aria-describedby={descriptionId}
-            onKeyDown={trapDialogFocus}
-          >
-            <button
-              ref={closeRef}
-              className={styles.closeButton}
-              type="button"
-              aria-label="소개 닫기"
-              onClick={closeDialog}
-            >
-              <span aria-hidden="true">×</span>
-            </button>
-            <p className={styles.dialogEyebrow}>{lab.eyebrow}</p>
-            <h2 id={titleId}>{lab.manager.name} 소개</h2>
-            <div id={descriptionId} className={styles.dialogCopy}>
-              <p>{lab.manager.intro}</p>
-              <p>{lab.manager.invitation}</p>
-            </div>
-            <Link className={styles.labLink} href={lab.href}>
-              {lab.manager.ctaLabel}
-            </Link>
-          </div>
-        </div>
-      ) : null}
+      {isOpen && typeof document !== "undefined"
+        ? createPortal(
+            <div className={styles.dialogLayer}>
+              <div
+                className={styles.dialog}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={titleId}
+                aria-describedby={descriptionId}
+                onKeyDown={trapDialogFocus}
+              >
+                <button
+                  ref={closeRef}
+                  className={styles.closeButton}
+                  type="button"
+                  aria-label="소개 닫기"
+                  onClick={closeDialog}
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
+                <p className={styles.dialogEyebrow}>{lab.eyebrow}</p>
+                <h2 id={titleId}>{lab.manager.name} 소개</h2>
+                <div id={descriptionId} className={styles.dialogCopy}>
+                  <p>{lab.manager.intro}</p>
+                  <p>{lab.manager.invitation}</p>
+                </div>
+                <Link className={styles.labLink} href={lab.href}>
+                  {lab.manager.ctaLabel}
+                </Link>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </article>
   );
 }

@@ -28,6 +28,10 @@
   letter-spacing: 0.16em;
 }
 
+.dialogEyebrow {
+  padding-inline-end: 3rem;
+}
+
 .hero h1 {
   max-width: 56rem;
   margin: 0.75rem 0 1.25rem;

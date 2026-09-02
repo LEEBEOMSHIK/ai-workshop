@@ -5,6 +5,20 @@ import { AgentCharacter } from "./AgentCharacter";
 import { listPublicLabs } from "./catalog";
 
 describe("AgentCharacter", () => {
+  it("renders an open dialog outside the animated character article", async () => {
+    const user = userEvent.setup();
+    const lab = listPublicLabs()[0];
+    expect(lab).toBeDefined();
+
+    render(<AgentCharacter lab={lab!} variant="roaming" />);
+
+    await user.click(screen.getByRole("button", { name: "RAG 총괄에게 말 걸기" }));
+
+    const dialog = screen.getByRole("dialog", { name: "RAG 총괄 소개" });
+
+    expect(dialog.closest("article")).toBeNull();
+  });
+
   it("cycles Tab and Shift+Tab focus within the open dialog", async () => {
     const user = userEvent.setup();
     const lab = listPublicLabs()[0];

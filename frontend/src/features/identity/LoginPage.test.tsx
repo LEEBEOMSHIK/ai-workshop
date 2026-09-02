@@ -41,8 +41,8 @@ describe("LoginPage", () => {
         nextPath={routes.workshopRagSearch}
         authenticate={async () => ({
           id: "6806a6c1-04c4-4f2c-87d8-8cd1bf06e898",
-          display_name: "LEE BEOMSHIK",
-          email: "bumcity135@naver.com",
+          display_name: "TEST OWNER",
+          email: "owner@example.test",
           role: "owner",
         })}
       />,
@@ -53,7 +53,7 @@ describe("LoginPage", () => {
     ).toHaveAttribute("href", routes.labs);
     expect(screen.getByRole("navigation", { name: "공개 전시실" })).toBeInTheDocument();
 
-    await user.type(screen.getByLabelText("이메일"), "bumcity135@naver.com");
+    await user.type(screen.getByLabelText("이메일"), "owner@example.test");
     await user.type(screen.getByLabelText("비밀번호"), "correct-password");
     await user.click(screen.getByRole("button", { name: "작업소 입장" }));
 

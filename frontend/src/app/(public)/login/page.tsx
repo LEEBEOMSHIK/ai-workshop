@@ -4,6 +4,7 @@ import { LoginPage } from "../../../features/identity/LoginPage";
 import type { SetupStatus } from "../../../features/identity/api";
 import { serverApiRequest } from "../../../shared/api/server-client";
 import { safeReturnPath } from "../../../shared/auth/access";
+import { routes } from "../../../shared/routing/routes";
 import {
   captureServerRoute,
   ServerRouteFailure,
@@ -24,7 +25,7 @@ export default async function LoginRoute({ searchParams }: LoginRouteProps) {
     typeof query.next === "string" ? query.next : null,
   );
   if (status.setup_required) {
-    redirect(`/setup?next=${encodeURIComponent(nextPath)}`);
+    redirect(`${routes.setup}?next=${encodeURIComponent(nextPath)}`);
   }
   return <LoginPage nextPath={nextPath} />;
 }

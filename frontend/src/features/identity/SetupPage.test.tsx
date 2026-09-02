@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, vi } from "vitest";
 
+import { routes } from "../../shared/routing/routes";
 import { SetupPage } from "./SetupPage";
 
 const replace = vi.fn();
@@ -36,7 +37,7 @@ describe("SetupPage", () => {
     await user.type(screen.getByLabelText("비밀번호 확인"), "correct-password");
     await user.click(screen.getByRole("button", { name: "관리자 계정 만들기" }));
 
-    expect(replace).toHaveBeenCalledWith("/app/workspaces");
+    expect(replace).toHaveBeenCalledWith(routes.workshopHome);
     expect(requests).toEqual([
       {
         display_name: "LEE BEOMSHIK",

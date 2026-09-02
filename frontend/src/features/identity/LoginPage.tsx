@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 
 import { safeReturnPath } from "../../shared/auth/access";
+import { routes } from "../../shared/routing/routes";
+import { PublicNavigation } from "../navigation/PublicNavigation";
 import { login } from "./api";
 import type { SessionUser } from "./session";
 
@@ -14,10 +16,11 @@ interface LoginPageProps {
 }
 
 export function LoginPage({
-  nextPath = "/app/workspaces",
+  nextPath = routes.workshopHome,
   authenticate = login,
 }: LoginPageProps) {
   const router = useRouter();
+  const resolvedNextPath = safeReturnPath(nextPath);
   const [user, setUser] = useState<SessionUser | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -33,7 +36,7 @@ export function LoginPage({
         String(form.get("password")),
       );
       setUser(authenticated);
-      router.replace(safeReturnPath(nextPath));
+      router.replace(resolvedNextPath);
     } catch {
       setError("이메일 또는 비밀번호를 확인해 주세요.");
     } finally {
@@ -43,46 +46,54 @@ export function LoginPage({
 
   if (user) {
     return (
-      <main className="auth-shell">
-        <section className="auth-card">
-          <p className="eyebrow">AUTHENTICATED</p>
-          <h1 className="auth-title">{user.display_name}님, 환영합니다.</h1>
-          <Link className="primary-link" href="/app/workspaces">
-            작업소 둘러보기
-          </Link>
-        </section>
-      </main>
+      <>
+        <PublicNavigation />
+        <main className="auth-shell">
+          <section className="auth-card">
+            <p className="eyebrow">AUTHENTICATED</p>
+            <h1 className="auth-title">{user.display_name}님, 환영합니다.</h1>
+            <Link className="primary-link" href={resolvedNextPath}>
+              작업소 열기
+            </Link>
+            <Link href={routes.labs}>AI Lab으로 돌아가기</Link>
+          </section>
+        </main>
+      </>
     );
   }
 
   return (
-    <main className="auth-shell">
-      <section className="auth-card" aria-labelledby="login-title">
-        <p className="eyebrow">PRIVATE WORKSHOP</p>
-        <h1 className="auth-title" id="login-title">
-          다시 오셨군요.
-        </h1>
-        <p className="auth-copy">소유자 계정으로 로컬 작업소에 입장합니다.</p>
-        <form className="auth-form" onSubmit={handleSubmit}>
-          <label>
-            이메일
-            <input name="email" type="email" autoComplete="email" required />
-          </label>
-          <label>
-            비밀번호
-            <input
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              required
-            />
-          </label>
-          {error ? <p className="form-error">{error}</p> : null}
-          <button type="submit" disabled={isSubmitting}>
-            {isSubmitting ? "확인 중…" : "작업소 입장"}
-          </button>
-        </form>
-      </section>
-    </main>
+    <>
+      <PublicNavigation />
+      <main className="auth-shell">
+        <section className="auth-card" aria-labelledby="login-title">
+          <p className="eyebrow">PRIVATE WORKSHOP</p>
+          <h1 className="auth-title" id="login-title">
+            다시 오셨군요.
+          </h1>
+          <p className="auth-copy">소유자 계정으로 로컬 작업소에 입장합니다.</p>
+          <form className="auth-form" onSubmit={handleSubmit}>
+            <label>
+              이메일
+              <input name="email" type="email" autoComplete="email" required />
+            </label>
+            <label>
+              비밀번호
+              <input
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                required
+              />
+            </label>
+            {error ? <p className="form-error">{error}</p> : null}
+            <button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "확인 중…" : "작업소 입장"}
+            </button>
+          </form>
+          <Link href={routes.labs}>로그인 없이 AI Lab 둘러보기</Link>
+        </section>
+      </main>
+    </>
   );
 }

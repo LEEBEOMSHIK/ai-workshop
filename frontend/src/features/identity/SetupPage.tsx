@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 
 import { ApiError } from "../../shared/api/client";
+import { routes } from "../../shared/routing/routes";
 import { setupOwner, type OwnerSetupRequest } from "./api";
 import type { SessionUser } from "./session";
 
@@ -35,7 +36,7 @@ export function SetupPage({ createOwner = setupOwner }: SetupPageProps) {
     setIsSubmitting(true);
     try {
       await createOwner(request);
-      router.replace("/app/workspaces");
+      router.replace(routes.workshopHome);
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 409) {
         setError("관리자 설정이 이미 완료되었습니다. 로그인해 주세요.");

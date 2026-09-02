@@ -17,7 +17,7 @@ from ai_workshop.labs.rag.evaluation.service import EvaluationApplicationService
 from ai_workshop.labs.rag.retrieval.elasticsearch import (
     ElasticsearchFrozenIndexInspector,
 )
-from ai_workshop.platform.identity.api import get_current_user
+from ai_workshop.platform.identity.api import get_current_user, require_owner
 from ai_workshop.platform.identity.domain import User
 from ai_workshop.shared.db import get_session
 
@@ -51,7 +51,7 @@ async def get_evaluation_service(
 )
 async def create_evaluation_policy(
     request: EvaluationPolicyCreate,
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(require_owner)],
     service: Annotated[EvaluationApplicationService, Depends(get_evaluation_service)],
 ) -> EvaluationPolicyResponse:
     return EvaluationPolicyResponse.from_domain(
@@ -66,7 +66,7 @@ async def create_evaluation_policy(
 )
 async def start_evaluation_run(
     request: EvaluationRunCreate,
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(require_owner)],
     service: Annotated[EvaluationApplicationService, Depends(get_evaluation_service)],
 ) -> EvaluationRunResponse:
     values = request.model_dump()

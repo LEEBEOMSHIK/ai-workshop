@@ -1,10 +1,18 @@
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "../api/client";
+import { serverApiRequest } from "../api/server-client";
 import {
+  requireOwner,
   resolveSession,
   type SessionApiRequest,
 } from "./server-session";
+
+vi.mock("next/headers", () => ({ cookies: vi.fn() }));
+vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
+vi.mock("../api/server-client", () => ({ serverApiRequest: vi.fn() }));
 
 const owner = {
   id: "6806a6c1-04c4-4f2c-87d8-8cd1bf06e898",
@@ -53,6 +61,26 @@ describe("resolveSession", () => {
 
     await expect(resolveSession("", "/app/workspaces", request)).rejects.toBe(
       unavailable,
+    );
+  });
+});
+
+describe("requireOwner", () => {
+  it("returns a member to the canonical private workshop with an error", async () => {
+    vi.mocked(cookies).mockResolvedValue({
+      getAll: () => [{ name: "ai_workshop_session", value: "token" }],
+    } as Awaited<ReturnType<typeof cookies>>);
+    vi.mocked(serverApiRequest).mockResolvedValue({
+      id: "10000000-0000-0000-0000-000000000002",
+      display_name: "Member",
+      email: "member@example.test",
+      role: "member",
+    });
+
+    await requireOwner("/admin/rag/configurations");
+
+    expect(redirect).toHaveBeenCalledWith(
+      "/workshop/workspaces?error=owner_required",
     );
   });
 });

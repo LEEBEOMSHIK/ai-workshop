@@ -15,7 +15,7 @@ from ai_workshop.platform.identity.domain import User, UserRole
 from ai_workshop.shared.errors import AppError
 
 ACTOR_ID = UUID("10000000-0000-0000-0000-000000000001")
-OTHER_ACTOR_ID = UUID("10000000-0000-0000-0000-000000000002")
+MEMBER_ID = UUID("10000000-0000-0000-0000-000000000002")
 
 
 def owner() -> User:
@@ -26,6 +26,17 @@ def owner() -> User:
         normalized_email="owner@example.test",
         password_hash="hash",
         role=UserRole.OWNER,
+    )
+
+
+def member() -> User:
+    return User(
+        id=MEMBER_ID,
+        display_name="Member",
+        email="member@example.test",
+        normalized_email="member@example.test",
+        password_hash="hash",
+        role=UserRole.MEMBER,
     )
 
 
@@ -65,16 +76,22 @@ def _configuration(
 
 
 class FakeConfigurationService:
-    def __init__(self, configurations: list[SavedRagConfiguration]) -> None:
+    def __init__(
+        self,
+        configurations: list[SavedRagConfiguration],
+        *,
+        actor_id: UUID = ACTOR_ID,
+    ) -> None:
         self.configurations = configurations
+        self.actor_id = actor_id
         self.created: dict[str, object] | None = None
 
     async def list(self, actor_id: UUID) -> list[SavedRagConfiguration]:
-        assert actor_id == ACTOR_ID
+        assert actor_id == self.actor_id
         return self.configurations
 
     async def create(self, **values: object) -> ConfigurationSaveResult:
-        assert values["owner_id"] == ACTOR_ID
+        assert values["owner_id"] == self.actor_id
         self.created = values
         configuration = self.configurations[-1]
         return ConfigurationSaveResult(configuration, (uuid4(), uuid4()))
@@ -82,7 +99,7 @@ class FakeConfigurationService:
     async def detail(
         self, configuration_id: UUID, actor_id: UUID
     ) -> SavedRagConfiguration:
-        assert actor_id == ACTOR_ID
+        assert actor_id == self.actor_id
         for configuration in self.configurations:
             if configuration.id == configuration_id:
                 return configuration
@@ -102,6 +119,13 @@ class FakeConfigurationService:
 def _client(service: FakeConfigurationService) -> TestClient:
     app = create_app()
     app.dependency_overrides[get_current_user] = owner
+    app.dependency_overrides[get_rag_configuration_service] = lambda: service
+    return TestClient(app)
+
+
+def _member_client(service: FakeConfigurationService) -> TestClient:
+    app = create_app()
+    app.dependency_overrides[get_current_user] = member
     app.dependency_overrides[get_rag_configuration_service] = lambda: service
     return TestClient(app)
 
@@ -179,3 +203,34 @@ def test_detail_and_default_are_nondisclosing_or_fail_closed() -> None:
     assert missing.json()["error"]["code"] == "not_found"
     assert promotion.status_code == 409
     assert promotion.json()["error"]["code"] == "evaluation_policy_required"
+
+
+def test_member_cannot_create_or_promote_configuration() -> None:
+    saved = _configuration(owner_id=MEMBER_ID)
+    service = FakeConfigurationService([saved], actor_id=MEMBER_ID)
+
+    with _member_client(service) as client:
+        created = client.post(
+            "/api/v1/rag/configurations",
+            json={
+                "name": "member configuration",
+                "indexing_profile_id": str(uuid4()),
+                "retrieval_profile_id": str(uuid4()),
+                "generation_profile_id": None,
+                "answer_policy": {
+                    "min_semantic_score": 0.8,
+                    "min_keyword_coverage": 0.7,
+                    "require_complete_provenance": True,
+                    "conflict_mode": "separate_sources",
+                },
+                "workspace_ids": [str(uuid4())],
+            },
+        )
+        promoted = client.post(
+            f"/api/v1/rag/configurations/{saved.id}/default"
+        )
+
+    assert created.status_code == 403
+    assert created.json()["error"]["code"] == "owner_required"
+    assert promoted.status_code == 403
+    assert promoted.json()["error"]["code"] == "owner_required"

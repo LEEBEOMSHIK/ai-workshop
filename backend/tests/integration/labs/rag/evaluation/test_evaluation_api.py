@@ -20,6 +20,7 @@ from ai_workshop.platform.identity.api import get_current_user
 from ai_workshop.platform.identity.domain import User, UserRole
 
 ACTOR_ID = UUID("10000000-0000-0000-0000-000000000001")
+MEMBER_ID = UUID("10000000-0000-0000-0000-000000000002")
 REPOSITORY_ROOT = Path(__file__).resolve().parents[6]
 FIXTURE = REPOSITORY_ROOT / "sample-data/public/rag/evaluation/search-v1.json"
 
@@ -32,6 +33,17 @@ def owner() -> User:
         normalized_email="owner@example.test",
         password_hash="hash",
         role=UserRole.OWNER,
+    )
+
+
+def member() -> User:
+    return User(
+        id=MEMBER_ID,
+        display_name="Member",
+        email="member@example.test",
+        normalized_email="member@example.test",
+        password_hash="hash",
+        role=UserRole.MEMBER,
     )
 
 
@@ -51,7 +63,8 @@ def metrics() -> EvaluationMetrics:
 
 
 class FakeEvaluationService:
-    def __init__(self) -> None:
+    def __init__(self, *, actor_id: UUID = ACTOR_ID) -> None:
+        self.actor_id = actor_id
         self.dataset_id = uuid4()
         self.policy = EvaluationPolicy.create(
             owner_id=ACTOR_ID,
@@ -101,22 +114,22 @@ class FakeEvaluationService:
         self.started: dict[str, object] | None = None
 
     async def create_policy(self, **values: object) -> EvaluationPolicy:
-        assert values["actor_id"] == ACTOR_ID
+        assert values["actor_id"] == self.actor_id
         self.created_policy = values
         return self.policy
 
     async def start_run(self, **values: object) -> EvaluationRunView:
-        assert values["actor_id"] == ACTOR_ID
+        assert values["actor_id"] == self.actor_id
         self.started = values
         return self.run
 
     async def detail(self, run_id: UUID, actor_id: UUID) -> EvaluationRunView:
-        assert actor_id == ACTOR_ID
+        assert actor_id == self.actor_id
         assert run_id == self.run.id
         return self.run
 
     async def list(self, actor_id: UUID, limit: int) -> tuple[EvaluationRunView, ...]:
-        assert actor_id == ACTOR_ID
+        assert actor_id == self.actor_id
         assert limit == 20
         return (self.run,)
 
@@ -124,6 +137,13 @@ class FakeEvaluationService:
 def _client(service: FakeEvaluationService) -> TestClient:
     app = create_app()
     app.dependency_overrides[get_current_user] = owner
+    app.dependency_overrides[get_evaluation_service] = lambda: service
+    return TestClient(app)
+
+
+def _member_client(service: FakeEvaluationService) -> TestClient:
+    app = create_app()
+    app.dependency_overrides[get_current_user] = member
     app.dependency_overrides[get_evaluation_service] = lambda: service
     return TestClient(app)
 
@@ -210,3 +230,46 @@ def test_run_create_detail_and_list_keep_candidate_identity_and_round_only_respo
     assert service.candidate.metrics is not None
     assert service.candidate.metrics.recall_at_k == 1 / 3
     assert len(listed.json()) == 1
+
+
+def test_member_cannot_create_evaluation_policy_or_start_run() -> None:
+    service = FakeEvaluationService(actor_id=MEMBER_ID)
+    fixture = json.loads(FIXTURE.read_text("utf-8"))
+
+    with _member_client(service) as client:
+        policy = client.post(
+            "/api/v1/rag/evaluation-policies",
+            json={
+                "dataset_snapshot_id": str(service.dataset_id),
+                "metric_definition_version": 1,
+                "retrieval_k": 3,
+                "min_recall_at_k": 0.1,
+                "min_mrr": 0.1,
+                "min_ndcg": 0.1,
+                "min_supported_precision": 0.1,
+                "max_false_grounding_rate": 0.9,
+                "min_highlight_iou": 0.1,
+                "max_p50_latency_ms": 1000,
+                "max_p95_latency_ms": 2000,
+                "max_access_leaks": 0,
+                "required_reproducibility": 1.0,
+            },
+        )
+        run = client.post(
+            "/api/v1/rag/evaluation-runs",
+            json={
+                "dataset_fixture": fixture,
+                "evaluation_policy_version_id": str(service.policy.id),
+                "configuration_version_ids": [
+                    str(service.candidate.configuration_version_id)
+                ],
+                "metric_definition_version": 1,
+                "retrieval_k": 3,
+                "repetition_count": 2,
+            },
+        )
+
+    assert policy.status_code == 403
+    assert policy.json()["error"]["code"] == "owner_required"
+    assert run.status_code == 403
+    assert run.json()["error"]["code"] == "owner_required"

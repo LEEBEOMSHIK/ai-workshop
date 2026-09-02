@@ -5,6 +5,7 @@ import type { SetupStatus } from "../../features/identity/api";
 import type { SessionUser } from "../../features/identity/session";
 import { ApiError } from "../api/client";
 import { serverApiRequest } from "../api/server-client";
+import { routes } from "../routing/routes";
 import { canAccessAdmin, unauthenticatedDestination } from "./access";
 
 export type SessionApiRequest = (
@@ -59,6 +60,8 @@ export async function requireWorkspaceUser(returnTo: string): Promise<SessionUse
 
 export async function requireOwner(returnTo: string): Promise<SessionUser> {
   const user = await requireWorkspaceUser(returnTo);
-  if (!canAccessAdmin(user)) redirect("/app/workspaces?error=owner_required");
+  if (!canAccessAdmin(user)) {
+    redirect(`${routes.workshopHome}?error=owner_required`);
+  }
   return user;
 }

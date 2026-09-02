@@ -9,7 +9,7 @@ from ai_workshop.labs.rag.configurations.schemas import (
     SavedRagConfigurationResponse,
 )
 from ai_workshop.labs.rag.configurations.service import RagConfigurationService
-from ai_workshop.platform.identity.api import get_current_user
+from ai_workshop.platform.identity.api import get_current_user, require_owner
 from ai_workshop.platform.identity.domain import User
 from ai_workshop.shared.db import get_session
 
@@ -48,7 +48,7 @@ async def list_configurations(
 @router.post("", response_model=SavedRagConfigurationResponse, status_code=201)
 async def create_configuration(
     request: SavedRagConfigurationCreate,
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(require_owner)],
     service: Annotated[RagConfigurationService, Depends(get_rag_configuration_service)],
 ) -> SavedRagConfigurationResponse:
     policy = request.answer_policy
@@ -81,7 +81,7 @@ async def configuration_detail(
 @router.post("/{configuration_id}/default", response_model=SavedRagConfigurationResponse)
 async def promote_configuration_default(
     configuration_id: UUID,
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(require_owner)],
     service: Annotated[RagConfigurationService, Depends(get_rag_configuration_service)],
 ) -> SavedRagConfigurationResponse:
     return SavedRagConfigurationResponse.from_domain(

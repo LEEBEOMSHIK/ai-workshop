@@ -13,8 +13,9 @@ import type {
 import { serverApiRequest } from "../../../../../shared/api/server-client";
 import {
   incomingCookieHeader,
-  requireWorkspaceUser,
+  requireOwner,
 } from "../../../../../shared/auth/server-session";
+import { routes } from "../../../../../shared/routing/routes";
 import {
   captureServerRoute,
   ServerRouteFailure,
@@ -24,7 +25,7 @@ const profileKinds: ProfileKind[] = ["indexing", "retrieval", "generation"];
 
 export default async function RagConfigurationsRoute() {
   const result = await captureServerRoute(async () => {
-    await requireWorkspaceUser("/app/rag/configurations");
+    await requireOwner(routes.adminRagConfigurations);
     const cookieHeader = await incomingCookieHeader();
     return Promise.all([
       serverApiRequest<SavedConfiguration[]>("/api/v1/rag/configurations", {}, cookieHeader),

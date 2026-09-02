@@ -4,9 +4,10 @@ from fastapi import APIRouter, Depends, Response, Security
 from fastapi.security import APIKeyCookie
 
 from ai_workshop.config import Settings, get_settings
-from ai_workshop.platform.identity.domain import User
+from ai_workshop.platform.identity.domain import User, UserRole
 from ai_workshop.platform.identity.schemas import LoginRequest, UserResponse
 from ai_workshop.platform.identity.service import AuthService, get_auth_service
+from ai_workshop.shared.errors import AppError
 
 SESSION_COOKIE = "ai_workshop_session"
 session_cookie = APIKeyCookie(
@@ -38,6 +39,18 @@ async def get_current_user(
     session_token: Annotated[str | None, Security(session_cookie)],
 ) -> User:
     return await service.current_user(session_token)
+
+
+async def require_owner(
+    user: Annotated[User, Depends(get_current_user)],
+) -> User:
+    if user.role is not UserRole.OWNER:
+        raise AppError(
+            code="owner_required",
+            message="Owner access is required.",
+            status_code=403,
+        )
+    return user
 
 
 @router.post("/login", response_model=UserResponse)

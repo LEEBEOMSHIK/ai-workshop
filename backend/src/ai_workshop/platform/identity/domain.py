@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 
 class UserRole(StrEnum):
     OWNER = "owner"
+    MEMBER = "member"
 
 
 def normalize_email(email: str) -> str:

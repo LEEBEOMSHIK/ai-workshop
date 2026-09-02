@@ -27,6 +27,7 @@ class ErrorEnvelope(BaseModel):
 
 COMMON_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     401: {"model": ErrorEnvelope, "description": "Authentication required."},
+    403: {"model": ErrorEnvelope, "description": "Permission denied."},
     404: {"model": ErrorEnvelope, "description": "Resource not found."},
     409: {"model": ErrorEnvelope, "description": "Resource state conflict."},
     422: {"model": ErrorEnvelope, "description": "Request validation or domain error."},

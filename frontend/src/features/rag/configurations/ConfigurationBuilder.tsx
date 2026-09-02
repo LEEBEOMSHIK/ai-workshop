@@ -10,6 +10,7 @@ import type {
 } from "./api";
 import { saveConfiguration } from "./api";
 import {
+  hasResolvableEmbedding,
   indexingOptionLabel,
   isV1CompatibleRetrieval,
   summarizeRagPackage,
@@ -31,8 +32,8 @@ export function ConfigurationBuilder({
   onSaved,
 }: ConfigurationBuilderProps) {
   const indexingProfiles = useMemo(
-    () => profiles.filter((profile) => profile.kind === "indexing"),
-    [profiles],
+    () => profiles.filter((profile) => hasResolvableEmbedding(profile, models)),
+    [models, profiles],
   );
   const baselineIndexingId =
     configurations.find((configuration) => configuration.is_system)?.indexing_profile_id ??

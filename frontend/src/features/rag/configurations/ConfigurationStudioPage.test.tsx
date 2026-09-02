@@ -74,6 +74,41 @@ describe("ConfigurationStudioPage", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("excludes indexing profiles that have no embedding binding", () => {
+    const data = studioData();
+    data.profiles = [
+      {
+        id: "indexing-without-embedding",
+        kind: "indexing",
+        name: "unbound-indexing-profile",
+        version: 1,
+        config: {
+          chunker: {
+            name: "structure-aware",
+            version: 2,
+            target_tokens: 380,
+            overlap_tokens: 60,
+          },
+        },
+        bindings: [],
+        evaluation_state: "draft",
+        is_default: false,
+      },
+      ...data.profiles,
+    ];
+    render(<ConfigurationStudioPage initialData={data} />);
+
+    const indexingSelect = screen.getByRole("combobox", {
+      name: "색인 패키지",
+    }) as HTMLSelectElement;
+    expect(Array.from(indexingSelect.options, (option) => option.value)).not.toContain(
+      "indexing-without-embedding",
+    );
+    expect(
+      within(indexingSelect).queryByRole("option", { name: /unbound-indexing-profile/ }),
+    ).not.toBeInTheDocument();
+  });
+
   it("warns that BGE needs a compatible new index and appends only the exact saved response", async () => {
     const saved = savedConfiguration({
       id: "configuration-bge",

@@ -1,15 +1,23 @@
 import hashlib
 from asyncio import gather, to_thread
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
+from contextlib import contextmanager
+from ipaddress import ip_address
+from pathlib import Path
 from threading import Barrier, Event, Lock
+from typing import cast
 from uuid import UUID, uuid4
 
+import psycopg
 import pytest
+from alembic.config import Config
 from celery.exceptions import Retry
+from psycopg import sql
 from sqlalchemy import delete, select
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
 
-from ai_workshop.config import get_settings
+from ai_workshop.config import Settings, get_settings
 from ai_workshop.infrastructure.object_store.local import LocalObjectStore
 from ai_workshop.labs.rag.chunking import StructuralChunker
 from ai_workshop.labs.rag.documents.domain import ProjectionStatus
@@ -43,8 +51,90 @@ from ai_workshop.platform.jobs.models import JobRecord
 from ai_workshop.platform.workspaces.models import WorkspaceRecord
 from ai_workshop.shared.db import create_engine, create_session_factory
 from ai_workshop.worker import RAG_INGESTION_TASK, create_celery
+from alembic import command
 
+pytestmark = pytest.mark.integration
+
+BACKEND_ROOT = Path(__file__).resolve().parents[5]
+DISPOSABLE_DATABASE_PREFIX = "ai_workshop_ingestion_task_"
 SYNTHETIC_CONTENT = b"Synthetic public fixture evidence."
+
+
+def database_url(base_url: str, database: str) -> str:
+    return make_url(base_url).set(database=database).render_as_string(hide_password=False)
+
+
+def sync_url(url: str) -> str:
+    return url.replace("postgresql+psycopg://", "postgresql://", 1)
+
+
+def validate_disposable_database_target(settings: Settings, database: str) -> None:
+    url = make_url(settings.database_url)
+    host = url.host
+    try:
+        is_loopback = host == "localhost" or (host is not None and ip_address(host).is_loopback)
+    except ValueError:
+        is_loopback = False
+    if (
+        settings.environment not in {"local", "test"}
+        or url.get_backend_name() != "postgresql"
+        or not is_loopback
+        or not database.startswith(DISPOSABLE_DATABASE_PREFIX)
+    ):
+        raise ValueError(
+            "Ingestion integration tests require a prefixed disposable database "
+            "on a loopback PostgreSQL server in a local or test environment."
+        )
+
+
+@pytest.fixture(scope="module", autouse=True)
+def isolated_ingestion_database(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Iterator[None]:
+    base_settings = get_settings()
+    database = f"{DISPOSABLE_DATABASE_PREFIX}{uuid4().hex}"
+    with provision_isolated_ingestion_database(
+        base_settings,
+        database=database,
+        tmp_path_factory=tmp_path_factory,
+    ):
+        yield
+
+
+@contextmanager
+def provision_isolated_ingestion_database(
+    base_settings: Settings,
+    *,
+    database: str,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Iterator[None]:
+    validate_disposable_database_target(base_settings, database)
+    object_store_root = tmp_path_factory.mktemp("rag-ingestion-objects")
+    administrative_url = database_url(base_settings.database_url, "postgres")
+    isolated_url = database_url(base_settings.database_url, database)
+    environment = pytest.MonkeyPatch()
+    database_created = False
+    try:
+        environment.setenv("AI_WORKSHOP_ENVIRONMENT", "test")
+        environment.setenv("AI_WORKSHOP_DATABASE_URL", isolated_url)
+        environment.setenv("AI_WORKSHOP_OBJECT_STORE_ROOT", str(object_store_root))
+        get_settings.cache_clear()
+        with psycopg.connect(sync_url(administrative_url), autocommit=True) as connection:
+            connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
+        database_created = True
+        command.upgrade(Config(str(BACKEND_ROOT / "alembic.ini")), "head")
+        yield
+    finally:
+        try:
+            get_settings.cache_clear()
+            environment.undo()
+            get_settings.cache_clear()
+        finally:
+            if database_created:
+                with psycopg.connect(sync_url(administrative_url), autocommit=True) as connection:
+                    connection.execute(
+                        sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(database))
+                    )
 
 
 async def bytes_source(content: bytes) -> AsyncIterator[bytes]:
@@ -146,7 +236,11 @@ async def seed_command_dependencies() -> tuple[UUID, UUID, UUID, UUID, UUID]:
     )
 
 
-async def delete_fixture(requested_by: UUID, duplicate_requester: UUID) -> None:
+async def delete_fixture(
+    requested_by: UUID,
+    duplicate_requester: UUID,
+    indexing_profile_id: UUID,
+) -> None:
     settings = get_settings()
     engine = create_engine(settings)
     sessions = create_session_factory(engine)
@@ -160,17 +254,15 @@ async def delete_fixture(requested_by: UUID, duplicate_requester: UUID) -> None:
                     RagIngestionJobRecord.embedding_object_key,
                 ).where(RagIngestionJobRecord.requested_by == requested_by)
             )
-            artifact_keys = [
-                key
-                for row in artifact_rows
-                for key in row
-                if key is not None
-            ]
+            artifact_keys = [key for row in artifact_rows for key in row if key is not None]
             await session.execute(
                 delete(WorkspaceRecord).where(WorkspaceRecord.created_by == requested_by)
             )
             await session.execute(
                 delete(UserRecord).where(UserRecord.id.in_((requested_by, duplicate_requester)))
+            )
+            await session.execute(
+                delete(ProfileRecord).where(ProfileRecord.id == indexing_profile_id)
             )
     finally:
         await engine.dispose()
@@ -190,9 +282,7 @@ class AsyncTestChunker:
 
     async def chunk(self, document, *, projection_id, indexing_profile_id, config):
         del indexing_profile_id
-        return self.delegate.chunk(
-            document, projection_id=projection_id, config=config
-        )
+        return self.delegate.chunk(document, projection_id=projection_id, config=config)
 
 
 class ExplicitVerifiedStages:
@@ -204,9 +294,7 @@ class ExplicitVerifiedStages:
         content = b'{"synthetic_normalized_vectors":[[1.0]]}'
         key = f"rag/embeddings/{projection_id}.json"
         stored = await self.object_store.put_if_absent(key, bytes_source(content))
-        authoritative = b"".join(
-            [part async for part in self.object_store.open(stored.key)]
-        )
+        authoritative = b"".join([part async for part in self.object_store.open(stored.key)])
         settings = self.settings
         engine = create_engine(settings)
         sessions = create_session_factory(engine)
@@ -386,6 +474,125 @@ async def create_ingestion_job(
         await engine.dispose()
 
 
+def test_ingestion_task_uses_disposable_test_database() -> None:
+    settings = get_settings()
+
+    assert settings.environment == "test"
+    assert (make_url(settings.database_url).database or "").startswith(
+        "ai_workshop_ingestion_task_"
+    )
+
+
+@pytest.mark.parametrize("unsafe_target", ["production", "non-loopback"])
+def test_disposable_database_rejects_unsafe_target_before_connecting(
+    unsafe_target: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> None:
+    base_settings = get_settings()
+    if unsafe_target == "production":
+        unsafe_settings = base_settings.model_copy(update={"environment": "production"})
+    else:
+        unsafe_url = make_url(base_settings.database_url).set(host="database.example.test")
+        unsafe_settings = base_settings.model_copy(
+            update={"database_url": unsafe_url.render_as_string(hide_password=False)}
+        )
+    connection_attempts = 0
+
+    def fail_if_connected(*_args: object, **_kwargs: object) -> None:
+        nonlocal connection_attempts
+        connection_attempts += 1
+        raise AssertionError("unsafe database target was connected")
+
+    monkeypatch.setattr(psycopg, "connect", fail_if_connected)
+
+    with (
+        pytest.raises(ValueError),
+        provision_isolated_ingestion_database(
+            unsafe_settings,
+            database=f"ai_workshop_ingestion_task_unsafe_{uuid4().hex}",
+            tmp_path_factory=tmp_path_factory,
+        ),
+    ):
+        pass
+
+    assert connection_attempts == 0
+
+
+def test_disposable_database_is_dropped_when_object_store_setup_fails() -> None:
+    class FailingTempPathFactory:
+        def mktemp(self, basename: str) -> Path:
+            raise RuntimeError(f"synthetic {basename} setup failure")
+
+    base_settings = get_settings()
+    database = f"ai_workshop_ingestion_task_setup_failure_{uuid4().hex}"
+    administrative_url = database_url(base_settings.database_url, "postgres")
+    restore_environment = pytest.MonkeyPatch()
+    restore_environment.setenv("AI_WORKSHOP_ENVIRONMENT", base_settings.environment)
+    restore_environment.setenv("AI_WORKSHOP_DATABASE_URL", base_settings.database_url)
+    restore_environment.setenv(
+        "AI_WORKSHOP_OBJECT_STORE_ROOT", str(base_settings.object_store_root)
+    )
+    try:
+        with (
+            pytest.raises(RuntimeError, match="synthetic rag-ingestion-objects setup failure"),
+            provision_isolated_ingestion_database(
+                base_settings,
+                database=database,
+                tmp_path_factory=cast(
+                    pytest.TempPathFactory,
+                    FailingTempPathFactory(),
+                ),
+            ),
+        ):
+            pass
+
+        with psycopg.connect(sync_url(administrative_url), autocommit=True) as connection:
+            remaining_database = connection.execute(
+                "SELECT 1 FROM pg_database WHERE datname = %s",
+                (database,),
+            ).fetchone()
+
+        assert remaining_database is None
+    finally:
+        restore_environment.undo()
+        get_settings.cache_clear()
+        with psycopg.connect(sync_url(administrative_url), autocommit=True) as connection:
+            connection.execute(
+                sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(database))
+            )
+
+
+@pytest.mark.asyncio
+async def test_delete_fixture_removes_its_synthetic_indexing_profile() -> None:
+    (
+        requested_by,
+        duplicate_requester,
+        _workspace_id,
+        asset_version_id,
+        indexing_profile_id,
+    ) = await seed_command_dependencies()
+    settings = get_settings()
+    engine = create_engine(settings)
+    sessions = create_session_factory(engine)
+    try:
+        await delete_fixture(requested_by, duplicate_requester, indexing_profile_id)
+
+        async with sessions() as session:
+            remaining_profile = await session.get(ProfileRecord, indexing_profile_id)
+
+        assert remaining_profile is None
+    finally:
+        async with sessions.begin() as session:
+            await session.execute(
+                delete(ProfileRecord).where(ProfileRecord.id == indexing_profile_id)
+            )
+        await engine.dispose()
+        await LocalObjectStore(settings.object_store_root).delete(
+            f"synthetic/{asset_version_id}.txt"
+        )
+
+
 @pytest.mark.asyncio
 async def test_delivered_old_version_job_cannot_begin_after_newer_activation() -> None:
     (
@@ -439,7 +646,7 @@ async def test_delivered_old_version_job_cannot_begin_after_newer_activation() -
         assert projection.status == ProjectionStatus.PENDING
     finally:
         await engine.dispose()
-        await delete_fixture(requested_by, duplicate_requester)
+        await delete_fixture(requested_by, duplicate_requester, indexing_profile_id)
 
 
 @pytest.mark.asyncio
@@ -469,9 +676,7 @@ async def test_postgres_persists_the_complete_command_and_global_idempotency_key
         async with sessions() as session:
             ingestion = (
                 await session.execute(
-                    select(RagIngestionJobRecord).where(
-                        RagIngestionJobRecord.job_id == job_id
-                    )
+                    select(RagIngestionJobRecord).where(RagIngestionJobRecord.job_id == job_id)
                 )
             ).scalar_one()
             job = await session.get(JobRecord, job_id)
@@ -490,9 +695,7 @@ async def test_postgres_persists_the_complete_command_and_global_idempotency_key
         assert job.workspace_id == workspace_id
         assert job.type == JobType.RAG_INGESTION
         assert job.status == JobStatus.QUEUED
-        assert job.idempotency_key == (
-            f"{asset_version_id}:{indexing_profile_id}:rag_ingestion"
-        )
+        assert job.idempotency_key == (f"{asset_version_id}:{indexing_profile_id}:rag_ingestion")
         assert projection is not None
         assert projection.status == ProjectionStatus.PENDING
     finally:
@@ -500,7 +703,7 @@ async def test_postgres_persists_the_complete_command_and_global_idempotency_key
         await LocalObjectStore(settings.object_store_root).delete(
             f"synthetic/{asset_version_id}.txt"
         )
-        await delete_fixture(requested_by, duplicate_requester)
+        await delete_fixture(requested_by, duplicate_requester, indexing_profile_id)
 
 
 @pytest.mark.asyncio
@@ -534,28 +737,20 @@ async def test_eager_task_reloads_job_only_payload_and_reaches_ready_idempotentl
                 assert document is not None
                 document.active_version_id = None
 
-            duplicate = await to_thread(
-                app.tasks[RAG_INGESTION_TASK].delay, str(job_id)
-            )
+            duplicate = await to_thread(app.tasks[RAG_INGESTION_TASK].delay, str(job_id))
             assert duplicate.get() is None
 
             async with sessions() as session:
                 ingestion = await session.get(RagIngestionJobRecord, job_id)
                 job = await session.get(JobRecord, job_id)
                 assert ingestion is not None
-                projection = await session.get(
-                    RagProjectionRecord, ingestion.projection_id
-                )
+                projection = await session.get(RagProjectionRecord, ingestion.projection_id)
             assert job is not None and job.status == JobStatus.SUCCEEDED
             assert job.stage == "ready"
             assert projection is not None
             assert projection.status == ProjectionStatus.READY
-            assert ingestion.parsed_object_key == (
-                f"rag/parsed/{ingestion.projection_id}.json"
-            )
-            assert ingestion.chunk_object_key == (
-                f"rag/chunks/{ingestion.projection_id}.json"
-            )
+            assert ingestion.parsed_object_key == (f"rag/parsed/{ingestion.projection_id}.json")
+            assert ingestion.chunk_object_key == (f"rag/chunks/{ingestion.projection_id}.json")
             assert len(ingestion.parsed_sha256 or "") == 64
             assert len(ingestion.chunk_sha256 or "") == 64
             assert ingestion.embedding_count == ingestion.chunk_count == 1
@@ -567,7 +762,7 @@ async def test_eager_task_reloads_job_only_payload_and_reaches_ready_idempotentl
         await LocalObjectStore(settings.object_store_root).delete(
             f"synthetic/{asset_version_id}.txt"
         )
-        await delete_fixture(requested_by, duplicate_requester)
+        await delete_fixture(requested_by, duplicate_requester, indexing_profile_id)
 
 
 @pytest.mark.asyncio
@@ -583,9 +778,7 @@ async def test_concurrent_eager_duplicates_publish_one_authoritative_parsed_grap
     job_id = await create_ingestion_job(requested_by, asset_version_id, indexing_profile_id)
     parser = BarrierParser(parsing_service(settings))
     coordinator = PublicationCoordinator()
-    store = OrderedPublicationStore(
-        LocalObjectStore(settings.object_store_root), coordinator
-    )
+    store = OrderedPublicationStore(LocalObjectStore(settings.object_store_root), coordinator)
     app = create_celery(
         settings,
         rag_workflow_factory=lambda _settings: workflow_factory(
@@ -612,9 +805,7 @@ async def test_concurrent_eager_duplicates_publish_one_authoritative_parsed_grap
                 ingestion = await session.get(RagIngestionJobRecord, job_id)
                 job = await session.get(JobRecord, job_id)
                 assert ingestion is not None
-                projection = await session.get(
-                    RagProjectionRecord, ingestion.projection_id
-                )
+                projection = await session.get(RagProjectionRecord, ingestion.projection_id)
                 persisted_element_id = await session.scalar(
                     select(StructuralElementRecord.id).where(
                         StructuralElementRecord.projection_id == ingestion.projection_id
@@ -625,9 +816,7 @@ async def test_concurrent_eager_duplicates_publish_one_authoritative_parsed_grap
                         RetrievalChunkRecord.projection_id == ingestion.projection_id
                     )
                 )
-            assert ingestion.parsed_object_key == (
-                f"rag/parsed/{ingestion.projection_id}.json"
-            )
+            assert ingestion.parsed_object_key == (f"rag/parsed/{ingestion.projection_id}.json")
             parsed_bytes = b"".join(
                 [part async for part in store.open(ingestion.parsed_object_key)]
             )
@@ -635,12 +824,8 @@ async def test_concurrent_eager_duplicates_publish_one_authoritative_parsed_grap
             assert hashlib.sha256(parsed_bytes).hexdigest() == ingestion.parsed_sha256
             assert persisted_element_id == authoritative.elements[0].id
             assert persisted_element_id in parser.element_ids
-            assert ingestion.chunk_object_key == (
-                f"rag/chunks/{ingestion.projection_id}.json"
-            )
-            chunk_bytes = b"".join(
-                [part async for part in store.open(ingestion.chunk_object_key)]
-            )
+            assert ingestion.chunk_object_key == (f"rag/chunks/{ingestion.projection_id}.json")
+            chunk_bytes = b"".join([part async for part in store.open(ingestion.chunk_object_key)])
             authoritative_chunks = deserialize_chunking_result(chunk_bytes)
             assert hashlib.sha256(chunk_bytes).hexdigest() == ingestion.chunk_sha256
             assert persisted_chunk_id == authoritative_chunks.chunks[0].id
@@ -652,7 +837,7 @@ async def test_concurrent_eager_duplicates_publish_one_authoritative_parsed_grap
         await LocalObjectStore(settings.object_store_root).delete(
             f"synthetic/{asset_version_id}.txt"
         )
-        await delete_fixture(requested_by, duplicate_requester)
+        await delete_fixture(requested_by, duplicate_requester, indexing_profile_id)
 
 
 @pytest.mark.asyncio
@@ -686,18 +871,14 @@ async def test_db_operational_failure_after_publication_retries_without_terminal
                 before_retry = await session.get(RagIngestionJobRecord, job_id)
                 running_job = await session.get(JobRecord, job_id)
                 assert before_retry is not None
-                projection = await session.get(
-                    RagProjectionRecord, before_retry.projection_id
-                )
+                projection = await session.get(RagProjectionRecord, before_retry.projection_id)
             parsed_key = f"rag/parsed/{before_retry.projection_id}.json"
             published_bytes = b"".join([part async for part in store.open(parsed_key)])
             assert running_job is not None and running_job.status == JobStatus.RUNNING
             assert projection is not None and projection.status == ProjectionStatus.PARSING
             assert before_retry.parsed_object_key is None
 
-            completed = await to_thread(
-                app.tasks[RAG_INGESTION_TASK].delay, str(job_id)
-            )
+            completed = await to_thread(app.tasks[RAG_INGESTION_TASK].delay, str(job_id))
             assert completed.get() is None
 
             async with sessions() as session:
@@ -709,14 +890,10 @@ async def test_db_operational_failure_after_publication_retries_without_terminal
                         StructuralElementRecord.projection_id == after_retry.projection_id
                     )
                 )
-            authoritative_bytes = b"".join(
-                [part async for part in store.open(parsed_key)]
-            )
+            authoritative_bytes = b"".join([part async for part in store.open(parsed_key)])
             authoritative = deserialize_parsed_document(authoritative_bytes)
             assert authoritative_bytes == published_bytes
-            assert after_retry.parsed_sha256 == hashlib.sha256(
-                authoritative_bytes
-            ).hexdigest()
+            assert after_retry.parsed_sha256 == hashlib.sha256(authoritative_bytes).hexdigest()
             assert persisted_element_id == authoritative.elements[0].id
             assert completed_job is not None
             assert completed_job.status == JobStatus.SUCCEEDED
@@ -726,7 +903,7 @@ async def test_db_operational_failure_after_publication_retries_without_terminal
         await LocalObjectStore(settings.object_store_root).delete(
             f"synthetic/{asset_version_id}.txt"
         )
-        await delete_fixture(requested_by, duplicate_requester)
+        await delete_fixture(requested_by, duplicate_requester, indexing_profile_id)
 
 
 @pytest.mark.asyncio
@@ -759,9 +936,7 @@ async def test_eager_task_retries_the_same_parser_after_a_transient_failure() ->
                 job = await session.get(JobRecord, job_id)
                 ingestion = await session.get(RagIngestionJobRecord, job_id)
                 assert ingestion is not None
-                projection = await session.get(
-                    RagProjectionRecord, ingestion.projection_id
-                )
+                projection = await session.get(RagProjectionRecord, ingestion.projection_id)
             assert job is not None and job.status == JobStatus.SUCCEEDED
             assert projection is not None and projection.status == ProjectionStatus.READY
         finally:
@@ -770,7 +945,7 @@ async def test_eager_task_retries_the_same_parser_after_a_transient_failure() ->
         await LocalObjectStore(settings.object_store_root).delete(
             f"synthetic/{asset_version_id}.txt"
         )
-        await delete_fixture(requested_by, duplicate_requester)
+        await delete_fixture(requested_by, duplicate_requester, indexing_profile_id)
 
 
 @pytest.mark.asyncio
@@ -802,9 +977,7 @@ async def test_parser_failure_is_terminal_without_automatic_substitution() -> No
                 job = await session.get(JobRecord, job_id)
                 ingestion = await session.get(RagIngestionJobRecord, job_id)
                 assert ingestion is not None
-                projection = await session.get(
-                    RagProjectionRecord, ingestion.projection_id
-                )
+                projection = await session.get(RagProjectionRecord, ingestion.projection_id)
             assert job is not None and job.status == JobStatus.FAILED
             assert job.error_code == "synthetic_parser_failure"
             assert projection is not None and projection.status == ProjectionStatus.FAILED
@@ -814,7 +987,7 @@ async def test_parser_failure_is_terminal_without_automatic_substitution() -> No
         await LocalObjectStore(settings.object_store_root).delete(
             f"synthetic/{asset_version_id}.txt"
         )
-        await delete_fixture(requested_by, duplicate_requester)
+        await delete_fixture(requested_by, duplicate_requester, indexing_profile_id)
 
 
 @pytest.mark.asyncio
@@ -840,9 +1013,7 @@ async def test_production_composition_rejects_profile_without_embedding_binding(
                 job = await session.get(JobRecord, job_id)
                 ingestion = await session.get(RagIngestionJobRecord, job_id)
                 assert ingestion is not None
-                projection = await session.get(
-                    RagProjectionRecord, ingestion.projection_id
-                )
+                projection = await session.get(RagProjectionRecord, ingestion.projection_id)
             assert job is not None and job.status == JobStatus.FAILED
             assert job.error_code == "embedding_binding_invalid"
             assert projection is not None and projection.status == ProjectionStatus.FAILED
@@ -852,4 +1023,4 @@ async def test_production_composition_rejects_profile_without_embedding_binding(
         await LocalObjectStore(settings.object_store_root).delete(
             f"synthetic/{asset_version_id}.txt"
         )
-        await delete_fixture(requested_by, duplicate_requester)
+        await delete_fixture(requested_by, duplicate_requester, indexing_profile_id)

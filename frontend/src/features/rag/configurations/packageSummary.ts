@@ -48,6 +48,13 @@ export function isV1CompatibleRetrieval(profile: Profile): boolean {
   return Object.keys(setting).length === 1 && setting.enabled === false;
 }
 
+export function hasResolvableEmbedding(
+  profile: Profile,
+  models: ModelDefinition[],
+): boolean {
+  return profile.kind === "indexing" && boundModel(profile, "embedding", models) !== undefined;
+}
+
 export function modelIdentity(model: ModelDefinition | undefined): string {
   return model ? `${model.name} v${model.version}` : "연결된 모델 정보 없음";
 }

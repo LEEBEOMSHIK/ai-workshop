@@ -1,16 +1,24 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-02
-- 현재 단계: RAG 색인 패키지 선택 UX 개선 완료
-- 전체 상태: 색인 구성 콤보박스가 임베딩 모델과 청킹 설정을 설명하고 내부 ID는 선택값과 API 계약에만 유지된다.
+- 현재 단계: RAG 색인 프로파일 테스트 잔여 데이터 재발 방지 및 정리 완료
+- 전체 상태: ingestion 통합 테스트는 고유 임시 DB로 격리되고 생성 프로파일을 정리하며, 유효한 임베딩 연결이 없는 색인 프로파일은 UI에 표시되지 않는다. 기존 synthetic 잔여 데이터도 제거했다.
 
 ## 현재 작업
 
 ### 목표
 
-색인 구성 콤보박스가 내부 프로파일명 대신 임베딩 모델·청킹 방식·목표/중첩 토큰·프로파일 버전을 설명하도록 개선한다. 내부 ID와 정확한 API 선택값은 유지하고 저장·검색 구성 호환성은 변경하지 않는다.
+통합 테스트가 생성한 합성 색인 프로파일을 반드시 정리하고 활성 개발 DB를 오염시키지 않도록 보호한다. 현재 남은 정확한 합성 데이터만 트랜잭션으로 제거하며, 임베딩 연결이 없는 유효하지 않은 색인 프로파일은 사용자 선택지에 표시하지 않는다.
 
 ### 진행 상태
+
+- 테스트 설비가 `synthetic-indexing-<UUID>` 프로파일을 커밋한 뒤 삭제하지 않는 직접 원인과, 총 8개의 잔여 프로파일 중 1개가 실패한 ingestion job·projection에 연결된 상태를 확인했다.
+- 선택 역할은 요구·구현 설계자, Python 백엔드, DB 관리자, 프론트엔드, RAG 책임자, 테스트 설계자, 통합 검증자, 독립 코드 리뷰어다. 모델 런타임·배포·권한 계약은 변경하지 않아 해당 전문 역할은 호출하지 않는다.
+- `delete_fixture`가 생성한 정확한 색인 프로파일까지 삭제하도록 고치고, ingestion 통합 테스트 13개를 고유 loopback 임시 PostgreSQL DB와 임시 object store에서 실행하도록 격리했다. production·비-loopback 대상은 연결 전에 거부하고 모든 실패 경로에서 생성 DB를 제거한다.
+- 프론트 색인 패키지 선택지는 embedding binding이 실제 embedding 모델로 해석되는 프로파일만 표시한다. 기존 synthetic 8개가 DB에 남아 있어도 사용자 콤보박스에는 나타나지 않는다.
+- 대상 프론트 테스트 10개, 전체 프론트 85개, TypeScript, ESLint, Next production build, backend unit 423개, ingestion 통합 13개, Ruff, mypy, 에이전트 계약과 독립 통합 검증·코드 리뷰가 통과했다.
+- 전체 backend 597개 실행은 이번 대상 13개를 포함해 진행됐으나, 별도 integration test URL이 설정되지 않은 환경 때문에 기존 DB 통합 테스트 21개와 루트 `.env` 영향을 받는 기본값 단위 테스트 1개가 실패했다. 이번 변경 대상은 독립 격리 DB에서 모두 통과했다.
+- 사용자 승인 뒤 개발 DB의 정확한 synthetic 프로파일 8개, 연결된 synthetic workspace 1개·사용자 2개와 cascade된 실패 job/projection 각 1개를 단일 트랜잭션으로 제거했다. 사후 잔여는 모두 0건이고 정상 E5/BGE 색인 프로파일 2개는 보존됐다.
 
 - 색인 프로파일 옵션이 `e5-structure-aware v2` 같은 내부 이름만 표시해 사용자가 임베딩 모델과 청킹 차이를 판단하기 어려운 문제를 확인했다. 표시명은 profile/model/config 데이터에서 동적으로 구성하고 UUID를 포함하지 않는다.
 - 색인 선택 라벨을 `색인 패키지`로 바꾸고 각 옵션을 `임베딩 모델·버전 · 청커·버전/목표/중첩 토큰 · 프로파일 버전` 순서로 설명한다. option value와 저장 payload의 정확한 profile ID, 호환 Retrieval 필터는 유지한다.
@@ -65,21 +73,21 @@
 
 ### 완료 기준
 
-- 색인 콤보박스가 임베딩 모델명·버전과 청커명·버전·목표·중첩 토큰을 표시한다.
-- 내부 프로파일명과 UUID는 option 표시명에 포함하지 않는다.
-- option value, state, 저장 payload와 호환 Retrieval 선택은 기존 정확한 ID를 유지한다.
-- 선택 안내는 임베딩·청킹이 함께 고정되고 변경 시 새 색인이 필요함을 설명한다.
-- 대상·전체 테스트, 타입 검사, 린트, production build와 독립 검증이 통과한다.
+- ingestion 통합 테스트가 생성한 합성 프로파일과 관련 실패 산출물을 테스트 종료 후 남기지 않는다.
+- 통합 테스트가 명시적으로 허용되지 않은 개발 DB에 영구 데이터를 기록하지 못한다.
+- 임베딩 모델 연결이 없는 색인 프로파일은 색인 패키지 선택지에 나타나지 않는다.
+- 현재 DB의 정확한 합성 프로파일 8개와 그에만 연결된 실패 job·projection을 트랜잭션으로 제거하고 정상 E5/BGE 프로파일과 사용자 데이터를 보존한다.
+- 대상·전체 테스트, 타입 검사, 린트, production build, DB 사후 조회와 독립 검증이 통과한다.
 
 ## 최근 완료 작업
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. 색인 구성 콤보박스를 임베딩 모델과 청킹 방식·목표·중첩 토큰을 설명하는 동적 선택지로 바꾸고, 내부 ID 기반 저장·호환성 계약을 유지한 채 전체 84개 테스트와 독립 검증을 통과했다.
-2. 저장된 RAG 구성을 Parser·Chunker·Embedding·Sparse/Dense Retriever·Fusion·Reranker·Answer Policy·LLM의 한 패키지로 표시하고 내부 UUID 기본 노출을 제거했으며 V1 리랭커 호환성과 파서 비고정 계약을 테스트·문서·독립 리뷰로 검증했다. 관련 계획: `docs/superpowers/plans/2026-09-02-rag-configuration-package-ui.md`
-3. Vite SPA를 Next.js 16 App Router로 전체 전환하고 사용자·관리자 경로, 정확한 로그인 복귀 URL, RAG 화면, owner 명령 API, FastAPI 오류 참조, 영구 리다이렉트와 로컬 실행을 구현·검증했다. 관련 설계: `docs/superpowers/specs/2026-09-02-nextjs-frontend-migration-design.md`
-4. `/workspaces` 보호 라우트가 인증 후 목록 API를 로드하고 전사·개인 기본 공간을 표시하도록 연결 누락을 수정·검증했다.
-5. 최초 관리자 1명을 만드는 `/setup` UI와 API, 전사·개인 기본 공간의 원자적 생성, 동시 설정 방지, setup/login 보호 경로 분기와 복구용 CLI 계약을 구현·검증했다. 관련 결정: `docs/decisions/0004-first-owner-ui-setup.md`
+1. 색인 콤보 중복을 만든 ingestion 테스트 프로파일 누수를 수정하고 통합 테스트를 안전한 고유 임시 DB로 격리했으며, 유효한 임베딩 연결만 UI에 표시하고 기존 synthetic 잔여 데이터를 정확히 제거했다.
+2. 색인 구성 콤보박스를 임베딩 모델과 청킹 방식·목표·중첩 토큰을 설명하는 동적 선택지로 바꾸고, 내부 ID 기반 저장·호환성 계약을 유지한 채 전체 84개 테스트와 독립 검증을 통과했다.
+3. 저장된 RAG 구성을 Parser·Chunker·Embedding·Sparse/Dense Retriever·Fusion·Reranker·Answer Policy·LLM의 한 패키지로 표시하고 내부 UUID 기본 노출을 제거했으며 V1 리랭커 호환성과 파서 비고정 계약을 테스트·문서·독립 리뷰로 검증했다. 관련 계획: `docs/superpowers/plans/2026-09-02-rag-configuration-package-ui.md`
+4. Vite SPA를 Next.js 16 App Router로 전체 전환하고 사용자·관리자 경로, 정확한 로그인 복귀 URL, RAG 화면, owner 명령 API, FastAPI 오류 참조, 영구 리다이렉트와 로컬 실행을 구현·검증했다. 관련 설계: `docs/superpowers/specs/2026-09-02-nextjs-frontend-migration-design.md`
+5. `/workspaces` 보호 라우트가 인증 후 목록 API를 로드하고 전사·개인 기본 공간을 표시하도록 연결 누락을 수정·검증했다.
 
 ## 다음 작업
 
@@ -95,6 +103,7 @@
 
 - `backend/.pytest-nextjs-final-contract`는 untracked지만 Windows 관리자 ACL 때문에 현재 비관리자 환경에서 삭제할 수 없다.
 - `backend/.pytest-tmp`는 Git ignored 경로이며 같은 ACL 문제로 내부 확인과 삭제가 거부된다. 두 경로 모두 애플리케이션 소스와 실행 데이터에는 영향을 주지 않으며, 대화형 Windows 관리자 세션에서 소유권과 내용을 확인한 뒤 정확 경로만 삭제해야 한다.
+- 이번 backend unit 검증에서 만든 `.local-data/pytest-unit-current`도 정확 경로 삭제를 시도했으나 접근이 거부됐다. 애플리케이션 데이터에는 포함되지 않는 테스트 임시물이며 관리자 세션에서 해당 경로만 제거해야 한다.
 
 ## 작업 인계 메모
 

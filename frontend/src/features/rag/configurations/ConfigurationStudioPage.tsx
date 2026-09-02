@@ -1,5 +1,6 @@
+"use client";
+
 import { type KeyboardEvent, useRef, useState } from "react";
-import { useLoaderData } from "react-router-dom";
 
 import { ModelLabPage } from "../models/ModelLabPage";
 import { ComparisonPanel } from "./ComparisonPanel";
@@ -137,7 +138,3 @@ export function ConfigurationStudioPage({ initialData }: { initialData: Configur
   );
 }
 
-export function ConfigurationStudioRoute() {
-  const data = useLoaderData() as ConfigurationStudioData;
-  return <ConfigurationStudioPage initialData={data} />;
-}

@@ -1,8 +1,9 @@
 import { useId } from "react";
-import { Link } from "react-router-dom";
+import Link from "next/link";
 
 import type { EvidenceAnswerData, SearchResult, SearchSubmissionContext } from "./api";
 import { ConfigurationProvenance, SourceScopeProvenance } from "./Provenance";
+import { buildSourceHref } from "./source-route-query";
 
 interface EvidenceAnswerProps {
   result: SearchResult;
@@ -107,11 +108,12 @@ function EvidenceCard({
       ) : null}
       <Link
         className="source-link"
-        to={`/rag/sources/${answer.source.asset_version_id}?projectionId=${encodeURIComponent(answer.source.projection_id)}`}
-        state={{
-          highlights: answer.highlights,
-          page: answer.source.location.page,
-        }}
+        href={buildSourceHref(
+          answer.source.asset_version_id,
+          answer.source.projection_id,
+          answer.highlights,
+          answer.source.location.page,
+        )}
       >
         원문에서 확인
       </Link>

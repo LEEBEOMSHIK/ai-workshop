@@ -82,8 +82,8 @@ describe("ModelLabPage", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         requests.push([input, init]);
-        if (input === "/api/v1/rag/models") return jsonResponse(modelResponse, 201);
-        if (input === "/api/v1/rag/profiles/retrieval/yaml") {
+        if (input === "/api/v1/admin/rag/models") return jsonResponse(modelResponse, 201);
+        if (input === "/api/v1/admin/rag/profiles/retrieval/yaml") {
           return jsonResponse(profileResponse, 201);
         }
         throw new Error(`Unexpected request: ${String(input)}`);
@@ -119,8 +119,8 @@ describe("ModelLabPage", () => {
     await user.click(within(profileForm!).getByRole("button", { name: "YAML 프로파일 등록" }));
     expect(await screen.findByText("registered-retrieval")).toBeVisible();
     expect(requests.map(([input]) => input)).toEqual([
-      "/api/v1/rag/models",
-      "/api/v1/rag/profiles/retrieval/yaml",
+      "/api/v1/admin/rag/models",
+      "/api/v1/admin/rag/profiles/retrieval/yaml",
     ]);
   });
 
@@ -130,8 +130,8 @@ describe("ModelLabPage", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: RequestInfo | URL) => {
-        if (input === "/api/v1/rag/models") return modelRequest.promise;
-        if (input === "/api/v1/rag/profiles/retrieval/yaml") return profileRequest.promise;
+        if (input === "/api/v1/admin/rag/models") return modelRequest.promise;
+        if (input === "/api/v1/admin/rag/profiles/retrieval/yaml") return profileRequest.promise;
         throw new Error(`Unexpected request: ${String(input)}`);
       }),
     );

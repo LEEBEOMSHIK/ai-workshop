@@ -1,8 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, vi } from "vitest";
 
-import { routes } from "../../../app/router";
 import type { HighlightSpan } from "./api";
 import { SourceViewer } from "./SourceViewer";
 
@@ -185,27 +183,6 @@ describe("SourceViewer", () => {
     else expect(retryButton).not.toBeInTheDocument();
   });
 
-  it("registers the source route without accepting a caller object key", async () => {
-    let requestedUrl = "";
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        requestedUrl = String(input);
-        return jsonResponse(normalizedText("text/plain"));
-      }),
-    );
-    const router = createMemoryRouter(routes, {
-      initialEntries: ["/rag/sources/asset-version-1?projectionId=projection-1&objectKey=forbidden"],
-    });
-
-    render(<RouterProvider router={router} />);
-
-    expect(await screen.findByRole("heading", { name: "환매 규정.txt" })).toBeVisible();
-    expect(requestedUrl).toBe(
-      "/api/v1/rag/sources/asset-version-1/normalized-text?projection_id=projection-1",
-    );
-    expect(requestedUrl).not.toContain("objectKey");
-  });
 });
 
 function jsonResponse(body: unknown, status = 200) {

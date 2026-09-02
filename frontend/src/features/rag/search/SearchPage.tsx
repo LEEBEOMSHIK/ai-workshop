@@ -1,3 +1,5 @@
+"use client";
+
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiError } from "../../../shared/api/client";
@@ -22,8 +24,10 @@ const workspaceKindLabels: Record<WorkspaceOption["kind"], string> = {
   temporary: "임시",
 };
 
-export function SearchPage() {
-  const [options, setOptions] = useState<SearchOptions>({ configurations: [], workspaces: [] });
+export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions }) {
+  const [options, setOptions] = useState<SearchOptions>(
+    initialOptions ?? { configurations: [], workspaces: [] },
+  );
   const [folderOptions, setFolderOptions] = useState<Record<string, FolderOption[]>>({});
   const [workspaceIds, setWorkspaceIds] = useState<string[]>([]);
   const [folderIds, setFolderIds] = useState<string[]>([]);
@@ -34,7 +38,7 @@ export function SearchPage() {
     result: SearchResult;
     context: SearchSubmissionContext;
   } | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(initialOptions === undefined);
   const [optionsLoadFailed, setOptionsLoadFailed] = useState(false);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState("");
@@ -42,6 +46,7 @@ export function SearchPage() {
   const searchController = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    if (initialOptions !== undefined) return;
     let active = true;
     loadSearchOptions()
       .then((loaded) => {
@@ -62,7 +67,7 @@ export function SearchPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [initialOptions]);
 
   useEffect(
     () => () => {

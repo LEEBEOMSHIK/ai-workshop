@@ -1,11 +1,11 @@
+"use client";
+
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { useLoaderData } from "react-router-dom";
 
 import {
   type JsonValue,
   type ModelDefinitionSummary,
   type ModelKind,
-  type ModelLabData,
   type ProfileKind,
   type ProfileSummary,
   registerModelVersion,
@@ -213,11 +213,6 @@ function RegistryTable({
       </table>
     </article>
   );
-}
-
-export function ModelLabRoute() {
-  const data = useLoaderData() as ModelLabData;
-  return <ModelLabPage initialModels={data.models} initialProfiles={data.profiles} />;
 }
 
 function isSupportedModel(model: ModelDefinitionSummary): boolean {

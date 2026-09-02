@@ -1,17 +1,20 @@
 import {
   createBrowserRouter,
   redirect,
+  useLoaderData,
+  useParams,
+  useSearchParams,
   type LoaderFunctionArgs,
   type RouteObject,
 } from "react-router-dom";
 
 import { listDocuments } from "../features/assets/api";
-import { loadConfigurationStudio } from "../labs/rag/configurations/api";
-import { ConfigurationStudioRoute } from "../labs/rag/configurations/ConfigurationStudioPage";
-import { loadModelLab } from "../labs/rag/models/api";
-import { ModelLabRoute } from "../labs/rag/models/ModelLabPage";
-import { SearchPage } from "../labs/rag/search/SearchPage";
-import { SourceViewerRoute } from "../labs/rag/search/SourceViewer";
+import { loadConfigurationStudio, type ConfigurationStudioData } from "../features/rag/configurations/api";
+import { ConfigurationStudioPage } from "../features/rag/configurations/ConfigurationStudioPage";
+import { loadModelLab, type ModelLabData } from "../features/rag/models/api";
+import { ModelLabPage } from "../features/rag/models/ModelLabPage";
+import { SearchPage } from "../features/rag/search/SearchPage";
+import { SourceViewer } from "../features/rag/search/SourceViewer";
 import { DocumentPage } from "../features/assets/DocumentPage";
 import { ApiError } from "../shared/api/client";
 import { getCurrentUser, getSetupStatus } from "../features/identity/api";
@@ -73,6 +76,22 @@ async function protectedModelLoader(args: LoaderFunctionArgs) {
   return loadModelLab();
 }
 
+function LegacyConfigurationRoute() {
+  return <ConfigurationStudioPage initialData={useLoaderData() as ConfigurationStudioData} />;
+}
+
+function LegacyModelRoute() {
+  const data = useLoaderData() as ModelLabData;
+  return <ModelLabPage initialModels={data.models} initialProfiles={data.profiles} />;
+}
+
+function LegacySourceRoute() {
+  const { assetVersionId = "" } = useParams();
+  const [query] = useSearchParams();
+  const projectionId = query.get("projectionId") ?? "";
+  return <SourceViewer assetVersionId={assetVersionId} projectionId={projectionId} highlights={[]} />;
+}
+
 export const routes: RouteObject[] = [
   {
     path: "/",
@@ -100,13 +119,13 @@ export const routes: RouteObject[] = [
   },
   {
     path: "/rag/configurations",
-    element: <ConfigurationStudioRoute />,
+    element: <LegacyConfigurationRoute />,
     hydrateFallbackElement: <p role="status">RAG 구성 스튜디오를 불러오는 중…</p>,
     loader: protectedConfigurationLoader,
   },
   {
     path: "/rag/models",
-    element: <ModelLabRoute />,
+    element: <LegacyModelRoute />,
     loader: protectedModelLoader,
   },
   {
@@ -116,7 +135,7 @@ export const routes: RouteObject[] = [
   },
   {
     path: "/rag/sources/:assetVersionId",
-    element: <SourceViewerRoute />,
+    element: <LegacySourceRoute />,
     loader: requireSession,
   },
 ];

@@ -27,7 +27,7 @@ export async function loadModelLab(): Promise<ModelLabData> {
 }
 
 export async function registerModelVersion(input: ModelCreate): Promise<ModelDefinitionSummary> {
-  return apiRequest<ModelDefinitionSummary>("/api/v1/rag/models", {
+  return apiRequest<ModelDefinitionSummary>("/api/v1/admin/rag/models", {
     method: "POST",
     json: input,
   });
@@ -38,7 +38,7 @@ export async function registerYamlProfile(
   content: string,
 ): Promise<ProfileSummary> {
   const request: ProfileYamlRequest = { content };
-  return apiRequest<ProfileSummary>(`/api/v1/rag/profiles/${kind}/yaml`, {
+  return apiRequest<ProfileSummary>(`/api/v1/admin/rag/profiles/${kind}/yaml`, {
     method: "POST",
     json: request,
   });

@@ -1,18 +1,20 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-02
-- 현재 단계: Next.js 프론트엔드 전환 설계
-- 전체 상태: FastAPI를 AI·업무 로직 정본으로 유지하면서 Vite SPA를 Next.js App Router로 전환하고 사용자·관리자 URL과 권한 경계를 분리한다.
+- 현재 단계: Next.js 프론트엔드 전체 전환 구현
+- 전체 상태: FastAPI를 AI·업무 로직 정본으로 유지하면서 Vite SPA 기능을 Next.js App Router의 공개·사용자·관리자 영역으로 이전하고 있다.
 
 ## 현재 작업
 
 ### 목표
 
-Next.js App Router 기반으로 `/app/*`, `/admin/*`, `/setup`, `/login`을 분리하고 기존 기능과 FastAPI 계약을 보존하는 전체 전환 설계와 구현 계획을 확정한다.
+Next.js App Router 기반으로 `/app/*`, `/admin/*`, `/setup`, `/login`을 분리하고 기존 기능과 FastAPI 계약을 보존한 채 Vite·React Router를 제거한다.
 
 ### 진행 상태
 
 - Next.js는 프론트엔드와 최소 rewrite 계층만 담당하고 인증·권한·AI·DB 업무 로직은 FastAPI에 유지하기로 결정했다.
+- 사용자 역할·관리자 RAG 명령 API, Next.js 도구체인·접근 레이아웃, 공개·지식 공간·문서 화면 전환을 구현했다.
+- 현재 RAG 검색·구성·모델·출처 뷰어를 App Router에 연결하고 있다.
 - Vite·React Router를 병행하지 않는 전체 전환과 `/app/*`, `/admin/*` canonical URL 및 기존 URL 영구 리다이렉트를 승인했다.
 - Next.js `16.3.4` 안정 버전, App Router, Server Component 우선, 상호작용 경계만 Client Component로 사용하는 기준을 설계에 반영한다.
 - DB에서 사용자 1명, 기본 공간 2개와 멤버십 2개가 정상 생성된 것을 확인했다.
@@ -69,9 +71,9 @@ Next.js App Router 기반으로 `/app/*`, `/admin/*`, `/setup`, `/login`을 분�
 
 ## 다음 작업
 
-1. Next.js 전환 설계 사용자 검토
-2. 승인된 설계 기반 구현 계획 작성
-3. Next.js App Router 전체 전환 구현
+1. RAG 검색·구성·모델·출처 뷰어 App Router 연결
+2. Vite·React Router 레거시 제거와 영구 리다이렉트 구성
+3. 전체 테스트·타입 검사·린트·빌드·로컬 실행 검증
 
 ## 결정이 필요한 항목
 

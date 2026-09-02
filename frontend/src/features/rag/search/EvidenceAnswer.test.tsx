@@ -1,5 +1,4 @@
 import { render, screen, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
 
 import type { EvidenceAnswerData, SearchResult, SearchSubmissionContext } from "./api";
 import { EvidenceAnswer } from "./EvidenceAnswer";
@@ -49,6 +48,13 @@ describe("EvidenceAnswer", () => {
     expect(configuration).toHaveTextContent("일반 실행");
     expect(screen.getByText("정확·키워드 일치")).toBeVisible();
     expect(screen.getByText("의미 일치")).toBeVisible();
+    const sourceLink = screen.getByRole("link", { name: "원문에서 확인" });
+    expect(sourceLink).toHaveAttribute(
+      "href",
+      expect.stringMatching(/^\/app\/rag\/sources\/asset-version-1\?projectionId=projection-1/),
+    );
+    expect(sourceLink.getAttribute("href")).toContain("keyword=");
+    expect(sourceLink.getAttribute("href")).toContain("semantic=");
     const warning = screen.getByText("원문 위치 정보가 완전하지 않습니다.");
     expect(warning).toBeVisible();
     expect(screen.getByText(answer.excerpt).closest("article")).toHaveAttribute(
@@ -178,11 +184,7 @@ describe("EvidenceAnswer", () => {
 });
 
 function renderAnswer(result: SearchResult) {
-  render(
-    <MemoryRouter>
-      <EvidenceAnswer result={result} context={submissionContext} />
-    </MemoryRouter>,
-  );
+  render(<EvidenceAnswer result={result} context={submissionContext} />);
 }
 
 function searchResult(overrides: Partial<SearchResult> = {}): SearchResult {

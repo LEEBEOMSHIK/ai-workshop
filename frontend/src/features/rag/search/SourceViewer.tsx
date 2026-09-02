@@ -1,5 +1,6 @@
+"use client";
+
 import { type CSSProperties, type ReactNode, useEffect, useMemo, useState } from "react";
-import { useLocation, useParams, useSearchParams } from "react-router-dom";
 
 import { ApiError } from "../../../shared/api/client";
 import {
@@ -93,9 +94,13 @@ export function SourceViewer({
     };
   }, [assetVersionId, projectionId, requestKey, requestedPage]);
 
-  const validatedTextHighlights = useMemo(
-    () => validateTextHighlights(document, highlights),
+  const resolvedHighlights = useMemo(
+    () => resolveHighlightText(document, highlights),
     [document, highlights],
+  );
+  const validatedTextHighlights = useMemo(
+    () => validateTextHighlights(document, resolvedHighlights),
+    [document, resolvedHighlights],
   );
 
   if (loading) {
@@ -130,7 +135,7 @@ export function SourceViewer({
           title={document.title}
           page={pageNumber}
           imageUrl={pdfUrl}
-          highlights={highlights}
+          highlights={resolvedHighlights}
           dimensions={dimensions}
           onImageLoad={(width, height) => setPageDimensions({ key: requestKey, width, height })}
         />
@@ -337,26 +342,21 @@ function viewerErrorMessage(error: ApiError): string {
   return "원문을 불러오지 못했습니다.";
 }
 
-interface ViewerRouteState {
-  highlights?: HighlightSpan[];
-  page?: number | null;
-}
-
-export function SourceViewerRoute() {
-  const { assetVersionId = "" } = useParams();
-  const [searchParams] = useSearchParams();
-  const location = useLocation();
-  const state = location.state as ViewerRouteState | null;
-  const projectionId = searchParams.get("projectionId") ?? "";
-  if (!assetVersionId || !projectionId) {
-    return <main className="source-viewer-shell"><p role="alert">원문 요청 정보가 올바르지 않습니다.</p></main>;
-  }
-  return (
-    <SourceViewer
-      assetVersionId={assetVersionId}
-      projectionId={projectionId}
-      highlights={state?.highlights ?? []}
-      page={state?.page}
-    />
-  );
+function resolveHighlightText(
+  document: NormalizedTextData | null,
+  highlights: HighlightSpan[],
+): HighlightSpan[] {
+  if (!document) return highlights;
+  return highlights.map((highlight) => {
+    if (highlight.text.length > 0) return highlight;
+    const element = document.elements.find(
+      (candidate) =>
+        highlight.char_start >= candidate.location.char_start &&
+        highlight.char_end <= candidate.location.char_end,
+    );
+    if (!element) return highlight;
+    const start = highlight.char_start - element.location.char_start;
+    const end = highlight.char_end - element.location.char_start;
+    return { ...highlight, text: Array.from(element.text).slice(start, end).join("") };
+  });
 }

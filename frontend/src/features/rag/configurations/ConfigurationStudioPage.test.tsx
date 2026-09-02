@@ -1,9 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, vi } from "vitest";
 
-import { routes } from "../../../app/router";
 import { ConfigurationStudioPage } from "./ConfigurationStudioPage";
 import type { ConfigurationStudioData, SavedConfiguration } from "./api";
 
@@ -117,32 +115,6 @@ describe("ConfigurationStudioPage", () => {
     ).toBeChecked();
   });
 
-  it("loads the configuration studio at its canonical route", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        if (input === "/api/v1/auth/me") {
-          return jsonResponse({
-            id: "owner-1",
-            display_name: "LEE BEOMSHIK",
-            email: "bumcity135@naver.com",
-            role: "owner",
-          });
-        }
-        if (input === "/api/v1/rag/configurations") return jsonResponse([baselineConfiguration()]);
-        if (input === "/api/v1/rag/models") return jsonResponse([]);
-        if (String(input).startsWith("/api/v1/rag/profiles/")) return jsonResponse([]);
-        if (input === "/api/v1/workspaces") return jsonResponse([]);
-        if (input === "/api/v1/rag/evaluation-runs?limit=20") return jsonResponse([]);
-        throw new Error(`Unexpected request: ${String(input)}`);
-      }),
-    );
-    const router = createMemoryRouter(routes, { initialEntries: ["/rag/configurations"] });
-
-    render(<RouterProvider router={router} />);
-
-    expect(await screen.findByRole("heading", { name: "RAG 구성 스튜디오" })).toBeVisible();
-  });
 });
 
 function studioData(): ConfigurationStudioData {

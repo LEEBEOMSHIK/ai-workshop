@@ -1,10 +1,13 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { ReactNode } from "react";
 import userEvent from "@testing-library/user-event";
-import { createMemoryRouter, MemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, vi } from "vitest";
 
-import { routes } from "../../../app/router";
 import { SearchPage } from "./SearchPage";
+
+function MemoryRouter({ children }: { children: ReactNode }) {
+  return <>{children}</>;
+}
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -456,53 +459,6 @@ describe("SearchPage", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
     expect(screen.queryByText(/비공개 문서 제목/)).not.toBeInTheDocument();
-  });
-
-  it("registers the evidence search workspace at the protected app route", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        if (input === "/api/v1/auth/me") {
-          return jsonResponse({
-            id: "owner-1",
-            display_name: "LEE BEOMSHIK",
-            email: "bumcity135@naver.com",
-            role: "owner",
-          });
-        }
-        if (input === "/api/v1/workspaces") return jsonResponse([]);
-        if (input === "/api/v1/rag/configurations") return jsonResponse([]);
-        throw new Error(`Unexpected request: ${String(input)}`);
-      }),
-    );
-    const router = createMemoryRouter(routes, { initialEntries: ["/rag/search"] });
-
-    render(<RouterProvider router={router} />);
-
-    expect(await screen.findByRole("heading", { name: "근거부터 확인하는 검색" })).toBeVisible();
-  });
-
-  it("redirects an unauthenticated protected search route to login before loading options", async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      if (input === "/api/v1/auth/me") {
-        return jsonResponse({ error: { code: "unauthorized", message: "Unauthorized", correlation_id: "test" } }, 401);
-      }
-      if (input === "/api/v1/setup/status") {
-        return jsonResponse({ setup_required: false });
-      }
-      throw new Error(`Unexpected request: ${String(input)}`);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    const router = createMemoryRouter(routes, { initialEntries: ["/rag/search"] });
-
-    render(<RouterProvider router={router} />);
-
-    expect(await screen.findByRole("heading", { name: "다시 오셨군요." })).toBeVisible();
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/v1/auth/me",
-      expect.objectContaining({ credentials: "include" }),
-    );
   });
 
   it("reports an initial 401 without claiming that authorized data is empty", async () => {

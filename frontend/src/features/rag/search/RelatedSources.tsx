@@ -1,7 +1,8 @@
-import { Link } from "react-router-dom";
+import Link from "next/link";
 
 import type { SearchResult, SearchSubmissionContext } from "./api";
 import { ConfigurationProvenance, SourceScopeProvenance } from "./Provenance";
+import { buildSourceHref } from "./source-route-query";
 
 interface RelatedSourcesProps {
   result: SearchResult;
@@ -29,7 +30,7 @@ export function RelatedSources({ result, context }: RelatedSourcesProps) {
               <p>위치: {source.section_path.join(" › ")}</p>
             ) : null}
             <Link
-              to={`/rag/sources/${source.asset_version_id}?projectionId=${encodeURIComponent(source.projection_id)}`}
+              href={buildSourceHref(source.asset_version_id, source.projection_id)}
             >
               원문 열기
             </Link>

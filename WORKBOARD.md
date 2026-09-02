@@ -36,7 +36,7 @@ DOCX 구조 파서와 원문 뷰어가 RAG 공통 문서 모델, Evidence Unit�
 - 추가 승인된 BuildKit child 2개와 parent 2개를 자식부터 제거해 Build cache를 24.25 GB에서 13.55 GB로 줄였다. VHDX 실제 크기와 host 여유 공간은 이번 논리 정리만으로 추가 감소하지 않았다.
 - 프로젝트 개발 에이전트와 제품 런타임 에이전트를 분리하고, 공통 프로젝트 역할과 RAG 책임자 아래 전문 역할을 갖는 계층형 조직 설계를 사용자와 확정했다.
 - 역할 선택·사전 고지, 구현과 독립 검증 분리, 전체 소스 하드코딩 방지, 성공 시 임시 기록 자동 정리와 계약 자동 검증 기준을 명세로 작성했다.
-- 격리 worktree `C:\projects\ai-workshop\.worktrees\project-development-agent-organization`을 생성했다. 구현·전체 검증·원격 반영·main 통합과 미추적 파일 조사가 끝난 뒤 별도 승인으로 제거한다.
+- 프로젝트 개발 에이전트 조직을 `main`과 원격에 반영한 뒤 승인에 따라 격리 worktree와 로컬·원격 기능 브랜치를 제거했다.
 - 프로젝트 개발 에이전트 역할 계약, activation rule, workflow, 임시 기록 수명주기, Codex 어댑터와 자동 검증기를 구현하고 대표 역할 선택 시나리오를 검증했다.
 
 ### 완료 기준

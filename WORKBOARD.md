@@ -1,8 +1,8 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-03
-- 현재 단계: 1단계 공개·작업소·관리자 경계 복원 완료 및 2단계 인계
-- 전체 상태: 공개 캐릭터 소개 대화상자의 viewport 결함과 모바일 닫기 버튼 겹침을 수정했다. 전체 프론트 검증과 실제 desktop/mobile 브라우저 검증을 통과했으며, 다음 작업은 2단계 `다중 도메인과 공개 릴리스 기반` 상세 설계다.
+- 현재 단계: 1단계 구현·공개 브라우저 검증 완료 및 owner 인증 smoke 대기
+- 전체 상태: 공개 캐릭터 dialog와 모바일 겹침, 누락된 workshop 오류 경계, 개인정보 테스트 fixture와 인계 문서 모순을 수정했다. 자동 검증과 공개 desktop/mobile 브라우저 검증은 통과했으며, 기존 owner 세션의 실제 데이터 화면 smoke 또는 사용자의 명시적 위험 수용 뒤 2단계로 넘어간다.
 
 ## 현재 작업
 
@@ -17,6 +17,8 @@
 - 대화상자를 `document.body` portal로 분리하고 모바일 eyebrow에 닫기 버튼 안전 영역을 추가했다. 독립 실제 브라우저 재검증에서 desktop `1189×797`, mobile `390×844` 모두 viewport containment, 가로 overflow 없음, 닫기 초기 focus, Tab 순환, Escape 닫기와 trigger focus 복귀를 통과했다.
 - 공개 `/`, `/labs`, `/labs/rag`의 navigation/content 겹침이 없고 공개 RAG CTA가 `/login?next=%2Fworkshop%2Frag%2Fsearch`로 이동하는 것을 확인했다. 인증 정보가 없는 브라우저였으므로 owner 로그인 후 실제 데이터 화면은 검증하지 않았다.
 - `prefers-reduced-motion`은 연결 브라우저에 media override capability가 없어 실제 에뮬레이션하지 못했다. CSS의 reduce media query가 `.roaming`, `.working`, `.statusLight` 애니메이션을 제거하는 정적 근거만 확인했으며 실제 브라우저 통과로 주장하지 않는다.
+- 전체 계획 리뷰에서 retired `/app` 아래 남은 오류 경계를 `/workshop/error.tsx`로 이동하고 회귀 테스트를 추가했다. Setup·인증 backend/frontend 테스트의 개인 식별값과 과거 bootstrap 예시의 개인 이메일을 합성 값으로 교체했으며 개인정보 독립 검증에서 현재 추적 파일의 개인 이메일과 테스트 fixture 이름이 0건임을 확인했다.
+- 최종 재검증은 frontend Vitest `36 files, 122 passed`, TypeScript, ESLint 무경고, production build, backend focused `8 passed`, unit `423 passed`, Ruff와 mypy가 통과했다. backend unit을 저장소 루트에서 실행하면 루트 `.env`가 기본값 테스트에 주입돼 1건 실패하므로 정본 `backend/` 작업 디렉터리에서 실행해야 한다.
 - 공개 전시실은 `/`, `/labs`, `/labs/rag`에서 인증 없이 접근하며, 비공개 작업소는 `/workshop/*`, owner 시스템 관리는 `/admin/*`로 분리됐다.
 - `/app/*`는 compatibility-only 영구 리다이렉트다. `/app/rag/search`는 `/workshop/rag/search`, `/app/rag/configurations`는 `/admin/rag/configurations`로 이동한다.
 - 1단계 공개 화면은 캐릭터 랜딩, Lab 목록과 RAG 기술 소개까지만 구현한다. 공개 검색, 불변 공개 릴리스, LLM 답변, 문서 업로드, 피드백과 학습은 승인된 후속 단계이며 아직 구현하지 않았다.
@@ -33,7 +35,7 @@
 - 모델 등록·교체, 색인·검색·생성 구성 편집과 기본 구성 승격은 공개 캐릭터 화면이 아니라 인증된 시스템 관리자 화면의 책임으로 분리한다.
 - 공개 RAG Lab은 현재 공개 서비스에 적용된 모델명·버전과 Parser·Chunker·Sparse/Dense Retriever·Fusion·Highlight 구성을 읽기 전용으로 표시한다. 내부 UUID·비밀값·환경 경로와 편집 동작은 제외한다.
 - 공개 전시실은 비공개 작업소의 현재 설정을 실시간 조회하지 않는다. 관리자가 검증·승인한 모델 구성, 공개 문서·색인, 평가와 해결 기록을 하나의 불변 공개 릴리스 패키지로 발행하고 활성 릴리스만 공개 화면에 제공한다.
-- 공개 URL은 `/`, `/labs`, `/labs/rag`, `/labs/rag/search`, `/labs/rag/architecture`, `/labs/rag/journey`, `/labs/rag/configuration`으로 구분한다. 캐릭터 선택 시 소개 패널을 거쳐 공유 가능한 독립 상세 URL로 이동한다.
+- 1단계 공개 URL은 `/`, `/labs`, `/labs/rag`까지 구현됐다. 2단계 이후 승인된 계약은 공통 `/labs/rag/architecture`와 `/labs/rag/domains`, 도메인별 `/labs/rag/domains/{domainSlug}` 및 그 아래 `search`, `journey`, `configuration`의 동적 공개 URL이며, 캐릭터 선택 시 소개 패널을 거쳐 공유 가능한 독립 상세 URL로 이동한다.
 - 공개된 완성 기능에는 `데모` 명칭을 사용하지 않고 `AI 검색`처럼 기능·서비스 자체의 이름을 사용한다. 검증 중인 기능은 비공개 작업소에 유지하거나 `연구 중` 상태로 명확히 구분한다.
 - 비공개 작업소는 `/workshop/*`, 모델·RAG 구성 편집과 공개 릴리스 관리는 `/admin/*`로 분리한다. 현재 `/app/rag/configurations` 편집 책임은 관리자 영역으로 이전한다.
 - RAG는 자산운용 전용 기능이 아니라 여러 전문 도메인이 사용하는 기술 Lab으로 정의한다. 자산운용은 첫 도메인 패키지이며 보험·금융·법률·HR 등을 동일한 도메인 계약으로 추가한다.
@@ -57,7 +59,7 @@
 - 로그인 사용자의 상세 피드백은 활용 동의, 개인정보·권한 검사와 도메인 전문가 검토를 통과한 경우에만 평가·파인튜닝 데이터 후보로 승격한다.
 - 공개 화면의 좋아요·싫어요는 기능 안내용으로 표시하되 선택 내용을 저장하지 않는다. 선택 시 로그인 안내를 열고, 실제 피드백·평가·학습 데이터 수명주기는 인증된 세션에서만 시작한다.
 - 예상 밖 인증 동작에 체계적 디버깅 절차를 적용한다. 사용자·관리자 라우트, 로그인 세션 응답, 역할 검사와 사용자 생성 경로를 역추적한다.
-- `/app/*` 레이아웃은 `requireWorkspaceUser`, `/admin/*`만 `requireOwner`를 사용하고 RAG 검색·구성 API도 `get_current_user`를 사용하므로 사용자 화면 자체에 owner 권한은 강제되지 않는다.
+- 현재 `/app/*`는 인증 레이아웃이 아니라 compatibility-only 영구 리다이렉트다. `/workshop/*`는 `requireWorkspaceUser`, `/admin/*`는 `requireOwner`를 사용하며, RAG 구성·평가 API는 인증 사용자 조회와 owner 전용 mutation 경계를 분리한다.
 - 최초 설정 API와 CLI 외에 일반 `member` 사용자를 생성·초대·관리하는 API/UI가 없고 현재 DB에도 owner 1명만 있어, 로그인 문구와 실제 사용 가능 계정이 모두 소유자 중심으로 굳어진 것이 직접 원인이다.
 
 - 테스트 설비가 `synthetic-indexing-<UUID>` 프로파일을 커밋한 뒤 삭제하지 않는 직접 원인과, 총 8개의 잔여 프로파일 중 1개가 실패한 ingestion job·projection에 연결된 상태를 확인했다.
@@ -130,7 +132,7 @@
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. 공개 캐릭터 dialog를 body portal로 분리하고 모바일 닫기 버튼 안전 영역을 추가했다. 프론트 121개·타입·린트·빌드와 desktop/mobile 실제 브라우저의 viewport·키보드·공개 경로를 검증했다.
+1. 공개 캐릭터 dialog를 body portal로 분리하고 모바일 안전 영역을 추가했으며, 누락된 workshop 오류 경계·개인정보 fixture·WORKBOARD 계약 모순을 전체 계획 리뷰에서 수정했다. 프론트 122개·backend unit 423개·정적 검사·빌드와 desktop/mobile 실제 브라우저를 검증했다.
 2. 공개·작업소·관리자 경계의 canonical 문서와 실행서를 2026-09-03 구현 상태에 맞추고, backend API 7개·unit 423개와 signed-out HTTP route를 검증했다.
 3. 로그인 화면과 공개·작업소 탐색을 정렬하고 synthetic 로그인 fixture로 개인정보 없는 회귀 계약을 고정했다 (`e970a9b`, `95b727d`).
 4. 공개 캐릭터 랜딩, AI Lab 장면과 RAG 기술 소개를 구현하고 dialog focus containment를 보강했다 (`abd479c`, `2958469`, `be4a9c1`).
@@ -138,19 +140,21 @@
 
 ## 다음 작업
 
-1. 2단계 `다중 도메인과 공개 릴리스 기반` 상세 설계
-2. 형식별 Parser Policy Version과 Saved RAG Configuration 연결, 재파싱·재청킹·재색인 수명주기 설계
-3. Parser Policy에 포함되는 DOCX 구조 파서와 원문 뷰어 계약 설계
+1. 기존 owner 세션으로 `/workshop/rag/search`와 `/admin/rag/configurations`의 실제 데이터 화면 smoke를 수행하거나 미검증 위험을 명시적으로 수용
+2. 2단계 `다중 도메인과 공개 릴리스 기반` 상세 설계
+3. 형식별 Parser Policy Version과 Saved RAG Configuration 연결, 재파싱·재청킹·재색인 수명주기 설계
+4. Parser Policy에 포함되는 DOCX 구조 파서와 원문 뷰어 계약 설계
 
 ## 결정이 필요한 항목
 
-- 없음. 사용자가 하위 에이전트 기반 순차 구현과 `main` 직접 작업을 승인했다.
+- owner 인증 smoke를 위해 사용자가 현재 로그인 화면에서 기존 계정으로 로그인할지, 자동 검증 없이 남은 위험을 수용할지 결정해야 한다. 비밀번호를 문서·명령·대화에 전달하지 않는다.
 
 ## 차단 요소
 
 - `backend/.pytest-nextjs-final-contract`는 untracked지만 Windows 관리자 ACL 때문에 현재 비관리자 환경에서 삭제할 수 없다.
 - `backend/.pytest-tmp`는 Git ignored 경로이며 같은 ACL 문제로 내부 확인과 삭제가 거부된다. 2026-09-03 기본 unit 실행도 이 경로 정리 단계에서 실패했고 fresh `%TEMP%` basetemp로 우회 검증했다. 두 경로 모두 애플리케이션 소스와 실행 데이터에는 영향을 주지 않으며, 대화형 Windows 관리자 세션에서 소유권과 내용을 확인한 뒤 정확 경로만 삭제해야 한다.
 - 이번 backend unit 검증에서 만든 `.local-data/pytest-unit-current`도 정확 경로 삭제를 시도했으나 접근이 거부됐다. 애플리케이션 데이터에는 포함되지 않는 테스트 임시물이며 관리자 세션에서 해당 경로만 제거해야 한다.
+- 현재 브라우저에는 owner 세션이 없고 비밀번호를 조회·재설정하지 않았으므로 `/workshop/rag/search`와 `/admin/rag/configurations`의 인증 후 실제 데이터 렌더링 smoke가 남아 있다.
 
 ## 작업 인계 메모
 

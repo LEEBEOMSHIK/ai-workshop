@@ -31,8 +31,8 @@ describe("SetupPage", () => {
       />,
     );
 
-    await user.type(screen.getByLabelText("이름"), "LEE BEOMSHIK");
-    await user.type(screen.getByLabelText("이메일"), "bumcity135@naver.com");
+    await user.type(screen.getByLabelText("이름"), "Workshop Owner");
+    await user.type(screen.getByLabelText("이메일"), "owner@example.test");
     await user.type(screen.getByLabelText("비밀번호"), "correct-password");
     await user.type(screen.getByLabelText("비밀번호 확인"), "correct-password");
     await user.click(screen.getByRole("button", { name: "관리자 계정 만들기" }));
@@ -40,8 +40,8 @@ describe("SetupPage", () => {
     expect(replace).toHaveBeenCalledWith(routes.workshopHome);
     expect(requests).toEqual([
       {
-        display_name: "LEE BEOMSHIK",
-        email: "bumcity135@naver.com",
+        display_name: "Workshop Owner",
+        email: "owner@example.test",
         password: "correct-password",
         password_confirmation: "correct-password",
       },
@@ -60,8 +60,8 @@ describe("SetupPage", () => {
       />,
     );
 
-    await user.type(screen.getByLabelText("이름"), "LEE BEOMSHIK");
-    await user.type(screen.getByLabelText("이메일"), "bumcity135@naver.com");
+    await user.type(screen.getByLabelText("이름"), "Workshop Owner");
+    await user.type(screen.getByLabelText("이메일"), "owner@example.test");
     await user.type(screen.getByLabelText("비밀번호"), "correct-password");
     await user.type(screen.getByLabelText("비밀번호 확인"), "different-password");
     await user.click(screen.getByRole("button", { name: "관리자 계정 만들기" }));

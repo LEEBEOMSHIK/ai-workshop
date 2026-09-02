@@ -36,8 +36,8 @@ class MemoryUserRepository(UserRepository):
 def auth_client() -> TestClient:
     hasher = Argon2PasswordHasher()
     user = User.create_owner(
-        display_name="LEE BEOMSHIK",
-        email="bumcity135@naver.com",
+        display_name="Workshop Owner",
+        email="owner@example.com",
         password_hash=hasher.hash("correct-password"),
     )
     settings = Settings(
@@ -59,11 +59,11 @@ def test_login_sets_http_only_cookie_and_me_returns_owner() -> None:
 
         response = client.post(
             "/api/v1/auth/login",
-            json={"email": "BUMCITY135@NAVER.COM", "password": "correct-password"},
+            json={"email": "OWNER@EXAMPLE.COM", "password": "correct-password"},
         )
 
         assert response.status_code == 200
-        assert response.json()["display_name"] == "LEE BEOMSHIK"
+        assert response.json()["display_name"] == "Workshop Owner"
         assert response.json()["role"] == "owner"
         cookie = response.headers["set-cookie"]
         assert "HttpOnly" in cookie
@@ -75,7 +75,7 @@ def test_logout_clears_session_cookie() -> None:
     with auth_client() as client:
         client.post(
             "/api/v1/auth/login",
-            json={"email": "bumcity135@naver.com", "password": "correct-password"},
+            json={"email": "owner@example.com", "password": "correct-password"},
         )
 
         response = client.post("/api/v1/auth/logout")

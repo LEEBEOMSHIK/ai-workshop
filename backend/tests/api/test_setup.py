@@ -48,19 +48,19 @@ def test_owner_setup_creates_session_and_returns_owner() -> None:
         response = client.post(
             "/api/v1/setup/owner",
             json={
-                "display_name": "LEE BEOMSHIK",
-                "email": "bumcity135@naver.com",
+                "display_name": "Workshop Owner",
+                "email": "owner@example.com",
                 "password": "correct-password",
                 "password_confirmation": "correct-password",
             },
         )
 
     assert response.status_code == 201
-    assert response.json()["display_name"] == "LEE BEOMSHIK"
+    assert response.json()["display_name"] == "Workshop Owner"
     assert response.json()["role"] == "owner"
     assert service.received == {
-        "display_name": "LEE BEOMSHIK",
-        "email": "bumcity135@naver.com",
+        "display_name": "Workshop Owner",
+        "email": "owner@example.com",
         "password": "correct-password",
         "password_confirmation": "correct-password",
     }
@@ -75,8 +75,8 @@ def test_owner_setup_validates_password_length() -> None:
         response = client.post(
             "/api/v1/setup/owner",
             json={
-                "display_name": "LEE BEOMSHIK",
-                "email": "bumcity135@naver.com",
+                "display_name": "Workshop Owner",
+                "email": "owner@example.com",
                 "password": "short",
                 "password_confirmation": "short",
             },

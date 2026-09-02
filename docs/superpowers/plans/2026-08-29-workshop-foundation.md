@@ -190,7 +190,7 @@ def test_settings_use_ai_workshop_prefix(monkeypatch) -> None:
 - [ ] **3.3 인증 통합 테스트를 작성한다. 로그인 전 `/auth/me`는 `401`, 올바른 로그인은 `HttpOnly; SameSite=Lax` 쿠키를 설정하고, 이후 `/auth/me`는 소유자를 반환하며 로그아웃은 쿠키를 지운다.**
 - [ ] **3.4 `User`, `UserRole.OWNER`, 사용자 테이블과 고유 이메일 마이그레이션을 구현한다. 이메일은 비교용 정규화 값을 별도로 저장한다.**
 - [ ] **3.5 JWT의 `sub`, `iat`, `exp`, `jti`를 검증하고 환경별 `Secure` 쿠키 설정을 적용한다. 토큰이나 비밀번호는 응답·로그에 노출하지 않는다.**
-- [ ] **3.6 `uv run ai-workshop bootstrap-owner --name "LEE BEOMSHIK" --email "bumcity135@naver.com"` 명령을 구현한다. 비밀번호는 터미널에서 숨김 입력하고 기존 소유자가 있으면 갱신하지 않고 명시적으로 실패한다.**
+- [ ] **3.6 `uv run ai-workshop bootstrap-owner --name "Workshop Owner" --email "owner@example.test"` 명령을 구현한다. 비밀번호는 터미널에서 숨김 입력하고 기존 소유자가 있으면 갱신하지 않고 명시적으로 실패한다.**
 - [ ] **3.7 로그인 UI 실패 테스트를 작성한다. 폼 제출 후 사용자 이름이 보이고 잘못된 자격 증명은 일반화된 오류를 표시해야 한다.**
 - [ ] **3.8 `credentials: "include"`를 사용하는 인증 API, 로그인 페이지, 세션 loader와 보호 route를 구현한다.**
 - [ ] **3.9 백엔드 전체 테스트·린트·타입 검사와 프론트엔드 테스트·타입 검사를 실행한다.**

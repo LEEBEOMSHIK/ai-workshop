@@ -82,8 +82,8 @@ async def test_setup_creates_one_owner_and_both_default_workspaces() -> None:
     )
 
     owner, token = await service.create_owner(
-        display_name="LEE BEOMSHIK",
-        email="bumcity135@naver.com",
+        display_name="Workshop Owner",
+        email="owner@example.test",
         password="correct-password",
         password_confirmation="correct-password",
     )
@@ -140,8 +140,8 @@ async def test_setup_rejects_mismatched_password_confirmation_before_locking() -
 
     with pytest.raises(AppError) as exc_info:
         await service.create_owner(
-            display_name="LEE BEOMSHIK",
-            email="bumcity135@naver.com",
+            display_name="Workshop Owner",
+            email="owner@example.test",
             password="correct-password",
             password_confirmation="different-password",
         )

@@ -1,3 +1,5 @@
+import { useLoaderData } from "react-router-dom";
+
 import type { WorkspaceKind, WorkspaceSummary } from "./api";
 
 interface WorkspacePageProps {
@@ -47,4 +49,9 @@ export function WorkspacePage({ initialWorkspaces = [] }: WorkspacePageProps) {
       </section>
     </main>
   );
+}
+
+export function WorkspacePageRoute() {
+  const workspaces = useLoaderData() as WorkspaceSummary[];
+  return <WorkspacePage initialWorkspaces={workspaces} />;
 }

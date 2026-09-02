@@ -17,7 +17,8 @@ import { ApiError } from "../shared/api/client";
 import { getCurrentUser, getSetupStatus } from "../platform/identity/api";
 import { LoginPage } from "../platform/identity/LoginPage";
 import { SetupPage } from "../platform/identity/SetupPage";
-import { WorkspacePage } from "../platform/workspaces/WorkspacePage";
+import { listWorkspaces } from "../platform/workspaces/api";
+import { WorkspacePageRoute } from "../platform/workspaces/WorkspacePage";
 import { App } from "./App";
 
 async function documentLoader({ params }: LoaderFunctionArgs) {
@@ -57,6 +58,11 @@ async function protectedDocumentLoader(args: LoaderFunctionArgs) {
   return documentLoader(args);
 }
 
+async function protectedWorkspaceLoader(args: LoaderFunctionArgs) {
+  await requireSession(args);
+  return listWorkspaces();
+}
+
 async function protectedConfigurationLoader(args: LoaderFunctionArgs) {
   await requireSession(args);
   return loadConfigurationStudio();
@@ -84,8 +90,8 @@ export const routes: RouteObject[] = [
   },
   {
     path: "/workspaces",
-    element: <WorkspacePage />,
-    loader: requireSession,
+    element: <WorkspacePageRoute />,
+    loader: protectedWorkspaceLoader,
   },
   {
     path: "/workspaces/:workspaceId/documents",

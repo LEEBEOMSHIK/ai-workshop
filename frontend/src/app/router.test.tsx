@@ -39,6 +39,46 @@ function installUnauthenticatedApi(setupRequired: boolean) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("application access routing", () => {
+  it("shows the authenticated user's workspace API results", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input);
+        if (path === "/api/v1/auth/me") {
+          return jsonResponse({
+            id: "owner-1",
+            display_name: "LEE BEOMSHIK",
+            email: "bumcity135@naver.com",
+            role: "owner",
+          });
+        }
+        if (path === "/api/v1/workspaces") {
+          return jsonResponse([
+            {
+              id: "company-1",
+              name: "전사 자산운용 지식",
+              kind: "company",
+              expires_at: null,
+            },
+            {
+              id: "personal-1",
+              name: "개인 연구",
+              kind: "personal",
+              expires_at: null,
+            },
+          ]);
+        }
+        throw new Error(`Unexpected request: ${path}`);
+      }),
+    );
+    const router = createMemoryRouter(routes, { initialEntries: ["/workspaces"] });
+
+    render(<RouterProvider router={router} />);
+
+    expect(await screen.findByText("전사 자산운용 지식")).toBeVisible();
+    expect(screen.getByText("개인 연구")).toBeVisible();
+  });
+
   it("sends an uninitialized protected route to first setup", async () => {
     installUnauthenticatedApi(true);
     const router = createMemoryRouter(routes, { initialEntries: ["/rag/search"] });

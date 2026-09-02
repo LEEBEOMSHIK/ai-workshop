@@ -2,7 +2,7 @@
 
 - 마지막 갱신일: 2026-09-02
 - 현재 단계: DOCX 구조 파서·원문 뷰어 계약 설계
-- 전체 상태: 최초 관리자 UI와 로컬 인증·RAG 진입 흐름을 구현·검증했다. 다음 RAG 문서 형식 확장 계약을 설계한다.
+- 전체 상태: 최초 관리자 이후 지식 공간 목록 연결 오류를 수정·검증했다. 다음 RAG 문서 형식 확장 계약을 설계한다.
 
 ## 현재 작업
 
@@ -12,6 +12,9 @@ DOCX 구조 파서와 원문 뷰어가 RAG 공통 문서 모델, Evidence Unit�
 
 ### 진행 상태
 
+- DB에서 사용자 1명, 기본 공간 2개와 멤버십 2개가 정상 생성된 것을 확인했다.
+- `/workspaces` 라우트가 인증만 확인하고 `listWorkspaces()`를 호출하지 않아 화면에 기본 빈 배열이 전달되는 원인을 확인했다.
+- `/workspaces` 전용 보호 로더와 route wrapper를 연결해 API의 전사·개인 공간을 표시하고 회귀 테스트로 고정했다.
 - 최초 관리자 설정 서비스·공개 상태 API·`/setup` UI, 생성 직후 세션 발급과 보호 경로의 setup/login 분기를 구현했다.
 - 관리자와 전사·개인 기본 지식 공간을 동일 트랜잭션에서 생성하고 PostgreSQL table lock으로 동시 최초 설정을 직렬화한다.
 - CLI owner bootstrap은 정상 사용자 흐름에서 제외하고 같은 계약을 따르는 복구 수단으로 한정했다.
@@ -55,11 +58,11 @@ DOCX 구조 파서와 원문 뷰어가 RAG 공통 문서 모델, Evidence Unit�
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. 최초 관리자 1명을 만드는 `/setup` UI와 API, 전사·개인 기본 공간의 원자적 생성, 동시 설정 방지, setup/login 보호 경로 분기와 복구용 CLI 계약을 구현·검증했다. 관련 결정: `docs/decisions/0004-first-owner-ui-setup.md`
-2. 프로젝트 개발 에이전트 조직의 역할 계약, activation rule, workflow, 수명주기, Codex 어댑터와 자동 검증을 구현하고 대표 시나리오를 검증했다. 관련 설계: `docs/superpowers/specs/2026-09-02-project-development-agent-organization-design.md`
-3. Dockerfile의 uv cache·copy-up 중복을 제거하고 승인된 전용 BuildKit 계보까지 정리한 뒤 VHDX를 압축해 host 공간 약 170.283 GB를 실제 회수했다. 관련 문서: `CACHE_POLICY.md`, `docs/worklogs/2026-09-01-cache-audit.md`
-4. Docker 생성 ACL과 긴 경로가 남은 두 물리 worktree와 네 테스트 임시 폴더를 승인 경계 안에서 제거하고 보존 대상을 재검증했다. 관련 문서: `docs/worklogs/2026-09-01-cache-audit.md`
-5. 캐시 정책을 적용해 Compose를 main 경로로 이전하고 AI Workshop 반복 빌드 이미지 36개, 루트 Node 의존성과 접근 가능한 캐시를 정리·재검증했다. 관련 문서: `CACHE_POLICY.md`, `docs/worklogs/2026-09-01-cache-audit.md`
+1. `/workspaces` 보호 라우트가 인증 후 목록 API를 로드하고 전사·개인 기본 공간을 표시하도록 연결 누락을 수정·검증했다.
+2. 최초 관리자 1명을 만드는 `/setup` UI와 API, 전사·개인 기본 공간의 원자적 생성, 동시 설정 방지, setup/login 보호 경로 분기와 복구용 CLI 계약을 구현·검증했다. 관련 결정: `docs/decisions/0004-first-owner-ui-setup.md`
+3. 프로젝트 개발 에이전트 조직의 역할 계약, activation rule, workflow, 수명주기, Codex 어댑터와 자동 검증을 구현하고 대표 시나리오를 검증했다. 관련 설계: `docs/superpowers/specs/2026-09-02-project-development-agent-organization-design.md`
+4. Dockerfile의 uv cache·copy-up 중복을 제거하고 승인된 전용 BuildKit 계보까지 정리한 뒤 VHDX를 압축해 host 공간 약 170.283 GB를 실제 회수했다. 관련 문서: `CACHE_POLICY.md`, `docs/worklogs/2026-09-01-cache-audit.md`
+5. Docker 생성 ACL과 긴 경로가 남은 두 물리 worktree와 네 테스트 임시 폴더를 승인 경계 안에서 제거하고 보존 대상을 재검증했다. 관련 문서: `docs/worklogs/2026-09-01-cache-audit.md`
 
 ## 다음 작업
 

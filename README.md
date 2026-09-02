@@ -9,8 +9,9 @@ AI Workshop은 AI를 공부한 과정과 실제로 동작하는 기술을 함께
 1단계 작업소 기반과 첫 RAG 검색 수직 슬라이스가 구현됐다. Markdown, TXT와 텍스트 PDF를 비동기로 파싱·색인하고 BM25 기준선과 E5 hybrid 검색, 원문 근거·하이라이트·뷰어, 저장 구성과 평가 비교를 제공한다. 격리 smoke는 runtime이 중지된 상태에서 DB·Redis·RAG index prefix를 안전하게 reset하고, foundation과 RAG E2E를 beat 없이 순서대로 완료한 뒤 beat 구성을 별도로 확인하고 다시 중지·reset한다.
 
 - [현재 작업 대시보드](WORKBOARD.md)
-- 검색 화면: `/rag/search`
-- RAG 구성·평가 스튜디오: `/rag/configurations`
+- 검색 화면: `/app/rag/search`
+- RAG 구성·평가 스튜디오: `/app/rag/configurations`
+- 관리자 모델 레지스트리: `/admin/rag/models`
 
 ## 개발 시작
 

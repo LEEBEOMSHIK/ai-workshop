@@ -1,5 +1,14 @@
 export function safeReturnPath(candidate: string | null): string {
-  if (!candidate?.startsWith("/") || candidate.startsWith("//")) {
+  if (
+    !candidate?.startsWith("/") ||
+    candidate.startsWith("//") ||
+    candidate.includes("\\") ||
+    /[\u0000-\u001f\u007f]/u.test(candidate)
+  ) {
+    return "/app/workspaces";
+  }
+  const localOrigin = "https://ai-workshop.local";
+  if (new URL(candidate, localOrigin).origin !== localOrigin) {
     return "/app/workspaces";
   }
   return candidate;

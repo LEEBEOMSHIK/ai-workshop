@@ -82,18 +82,20 @@ backend\.venv\Scripts\python.exe -m celery -A ai_workshop.worker:celery_app beat
 pnpm --dir frontend dev
 ```
 
-Vite는 루트 `.env`의 `API_PORT`를 읽어 `/api` proxy 대상을 구성하므로 다른 프로젝트와 포트가 충돌하면 `.env`의 값만 바꾸고 프론트와 API를 재시작한다.
+Next.js는 루트 `.env`의 `API_PORT`를 읽어 `/api` rewrite 대상을 구성하므로 다른 프로젝트와 포트가 충돌하면 `.env`의 값만 바꾸고 프론트와 API를 재시작한다.
 
 - 프론트엔드: `http://127.0.0.1:5173`
 - API 상태: `http://127.0.0.1:$env:API_PORT/api/v1/health`
 - API 문서: `http://127.0.0.1:$env:API_PORT/api/docs`
 - Elasticsearch 상태: `http://127.0.0.1:9200/_cluster/health`
-- 근거 검색: `http://127.0.0.1:5173/rag/search`
-- RAG 구성·평가 스튜디오: `http://127.0.0.1:5173/rag/configurations`
+- 사용자 지식 공간: `http://127.0.0.1:5173/app/workspaces`
+- 근거 검색: `http://127.0.0.1:5173/app/rag/search`
+- RAG 구성·평가 스튜디오: `http://127.0.0.1:5173/app/rag/configurations`
+- 관리자 모델 레지스트리: `http://127.0.0.1:5173/admin/rag/models`
 
 관리자가 없는 새 로컬 DB에서 보호 화면에 처음 접근하면 `/setup`으로 이동한다. 이름,
 이메일, 12자 이상의 비밀번호와 비밀번호 확인을 입력하면 소유자 1명, 전사 지식 공간과
-개인 연구 공간을 하나의 DB 트랜잭션으로 만들고 즉시 로그인해 `/workspaces`로 이동한다.
+개인 연구 공간을 하나의 DB 트랜잭션으로 만들고 즉시 로그인해 `/app/workspaces`로 이동한다.
 관리자가 만들어진 뒤에는 `/setup`을 다시 열 수 없으며 `/login`으로 이동한다.
 
 CLI `bootstrap-owner`는 설정 UI를 실행할 수 없는 복구 상황에서만 사용한다. 정상 로컬
@@ -115,8 +117,8 @@ projection 수요를 만든다. 같은 Indexing Profile의 사용자 구독과 �
 job 하나만 만든다. migration은 승인된 baseline seed가 전부 없는 기존 DB만 exact seed로
 복구하며, 일부만 남았거나 충돌하면 임의로 덮어쓰지 않고 실패한다.
 
-1. `/rag/configurations`에서 indexing·retrieval profile을 조합한 저장 구성을 만들고 대상 workspace를 명시한다.
-2. `/rag/search`에서 BM25 기준선 또는 접근 가능한 저장 구성을 선택하고 workspace·folder 범위를 직접 지정한다.
+1. `/app/rag/configurations`에서 indexing·retrieval profile을 조합한 저장 구성을 만들고 대상 workspace를 명시한다.
+2. `/app/rag/search`에서 BM25 기준선 또는 접근 가능한 저장 구성을 선택하고 workspace·folder 범위를 직접 지정한다.
 3. 검색 결과의 keyword highlight와 semantic highlight를 구분하고, 원문 뷰어가 같은 immutable Asset Version과 Projection을 가리키는지 확인한다.
 4. 구성 스튜디오에서 Evaluation Run을 시작한다. 비교에는 system BM25 기준선이 항상 포함되며 저장 구성의 정확한 version을 평가한다. 통과한 정책 결과가 없으면 기본 승격은 거절된다.
 

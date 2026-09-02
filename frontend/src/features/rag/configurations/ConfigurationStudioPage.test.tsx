@@ -75,7 +75,8 @@ describe("ConfigurationStudioPage", () => {
     expect(within(savedList).queryByText("E5 하이브리드")).not.toBeInTheDocument();
   });
 
-  it("registers the canonical three-tab studio route without removing the model registry", () => {
+  it("keeps the model registry read-only inside the user configuration studio", async () => {
+    const user = userEvent.setup();
     render(<ConfigurationStudioPage initialData={studioData()} />);
 
     expect(screen.getByRole("tab", { name: "RAG 구성" })).toHaveAttribute(
@@ -84,6 +85,10 @@ describe("ConfigurationStudioPage", () => {
     );
     expect(screen.getByRole("tab", { name: "비교 실험" })).toBeVisible();
     expect(screen.getByRole("tab", { name: "모델 레지스트리" })).toBeVisible();
+    await user.click(screen.getByRole("tab", { name: "모델 레지스트리" }));
+    expect(screen.getByText("multilingual-e5-base")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "모델 버전 등록" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "YAML 프로파일 등록" })).not.toBeInTheDocument();
   });
 
   it("adds the exact saved version to comparison only through save-and-compare", async () => {

@@ -10,20 +10,20 @@ ai-workshop/
 ├─ frontend/
 │  ├─ src/
 │  │  ├─ app/
-│  │  ├─ platform/
+│  │  │  ├─ (public)/
+│  │  │  ├─ (workspace)/app/
+│  │  │  └─ (administration)/admin/
+│  │  ├─ features/
 │  │  │  ├─ identity/
 │  │  │  ├─ workspaces/
-│  │  │  ├─ agents/
-│  │  │  ├─ learning/
-│  │  │  └─ publishing/
-│  │  ├─ labs/
+│  │  │  ├─ assets/
+│  │  │  ├─ navigation/
 │  │  │  └─ rag/
-│  │  │     ├─ documents/
 │  │  │     ├─ search/
-│  │  │     ├─ configuration-studio/
-│  │  │     ├─ experiments/
-│  │  │     └─ agents/
+│  │  │     ├─ configurations/
+│  │  │     └─ models/
 │  │  └─ shared/
+│  ├─ next.config.ts
 │  └─ tests/
 │
 ├─ backend/
@@ -96,7 +96,7 @@ ai-workshop/
 ## 의존 방향
 
 ```text
-frontend app -> platform features / lab features -> shared UI and API client
+frontend Next app -> features -> shared UI, 인증 경계와 API client
 
 backend API/worker -> application -> domain <- adapters
 labs/rag -> platform contracts

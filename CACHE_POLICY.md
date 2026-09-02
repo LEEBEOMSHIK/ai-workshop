@@ -28,14 +28,15 @@ destructive_approval: required
 | 사용자 환경 | `.idea` | 사용자의 별도 요청 없이는 변경하거나 제거하지 않는다. |
 | 애플리케이션 데이터 | `.local-data/objects` | 업로드 원본과 파생 자산일 수 있으므로 보존한다. |
 | 모델 캐시 | `.local-data/models` | 재다운로드 가능성, 사용 중 프로세스와 승인된 모델 출처를 확인한 경우에만 후보로 보고한다. |
-| 프론트 의존성 | `frontend/node_modules` | 프론트 독립 lockfile로 복원 가능하고 개발 프로세스가 사용하지 않을 때만 후보로 보고한다. |
+| 프론트 의존성 | `frontend/node_modules` | `frontend/pnpm-lock.yaml`로 복원 가능하고 개발 프로세스가 사용하지 않을 때만 후보로 보고한다. 루트 `node_modules`는 만들지 않는다. |
 | 프론트 패키지 캐시 | `frontend/.pnpm-store` | junction 경계와 복원 가능성을 확인한 경우에만 후보로 보고한다. |
 | 레거시 루트 의존성 | `node_modules` | 프론트 독립 구조 전환이 검증된 뒤에만 일회성 제거 후보로 보고한다. |
 | 레거시 루트 패키지 캐시 | `.pnpm-store` | 모든 junction 대상과 프론트 설치 검증을 확인한 뒤에만 일회성 제거 후보로 보고한다. |
 | 정적 분석 캐시 | `.mypy_cache`, `.ruff_cache`, `backend/.mypy_cache`, `backend/.ruff_cache` | 생성 도구가 실행 중이 아니면 재생성 가능한 후보로 보고한다. |
-| 테스트 임시물 | `.local-data/pytest-tmp`, `backend/.pytest-tmp`와 루트의 명시적으로 식별된 pytest 임시 디렉터리 | 실제 테스트 데이터가 아닌지 확인한 뒤 후보로 보고한다. |
+| 테스트 임시물 | `.local-data/pytest-tmp`, `backend/.pytest-tmp`, `backend/.pytest-<task-id>`와 루트의 명시적으로 식별된 pytest 임시 디렉터리 | 실제 테스트 데이터가 아닌지 확인한 뒤 후보로 보고한다. 작업별 경로는 고정 문자열로 확인하며 와일드카드로 삭제하지 않는다. |
 | 프로젝트 에이전트 임시 기록 | `.local-data/project-agent-work/<task-id>/` | 미해결 작업은 보존한다. `verified` 작업만 정확한 task 경로 정리 후보이며, reparse point 또는 임시 루트 밖 경로는 차단한다. |
-| 빌드 산출물 | `frontend/dist`, `backend/build` | 해당 빌드가 재현 가능하고 배포 입력으로 사용 중이지 않을 때 후보로 보고한다. |
+| 빌드 산출물 | `frontend/.next`, `frontend/tsconfig.tsbuildinfo`, `backend/build` | 해당 빌드가 재현 가능하고 배포 입력으로 사용 중이지 않을 때 후보로 보고한다. `.next`가 실행 중인 Next.js 프로세스에 사용되는지 먼저 확인한다. |
+| 제거된 Vite 산출물 | `frontend/dist` | Next.js 전환 뒤에는 생성하지 않는다. 남아 있다면 경로와 Vite 프로세스 부재를 확인한 뒤 일회성 제거 후보로 보고한다. |
 | 도구 산출물 | `.superpowers` | 목업, 최종 검증 보고서와 선별 실패 기록을 먼저 보존하고 중간 상태와 재생성 가능한 diff만 후보로 보고한다. |
 
 프로젝트 에이전트 임시 기록의 상태 전이와 정리 게이트는 [temporary work lifecycle](docs/project-agents/governance/temporary-work-lifecycle.md)를 정본으로 사용한다.

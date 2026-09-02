@@ -1,20 +1,24 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-02
-- 현재 단계: Next.js 프론트엔드 전체 전환 구현
-- 전체 상태: FastAPI를 AI·업무 로직 정본으로 유지하면서 Vite SPA 기능을 Next.js App Router의 공개·사용자·관리자 영역으로 이전하고 있다.
+- 현재 단계: Next.js 프론트엔드 전체 전환 완료
+- 전체 상태: FastAPI를 AI·업무 로직 정본으로 유지하면서 프론트엔드를 Next.js App Router의 공개·사용자·관리자 영역으로 전환했다.
 
 ## 현재 작업
 
 ### 목표
 
-Next.js App Router 기반으로 `/app/*`, `/admin/*`, `/setup`, `/login`을 분리하고 기존 기능과 FastAPI 계약을 보존한 채 Vite·React Router를 제거한다.
+Next.js App Router 기반의 `/app/*`, `/admin/*`, `/setup`, `/login` 분리와 기존 기능·FastAPI 계약 보존을 검증하고 다음 RAG 문서 형식 작업에 인계한다.
 
 ### 진행 상태
 
 - Next.js는 프론트엔드와 최소 rewrite 계층만 담당하고 인증·권한·AI·DB 업무 로직은 FastAPI에 유지하기로 결정했다.
 - 사용자 역할·관리자 RAG 명령 API, Next.js 도구체인·접근 레이아웃, 공개·지식 공간·문서 화면 전환을 구현했다.
-- 현재 RAG 검색·구성·모델·출처 뷰어를 App Router에 연결하고 있다.
+- RAG 검색·구성·모델·출처 뷰어를 App Router에 연결하고, 의미·키워드 하이라이트 메타데이터를 원문 문구 노출 없이 canonical URL에서 복원하도록 구현했다.
+- Vite·React Router 진입점과 의존성을 제거하고 이전 URL 여섯 개를 permanent redirect로 보존했다.
+- Next 서버가 설정 파일 위치를 기준으로 루트 `.env`를 강제 로드해 호스트 FastAPI 포트를 rewrite와 Server Component에서 동일하게 사용한다.
+- 보호 경로의 실제 pathname·query를 Next 프록시가 레이아웃에 전달해 로그인 뒤 원래 화면으로 복귀하며, 서버 렌더링 API 실패는 FastAPI correlation ID를 안전한 직렬화 데이터로 표시한다.
+- 로컬 Next 서버와 기존 호스트 FastAPI를 연결해 health 200, 공개 화면 200, 레거시 검색 URL 308, 원래 경로를 보존한 비로그인 사용자·관리자 경로 307을 확인했다.
 - Vite·React Router를 병행하지 않는 전체 전환과 `/app/*`, `/admin/*` canonical URL 및 기존 URL 영구 리다이렉트를 승인했다.
 - Next.js `16.3.4` 안정 버전, App Router, Server Component 우선, 상호작용 경계만 Client Component로 사용하는 기준을 설계에 반영한다.
 - DB에서 사용자 1명, 기본 공간 2개와 멤버십 2개가 정상 생성된 것을 확인했다.
@@ -53,27 +57,27 @@ Next.js App Router 기반으로 `/app/*`, `/admin/*`, `/setup`, `/login`을 분�
 
 ### 완료 기준
 
-- 공개·사용자·관리자 URL과 layout 경계가 정본 설계에 명시된다.
-- FastAPI 세션·권한 정본과 Next.js 렌더링·rewrite 책임이 구분된다.
-- 사용자 조회 API와 owner 전용 관리자 명령 API가 endpoint 수준으로 구분된다.
-- Server Component와 Client Component의 데이터 로딩·상호작용 경계가 명시된다.
-- 전환 순서, 테스트, 로컬 실행과 완료 조건이 구현 전에 확정된다.
+- 공개·사용자·관리자 URL과 layout 경계가 App Router에 구현된다.
+- FastAPI 세션·권한 정본을 유지하고 Next.js는 렌더링과 `/api` rewrite만 담당한다.
+- 사용자 조회 API와 owner 전용 관리자 명령 API가 endpoint 수준으로 분리된다.
+- 초기 데이터는 Server Component, 검색·저장·평가·등록 상호작용은 Client Component가 담당한다.
+- React Router·Vite 의존성이 없고 테스트·타입 검사·린트·production build와 로컬 HTTP smoke가 통과한다.
 
 ## 최근 완료 작업
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. `/workspaces` 보호 라우트가 인증 후 목록 API를 로드하고 전사·개인 기본 공간을 표시하도록 연결 누락을 수정·검증했다.
-2. 최초 관리자 1명을 만드는 `/setup` UI와 API, 전사·개인 기본 공간의 원자적 생성, 동시 설정 방지, setup/login 보호 경로 분기와 복구용 CLI 계약을 구현·검증했다. 관련 결정: `docs/decisions/0004-first-owner-ui-setup.md`
-3. 프로젝트 개발 에이전트 조직의 역할 계약, activation rule, workflow, 수명주기, Codex 어댑터와 자동 검증을 구현하고 대표 시나리오를 검증했다. 관련 설계: `docs/superpowers/specs/2026-09-02-project-development-agent-organization-design.md`
-4. Dockerfile의 uv cache·copy-up 중복을 제거하고 승인된 전용 BuildKit 계보까지 정리한 뒤 VHDX를 압축해 host 공간 약 170.283 GB를 실제 회수했다. 관련 문서: `CACHE_POLICY.md`, `docs/worklogs/2026-09-01-cache-audit.md`
-5. Docker 생성 ACL과 긴 경로가 남은 두 물리 worktree와 네 테스트 임시 폴더를 승인 경계 안에서 제거하고 보존 대상을 재검증했다. 관련 문서: `docs/worklogs/2026-09-01-cache-audit.md`
+1. Vite SPA를 Next.js 16 App Router로 전체 전환하고 사용자·관리자 경로, 정확한 로그인 복귀 URL, RAG 화면, owner 명령 API, FastAPI 오류 참조, 영구 리다이렉트와 로컬 실행을 구현·검증했다. 관련 설계: `docs/superpowers/specs/2026-09-02-nextjs-frontend-migration-design.md`
+2. `/workspaces` 보호 라우트가 인증 후 목록 API를 로드하고 전사·개인 기본 공간을 표시하도록 연결 누락을 수정·검증했다.
+3. 최초 관리자 1명을 만드는 `/setup` UI와 API, 전사·개인 기본 공간의 원자적 생성, 동시 설정 방지, setup/login 보호 경로 분기와 복구용 CLI 계약을 구현·검증했다. 관련 결정: `docs/decisions/0004-first-owner-ui-setup.md`
+4. 프로젝트 개발 에이전트 조직의 역할 계약, activation rule, workflow, 수명주기, Codex 어댑터와 자동 검증을 구현하고 대표 시나리오를 검증했다. 관련 설계: `docs/superpowers/specs/2026-09-02-project-development-agent-organization-design.md`
+5. Dockerfile의 uv cache·copy-up 중복을 제거하고 승인된 전용 BuildKit 계보까지 정리한 뒤 VHDX를 압축해 host 공간 약 170.283 GB를 실제 회수했다. 관련 문서: `CACHE_POLICY.md`, `docs/worklogs/2026-09-01-cache-audit.md`
 
 ## 다음 작업
 
-1. RAG 검색·구성·모델·출처 뷰어 App Router 연결
-2. Vite·React Router 레거시 제거와 영구 리다이렉트 구성
-3. 전체 테스트·타입 검사·린트·빌드·로컬 실행 검증
+1. DOCX 구조 파서와 원문 뷰어 계약 설계
+2. DOCX 파싱·청킹·하이라이트 수직 슬라이스 구현 계획 수립
+3. 승인된 계획 기반 구현과 기존 Markdown·TXT·PDF 회귀 검증
 
 ## 결정이 필요한 항목
 
@@ -91,7 +95,8 @@ Next.js App Router 기반으로 `/app/*`, `/admin/*`, `/setup`, `/login`을 분�
 - RAG worktree의 Git 등록과 물리 폴더, 미등록 foundation 복사본, 네 테스트 임시 폴더가 모두 제거됐다. 상세 결과는 캐시 감사 보고서를 따른다.
 - 루트 `.pnpm-store` junction과 `node_modules`는 제거됐다.
 - 프론트 의존성은 `frontend/node_modules/.pnpm`에 독립 설치됐으며 루트 `node_modules`는 감사 보고서의 레거시 제거 후보로 확정했다.
-- 현재 우선 작업은 `docs/superpowers/specs/2026-09-02-nextjs-frontend-migration-design.md`의 사용자 검토와 승인 후 전체 전환 구현이다.
+- Next.js 전환 설계와 구현 계획은 완료됐으며 현재 우선 작업은 DOCX 구조 파서·원문 뷰어 계약 설계다.
+- Next.js 프론트는 `http://127.0.0.1:5173`, 기존 호스트 FastAPI는 `http://127.0.0.1:18000`에서 실행한다.
 - 최종 Docker 상태와 잔여 BuildKit 계보는 `docs/worklogs/2026-09-01-cache-audit.md`를 정본으로 사용한다.
 - 추가 승인된 잔여 BuildKit 네 레코드는 모두 제거됐으며 추가 Docker 정리는 새 조사와 승인 없이 진행하지 않는다.
 - 프로젝트 개발 에이전트 조직 설계 정본은 `docs/superpowers/specs/2026-09-02-project-development-agent-organization-design.md`다.

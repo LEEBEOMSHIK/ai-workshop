@@ -150,7 +150,7 @@ export function ModelLabPage({
         </div>
       </section>
 
-      <section className="version-forms" aria-label="새 버전 등록">
+      {!embedded ? <section className="version-forms" aria-label="새 버전 등록">
         <form className="version-form" onSubmit={handleModelSubmit}>
           <h2>새 모델 버전</h2>
           <fieldset disabled={modelSaving}>
@@ -181,7 +181,7 @@ export function ModelLabPage({
             {profileSaving ? "등록 중…" : "YAML 프로파일 등록"}
           </button>
         </form>
-      </section>
+      </section> : null}
     </>
   );
 

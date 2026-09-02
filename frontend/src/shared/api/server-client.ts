@@ -16,7 +16,8 @@ export async function serverApiRequest<T = void>(
   }
   if (cookieHeader) headers.set("cookie", cookieHeader);
 
-  const response = await fetch(`${resolveApiTarget(process.env.API_PORT)}${path}`, {
+  const apiTarget = process.env.AI_WORKSHOP_API_TARGET ?? resolveApiTarget(process.env.API_PORT);
+  const response = await fetch(`${apiTarget}${path}`, {
     ...init,
     cache: "no-store",
     headers,

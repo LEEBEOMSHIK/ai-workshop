@@ -12,6 +12,8 @@ describe("access decisions", () => {
       "/app/rag/search?query=alpha",
     );
     expect(safeReturnPath("//evil.example/path")).toBe("/app/workspaces");
+    expect(safeReturnPath("/\\evil.example/path")).toBe("/app/workspaces");
+    expect(safeReturnPath("/app/workspaces\n/redirect")).toBe("/app/workspaces");
     expect(safeReturnPath("https://evil.example/path")).toBe("/app/workspaces");
     expect(safeReturnPath(null)).toBe("/app/workspaces");
   });

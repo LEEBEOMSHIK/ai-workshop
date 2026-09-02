@@ -8,6 +8,10 @@ from ai_workshop.main import create_app
 
 HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 EXPECTED_PATHS = {
+    "/api/v1/admin/rag/models",
+    "/api/v1/admin/rag/profiles/{kind}",
+    "/api/v1/admin/rag/profiles/{kind}/yaml",
+    "/api/v1/admin/rag/profiles/{profile_id}/default",
     "/api/v1/auth/login",
     "/api/v1/auth/logout",
     "/api/v1/auth/me",

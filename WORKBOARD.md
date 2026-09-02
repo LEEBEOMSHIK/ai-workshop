@@ -1,17 +1,20 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-02
-- 현재 단계: DOCX 구조 파서·원문 뷰어 계약 설계
-- 전체 상태: 최초 관리자 이후 지식 공간 목록 연결 오류를 수정·검증했다. 다음 RAG 문서 형식 확장 계약을 설계한다.
+- 현재 단계: Next.js 프론트엔드 전환 설계
+- 전체 상태: FastAPI를 AI·업무 로직 정본으로 유지하면서 Vite SPA를 Next.js App Router로 전환하고 사용자·관리자 URL과 권한 경계를 분리한다.
 
 ## 현재 작업
 
 ### 목표
 
-DOCX 구조 파서와 원문 뷰어가 RAG 공통 문서 모델, Evidence Unit과 권한·provenance 경계를 보존하도록 계약을 설계한다.
+Next.js App Router 기반으로 `/app/*`, `/admin/*`, `/setup`, `/login`을 분리하고 기존 기능과 FastAPI 계약을 보존하는 전체 전환 설계와 구현 계획을 확정한다.
 
 ### 진행 상태
 
+- Next.js는 프론트엔드와 최소 rewrite 계층만 담당하고 인증·권한·AI·DB 업무 로직은 FastAPI에 유지하기로 결정했다.
+- Vite·React Router를 병행하지 않는 전체 전환과 `/app/*`, `/admin/*` canonical URL 및 기존 URL 영구 리다이렉트를 승인했다.
+- Next.js `16.3.4` 안정 버전, App Router, Server Component 우선, 상호작용 경계만 Client Component로 사용하는 기준을 설계에 반영한다.
 - DB에서 사용자 1명, 기본 공간 2개와 멤버십 2개가 정상 생성된 것을 확인했다.
 - `/workspaces` 라우트가 인증만 확인하고 `listWorkspaces()`를 호출하지 않아 화면에 기본 빈 배열이 전달되는 원인을 확인했다.
 - `/workspaces` 전용 보호 로더와 route wrapper를 연결해 API의 전사·개인 공간을 표시하고 회귀 테스트로 고정했다.
@@ -48,11 +51,11 @@ DOCX 구조 파서와 원문 뷰어가 RAG 공통 문서 모델, Evidence Unit�
 
 ### 완료 기준
 
-- DOCX 제목, 문단, 목록과 표를 공통 Structural Element로 매핑하는 규칙을 정한다.
-- Evidence Unit에서 DOCX 원문 위치로 돌아가는 불변 provenance 계약을 정한다.
-- 형식별 원문 뷰어와 정확·의미 하이라이트 표시 경계를 정한다.
-- 손상 문서, 지원하지 않는 요소와 부분 파싱을 조용히 성공 처리하지 않는 실패 계약을 정한다.
-- 공개·합성 fixture와 파서·뷰어 검증 범위를 구현 전에 확정한다.
+- 공개·사용자·관리자 URL과 layout 경계가 정본 설계에 명시된다.
+- FastAPI 세션·권한 정본과 Next.js 렌더링·rewrite 책임이 구분된다.
+- 사용자 조회 API와 owner 전용 관리자 명령 API가 endpoint 수준으로 구분된다.
+- Server Component와 Client Component의 데이터 로딩·상호작용 경계가 명시된다.
+- 전환 순서, 테스트, 로컬 실행과 완료 조건이 구현 전에 확정된다.
 
 ## 최근 완료 작업
 
@@ -66,7 +69,9 @@ DOCX 구조 파서와 원문 뷰어가 RAG 공통 문서 모델, Evidence Unit�
 
 ## 다음 작업
 
-1. DOCX 구조 파서·원문 뷰어 계약 설계
+1. Next.js 전환 설계 사용자 검토
+2. 승인된 설계 기반 구현 계획 작성
+3. Next.js App Router 전체 전환 구현
 
 ## 결정이 필요한 항목
 
@@ -84,7 +89,7 @@ DOCX 구조 파서와 원문 뷰어가 RAG 공통 문서 모델, Evidence Unit�
 - RAG worktree의 Git 등록과 물리 폴더, 미등록 foundation 복사본, 네 테스트 임시 폴더가 모두 제거됐다. 상세 결과는 캐시 감사 보고서를 따른다.
 - 루트 `.pnpm-store` junction과 `node_modules`는 제거됐다.
 - 프론트 의존성은 `frontend/node_modules/.pnpm`에 독립 설치됐으며 루트 `node_modules`는 감사 보고서의 레거시 제거 후보로 확정했다.
-- 다음 작업은 `DOCX 구조 파서·원문 뷰어 계약 설계`이며, RAG 설계의 공통 문서 모델·형식별 뷰어·권한 경계를 정본으로 삼는다.
+- 현재 우선 작업은 `docs/superpowers/specs/2026-09-02-nextjs-frontend-migration-design.md`의 사용자 검토와 승인 후 전체 전환 구현이다.
 - 최종 Docker 상태와 잔여 BuildKit 계보는 `docs/worklogs/2026-09-01-cache-audit.md`를 정본으로 사용한다.
 - 추가 승인된 잔여 BuildKit 네 레코드는 모두 제거됐으며 추가 Docker 정리는 새 조사와 승인 없이 진행하지 않는다.
 - 프로젝트 개발 에이전트 조직 설계 정본은 `docs/superpowers/specs/2026-09-02-project-development-agent-organization-design.md`다.

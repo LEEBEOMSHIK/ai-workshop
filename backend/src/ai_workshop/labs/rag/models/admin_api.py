@@ -15,26 +15,13 @@ from ai_workshop.labs.rag.models.service import (
     RagModelRegistryService,
     get_rag_model_registry_service,
 )
-from ai_workshop.platform.identity.api import get_current_user, require_owner
+from ai_workshop.platform.identity.api import require_owner
 from ai_workshop.platform.identity.domain import User
 
-router = APIRouter(prefix="/api/v1/rag", tags=["rag-models"])
+router = APIRouter(prefix="/api/v1/admin/rag", tags=["admin-rag-models"])
 
 
-@router.get("/models", response_model=list[ModelResponse])
-async def list_models(
-    _user: Annotated[User, Depends(get_current_user)],
-    service: Annotated[RagModelRegistryService, Depends(get_rag_model_registry_service)],
-) -> list[ModelResponse]:
-    return [ModelResponse.from_domain(item) for item in await service.list_models()]
-
-
-@router.post(
-    "/models",
-    response_model=ModelResponse,
-    status_code=status.HTTP_201_CREATED,
-    deprecated=True,
-)
+@router.post("/models", response_model=ModelResponse, status_code=status.HTTP_201_CREATED)
 async def register_model(
     request: ModelCreate,
     _user: Annotated[User, Depends(require_owner)],
@@ -49,39 +36,10 @@ async def register_model(
     return ModelResponse.from_domain(model)
 
 
-@router.get("/profiles/{kind}", response_model=list[ProfileResponse])
-async def list_profiles(
-    kind: ProfileKind,
-    _user: Annotated[User, Depends(get_current_user)],
-    service: Annotated[RagModelRegistryService, Depends(get_rag_model_registry_service)],
-) -> list[ProfileResponse]:
-    return [
-        ProfileResponse.from_domain(item)
-        for item in await service.list_profiles(kind)
-    ]
-
-
-@router.post(
-    "/profiles/{kind}/yaml",
-    response_model=ProfileResponse,
-    status_code=status.HTTP_201_CREATED,
-    deprecated=True,
-)
-async def register_profile_yaml(
-    kind: ProfileKind,
-    request: ProfileYamlRequest,
-    _user: Annotated[User, Depends(require_owner)],
-    service: Annotated[RagModelRegistryService, Depends(get_rag_model_registry_service)],
-) -> ProfileResponse:
-    profile = await service.register_profile_yaml(kind=kind, content=request.content)
-    return ProfileResponse.from_domain(profile)
-
-
 @router.post(
     "/profiles/{kind}",
     response_model=ProfileResponse,
     status_code=status.HTTP_201_CREATED,
-    deprecated=True,
 )
 async def register_profile(
     kind: ProfileKind,
@@ -101,10 +59,21 @@ async def register_profile(
 
 
 @router.post(
-    "/profiles/{profile_id}/default",
+    "/profiles/{kind}/yaml",
     response_model=ProfileResponse,
-    deprecated=True,
+    status_code=status.HTTP_201_CREATED,
 )
+async def register_profile_yaml(
+    kind: ProfileKind,
+    request: ProfileYamlRequest,
+    _user: Annotated[User, Depends(require_owner)],
+    service: Annotated[RagModelRegistryService, Depends(get_rag_model_registry_service)],
+) -> ProfileResponse:
+    profile = await service.register_profile_yaml(kind=kind, content=request.content)
+    return ProfileResponse.from_domain(profile)
+
+
+@router.post("/profiles/{profile_id}/default", response_model=ProfileResponse)
 async def promote_default(
     profile_id: UUID,
     _user: Annotated[User, Depends(require_owner)],

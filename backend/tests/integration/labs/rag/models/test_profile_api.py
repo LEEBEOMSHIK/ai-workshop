@@ -87,6 +87,17 @@ def owner() -> User:
     )
 
 
+def member() -> User:
+    return User(
+        id=uuid4(),
+        display_name="Member",
+        email="member@example.com",
+        normalized_email="member@example.com",
+        password_hash="hash",
+        role=UserRole.MEMBER,
+    )
+
+
 def test_model_and_profile_versions_are_registered_and_listed() -> None:
     repository = MemoryRegistryRepository()
     app = create_app()
@@ -97,7 +108,7 @@ def test_model_and_profile_versions_are_registered_and_listed() -> None:
 
     with TestClient(app) as client:
         model_response = client.post(
-            "/api/v1/rag/models",
+            "/api/v1/admin/rag/models",
             json={
                 "kind": "embedding",
                 "name": "embedding-baseline",
@@ -107,7 +118,7 @@ def test_model_and_profile_versions_are_registered_and_listed() -> None:
         )
         model_id = model_response.json()["id"]
         profile_response = client.post(
-            "/api/v1/rag/profiles/indexing",
+            "/api/v1/admin/rag/profiles/indexing",
             json={
                 "name": "indexing-baseline",
                 "version": 1,
@@ -141,7 +152,7 @@ def test_unpassed_profile_cannot_be_promoted_to_default() -> None:
 
     with TestClient(app) as client:
         created = client.post(
-            "/api/v1/rag/profiles/retrieval",
+            "/api/v1/admin/rag/profiles/retrieval",
             json={
                 "name": "bm25-baseline",
                 "version": 1,
@@ -151,7 +162,7 @@ def test_unpassed_profile_cannot_be_promoted_to_default() -> None:
             },
         )
         promoted = client.post(
-            f"/api/v1/rag/profiles/{created.json()['id']}/default"
+            f"/api/v1/admin/rag/profiles/{created.json()['id']}/default"
         )
 
     assert created.status_code == 201
@@ -169,7 +180,7 @@ def test_yaml_profile_is_validated_and_registered_through_the_api() -> None:
 
     with TestClient(app) as client:
         model = client.post(
-            "/api/v1/rag/models",
+            "/api/v1/admin/rag/models",
             json={
                 "kind": "llm",
                 "name": "answer-model",
@@ -178,7 +189,7 @@ def test_yaml_profile_is_validated_and_registered_through_the_api() -> None:
             },
         ).json()
         response = client.post(
-            "/api/v1/rag/profiles/generation/yaml",
+            "/api/v1/admin/rag/profiles/generation/yaml",
             json={
                 "content": f"""
 kind: generation
@@ -199,3 +210,49 @@ bindings:
     assert response.json()["bindings"] == [
         {"role": "llm", "model_id": model["id"]}
     ]
+
+
+def test_member_can_read_registry_but_cannot_mutate_admin_or_legacy_api() -> None:
+    repository = MemoryRegistryRepository()
+    app = create_app()
+    app.dependency_overrides[get_current_user] = member
+    app.dependency_overrides[get_rag_model_registry_service] = lambda: RagModelRegistryService(
+        repository
+    )
+    request = {
+        "kind": "embedding",
+        "name": "member-denied",
+        "version": 1,
+        "config": {"dimension": 768},
+    }
+
+    with TestClient(app) as client:
+        models = client.get("/api/v1/rag/models")
+        admin_denied = client.post("/api/v1/admin/rag/models", json=request)
+        legacy_denied = client.post("/api/v1/rag/models", json=request)
+
+    assert models.status_code == 200
+    assert models.json() == []
+    assert admin_denied.status_code == 403
+    assert admin_denied.json()["error"]["code"] == "owner_required"
+    assert legacy_denied.status_code == 403
+    assert legacy_denied.json()["error"]["code"] == "owner_required"
+
+
+def test_legacy_registry_commands_are_marked_deprecated() -> None:
+    schema = create_app().openapi()
+
+    assert schema["paths"]["/api/v1/rag/models"]["post"]["deprecated"] is True
+    assert (
+        schema["paths"]["/api/v1/rag/profiles/{kind}"]["post"]["deprecated"]
+        is True
+    )
+    assert (
+        schema["paths"]["/api/v1/rag/profiles/{kind}/yaml"]["post"]["deprecated"]
+        is True
+    )
+    assert (
+        schema["paths"]["/api/v1/rag/profiles/{profile_id}/default"]["post"]
+        ["deprecated"]
+        is True
+    )

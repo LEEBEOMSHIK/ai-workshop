@@ -1,6 +1,6 @@
 # Next.js 프론트엔드 전환 설계
 
-- 상태: 사용자 검토 대기
+- 상태: 승인됨
 - 작성일: 2026-09-02
 - 대상: `frontend/`, FastAPI 관리자 권한 API 경계, 로컬 실행·검증 문서
 
@@ -64,7 +64,8 @@ frontend/src/app/
 │     ├─ workspaces/[workspaceId]/documents/page.tsx
 │     └─ rag/
 │        ├─ search/page.tsx                  /app/rag/search
-│        └─ configurations/page.tsx          /app/rag/configurations
+│        ├─ configurations/page.tsx          /app/rag/configurations
+│        └─ sources/[assetVersionId]/page.tsx /app/rag/sources/:assetVersionId
 └─ (administration)/
    └─ admin/
       ├─ layout.tsx                          /admin/* 관리자 레이아웃
@@ -82,6 +83,7 @@ frontend/src/app/
 | `/workspaces/:workspaceId/documents` | `/app/workspaces/:workspaceId/documents` |
 | `/rag/search` | `/app/rag/search` |
 | `/rag/configurations` | `/app/rag/configurations` |
+| `/rag/sources/:assetVersionId` | `/app/rag/sources/:assetVersionId` |
 | `/rag/models` | `/admin/rag/models` |
 
 단순 경로 변경은 `next.config.ts`의 permanent redirect로 처리한다. 동적 workspace ID를

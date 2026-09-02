@@ -1,4 +1,6 @@
 :root {
+  --color-accent-text: #8ee6dc;
+  --color-border-subtle: #26313b;
   color: #e9edf3;
   background: #0a0e13;
   font-family:
@@ -856,6 +858,38 @@ h1 {
   color: #d6e0e5;
   font-size: 0.78rem;
   overflow-wrap: anywhere;
+}
+
+.technical-identifiers {
+  margin-top: 0.9rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.technical-identifiers summary {
+  width: fit-content;
+  color: var(--color-accent-text);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.technical-identifiers summary:focus-visible {
+  outline: 2px solid var(--color-accent-text);
+  outline-offset: 0.25rem;
+}
+
+.configuration-package-label {
+  margin: 1rem 0 0.5rem;
+  color: var(--color-accent-text);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.package-component-list {
+  border-left: 2px solid var(--color-border-subtle);
+  padding-left: 0.8rem;
 }
 
 .configuration-builder form,

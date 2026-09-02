@@ -81,6 +81,16 @@ def test_bge_profiles_are_dense_only_1024_dimension_technical_profiles() -> None
     assert retrieval.config["reranker"] == {"enabled": False}
 
 
+def test_legacy_hybrid_profile_preserves_its_optional_reranker_metadata() -> None:
+    document = parse_profile_yaml(
+        (PROFILE_ROOT / "retrieval/hybrid-rrf.yaml").read_text("utf-8"),
+        expected_kind=ProfileKind.RETRIEVAL,
+    )
+
+    assert document.version == 1
+    assert document.config["reranker"] == {"enabled": False, "optional": True}
+
+
 def test_yaml_kind_must_match_the_registration_endpoint() -> None:
     content = """
 kind: generation

@@ -13,6 +13,38 @@ describe("ConfigurationStudioPage", () => {
   it("shows only the automatic BM25 baseline before the user saves a configuration", () => {
     render(<ConfigurationStudioPage initialData={studioData()} />);
 
+    const indexingSelect = screen.getByRole("combobox", {
+      name: "Embedding / Indexing Profile",
+    });
+    const retrievalSelect = screen.getByRole("combobox", {
+      name: "Retrieval Profile",
+    });
+    expect(
+      within(indexingSelect).getByRole("option", { name: "e5-structure-aware v2" }),
+    ).toHaveValue("indexing-e5");
+    expect(
+      within(indexingSelect).queryByRole("option", { name: /indexing-e5/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(retrievalSelect).getByRole("option", { name: "hybrid-e5-rrf v1" }),
+    ).toHaveValue("retrieval-e5");
+    expect(
+      within(retrievalSelect).queryByRole("option", { name: /retrieval-e5/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(retrievalSelect).queryByRole("option", { name: "지원하지 않는 리랭커 v1" }),
+    ).not.toBeInTheDocument();
+    const builder = screen.getByRole("heading", { name: "새 RAG 패키지 구성" }).closest("section");
+    expect(builder).not.toBeNull();
+    if (!builder) throw new Error("Expected the configuration builder.");
+    const embedding = within(builder).getByText("Embedding").closest("p");
+    expect(embedding).toHaveTextContent("multilingual-e5-base v1");
+    expect(embedding).not.toHaveTextContent("model-e5");
+    expect(screen.getByRole("checkbox", { name: "전사 지식" })).toHaveAttribute(
+      "value",
+      "workspace-company",
+    );
+
     const savedList = screen.getByRole("region", { name: "저장된 RAG 구성" });
     expect(within(savedList).getByText("BM25 기준선")).toBeVisible();
     expect(within(savedList).queryByText(/E5 하이브리드/)).not.toBeInTheDocument();
@@ -50,7 +82,8 @@ describe("ConfigurationStudioPage", () => {
       "indexing-bge",
     );
     expect(screen.getByRole("alert")).toHaveTextContent("호환되는 새 색인 버전");
-    expect(screen.getByText("Dense").closest("p")).toHaveTextContent("bge-m3");
+    const builder = screen.getByRole("region", { name: "새 RAG 패키지 구성" });
+    expect(within(builder).getByText("Dense Retriever").closest("p")).toHaveTextContent("bge-m3");
 
     await user.type(screen.getByRole("textbox", { name: "구성 이름" }), "내 BGE 구성");
     await user.click(screen.getByRole("checkbox", { name: /전사 지식/ }));
@@ -71,8 +104,90 @@ describe("ConfigurationStudioPage", () => {
     });
     const savedList = screen.getByRole("region", { name: "저장된 RAG 구성" });
     expect(await within(savedList).findByText("내 BGE 구성")).toBeVisible();
-    expect(within(savedList).getByText("configuration-bge-version-1")).toBeVisible();
     expect(within(savedList).queryByText("E5 하이브리드")).not.toBeInTheDocument();
+  });
+
+  it("reveals saved configuration identifiers only through technical details", async () => {
+    const user = userEvent.setup();
+    render(<ConfigurationStudioPage initialData={studioData()} />);
+
+    const heading = screen.getByRole("heading", { name: "BM25 기준선" });
+    const card = heading.closest("article");
+    expect(card).not.toBeNull();
+    if (!card) throw new Error("Expected a saved configuration card.");
+
+    expect(within(card).getByText("e5-structure-aware v2")).toBeVisible();
+    expect(within(card).getByText("multilingual-e5-base v1")).toBeVisible();
+    expect(within(card).getByText("bm25-only v1")).toBeVisible();
+
+    const summary = within(card).getByText("기술 식별자 보기");
+    const details = summary.closest("details");
+    expect(details).not.toBeNull();
+    if (!details) throw new Error("Expected technical identifier details.");
+    expect(details).not.toHaveAttribute("open");
+
+    const identifiers = [
+      "configuration-bm25",
+      "configuration-bm25-version-1",
+      "indexing-e5",
+      "model-e5",
+      "retrieval-bm25",
+      "answer-policy-1",
+      "workspace-company",
+    ];
+    for (const identifier of identifiers) {
+      expect(within(details).getByText(identifier, { exact: true })).not.toBeVisible();
+    }
+
+    await user.click(summary);
+
+    expect(details).toHaveAttribute("open");
+    for (const identifier of identifiers) {
+      expect(within(details).getByText(identifier, { exact: true })).toBeVisible();
+    }
+  });
+
+  it("shows every saved RAG package component with human-readable identities", () => {
+    const data = studioData();
+    data.configurations = [savedConfiguration({ name: "내 E5 패키지" })];
+    render(<ConfigurationStudioPage initialData={data} />);
+
+    const heading = screen.getByRole("heading", { name: "내 E5 패키지" });
+    const card = heading.closest("article");
+    expect(card).not.toBeNull();
+    if (!card) throw new Error("Expected a saved RAG package card.");
+
+    const expectedComponents = [
+      ["Parser", "형식별 자동 선택 · 현재 구성에 고정되지 않음"],
+      ["Chunker", "380/60"],
+      ["Embedding", "multilingual-e5-base v1"],
+      ["Sparse Retriever", "BM25"],
+      ["Dense Retriever", "Bi-encoder · multilingual-e5-base v1"],
+      ["Fusion", "RRF (k=60)"],
+      ["Reranker", "사용 안 함 (V1)"],
+      ["Answer Policy", "extractive v1"],
+      ["LLM", "사용 안 함 (V1)"],
+    ] as const;
+
+    for (const [label, value] of expectedComponents) {
+      const definition = within(card).getByText(label, { selector: "dt", exact: true });
+      expect(definition.closest("div")).toHaveTextContent(value);
+    }
+
+    const technicalDetails = within(card).getByText("기술 식별자 보기").closest("details");
+    expect(technicalDetails).not.toBeNull();
+    expect(technicalDetails).not.toHaveAttribute("open");
+    for (const identifier of [
+      "configuration-1",
+      "configuration-version-1",
+      "indexing-e5",
+      "model-e5",
+      "retrieval-e5",
+      "answer-policy-1",
+      "workspace-company",
+    ]) {
+      expect(within(technicalDetails!).getByText(identifier, { exact: true })).not.toBeVisible();
+    }
   });
 
   it("keeps the model registry read-only inside the user configuration studio", async () => {
@@ -116,8 +231,9 @@ describe("ConfigurationStudioPage", () => {
       "true",
     );
     expect(
-      screen.getByRole("checkbox", { name: /비교할 E5 구성.*configuration-compare-version-1/ }),
+      screen.getByRole("checkbox", { name: "비교할 E5 구성 v1" }),
     ).toBeChecked();
+    expect(screen.queryByText("configuration-compare-version-1")).not.toBeInTheDocument();
   });
 
 });
@@ -147,7 +263,7 @@ function studioData(): ConfigurationStudioData {
         kind: "indexing",
         name: "e5-structure-aware",
         version: 2,
-        config: { parser: "structural-v1", chunker: "380/60" },
+        config: { chunker: "380/60" },
         bindings: [{ model_id: "model-e5", role: "embedding" }],
         evaluation_state: "draft",
         is_default: false,
@@ -177,7 +293,13 @@ function studioData(): ConfigurationStudioData {
         kind: "retrieval",
         name: "hybrid-e5-rrf",
         version: 1,
-        config: { indexing_profile_id: "indexing-e5", bm25: {}, dense: {}, rrf: { k: 60 } },
+        config: {
+          indexing_profile_id: "indexing-e5",
+          bm25: {},
+          dense: {},
+          rrf: { k: 60 },
+          reranker: null,
+        },
         bindings: [],
         evaluation_state: "draft",
         is_default: false,
@@ -188,6 +310,22 @@ function studioData(): ConfigurationStudioData {
         name: "hybrid-bge-m3-rrf",
         version: 1,
         config: { indexing_profile_id: "indexing-bge", bm25: {}, dense: {}, rrf: { k: 60 } },
+        bindings: [],
+        evaluation_state: "draft",
+        is_default: false,
+      },
+      {
+        id: "retrieval-reranker-enabled",
+        kind: "retrieval",
+        name: "지원하지 않는 리랭커",
+        version: 1,
+        config: {
+          indexing_profile_id: "indexing-e5",
+          bm25: {},
+          dense: {},
+          rrf: { k: 60 },
+          reranker: { enabled: true },
+        },
         bindings: [],
         evaluation_state: "draft",
         is_default: false,

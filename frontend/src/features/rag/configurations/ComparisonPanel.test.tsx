@@ -27,7 +27,9 @@ describe("ComparisonPanel", () => {
     expect(screen.queryByText(/^0(?:\.0+)?$/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /운영 기본값으로 승격/ })).toBeDisabled();
 
-    await user.click(screen.getByRole("checkbox", { name: /내 E5 구성.*version-e5/ }));
+    await user.click(screen.getByRole("checkbox", { name: "내 E5 구성 v2" }));
+    const savedResult = screen.getByRole("article", { name: "내 E5 구성 평가 결과" });
+    expect(within(savedResult).queryByText("version-e5", { exact: false })).not.toBeInTheDocument();
     await user.type(
       screen.getByRole("textbox", { name: "데이터셋 스냅샷 ID" }),
       "11111111-1111-4111-8111-111111111111",

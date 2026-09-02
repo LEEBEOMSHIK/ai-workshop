@@ -59,6 +59,65 @@ describe("ModelLabPage", () => {
     expect(screen.queryByRole("button", { name: /실행/ })).not.toBeInTheDocument();
   });
 
+  it("keeps model and profile identifiers behind closed technical details", async () => {
+    const user = userEvent.setup();
+    render(
+      <ModelLabPage
+        initialModels={[
+          {
+            id: "embedding-1",
+            kind: "embedding",
+            name: "embedding-baseline",
+            version: 1,
+            config: {
+              repo_id: "local/embedding-baseline",
+              revision: "revision-1",
+              dimension: 768,
+            },
+          },
+        ]}
+        initialProfiles={[
+          {
+            id: "retrieval-1",
+            kind: "retrieval",
+            name: "hybrid-rrf",
+            version: 2,
+            config: { bm25: {}, dense: {}, rrf: {}, indexing_profile_id: "indexing-1" },
+            bindings: [{ model_id: "embedding-1", role: "embedding" }],
+            evaluation_state: "passed",
+            is_default: true,
+          },
+        ]}
+      />,
+    );
+
+    const modelRow = screen.getByText("embedding-baseline").closest("tr");
+    const profileRow = screen.getByText("hybrid-rrf").closest("tr");
+    expect(modelRow).not.toBeNull();
+    expect(profileRow).not.toBeNull();
+    expect(within(modelRow!).getByText("v1")).toBeVisible();
+    expect(within(profileRow!).getByText("v2")).toBeVisible();
+
+    const modelSummary = within(modelRow!).getByText("기술 식별자 보기");
+    const profileSummary = within(profileRow!).getByText("기술 식별자 보기");
+    const modelDetails = modelSummary.closest("details");
+    const profileDetails = profileSummary.closest("details");
+    expect(modelDetails).not.toBeNull();
+    expect(profileDetails).not.toBeNull();
+    expect(modelDetails).not.toHaveAttribute("open");
+    expect(profileDetails).not.toHaveAttribute("open");
+    expect(within(modelDetails!).getByText("embedding-1", { exact: true })).not.toBeVisible();
+    expect(within(profileDetails!).getByText("retrieval-1", { exact: true })).not.toBeVisible();
+
+    await user.click(modelSummary);
+    await user.click(profileSummary);
+
+    expect(modelDetails).toHaveAttribute("open");
+    expect(profileDetails).toHaveAttribute("open");
+    expect(within(modelDetails!).getByText("embedding-1", { exact: true })).toBeVisible();
+    expect(within(profileDetails!).getByText("retrieval-1", { exact: true })).toBeVisible();
+  });
+
   it("preserves model and YAML profile registration while excluding BM25 and RRF model rows", async () => {
     const modelResponse = {
       id: "embedding-registered",

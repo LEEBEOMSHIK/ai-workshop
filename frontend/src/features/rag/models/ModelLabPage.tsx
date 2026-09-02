@@ -143,7 +143,7 @@ export function ModelLabPage({
                 name: item.name,
                 version: item.version,
                 state: item.is_default ? "기본 사용" : evaluationLabels[item.evaluation_state],
-                details: item.id,
+                details: "등록된 불변 프로파일",
               }))}
             />
           ))}
@@ -207,7 +207,20 @@ function RegistryTable({
       <table>
         <thead><tr><th>이름</th><th>버전</th><th>상태</th><th>불변 정의</th></tr></thead>
         <tbody>
-          {rows.map((row) => <tr key={row.id}><td>{row.name}</td><td>v{row.version}</td><td>{row.state}</td><td>{row.details}</td></tr>)}
+          {rows.map((row) => (
+            <tr key={row.id}>
+              <td>{row.name}</td>
+              <td>v{row.version}</td>
+              <td>{row.state}</td>
+              <td>
+                {row.details}
+                <details className="technical-identifiers">
+                  <summary>기술 식별자 보기</summary>
+                  <span>{row.id}</span>
+                </details>
+              </td>
+            </tr>
+          ))}
           {rows.length === 0 ? <tr><td colSpan={4}>등록된 버전 없음</td></tr> : null}
         </tbody>
       </table>
@@ -220,10 +233,10 @@ function isSupportedModel(model: ModelDefinitionSummary): boolean {
 }
 
 function modelDetails(model: ModelDefinitionSummary): string {
-  const details = [model.id];
+  const details: string[] = [];
   for (const key of ["repo_id", "revision", "device", "data_policy"] as const) {
     const value = model.config[key];
     if (typeof value === "string") details.push(`${key}=${value}`);
   }
-  return details.join(" · ");
+  return details.join(" · ") || "등록된 불변 모델";
 }

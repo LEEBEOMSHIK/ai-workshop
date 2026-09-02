@@ -1,17 +1,22 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-02
-- 현재 단계: Next.js 프론트엔드 전체 전환 완료
-- 전체 상태: FastAPI를 AI·업무 로직 정본으로 유지하면서 프론트엔드를 Next.js App Router의 공개·사용자·관리자 영역으로 전환했다.
+- 현재 단계: RAG 구성 패키지 표현 및 내부 식별자 정리
+- 전체 상태: 저장된 RAG 구성을 파서부터 답변까지 이어지는 하나의 패키지로 표현하고 사용자 표시값과 내부 UUID 경계를 정리한다.
 
 ## 현재 작업
 
 ### 목표
 
-Next.js App Router 기반의 `/app/*`, `/admin/*`, `/setup`, `/login` 분리와 기존 기능·FastAPI 계약 보존을 검증하고 다음 RAG 문서 형식 작업에 인계한다.
+RAG 구성 화면에는 Parser, Chunker, Embedding, BM25, Dense Retriever, RRF, Reranker, Answer Policy와 LLM을 하나의 저장 패키지로 표시한다. 이해 가능한 이름·버전만 기본 노출하고 내부 UUID는 저장·호환성·재현 계약에 유지하며, 승인된 pytest 임시 경로 두 개의 정리 결과를 기록한다.
 
 ### 진행 상태
 
+- 색인·검색 구성의 profile/model UUID가 사용자 옵션과 요약에 직접 노출되는 원인을 확인했고, 내부 식별자를 API 값으로 유지하면서 기본 표시에서 감추는 설계를 승인받았다.
+- 저장 구성은 개별 모델 하나가 아니라 Indexing·Retrieval·Answer Policy·선택적 Generation의 불변 버전을 묶은 RAG 패키지로 표시한다. 현재 구성 계약에 고정되지 않은 Parser와 V1에서 비활성인 Reranker·LLM은 추측값 대신 명시적 미사용·미고정 상태로 표시한다.
+- 정리 대상은 `backend/.pytest-nextjs-final-contract`와 `backend/.pytest-tmp` 두 리터럴 경로로 한정했으며 애플리케이션 데이터·프론트 의존성·실행 서비스는 보존한다.
+- `backend/.pytest-nextjs-final-contract`는 Windows 관리자 ACL로 소유돼 현재 실행 계정의 정확 경로 삭제도 거부됐고, `backend/.pytest-tmp`는 내부 확인 자체가 거부됐다. 우회 삭제하지 않고 차단 요소로 인계한다.
+- RAG 패키지·UUID 회귀 테스트 32개, 전체 프론트 테스트 83개, TypeScript, ESLint, Next production build, 백엔드 YAML 테스트 11개, 에이전트 계약과 문서 diff 검사가 통과했으며 독립 코드 리뷰는 Ready 판정을 내렸다.
 - Next.js는 프론트엔드와 최소 rewrite 계층만 담당하고 인증·권한·AI·DB 업무 로직은 FastAPI에 유지하기로 결정했다.
 - 사용자 역할·관리자 RAG 명령 API, Next.js 도구체인·접근 레이아웃, 공개·지식 공간·문서 화면 전환을 구현했다.
 - RAG 검색·구성·모델·출처 뷰어를 App Router에 연결하고, 의미·키워드 하이라이트 메타데이터를 원문 문구 노출 없이 canonical URL에서 복원하도록 구현했다.
@@ -57,27 +62,28 @@ Next.js App Router 기반의 `/app/*`, `/admin/*`, `/setup`, `/login` 분리와 
 
 ### 완료 기준
 
-- 공개·사용자·관리자 URL과 layout 경계가 App Router에 구현된다.
-- FastAPI 세션·권한 정본을 유지하고 Next.js는 렌더링과 `/api` rewrite만 담당한다.
-- 사용자 조회 API와 owner 전용 관리자 명령 API가 endpoint 수준으로 분리된다.
-- 초기 데이터는 Server Component, 검색·저장·평가·등록 상호작용은 Client Component가 담당한다.
-- React Router·Vite 의존성이 없고 테스트·타입 검사·린트·production build와 로컬 HTTP smoke가 통과한다.
+- 저장 구성과 편집 미리보기가 Parser부터 LLM까지 전체 RAG 패키지 단계를 표시한다.
+- BM25, bi-encoder Dense Retriever, RRF, Reranker와 LLM을 기술적으로 구분한다.
+- 현재 계약에 고정되지 않은 Parser와 V1 미지원 Reranker·LLM을 정확한 상태로 표시한다.
+- 내부 UUID는 기본 UI에서 숨기고 닫힌 기술 상세, React identity와 API payload에 유지한다.
+- 백엔드 V1이 거부하는 리랭커 프로파일은 구성 후보에서 제외한다.
+- 대상·전체 테스트, 타입 검사, 린트, production build와 독립 리뷰가 통과한다.
 
 ## 최근 완료 작업
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. Vite SPA를 Next.js 16 App Router로 전체 전환하고 사용자·관리자 경로, 정확한 로그인 복귀 URL, RAG 화면, owner 명령 API, FastAPI 오류 참조, 영구 리다이렉트와 로컬 실행을 구현·검증했다. 관련 설계: `docs/superpowers/specs/2026-09-02-nextjs-frontend-migration-design.md`
-2. `/workspaces` 보호 라우트가 인증 후 목록 API를 로드하고 전사·개인 기본 공간을 표시하도록 연결 누락을 수정·검증했다.
-3. 최초 관리자 1명을 만드는 `/setup` UI와 API, 전사·개인 기본 공간의 원자적 생성, 동시 설정 방지, setup/login 보호 경로 분기와 복구용 CLI 계약을 구현·검증했다. 관련 결정: `docs/decisions/0004-first-owner-ui-setup.md`
-4. 프로젝트 개발 에이전트 조직의 역할 계약, activation rule, workflow, 수명주기, Codex 어댑터와 자동 검증을 구현하고 대표 시나리오를 검증했다. 관련 설계: `docs/superpowers/specs/2026-09-02-project-development-agent-organization-design.md`
-5. Dockerfile의 uv cache·copy-up 중복을 제거하고 승인된 전용 BuildKit 계보까지 정리한 뒤 VHDX를 압축해 host 공간 약 170.283 GB를 실제 회수했다. 관련 문서: `CACHE_POLICY.md`, `docs/worklogs/2026-09-01-cache-audit.md`
+1. 저장된 RAG 구성을 Parser·Chunker·Embedding·Sparse/Dense Retriever·Fusion·Reranker·Answer Policy·LLM의 한 패키지로 표시하고 내부 UUID 기본 노출을 제거했으며 V1 리랭커 호환성과 파서 비고정 계약을 테스트·문서·독립 리뷰로 검증했다. 관련 계획: `docs/superpowers/plans/2026-09-02-rag-configuration-package-ui.md`
+2. Vite SPA를 Next.js 16 App Router로 전체 전환하고 사용자·관리자 경로, 정확한 로그인 복귀 URL, RAG 화면, owner 명령 API, FastAPI 오류 참조, 영구 리다이렉트와 로컬 실행을 구현·검증했다. 관련 설계: `docs/superpowers/specs/2026-09-02-nextjs-frontend-migration-design.md`
+3. `/workspaces` 보호 라우트가 인증 후 목록 API를 로드하고 전사·개인 기본 공간을 표시하도록 연결 누락을 수정·검증했다.
+4. 최초 관리자 1명을 만드는 `/setup` UI와 API, 전사·개인 기본 공간의 원자적 생성, 동시 설정 방지, setup/login 보호 경로 분기와 복구용 CLI 계약을 구현·검증했다. 관련 결정: `docs/decisions/0004-first-owner-ui-setup.md`
+5. 프로젝트 개발 에이전트 조직의 역할 계약, activation rule, workflow, 수명주기, Codex 어댑터와 자동 검증을 구현하고 대표 시나리오를 검증했다. 관련 설계: `docs/superpowers/specs/2026-09-02-project-development-agent-organization-design.md`
 
 ## 다음 작업
 
-1. DOCX 구조 파서와 원문 뷰어 계약 설계
-2. DOCX 파싱·청킹·하이라이트 수직 슬라이스 구현 계획 수립
-3. 승인된 계획 기반 구현과 기존 Markdown·TXT·PDF 회귀 검증
+1. 형식별 Parser Policy Version과 Saved RAG Configuration 연결, 재파싱·재청킹·재색인 수명주기 설계
+2. Parser Policy에 포함되는 DOCX 구조 파서와 원문 뷰어 계약 설계
+3. DOCX 파싱·청킹·하이라이트 수직 슬라이스 구현 계획 수립
 
 ## 결정이 필요한 항목
 
@@ -85,7 +91,8 @@ Next.js App Router 기반의 `/app/*`, `/admin/*`, `/setup`, `/login` 분리와 
 
 ## 차단 요소
 
-- 없음.
+- `backend/.pytest-nextjs-final-contract`는 untracked지만 Windows 관리자 ACL 때문에 현재 비관리자 환경에서 삭제할 수 없다.
+- `backend/.pytest-tmp`는 Git ignored 경로이며 같은 ACL 문제로 내부 확인과 삭제가 거부된다. 두 경로 모두 애플리케이션 소스와 실행 데이터에는 영향을 주지 않으며, 대화형 Windows 관리자 세션에서 소유권과 내용을 확인한 뒤 정확 경로만 삭제해야 한다.
 
 ## 작업 인계 메모
 
@@ -95,7 +102,7 @@ Next.js App Router 기반의 `/app/*`, `/admin/*`, `/setup`, `/login` 분리와 
 - RAG worktree의 Git 등록과 물리 폴더, 미등록 foundation 복사본, 네 테스트 임시 폴더가 모두 제거됐다. 상세 결과는 캐시 감사 보고서를 따른다.
 - 루트 `.pnpm-store` junction과 `node_modules`는 제거됐다.
 - 프론트 의존성은 `frontend/node_modules/.pnpm`에 독립 설치됐으며 루트 `node_modules`는 감사 보고서의 레거시 제거 후보로 확정했다.
-- Next.js 전환 설계와 구현 계획은 완료됐으며 현재 우선 작업은 DOCX 구조 파서·원문 뷰어 계약 설계다.
+- RAG 패키지 UI는 현재 Parser가 구성에 고정되지 않음을 명시한다. 다음 우선 작업은 형식별 Parser Policy Version과 패키지·산출물 수명주기 설계다.
 - Next.js 프론트는 `http://127.0.0.1:5173`, 기존 호스트 FastAPI는 `http://127.0.0.1:18000`에서 실행한다.
 - 최종 Docker 상태와 잔여 BuildKit 계보는 `docs/worklogs/2026-09-01-cache-audit.md`를 정본으로 사용한다.
 - 추가 승인된 잔여 BuildKit 네 레코드는 모두 제거됐으며 추가 Docker 정리는 새 조사와 승인 없이 진행하지 않는다.

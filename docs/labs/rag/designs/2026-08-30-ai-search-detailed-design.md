@@ -47,7 +47,7 @@
       └─ 위 프로파일의 불변 버전을 조합한 사용자 저장 구성
 
 - **Model Definition**은 개별 학습 모델의 저장소, 리비전, 차원, 토큰 한도, 실행 위치와 데이터 정책을 기록한다.
-- **Indexing Profile**은 파서, 청커, 임베딩 모델과 색인 파라미터를 묶는다.
+- **Indexing Profile**은 청커, 임베딩 모델과 색인 파라미터를 묶는다. 실제 파서 이름과 버전은 문서별 파싱 산출물에서 추적한다.
 - **Retrieval Profile**은 BM25, dense 후보 수, RRF와 선택적 리랭커를 묶고 호환되는 Indexing Profile을 참조한다.
 - **Generation Profile**은 LLM, 프롬프트와 근거 정책을 묶는다. 첫 버전에서는 사용하지 않는다.
 - **Saved RAG Configuration**은 사용자가 이름을 붙여 저장하고 비교하는 최상위 구성이다. 모델 자체가 아니다.
@@ -396,7 +396,7 @@ PDF는 원본 페이지 좌표를 사용한다. Markdown, TXT와 DOCX는 통합 
 
 기존 Indexing, Retrieval, Generation 원자 프로파일은 재현 가능한 기술 설정으로 유지한다. 사용자 화면의 Saved RAG Configuration은 이들을 조합하는 별도 애플리케이션 개념이다.
 
-BM25 기준선도 파서와 청킹을 재현하기 위해 Indexing Profile Version을 참조하되 dense 결과는 사용하지 않는다. Retrieval 알고리즘만 비교할 때는 같은 Indexing Profile과 문서 스냅샷을 사용한다. 임베딩 또는 청킹까지 바꾸는 비교는 별도의 end-to-end 구성 비교로 기록한다.
+BM25 기준선도 청킹과 임베딩 projection 호환성을 재현하기 위해 Indexing Profile Version을 참조하되 dense 결과는 사용하지 않는다. 실제 사용된 파서 이름과 버전은 문서별 파싱 산출물에서 별도로 추적한다. Retrieval 알고리즘만 비교할 때는 같은 Indexing Profile과 문서 스냅샷을 사용한다. 임베딩 또는 청킹까지 바꾸는 비교는 별도의 end-to-end 구성 비교로 기록한다.
 
 ## 14. 구성 스튜디오 화면
 
@@ -404,11 +404,30 @@ BM25 기준선도 파서와 청킹을 재현하기 위해 Indexing Profile Versi
 
 - 왼쪽에는 BM25 기준선과 사용자가 저장한 구성만 표시한다.
 - 새 조합 만들기는 운영 설정과 분리된 초안을 연다.
-- 색인 구성은 Parser, Chunker와 Embedding Model을 선택한다.
-- 검색 구성은 BM25, 연결된 Dense Retriever, RRF와 이후 Reranker를 선택한다.
+- 저장된 구성 하나를 선택·비교할 수 있는 **RAG 패키지**로 표현한다. 패키지 카드는
+  Parser, Chunker, Embedding, Sparse Retriever, Dense Retriever, Fusion, Reranker,
+  Answer Policy, LLM 순서로 전체 파이프라인을 보여준다.
+- BM25는 Sparse Retriever, bi-encoder 임베딩 모델은 Dense Retriever가 사용하는 모델,
+  RRF는 두 후보군을 합치는 Fusion으로 표시한다. 이들을 모두 검색 모델로 뭉뚱그리지 않는다.
+- 사용자는 Indexing Profile Version과 호환되는 Retrieval Profile Version을 선택한다.
+- Parser, Chunker, Embedding, BM25, Dense와 RRF는 선택한 프로파일의 구성요소로
+  읽기 전용 표시한다. Parser는 현재 Saved Configuration에 고정되지 않으며
+  Reranker와 Generation은 V1 선택 대상이 아니다.
 - 답변 구성은 첫 버전의 근거 판정과 인용 정책을 보여준다.
+- 현재 저장 구성 계약에 고정되지 않은 Parser는 임의의 파서 이름으로 보완하지 않고
+  `형식별 자동 선택 · 현재 구성에 고정되지 않음`으로 표시한다. V1에서 사용할 수 없는 Reranker와 LLM은
+  `사용 안 함 (V1)`으로 표시한다.
+- 일반 화면에는 구성요소의 이름과 불변 버전을 표시한다. UUID는 React/API identity와
+  재현 계약에 유지하되 기본으로 닫힌 `기술 식별자 보기`에서만 확인할 수 있다.
 - 임베딩 또는 청킹 변경 시 새 색인 버전이 필요함을 저장 전에 알린다.
 - 구성 저장과 저장하고 비교에 추가를 구분한다.
+
+현재 문서 파서는 MIME 형식에 따라 ingestion 단계에서 선택되고 파싱 산출물에
+`parser_name`과 `parser_version`을 기록하지만, Saved RAG Configuration Version은 그 선택을
+직접 고정하지 않는다. 따라서 Parser를 실제 패키지 선택 항목으로 제공하려면 지원 형식별
+adapter와 버전을 묶는 불변 Parser Policy Version, 파싱 산출물과의 호환성, parser 변경 시
+재파싱·재청킹·재색인되는 수명주기를 먼저 설계해야 한다. 이 계약 없이는 화면 선택값만
+추가하지 않는다.
 
 ### 비교 실험 탭
 

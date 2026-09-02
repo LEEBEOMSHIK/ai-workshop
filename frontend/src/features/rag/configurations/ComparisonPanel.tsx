@@ -336,7 +336,7 @@ export function ComparisonPanel({
           {baseline ? (
             <label>
               <input type="checkbox" checked disabled readOnly />
-              {baseline.name} v{baseline.version} · {baseline.version_id} (자동 포함)
+              {baseline.name} v{baseline.version} (자동 포함)
             </label>
           ) : <p className="form-error" role="alert">서버가 제공한 BM25 시스템 기준선이 없습니다.</p>}
           {configurations.filter((configuration) => !configuration.is_system).map((configuration) => (
@@ -346,7 +346,7 @@ export function ComparisonPanel({
                 checked={selectedVersionIds.includes(configuration.version_id)}
                 onChange={(event) => changeSelection(configuration.version_id, event.target.checked)}
               />
-              {configuration.name} v{configuration.version} · {configuration.version_id}
+              {configuration.name} v{configuration.version}
             </label>
           ))}
           {historicalCandidateCount > 0 ? (
@@ -461,7 +461,6 @@ function CandidateResult({
       <div className="candidate-heading">
         <div>
           <h3>{configuration.name} v{configuration.version}</h3>
-          <p>{configuration.version_id}</p>
         </div>
         <span>{candidate ? candidateStatusLabels[candidate.status] : "선택됨"}</span>
       </div>

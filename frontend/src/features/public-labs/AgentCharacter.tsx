@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useId, useRef, useState } from "react";
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 
 import type { PublicLab } from "./catalog";
 import styles from "./PublicLabScene.module.css";
@@ -10,6 +16,15 @@ interface AgentCharacterProps {
   lab: PublicLab;
   variant: "roaming" | "working";
 }
+
+const focusableSelector = [
+  "a[href]",
+  "button:not(:disabled)",
+  "input:not(:disabled)",
+  "select:not(:disabled)",
+  "textarea:not(:disabled)",
+  '[tabindex]:not([tabindex="-1"])',
+].join(", ");
 
 export function AgentCharacter({ lab, variant }: AgentCharacterProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -21,6 +36,31 @@ export function AgentCharacter({ lab, variant }: AgentCharacterProps) {
   function closeDialog() {
     setIsOpen(false);
     triggerRef.current?.focus();
+  }
+
+  function trapDialogFocus(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "Tab") {
+      return;
+    }
+
+    const focusableElements = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(focusableSelector),
+    );
+    const firstFocusable = focusableElements.at(0);
+    const lastFocusable = focusableElements.at(-1);
+
+    if (!firstFocusable || !lastFocusable) {
+      event.preventDefault();
+      return;
+    }
+
+    if (event.shiftKey && document.activeElement === firstFocusable) {
+      event.preventDefault();
+      lastFocusable.focus();
+    } else if (!event.shiftKey && document.activeElement === lastFocusable) {
+      event.preventDefault();
+      firstFocusable.focus();
+    }
   }
 
   useEffect(() => {
@@ -78,6 +118,7 @@ export function AgentCharacter({ lab, variant }: AgentCharacterProps) {
             aria-modal="true"
             aria-labelledby={titleId}
             aria-describedby={descriptionId}
+            onKeyDown={trapDialogFocus}
           >
             <button
               ref={closeRef}

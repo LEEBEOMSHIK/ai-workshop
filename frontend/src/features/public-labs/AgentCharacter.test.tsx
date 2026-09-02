@@ -5,6 +5,28 @@ import { AgentCharacter } from "./AgentCharacter";
 import { listPublicLabs } from "./catalog";
 
 describe("AgentCharacter", () => {
+  it("cycles Tab and Shift+Tab focus within the open dialog", async () => {
+    const user = userEvent.setup();
+    const lab = listPublicLabs()[0];
+    expect(lab).toBeDefined();
+
+    render(<AgentCharacter lab={lab!} variant="roaming" />);
+
+    await user.click(screen.getByRole("button", { name: "RAG 총괄에게 말 걸기" }));
+
+    const dialog = screen.getByRole("dialog", { name: "RAG 총괄 소개" });
+    const closeButton = within(dialog).getByRole("button", { name: "소개 닫기" });
+    const labLink = within(dialog).getByRole("link", { name: "RAG 연구실 들어가기" });
+
+    expect(closeButton).toHaveFocus();
+    await user.tab();
+    expect(labLink).toHaveFocus();
+    await user.tab();
+    expect(closeButton).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(labLink).toHaveFocus();
+  });
+
   it("focuses the close button and returns focus to the character trigger", async () => {
     const user = userEvent.setup();
     const lab = listPublicLabs()[0];

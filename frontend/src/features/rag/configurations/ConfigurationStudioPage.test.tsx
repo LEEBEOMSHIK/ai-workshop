@@ -14,14 +14,12 @@ describe("ConfigurationStudioPage", () => {
     render(<ConfigurationStudioPage initialData={studioData()} />);
 
     const indexingSelect = screen.getByRole("combobox", {
-      name: "Embedding / Indexing Profile",
+      name: "색인 패키지",
     });
     const retrievalSelect = screen.getByRole("combobox", {
       name: "Retrieval Profile",
     });
-    expect(
-      within(indexingSelect).getByRole("option", { name: "e5-structure-aware v2" }),
-    ).toHaveValue("indexing-e5");
+    expect(indexingSelect).toHaveValue("indexing-e5");
     expect(
       within(indexingSelect).queryByRole("option", { name: /indexing-e5/ }),
     ).not.toBeInTheDocument();
@@ -53,6 +51,29 @@ describe("ConfigurationStudioPage", () => {
     expect(screen.getByRole("button", { name: "저장하고 비교에 추가" })).toBeVisible();
   });
 
+  it("describes indexing choices by embedding and chunker roles without internal identifiers", () => {
+    render(<ConfigurationStudioPage initialData={studioData()} />);
+
+    const indexingSelect = screen.getByRole("combobox", {
+      name: "색인 패키지",
+    });
+    expect(
+      within(indexingSelect).getByRole("option", {
+        name: "임베딩: multilingual-e5-base v1 · 청킹: structure-aware v2 / 목표 380 / 중첩 60 · 프로파일 v2",
+      }),
+    ).toHaveValue("indexing-e5");
+    expect(
+      within(indexingSelect).getByRole("option", {
+        name: "임베딩: bge-m3 v1 · 청킹: semantic-window v1 / 목표 512 / 중첩 96 · 프로파일 v1",
+      }),
+    ).toHaveValue("indexing-bge");
+    expect(
+      within(indexingSelect).queryByRole("option", {
+        name: /indexing-e5|indexing-bge|e5-structure-aware|bge-m3-structure-aware/,
+      }),
+    ).not.toBeInTheDocument();
+  });
+
   it("warns that BGE needs a compatible new index and appends only the exact saved response", async () => {
     const saved = savedConfiguration({
       id: "configuration-bge",
@@ -78,7 +99,7 @@ describe("ConfigurationStudioPage", () => {
     render(<ConfigurationStudioPage initialData={studioData()} />);
 
     await user.selectOptions(
-      screen.getByRole("combobox", { name: "Embedding / Indexing Profile" }),
+      screen.getByRole("combobox", { name: "색인 패키지" }),
       "indexing-bge",
     );
     expect(screen.getByRole("alert")).toHaveTextContent("호환되는 새 색인 버전");
@@ -159,7 +180,7 @@ describe("ConfigurationStudioPage", () => {
 
     const expectedComponents = [
       ["Parser", "형식별 자동 선택 · 현재 구성에 고정되지 않음"],
-      ["Chunker", "380/60"],
+      ["Chunker", "structure-aware · v2 · target 380 · overlap 60"],
       ["Embedding", "multilingual-e5-base v1"],
       ["Sparse Retriever", "BM25"],
       ["Dense Retriever", "Bi-encoder · multilingual-e5-base v1"],
@@ -263,7 +284,14 @@ function studioData(): ConfigurationStudioData {
         kind: "indexing",
         name: "e5-structure-aware",
         version: 2,
-        config: { chunker: "380/60" },
+        config: {
+          chunker: {
+            name: "structure-aware",
+            version: 2,
+            target_tokens: 380,
+            overlap_tokens: 60,
+          },
+        },
         bindings: [{ model_id: "model-e5", role: "embedding" }],
         evaluation_state: "draft",
         is_default: false,
@@ -273,7 +301,15 @@ function studioData(): ConfigurationStudioData {
         kind: "indexing",
         name: "bge-m3-structure-aware",
         version: 1,
-        config: { parser: "structural-v1", chunker: "380/60" },
+        config: {
+          parser: "structural-v1",
+          chunker: {
+            name: "semantic-window",
+            version: 1,
+            target_tokens: 512,
+            overlap_tokens: 96,
+          },
+        },
         bindings: [{ model_id: "model-bge", role: "embedding" }],
         evaluation_state: "draft",
         is_default: false,

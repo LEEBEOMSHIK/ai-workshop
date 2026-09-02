@@ -938,6 +938,13 @@ h1 {
   background: #0a1016;
 }
 
+.control-help {
+  margin: -0.15rem 0 0;
+  color: #8f9ba6;
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
 .component-summary {
   display: grid;
   grid-template-columns: 7rem minmax(0, 1fr);

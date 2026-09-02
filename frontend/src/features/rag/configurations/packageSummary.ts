@@ -56,6 +56,18 @@ export function profileIdentity(profile: Profile | undefined): string {
   return profile ? `${profile.name} v${profile.version}` : "프로파일 정보 없음";
 }
 
+export function indexingOptionLabel(
+  profile: Profile,
+  models: ModelDefinition[],
+): string {
+  const embedding = boundModel(profile, "embedding", models);
+  return [
+    `임베딩: ${modelIdentity(embedding)}`,
+    `청킹: ${chunkerOptionIdentity(profile)}`,
+    `프로파일 v${profile.version}`,
+  ].join(" · ");
+}
+
 function boundModel(
   profile: Profile | undefined,
   role: "embedding" | "reranker" | "llm",
@@ -72,6 +84,24 @@ function hasConfig(profile: Profile | undefined, key: string): boolean {
 function profileValue(profile: Profile | undefined, key: string, fallback: string): string {
   if (!profile || !(key in profile.config) || profile.config[key] === null) return fallback;
   return formatValue(profile.config[key]);
+}
+
+function chunkerOptionIdentity(profile: Profile): string {
+  const chunker = profile.config.chunker;
+  if (typeof chunker === "string" || typeof chunker === "number") return String(chunker);
+  if (!chunker || typeof chunker !== "object" || Array.isArray(chunker)) {
+    return "설정 정보 없음";
+  }
+
+  const name = typeof chunker.name === "string" ? chunker.name : "방식 미지정";
+  const version = typeof chunker.version === "number" ? ` v${chunker.version}` : "";
+  const target = typeof chunker.target_tokens === "number"
+    ? String(chunker.target_tokens)
+    : "미지정";
+  const overlap = typeof chunker.overlap_tokens === "number"
+    ? String(chunker.overlap_tokens)
+    : "미지정";
+  return `${name}${version} / 목표 ${target} / 중첩 ${overlap}`;
 }
 
 function rrfIdentity(profile: Profile | undefined): string {

@@ -1,17 +1,20 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-02
-- 현재 단계: RAG 구성 패키지 표현 및 내부 식별자 정리
-- 전체 상태: 저장된 RAG 구성을 파서부터 답변까지 이어지는 하나의 패키지로 표현하고 사용자 표시값과 내부 UUID 경계를 정리한다.
+- 현재 단계: RAG 색인 패키지 선택 UX 개선 완료
+- 전체 상태: 색인 구성 콤보박스가 임베딩 모델과 청킹 설정을 설명하고 내부 ID는 선택값과 API 계약에만 유지된다.
 
 ## 현재 작업
 
 ### 목표
 
-RAG 구성 화면에는 Parser, Chunker, Embedding, BM25, Dense Retriever, RRF, Reranker, Answer Policy와 LLM을 하나의 저장 패키지로 표시한다. 이해 가능한 이름·버전만 기본 노출하고 내부 UUID는 저장·호환성·재현 계약에 유지하며, 승인된 pytest 임시 경로 두 개의 정리 결과를 기록한다.
+색인 구성 콤보박스가 내부 프로파일명 대신 임베딩 모델·청킹 방식·목표/중첩 토큰·프로파일 버전을 설명하도록 개선한다. 내부 ID와 정확한 API 선택값은 유지하고 저장·검색 구성 호환성은 변경하지 않는다.
 
 ### 진행 상태
 
+- 색인 프로파일 옵션이 `e5-structure-aware v2` 같은 내부 이름만 표시해 사용자가 임베딩 모델과 청킹 차이를 판단하기 어려운 문제를 확인했다. 표시명은 profile/model/config 데이터에서 동적으로 구성하고 UUID를 포함하지 않는다.
+- 색인 선택 라벨을 `색인 패키지`로 바꾸고 각 옵션을 `임베딩 모델·버전 · 청커·버전/목표/중첩 토큰 · 프로파일 버전` 순서로 설명한다. option value와 저장 payload의 정확한 profile ID, 호환 Retrieval 필터는 유지한다.
+- 대상 테스트 9개, 순차 전체 프론트 테스트 84개, TypeScript, ESLint, Next production build와 독립 통합 검증이 통과했다. 전체 테스트와 build의 최초 병렬 실행에서 ComparisonPanel 1건이 5초 timeout됐지만 단독 20개와 자원 경합 없는 순차 전체 실행은 모두 통과했다.
 - 색인·검색 구성의 profile/model UUID가 사용자 옵션과 요약에 직접 노출되는 원인을 확인했고, 내부 식별자를 API 값으로 유지하면서 기본 표시에서 감추는 설계를 승인받았다.
 - 저장 구성은 개별 모델 하나가 아니라 Indexing·Retrieval·Answer Policy·선택적 Generation의 불변 버전을 묶은 RAG 패키지로 표시한다. 현재 구성 계약에 고정되지 않은 Parser와 V1에서 비활성인 Reranker·LLM은 추측값 대신 명시적 미사용·미고정 상태로 표시한다.
 - 정리 대상은 `backend/.pytest-nextjs-final-contract`와 `backend/.pytest-tmp` 두 리터럴 경로로 한정했으며 애플리케이션 데이터·프론트 의존성·실행 서비스는 보존한다.
@@ -62,22 +65,21 @@ RAG 구성 화면에는 Parser, Chunker, Embedding, BM25, Dense Retriever, RRF, 
 
 ### 완료 기준
 
-- 저장 구성과 편집 미리보기가 Parser부터 LLM까지 전체 RAG 패키지 단계를 표시한다.
-- BM25, bi-encoder Dense Retriever, RRF, Reranker와 LLM을 기술적으로 구분한다.
-- 현재 계약에 고정되지 않은 Parser와 V1 미지원 Reranker·LLM을 정확한 상태로 표시한다.
-- 내부 UUID는 기본 UI에서 숨기고 닫힌 기술 상세, React identity와 API payload에 유지한다.
-- 백엔드 V1이 거부하는 리랭커 프로파일은 구성 후보에서 제외한다.
-- 대상·전체 테스트, 타입 검사, 린트, production build와 독립 리뷰가 통과한다.
+- 색인 콤보박스가 임베딩 모델명·버전과 청커명·버전·목표·중첩 토큰을 표시한다.
+- 내부 프로파일명과 UUID는 option 표시명에 포함하지 않는다.
+- option value, state, 저장 payload와 호환 Retrieval 선택은 기존 정확한 ID를 유지한다.
+- 선택 안내는 임베딩·청킹이 함께 고정되고 변경 시 새 색인이 필요함을 설명한다.
+- 대상·전체 테스트, 타입 검사, 린트, production build와 독립 검증이 통과한다.
 
 ## 최근 완료 작업
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. 저장된 RAG 구성을 Parser·Chunker·Embedding·Sparse/Dense Retriever·Fusion·Reranker·Answer Policy·LLM의 한 패키지로 표시하고 내부 UUID 기본 노출을 제거했으며 V1 리랭커 호환성과 파서 비고정 계약을 테스트·문서·독립 리뷰로 검증했다. 관련 계획: `docs/superpowers/plans/2026-09-02-rag-configuration-package-ui.md`
-2. Vite SPA를 Next.js 16 App Router로 전체 전환하고 사용자·관리자 경로, 정확한 로그인 복귀 URL, RAG 화면, owner 명령 API, FastAPI 오류 참조, 영구 리다이렉트와 로컬 실행을 구현·검증했다. 관련 설계: `docs/superpowers/specs/2026-09-02-nextjs-frontend-migration-design.md`
-3. `/workspaces` 보호 라우트가 인증 후 목록 API를 로드하고 전사·개인 기본 공간을 표시하도록 연결 누락을 수정·검증했다.
-4. 최초 관리자 1명을 만드는 `/setup` UI와 API, 전사·개인 기본 공간의 원자적 생성, 동시 설정 방지, setup/login 보호 경로 분기와 복구용 CLI 계약을 구현·검증했다. 관련 결정: `docs/decisions/0004-first-owner-ui-setup.md`
-5. 프로젝트 개발 에이전트 조직의 역할 계약, activation rule, workflow, 수명주기, Codex 어댑터와 자동 검증을 구현하고 대표 시나리오를 검증했다. 관련 설계: `docs/superpowers/specs/2026-09-02-project-development-agent-organization-design.md`
+1. 색인 구성 콤보박스를 임베딩 모델과 청킹 방식·목표·중첩 토큰을 설명하는 동적 선택지로 바꾸고, 내부 ID 기반 저장·호환성 계약을 유지한 채 전체 84개 테스트와 독립 검증을 통과했다.
+2. 저장된 RAG 구성을 Parser·Chunker·Embedding·Sparse/Dense Retriever·Fusion·Reranker·Answer Policy·LLM의 한 패키지로 표시하고 내부 UUID 기본 노출을 제거했으며 V1 리랭커 호환성과 파서 비고정 계약을 테스트·문서·독립 리뷰로 검증했다. 관련 계획: `docs/superpowers/plans/2026-09-02-rag-configuration-package-ui.md`
+3. Vite SPA를 Next.js 16 App Router로 전체 전환하고 사용자·관리자 경로, 정확한 로그인 복귀 URL, RAG 화면, owner 명령 API, FastAPI 오류 참조, 영구 리다이렉트와 로컬 실행을 구현·검증했다. 관련 설계: `docs/superpowers/specs/2026-09-02-nextjs-frontend-migration-design.md`
+4. `/workspaces` 보호 라우트가 인증 후 목록 API를 로드하고 전사·개인 기본 공간을 표시하도록 연결 누락을 수정·검증했다.
+5. 최초 관리자 1명을 만드는 `/setup` UI와 API, 전사·개인 기본 공간의 원자적 생성, 동시 설정 방지, setup/login 보호 경로 분기와 복구용 CLI 계약을 구현·검증했다. 관련 결정: `docs/decisions/0004-first-owner-ui-setup.md`
 
 ## 다음 작업
 

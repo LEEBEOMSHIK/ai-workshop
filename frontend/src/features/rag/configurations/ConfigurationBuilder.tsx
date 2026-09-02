@@ -9,7 +9,11 @@ import type {
   Workspace,
 } from "./api";
 import { saveConfiguration } from "./api";
-import { isV1CompatibleRetrieval, summarizeRagPackage } from "./packageSummary";
+import {
+  indexingOptionLabel,
+  isV1CompatibleRetrieval,
+  summarizeRagPackage,
+} from "./packageSummary";
 
 interface ConfigurationBuilderProps {
   configurations: SavedConfiguration[];
@@ -141,18 +145,21 @@ export function ConfigurationBuilder({
         <fieldset disabled={saving}>
           <legend>색인 구성</legend>
           <label>
-            Embedding / Indexing Profile
+            색인 패키지
             <select
               value={indexingProfileId}
               onChange={(event) => setIndexingProfileId(event.target.value)}
             >
               {indexingProfiles.map((profile) => (
                 <option key={profile.id} value={profile.id}>
-                  {profile.name} v{profile.version}
+                  {indexingOptionLabel(profile, models)}
                 </option>
               ))}
             </select>
           </label>
+          <p className="control-help">
+            임베딩 모델과 청킹 방식이 함께 고정되며, 변경하면 호환되는 새 색인이 필요합니다.
+          </p>
           <ReadOnlyComponent label="Parser" value={packageSummary.parser} />
           <ReadOnlyComponent label="Chunker" value={packageSummary.chunker} />
           <ReadOnlyComponent label="Embedding" value={packageSummary.embedding} />

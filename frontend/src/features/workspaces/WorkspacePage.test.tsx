@@ -24,7 +24,7 @@ describe("WorkspacePage", () => {
     expect(screen.getByText("임시 분석")).toBeVisible();
     expect(screen.getByRole("link", { name: /전사 문서/ })).toHaveAttribute(
       "href",
-      "/app/workspaces/1/documents",
+      "/workshop/workspaces/1/documents",
     );
     expect(screen.queryByRole("option", { name: "팀" })).not.toBeInTheDocument();
   });

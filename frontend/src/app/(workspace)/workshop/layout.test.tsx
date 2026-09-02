@@ -13,7 +13,7 @@ describe("WorkspaceLayout", () => {
   it("preserves the requested protected URL for the authentication redirect", async () => {
     vi.mocked(headers).mockResolvedValue(
       new Headers({
-        "x-ai-workshop-return-to": "/app/rag/search?query=alpha",
+        "x-ai-workshop-return-to": "/workshop/rag/search?query=alpha",
       }) as Awaited<ReturnType<typeof headers>>,
     );
     vi.mocked(requireWorkspaceUser).mockResolvedValue({
@@ -26,7 +26,7 @@ describe("WorkspaceLayout", () => {
     await WorkspaceLayout({ children: <main>content</main> });
 
     expect(requireWorkspaceUser).toHaveBeenCalledWith(
-      "/app/rag/search?query=alpha",
+      "/workshop/rag/search?query=alpha",
     );
   });
 });

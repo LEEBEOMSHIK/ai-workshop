@@ -9,6 +9,7 @@ import {
   incomingCookieHeader,
   requireWorkspaceUser,
 } from "../../../../../shared/auth/server-session";
+import { routes } from "../../../../../shared/routing/routes";
 import {
   captureServerRoute,
   ServerRouteFailure,
@@ -16,7 +17,7 @@ import {
 
 export default async function RagSearchRoute() {
   const result = await captureServerRoute(async () => {
-    await requireWorkspaceUser("/app/rag/search");
+    await requireWorkspaceUser(routes.workshopRagSearch);
     const cookieHeader = await incomingCookieHeader();
     return Promise.all([
       serverApiRequest<WorkspaceOption[]>("/api/v1/workspaces", {}, cookieHeader),

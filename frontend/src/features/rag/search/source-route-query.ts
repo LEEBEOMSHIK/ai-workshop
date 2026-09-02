@@ -1,4 +1,5 @@
 import type { HighlightSpan } from "./api";
+import { ragSourcePath } from "../../../shared/routing/routes";
 
 type SearchParamValue = string | string[] | undefined;
 export type SourceSearchParams = Record<string, SearchParamValue>;
@@ -33,7 +34,7 @@ export function buildSourceHref(
     };
     query.append(highlight.kind, JSON.stringify(encoded));
   }
-  return `/app/rag/sources/${encodeURIComponent(assetVersionId)}?${query}`;
+  return `${ragSourcePath(assetVersionId)}?${query}`;
 }
 
 export function parseSourceQuery(searchParams: SourceSearchParams): {

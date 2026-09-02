@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { workspaceDocumentPath } from "../../shared/routing/routes";
 import type { WorkspaceKind, WorkspaceSummary } from "./api";
 
 interface WorkspacePageProps {
@@ -34,7 +35,7 @@ export function WorkspacePage({ initialWorkspaces = [] }: WorkspacePageProps) {
         {initialWorkspaces.map((workspace) => (
           <Link
             className="workspace-row"
-            href={`/app/workspaces/${workspace.id}/documents`}
+            href={workspaceDocumentPath(workspace.id)}
             key={workspace.id}
           >
             <span className={`workspace-badge ${workspace.kind}`}>

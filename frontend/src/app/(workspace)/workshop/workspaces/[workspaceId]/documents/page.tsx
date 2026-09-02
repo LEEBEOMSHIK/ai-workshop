@@ -5,6 +5,7 @@ import {
   incomingCookieHeader,
   requireWorkspaceUser,
 } from "../../../../../../shared/auth/server-session";
+import { workspaceDocumentPath } from "../../../../../../shared/routing/routes";
 import {
   captureServerRoute,
   ServerRouteFailure,
@@ -17,7 +18,7 @@ interface DocumentsRouteProps {
 export default async function DocumentsRoute({ params }: DocumentsRouteProps) {
   const { workspaceId } = await params;
   const result = await captureServerRoute(async () => {
-    await requireWorkspaceUser(`/app/workspaces/${encodeURIComponent(workspaceId)}/documents`);
+    await requireWorkspaceUser(workspaceDocumentPath(workspaceId));
     return serverApiRequest<DocumentSummary[]>(
       `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/documents`,
       {},

@@ -27,7 +27,7 @@ describe("source route query", () => {
       },
     ], 3);
 
-    expect(href).toMatch(/^\/app\/rag\/sources\/asset%20version%2F1\?/);
+    expect(href).toMatch(/^\/workshop\/rag\/sources\/asset%20version%2F1\?/);
     expect(href).not.toContain("비공개");
     const parsed = parseSourceQuery(Object.fromEntries(new URL(href, "http://local").searchParams));
     expect(parsed).toEqual({

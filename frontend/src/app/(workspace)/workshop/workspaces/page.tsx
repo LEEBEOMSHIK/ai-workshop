@@ -5,6 +5,7 @@ import {
   incomingCookieHeader,
   requireWorkspaceUser,
 } from "../../../../shared/auth/server-session";
+import { routes } from "../../../../shared/routing/routes";
 import {
   captureServerRoute,
   ServerRouteFailure,
@@ -12,7 +13,7 @@ import {
 
 export default async function WorkspacesRoute() {
   const result = await captureServerRoute(async () => {
-    await requireWorkspaceUser("/app/workspaces");
+    await requireWorkspaceUser(routes.workshopHome);
     return serverApiRequest<WorkspaceSummary[]>(
       "/api/v1/workspaces",
       {},

@@ -43,7 +43,7 @@ export async function resolveSession(
   }
 }
 
-async function incomingCookieHeader(): Promise<string> {
+export async function incomingCookieHeader(): Promise<string> {
   const store = await cookies();
   return store
     .getAll()

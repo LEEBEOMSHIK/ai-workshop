@@ -22,6 +22,10 @@ describe("WorkspacePage", () => {
     expect(screen.getByText("전사 문서")).toBeVisible();
     expect(screen.getByText("나의 문서")).toBeVisible();
     expect(screen.getByText("임시 분석")).toBeVisible();
+    expect(screen.getByRole("link", { name: /전사 문서/ })).toHaveAttribute(
+      "href",
+      "/app/workspaces/1/documents",
+    );
     expect(screen.queryByRole("option", { name: "팀" })).not.toBeInTheDocument();
   });
 });

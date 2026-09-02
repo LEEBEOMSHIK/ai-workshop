@@ -1,4 +1,4 @@
-import { useLoaderData } from "react-router-dom";
+import Link from "next/link";
 
 import type { WorkspaceKind, WorkspaceSummary } from "./api";
 
@@ -32,9 +32,9 @@ export function WorkspacePage({ initialWorkspaces = [] }: WorkspacePageProps) {
       </header>
       <section className="workspace-list" aria-label="지식 공간 목록">
         {initialWorkspaces.map((workspace) => (
-          <a
+          <Link
             className="workspace-row"
-            href={`/workspaces/${workspace.id}/documents`}
+            href={`/app/workspaces/${workspace.id}/documents`}
             key={workspace.id}
           >
             <span className={`workspace-badge ${workspace.kind}`}>
@@ -44,14 +44,9 @@ export function WorkspacePage({ initialWorkspaces = [] }: WorkspacePageProps) {
               <h2>{workspace.name}</h2>
               <p>{workspace.expires_at ? "만료 일정 있음" : "지속 보관"}</p>
             </div>
-          </a>
+          </Link>
         ))}
       </section>
     </main>
   );
-}
-
-export function WorkspacePageRoute() {
-  const workspaces = useLoaderData() as WorkspaceSummary[];
-  return <WorkspacePage initialWorkspaces={workspaces} />;
 }

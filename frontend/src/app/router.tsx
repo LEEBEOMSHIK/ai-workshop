@@ -5,20 +5,20 @@ import {
   type RouteObject,
 } from "react-router-dom";
 
-import { listDocuments } from "../platform/assets/api";
+import { listDocuments } from "../features/assets/api";
 import { loadConfigurationStudio } from "../labs/rag/configurations/api";
 import { ConfigurationStudioRoute } from "../labs/rag/configurations/ConfigurationStudioPage";
 import { loadModelLab } from "../labs/rag/models/api";
 import { ModelLabRoute } from "../labs/rag/models/ModelLabPage";
 import { SearchPage } from "../labs/rag/search/SearchPage";
 import { SourceViewerRoute } from "../labs/rag/search/SourceViewer";
-import { DocumentPage } from "../platform/assets/DocumentPage";
+import { DocumentPage } from "../features/assets/DocumentPage";
 import { ApiError } from "../shared/api/client";
 import { getCurrentUser, getSetupStatus } from "../features/identity/api";
 import { LoginPage } from "../features/identity/LoginPage";
 import { SetupPage } from "../features/identity/SetupPage";
-import { listWorkspaces } from "../platform/workspaces/api";
-import { WorkspacePageRoute } from "../platform/workspaces/WorkspacePage";
+import { listWorkspaces } from "../features/workspaces/api";
+import { WorkspacePage } from "../features/workspaces/WorkspacePage";
 import { HomePage } from "../features/home/HomePage";
 
 async function documentLoader({ params }: LoaderFunctionArgs) {
@@ -90,12 +90,12 @@ export const routes: RouteObject[] = [
   },
   {
     path: "/workspaces",
-    element: <WorkspacePageRoute />,
+    element: <WorkspacePage />,
     loader: protectedWorkspaceLoader,
   },
   {
     path: "/workspaces/:workspaceId/documents",
-    element: <DocumentPage />,
+    element: <DocumentPage workspaceId="" initialDocuments={[]} />,
     loader: protectedDocumentLoader,
   },
   {

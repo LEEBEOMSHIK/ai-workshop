@@ -1,3 +1,5 @@
+import { routes } from "../routing/routes";
+
 export function safeReturnPath(candidate: string | null): string {
   if (
     !candidate?.startsWith("/") ||
@@ -5,11 +7,11 @@ export function safeReturnPath(candidate: string | null): string {
     candidate.includes("\\") ||
     /[\u0000-\u001f\u007f]/u.test(candidate)
   ) {
-    return "/app/workspaces";
+    return routes.workshopHome;
   }
   const localOrigin = "https://ai-workshop.local";
   if (new URL(candidate, localOrigin).origin !== localOrigin) {
-    return "/app/workspaces";
+    return routes.workshopHome;
   }
   return candidate;
 }
@@ -18,7 +20,7 @@ export function unauthenticatedDestination(
   setupRequired: boolean,
   returnTo: string,
 ): string {
-  const entry = setupRequired ? "/setup" : "/login";
+  const entry = setupRequired ? routes.setup : routes.login;
   return `${entry}?next=${encodeURIComponent(safeReturnPath(returnTo))}`;
 }
 

@@ -8,22 +8,26 @@ import {
 
 describe("access decisions", () => {
   it("accepts only local return paths", () => {
-    expect(safeReturnPath("/app/rag/search?query=alpha")).toBe(
-      "/app/rag/search?query=alpha",
+    expect(safeReturnPath("/workshop/rag/search?query=alpha")).toBe(
+      "/workshop/rag/search?query=alpha",
     );
-    expect(safeReturnPath("//evil.example/path")).toBe("/app/workspaces");
-    expect(safeReturnPath("/\\evil.example/path")).toBe("/app/workspaces");
-    expect(safeReturnPath("/app/workspaces\n/redirect")).toBe("/app/workspaces");
-    expect(safeReturnPath("https://evil.example/path")).toBe("/app/workspaces");
-    expect(safeReturnPath(null)).toBe("/app/workspaces");
+    expect(safeReturnPath("//evil.example/path")).toBe("/workshop/workspaces");
+    expect(safeReturnPath("/\\evil.example/path")).toBe("/workshop/workspaces");
+    expect(safeReturnPath("/workshop/workspaces\n/redirect")).toBe(
+      "/workshop/workspaces",
+    );
+    expect(safeReturnPath("https://evil.example/path")).toBe(
+      "/workshop/workspaces",
+    );
+    expect(safeReturnPath(null)).toBe("/workshop/workspaces");
   });
 
   it("routes unauthenticated users according to setup state", () => {
-    expect(unauthenticatedDestination(true, "/app/rag/search")).toBe(
-      "/setup?next=%2Fapp%2Frag%2Fsearch",
+    expect(unauthenticatedDestination(true, "/workshop/rag/search")).toBe(
+      "/setup?next=%2Fworkshop%2Frag%2Fsearch",
     );
-    expect(unauthenticatedDestination(false, "/app/rag/search")).toBe(
-      "/login?next=%2Fapp%2Frag%2Fsearch",
+    expect(unauthenticatedDestination(false, "/workshop/rag/search")).toBe(
+      "/login?next=%2Fworkshop%2Frag%2Fsearch",
     );
   });
 

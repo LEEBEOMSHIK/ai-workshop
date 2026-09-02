@@ -157,6 +157,52 @@ h1 {
   color: #6f7b87;
 }
 
+.application-area {
+  min-height: 100vh;
+  background: #0a0e13;
+}
+
+.area-navigation {
+  display: flex;
+  min-height: 4rem;
+  padding: 0.85rem clamp(1rem, 4vw, 3rem);
+  border-bottom: 1px solid #27313b;
+  align-items: center;
+  gap: 1.5rem;
+  color: #aeb9c5;
+  background: #0c1218;
+}
+
+.area-navigation nav {
+  display: flex;
+  flex: 1;
+  gap: 1rem;
+}
+
+.area-navigation a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.area-brand {
+  color: #55d9c9 !important;
+  font-weight: 800;
+}
+
+.admin-navigation {
+  border-bottom-color: #72553b;
+}
+
+.route-error {
+  min-height: calc(100vh - 4rem);
+  padding: clamp(2rem, 7vw, 7rem);
+  background: #0a0e13;
+}
+
+.route-error h1 {
+  font-size: clamp(2rem, 6vw, 4rem);
+}
+
 .lab-card-actions {
   display: flex;
   flex-wrap: wrap;

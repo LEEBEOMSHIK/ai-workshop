@@ -1,19 +1,29 @@
 # Workboard
 
-- 마지막 갱신일: 2026-09-02
-- 현재 단계: 1단계 공개·작업소·관리자 경계 복원 상세 구현 계획 작성
-- 전체 상태: 상위 설계가 사용자 승인됐으며 현재 Next.js 라우트와 FastAPI 구성 변경 권한을 기준으로 1단계 TDD 구현 계획을 작성하고 있다. 구현 코드는 아직 변경하지 않았다.
+- 마지막 갱신일: 2026-09-03
+- 현재 단계: 1단계 공개·작업소·관리자 경계 복원 완료 및 2단계 인계
+- 전체 상태: 1단계 구현과 정적·빌드·HTTP route 검증은 완료됐다. 브라우저 연결 결함 때문에 수동 시각·접근성 smoke와 기존 owner 세션 화면 확인은 미검증으로 남겼으며, 다음 작업은 2단계 `다중 도메인과 공개 릴리스 기반` 상세 설계다.
 
 ## 현재 작업
 
 ### 목표
 
-승인된 상위 설계의 1단계 `공개·작업소·관리자 경계 복원`만 대상으로 상세 구현 계획을 확정하고 선택된 실행 방식으로 TDD 구현한다.
+완료된 1단계 `공개·작업소·관리자 경계 복원`의 canonical 문서와 실제 검증 근거를 인계하고, 2단계 `다중 도메인과 공개 릴리스 기반` 상세 설계를 다음 작업으로 준비한다.
 
 ### 진행 상태
 
+- 공개 전시실은 `/`, `/labs`, `/labs/rag`에서 인증 없이 접근하며, 비공개 작업소는 `/workshop/*`, owner 시스템 관리는 `/admin/*`로 분리됐다.
+- `/app/*`는 compatibility-only 영구 리다이렉트다. `/app/rag/search`는 `/workshop/rag/search`, `/app/rag/configurations`는 `/admin/rag/configurations`로 이동한다.
+- 1단계 공개 화면은 캐릭터 랜딩, Lab 목록과 RAG 기술 소개까지만 구현한다. 공개 검색, 불변 공개 릴리스, LLM 답변, 문서 업로드, 피드백과 학습은 승인된 후속 단계이며 아직 구현하지 않았다.
+- RAG는 여러 전문 도메인이 공유하는 기술 Lab이고 자산운용은 첫 도메인 패키지다. 다음 단계에서 동적 도메인과 공개 릴리스 계약을 상세 설계한다.
+- 2026-09-03 프론트 순차 검증은 Vitest `35 files, 120 passed`, TypeScript, ESLint 무경고, Next.js 16.3.4 production build 모두 통과했다.
+- WinGet `uv` shim은 접근 거부돼 backend `.venv` Python module 명령으로 동일 검사를 실행했다. 구성·평가 API `7 passed`(기존 Starlette deprecation warning 1건), fresh `%TEMP%` basetemp의 unit `423 passed`, Ruff와 mypy가 통과했다.
+- backend unit 최초 실행은 기존 ACL 잠금 `backend/.pytest-tmp`를 pytest가 제거하지 못해 `380 passed, 43 setup errors`로 종료됐다. 해당 경로는 건드리지 않았고 fresh 외부 basetemp 재실행으로 테스트 자체를 검증했다.
+- 기존 FastAPI health는 `200`이었다. 기존 Next 서버는 재시작 전 legacy redirect 두 건이 `404`였고, 현재 소스 구성으로 Next만 재시작한 뒤 공개 경로 3개 `200`, 보호 경로 2개 `307`과 원래 `next` query, legacy 경로 2개 `308` 및 정확한 Location을 확인했다.
+- 브라우저 플러그인의 현재 client가 설치되지 않은 이전 버전 runtime을 참조해 연결에 실패했다. 따라서 desktop/mobile 겹침, dialog viewport containment, Escape·닫기 후 focus 복원, visible focus, reduced motion과 owner 인증 화면의 실제 데이터 렌더링은 완료로 주장하지 않는다.
+
 - `docs/vision/project-vision.md`와 `docs/architecture/system-design.md`는 외부 방문자가 별도 공개 전시실에서 캐릭터형 에이전트의 안내로 승인된 결과와 선별된 시행착오를 보는 구조를 정본으로 명시한다.
-- 현재 공개 홈은 정적 카드에서 보호된 `/app/rag/search`, `/app/rag/configurations`와 owner 전용 `/admin/rag/models`로 직접 연결해, 캐릭터 탐색과 공개 AI Lab 상세 진입이라는 제품 의도를 구현하지 못했다.
+- 1단계 이전 공개 홈은 정적 카드에서 보호된 `/app/rag/search`, `/app/rag/configurations`와 owner 전용 `/admin/rag/models`로 직접 연결해, 캐릭터 탐색과 공개 AI Lab 상세 진입이라는 제품 의도를 구현하지 못했다.
 - 화면의 `RAG 기술 관리자 에이전트`는 공개 방문자를 안내하는 도메인 캐릭터이고, `owner`는 비공개 작업소와 백오피스를 관리하는 인증 역할이다. 두 개념을 별도 명칭과 계약으로 분리해야 한다.
 - 공개 RAG Lab은 승인된 공개 데이터로 이미 구현된 검색 기능을 직접 확인할 수 있어야 하며, 기능 설명과 함께 문제·시도·이슈·실패·해결·검증 결과를 연결해 보여준다.
 - 모델 등록·교체, 색인·검색·생성 구성 편집과 기본 구성 승격은 공개 캐릭터 화면이 아니라 인증된 시스템 관리자 화면의 책임으로 분리한다.
@@ -107,37 +117,37 @@
 
 ### 완료 기준
 
-- 로그인 없는 공개 랜딩·AI Lab·기술 상세와 로그인 기반 비공개 작업소·시스템 관리 영역의 책임과 URL을 설계로 확정한다.
-- 기술 관리자 캐릭터, 결정적 서비스 작업자, LLM 실행 에이전트와 RBAC 관리자를 혼동하지 않는 명칭과 상호작용 계약을 정한다.
-- 공개 화면에 표시할 승인 콘텐츠·선별 실험·실패 기록·서비스의 데이터 경계를 확정한다.
-- 설계 승인 전에는 인증·권한, 사용자 데이터와 라우트를 변경하지 않는다.
+- 공개 `/`·`/labs/*`, 로그인 `/workshop/*`, owner `/admin/*`의 책임·권한·canonical URL이 코드와 정본 문서에서 일치한다.
+- 기존 `/app/*` 북마크는 정확한 canonical 경로로 영구 리다이렉트된다.
+- 1단계 범위가 후속 공개 검색·릴리스·생성·업로드·피드백·학습을 구현한 것으로 과장되지 않는다.
+- 전체 프론트 검증, 지정 backend 검증과 signed-out route smoke의 실제 결과 및 미검증 항목이 인계된다.
 
 ## 최근 완료 작업
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. 공개 AI Lab, 다중 도메인 RAG, 불변 공개 릴리스, 대화형 생성, 로그인 첨부·피드백과 수동 파인튜닝의 상위 설계를 작성하고 자체 일관성 검토를 완료했다. 관련 설계: `docs/superpowers/specs/2026-09-02-public-ai-lab-rag-service-design.md`
-2. 색인 콤보 중복을 만든 ingestion 테스트 프로파일 누수를 수정하고 통합 테스트를 안전한 고유 임시 DB로 격리했으며, 유효한 임베딩 연결만 UI에 표시하고 기존 synthetic 잔여 데이터를 정확히 제거했다.
-3. 색인 구성 콤보박스를 임베딩 모델과 청킹 방식·목표·중첩 토큰을 설명하는 동적 선택지로 바꾸고, 내부 ID 기반 저장·호환성 계약을 유지한 채 전체 84개 테스트와 독립 검증을 통과했다.
-4. 저장된 RAG 구성을 Parser·Chunker·Embedding·Sparse/Dense Retriever·Fusion·Reranker·Answer Policy·LLM의 한 패키지로 표시하고 내부 UUID 기본 노출을 제거했으며 V1 리랭커 호환성과 파서 비고정 계약을 테스트·문서·독립 리뷰로 검증했다. 관련 계획: `docs/superpowers/plans/2026-09-02-rag-configuration-package-ui.md`
-5. Vite SPA를 Next.js 16 App Router로 전체 전환하고 사용자·관리자 경로, 정확한 로그인 복귀 URL, RAG 화면, owner 명령 API, FastAPI 오류 참조, 영구 리다이렉트와 로컬 실행을 구현·검증했다. 관련 설계: `docs/superpowers/specs/2026-09-02-nextjs-frontend-migration-design.md`
+1. 공개·작업소·관리자 경계의 canonical 문서와 실행서를 2026-09-03 구현 상태에 맞추고, 프론트 120개·backend API 7개·unit 423개와 정적 검사·production build·signed-out HTTP route를 검증했다. 브라우저와 owner 세션 미검증 항목은 차단 요소로 분리했다.
+2. 로그인 화면과 공개·작업소 탐색을 정렬하고 synthetic 로그인 fixture로 개인정보 없는 회귀 계약을 고정했다 (`e970a9b`, `95b727d`).
+3. 공개 캐릭터 랜딩, AI Lab 장면과 RAG 기술 소개를 구현하고 dialog focus containment를 보강했다 (`abd479c`, `2958469`, `be4a9c1`).
+4. 공개·작업소·관리자 route registry, `/workshop/*` 이동, owner RAG 구성 분리와 legacy 영구 리다이렉트를 구현했다 (`54a3901`, `fe34994`, `acdfb7e`).
+5. 공개 AI Lab, 다중 도메인 RAG, 불변 공개 릴리스, 대화형 생성, 로그인 첨부·피드백과 수동 파인튜닝의 상위 설계를 승인했다. 관련 설계: `docs/superpowers/specs/2026-09-02-public-ai-lab-rag-service-design.md`
 
 ## 다음 작업
 
-1. `docs/superpowers/plans/2026-09-02-public-workshop-admin-boundary.md` 실행 방식 선택과 구현
-2. 1단계 완료 뒤 2단계 `다중 도메인과 공개 릴리스 기반` 상세 설계
-3. 형식별 Parser Policy Version과 Saved RAG Configuration 연결, 재파싱·재청킹·재색인 수명주기 설계
-4. Parser Policy에 포함되는 DOCX 구조 파서와 원문 뷰어 계약 설계
+1. 2단계 `다중 도메인과 공개 릴리스 기반` 상세 설계
+2. 형식별 Parser Policy Version과 Saved RAG Configuration 연결, 재파싱·재청킹·재색인 수명주기 설계
+3. Parser Policy에 포함되는 DOCX 구조 파서와 원문 뷰어 계약 설계
 
 ## 결정이 필요한 항목
 
-- 상세 구현 계획을 하위 에이전트 기반으로 실행할지 현재 세션에서 순차 실행할지 선택해야 한다.
+- 없음. 사용자가 하위 에이전트 기반 순차 구현과 `main` 직접 작업을 승인했다.
 
 ## 차단 요소
 
 - `backend/.pytest-nextjs-final-contract`는 untracked지만 Windows 관리자 ACL 때문에 현재 비관리자 환경에서 삭제할 수 없다.
-- `backend/.pytest-tmp`는 Git ignored 경로이며 같은 ACL 문제로 내부 확인과 삭제가 거부된다. 두 경로 모두 애플리케이션 소스와 실행 데이터에는 영향을 주지 않으며, 대화형 Windows 관리자 세션에서 소유권과 내용을 확인한 뒤 정확 경로만 삭제해야 한다.
+- `backend/.pytest-tmp`는 Git ignored 경로이며 같은 ACL 문제로 내부 확인과 삭제가 거부된다. 2026-09-03 기본 unit 실행도 이 경로 정리 단계에서 실패했고 fresh `%TEMP%` basetemp로 우회 검증했다. 두 경로 모두 애플리케이션 소스와 실행 데이터에는 영향을 주지 않으며, 대화형 Windows 관리자 세션에서 소유권과 내용을 확인한 뒤 정확 경로만 삭제해야 한다.
 - 이번 backend unit 검증에서 만든 `.local-data/pytest-unit-current`도 정확 경로 삭제를 시도했으나 접근이 거부됐다. 애플리케이션 데이터에는 포함되지 않는 테스트 임시물이며 관리자 세션에서 해당 경로만 제거해야 한다.
+- 브라우저 플러그인 26.825.51511의 client가 존재하지 않는 26.820.80927 runtime을 import해 브라우저 연결이 실패한다. 플러그인 설치 정합성을 복구한 뒤 desktop/mobile·keyboard·reduced-motion smoke와 기존 안전한 owner 세션 화면을 다시 확인해야 한다.
 
 ## 작업 인계 메모
 
@@ -148,7 +158,7 @@
 - 루트 `.pnpm-store` junction과 `node_modules`는 제거됐다.
 - 프론트 의존성은 `frontend/node_modules/.pnpm`에 독립 설치됐으며 루트 `node_modules`는 감사 보고서의 레거시 제거 후보로 확정했다.
 - RAG 패키지 UI는 현재 Parser가 구성에 고정되지 않음을 명시한다. 다음 우선 작업은 형식별 Parser Policy Version과 패키지·산출물 수명주기 설계다.
-- Next.js 프론트는 `http://127.0.0.1:5173`, 기존 호스트 FastAPI는 `http://127.0.0.1:18000`에서 실행한다.
+- Next.js 프론트는 `http://127.0.0.1:5173`, 기존 호스트 FastAPI는 `http://127.0.0.1:18000`에서 실행한다. 2026-09-03 route smoke 뒤 FastAPI는 기존 프로세스를 유지했고 Next는 현재 소스 설정으로 재시작해 실행 중이다.
 - 최종 Docker 상태와 잔여 BuildKit 계보는 `docs/worklogs/2026-09-01-cache-audit.md`를 정본으로 사용한다.
 - 추가 승인된 잔여 BuildKit 네 레코드는 모두 제거됐으며 추가 Docker 정리는 새 조사와 승인 없이 진행하지 않는다.
 - 프로젝트 개발 에이전트 조직 설계 정본은 `docs/superpowers/specs/2026-09-02-project-development-agent-organization-design.md`다.

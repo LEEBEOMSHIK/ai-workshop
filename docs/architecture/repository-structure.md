@@ -1,7 +1,7 @@
 # 저장소 구조
 
 - 상태: 승인됨
-- 기준일: 2026-08-30
+- 기준일: 2026-09-03
 
 ## 목표 구조
 
@@ -10,9 +10,22 @@ ai-workshop/
 ├─ frontend/
 │  ├─ src/
 │  │  ├─ app/
+│  │  │  ├─ page.tsx
 │  │  │  ├─ (public)/
-│  │  │  ├─ (workspace)/app/
+│  │  │  │  ├─ labs/
+│  │  │  │  │  ├─ page.tsx
+│  │  │  │  │  └─ rag/page.tsx
+│  │  │  │  ├─ login/page.tsx
+│  │  │  │  └─ setup/page.tsx
+│  │  │  ├─ (workspace)/workshop/
+│  │  │  │  ├─ workspaces/
+│  │  │  │  └─ rag/
+│  │  │  │     ├─ search/
+│  │  │  │     └─ sources/
 │  │  │  └─ (administration)/admin/
+│  │  │     └─ rag/
+│  │  │        ├─ configurations/
+│  │  │        └─ models/
 │  │  ├─ features/
 │  │  │  ├─ identity/
 │  │  │  ├─ workspaces/
@@ -105,6 +118,10 @@ labs/* -X-> another labs/*
 ```
 
 `platform`은 `labs/rag`의 타입이나 구현을 import하지 않는다. RAG가 공통 기능을 요구하면 플랫폼 계약을 사용하거나, 여러 연구 영역에서 실제로 반복된 뒤 공통 플랫폼으로 승격한다.
+
+프론트엔드 canonical URL은 공개 `/`·`/labs/*`, 로그인 사용자 `/workshop/*`, owner 전용
+`/admin/*`로 나뉜다. 이전 `/app/*`는 `next.config.ts`의 compatibility redirect 입력으로만
+유지하며 새 화면이나 기능의 정본 경로로 사용하지 않는다.
 
 ## 저장소에 포함하는 것
 

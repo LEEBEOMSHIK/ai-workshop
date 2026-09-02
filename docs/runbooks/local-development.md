@@ -1,7 +1,7 @@
 # 로컬 개발 실행서
 
 - 상태: 현재 구현 기준
-- 기준일: 2026-09-02
+- 기준일: 2026-09-03
 
 이 문서는 AI Workshop 기반을 로컬에서 설치하고 실행·검증하는 절차의 정본이다. 원본 문서와 비밀값은 Git에 추가하지 않는다.
 
@@ -88,14 +88,31 @@ Next.js는 루트 `.env`의 `API_PORT`를 읽어 `/api` rewrite 대상을 구성
 - API 상태: `http://127.0.0.1:$env:API_PORT/api/v1/health`
 - API 문서: `http://127.0.0.1:$env:API_PORT/api/docs`
 - Elasticsearch 상태: `http://127.0.0.1:9200/_cluster/health`
-- 사용자 지식 공간: `http://127.0.0.1:5173/app/workspaces`
-- 근거 검색: `http://127.0.0.1:5173/app/rag/search`
-- RAG 구성·평가 스튜디오: `http://127.0.0.1:5173/app/rag/configurations`
+- 공개 홈: `http://127.0.0.1:5173/`
+- 공개 AI Lab: `http://127.0.0.1:5173/labs`
+- 공개 RAG 기술 소개: `http://127.0.0.1:5173/labs/rag`
+- 사용자 지식 공간: `http://127.0.0.1:5173/workshop/workspaces`
+- 근거 검색: `http://127.0.0.1:5173/workshop/rag/search`
+- RAG 구성·평가 스튜디오: `http://127.0.0.1:5173/admin/rag/configurations`
 - 관리자 모델 레지스트리: `http://127.0.0.1:5173/admin/rag/models`
+
+`/app/*`는 이전 북마크를 canonical `/workshop/*` 또는 `/admin/*`로 보내는 compatibility-only
+영구 리다이렉트다. 새 문서, 링크와 smoke는 `/app/*`를 진입 주소로 사용하지 않는다.
+
+비로그인 route smoke는 다음 계약을 확인한다.
+
+- `/`, `/labs`, `/labs/rag`는 로그인 없이 `200`을 반환한다.
+- `/workshop/workspaces`와 `/admin/rag/configurations`는 `/login` 또는 초기 설정이 필요한
+  환경의 `/setup`으로 `307` 이동한다.
+- `/app/rag/search`는 `/workshop/rag/search`로, `/app/rag/configurations`는
+  `/admin/rag/configurations`로 `308` 이동한다.
+- 기존 안전한 owner 세션이 있을 때만 `/workshop/rag/search`와
+  `/admin/rag/configurations`의 실제 데이터 렌더링을 확인한다. smoke를 위해 owner를 새로
+  만들거나 문서·모델·구성 데이터를 변경하지 않는다.
 
 관리자가 없는 새 로컬 DB에서 보호 화면에 처음 접근하면 `/setup`으로 이동한다. 이름,
 이메일, 12자 이상의 비밀번호와 비밀번호 확인을 입력하면 소유자 1명, 전사 지식 공간과
-개인 연구 공간을 하나의 DB 트랜잭션으로 만들고 즉시 로그인해 `/app/workspaces`로 이동한다.
+개인 연구 공간을 하나의 DB 트랜잭션으로 만들고 즉시 로그인해 `/workshop/workspaces`로 이동한다.
 관리자가 만들어진 뒤에는 `/setup`을 다시 열 수 없으며 `/login`으로 이동한다.
 
 CLI `bootstrap-owner`는 설정 UI를 실행할 수 없는 복구 상황에서만 사용한다. 정상 로컬
@@ -117,8 +134,8 @@ projection 수요를 만든다. 같은 Indexing Profile의 사용자 구독과 �
 job 하나만 만든다. migration은 승인된 baseline seed가 전부 없는 기존 DB만 exact seed로
 복구하며, 일부만 남았거나 충돌하면 임의로 덮어쓰지 않고 실패한다.
 
-1. `/app/rag/configurations`에서 indexing·retrieval profile을 조합한 저장 구성을 만들고 대상 workspace를 명시한다.
-2. `/app/rag/search`에서 BM25 기준선 또는 접근 가능한 저장 구성을 선택하고 workspace·folder 범위를 직접 지정한다.
+1. `/admin/rag/configurations`에서 indexing·retrieval profile을 조합한 저장 구성을 만들고 대상 workspace를 명시한다.
+2. `/workshop/rag/search`에서 BM25 기준선 또는 접근 가능한 저장 구성을 선택하고 workspace·folder 범위를 직접 지정한다.
 3. 검색 결과의 keyword highlight와 semantic highlight를 구분하고, 원문 뷰어가 같은 immutable Asset Version과 Projection을 가리키는지 확인한다.
 4. 구성 스튜디오에서 Evaluation Run을 시작한다. 비교에는 system BM25 기준선이 항상 포함되며 저장 구성의 정확한 version을 평가한다. 통과한 정책 결과가 없으면 기본 승격은 거절된다.
 

@@ -51,7 +51,7 @@ describe("EvidenceAnswer", () => {
     const sourceLink = screen.getByRole("link", { name: "원문에서 확인" });
     expect(sourceLink).toHaveAttribute(
       "href",
-      expect.stringMatching(/^\/app\/rag\/sources\/asset-version-1\?projectionId=projection-1/),
+      expect.stringMatching(/^\/workshop\/rag\/sources\/asset-version-1\?projectionId=projection-1/),
     );
     expect(sourceLink.getAttribute("href")).toContain("keyword=");
     expect(sourceLink.getAttribute("href")).toContain("semantic=");

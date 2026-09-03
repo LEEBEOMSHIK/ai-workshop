@@ -1,17 +1,24 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-03
-- 현재 단계: 1단계 구현·공개 브라우저 검증 완료 및 owner 인증 smoke 대기
-- 전체 상태: 공개 캐릭터 dialog와 모바일 겹침, 누락된 workshop 오류 경계, 개인정보 테스트 fixture와 인계 문서 모순을 수정했다. 자동 검증과 공개 desktop/mobile 브라우저 검증은 통과했으며, 기존 owner 세션의 실제 데이터 화면 smoke 또는 사용자의 명시적 위험 수용 뒤 2단계로 넘어간다.
+- 현재 단계: 전체 화면 AI 연구소 월드 재설계
+- 전체 상태: 전체 화면 AI 연구소 월드 설계와 ADR 초안을 작성하고 독립 검토 `Ready`를 받았다. `/`와 `/labs`의 동일 월드, RAG 방·관리자, 반응형 말풍선과 접근성 계약에 대한 사용자 검토·승인을 기다리며 소스 구현은 시작하지 않았다.
 
 ## 현재 작업
 
 ### 목표
 
-완료된 1단계 `공개·작업소·관리자 경계 복원`의 구현과 검증 근거를 인계하고, 2단계 `다중 도메인과 공개 릴리스 기반` 상세 설계를 다음 작업으로 준비한다.
+전체 화면 AI 연구소 월드의 공간·route·component·반응형·접근성 계약을 확정하고, 구현 전에 정본 설계와 상세 계획을 준비한다.
 
 ### 진행 상태
 
+- 사용자는 `/`를 연구소 입구 겸 전체 월드로 사용하고 `/labs`도 동일한 연구소 화면을 제공하는 방향을 승인했다.
+- 구현 방식은 게임 엔진이나 WebGL이 아니라 접근 가능한 DOM·CSS 기반 2D 연구소로 결정했다. 현재 단계에서는 설계 문서만 작성하고 승인 전 소스 구현을 변경하지 않는다.
+- 연구소 월드는 viewport 전체를 사용하며, RAG 방 안의 작업 중인 관리자 캐릭터를 선택하면 중앙 modal이 아닌 캐릭터와 연결된 말풍선을 열고 `/labs/rag` 상세로 안내한다.
+- 상세 설계는 `docs/superpowers/specs/2026-09-03-full-screen-ai-lab-world-design.md`, 결정 초안은 `docs/decisions/0005-public-ai-lab-world.md`에 작성했다.
+- 독립 검토에서 초기 초점, 빈·오류 상태, route-group 경로, catalog CTA와 비변경 범위를 보완한 뒤 남은 finding 없이 `Ready` 판정을 받았다.
+- 프로젝트 에이전트 계약 `validate`와 `git diff --check`가 통과했다. 검증기 테스트는 Windows에서 POSIX 셸 fixture를 실행하는 기존 5건이 실패하고 47건이 통과했으며 이번 문서 작업에서 검증기 소스는 변경하지 않았다.
+- 아래 브라우저·테스트 결과는 새 전체 화면 월드가 아니라 2026-09-03 기존 카드형 공개 화면의 기준선 검증이다. 새 월드는 아직 구현·브라우저 검증하지 않았다.
 - Chrome 연결이 복구됐고 `/`와 `/labs`의 desktop 화면, 캐릭터 소개 열기, 초기 닫기 버튼 focus, Escape 닫기와 trigger focus 복귀를 실제 브라우저에서 확인했다.
 - `/labs` 스크롤 상태에서 소개 대화상자 layer와 animated character의 실제 경계가 모두 `240×269px`로 일치하고 character computed transform이 활성화된 것을 측정했다. `position: fixed` layer가 transformed ancestor를 containing block으로 사용해 dialog 하단이 viewport 797px보다 큰 약 1085px까지 내려가는 것이 직접 원인이다.
 - 대화상자를 `document.body` portal로 분리하고 모바일 eyebrow에 닫기 버튼 안전 영역을 추가했다. 독립 실제 브라우저 재검증에서 desktop `1189×797`, mobile `390×844` 모두 viewport containment, 가로 overflow 없음, 닫기 초기 focus, Tab 순환, Escape 닫기와 trigger focus 복귀를 통과했다.
@@ -123,27 +130,29 @@
 
 ### 완료 기준
 
-- 공개 `/`·`/labs/*`, 로그인 `/workshop/*`, owner `/admin/*`의 책임·권한·canonical URL이 코드와 정본 문서에서 일치한다.
-- 기존 `/app/*` 북마크는 정확한 canonical 경로로 영구 리다이렉트된다.
-- 1단계 범위가 후속 공개 검색·릴리스·생성·업로드·피드백·학습을 구현한 것으로 과장되지 않는다.
-- 전체 프론트 검증, 지정 backend 검증과 signed-out route smoke의 실제 결과 및 미검증 항목이 인계된다.
+- `/`와 `/labs`의 동일 월드 직접 렌더, RAG 방·관리자와 `/labs/rag` 진입 계약이 명확하다.
+- 전체 viewport, desktop 말풍선, mobile 하단 패널과 접근성·반응형 검증 기준이 명확하다.
+- 현재 공개된 RAG만 표시하고 미래 Lab placeholder, backend·DB·catalog 계약 변경을 범위에서 제외한다.
+- 기존 공개 서비스 설계, 비전, 시스템 설계와 ADR가 새 화면 계약과 충돌하지 않는다.
+- 사용자 승인 전 구현 계획과 프론트 소스 변경을 시작하지 않는다.
 
 ## 최근 완료 작업
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. 공개 캐릭터 dialog를 body portal로 분리하고 모바일 안전 영역을 추가했으며, 누락된 workshop 오류 경계·개인정보 fixture·WORKBOARD 계약 모순을 전체 계획 리뷰에서 수정했다. 프론트 122개·backend unit 423개·정적 검사·빌드와 desktop/mobile 실제 브라우저를 검증했다.
-2. 공개·작업소·관리자 경계의 canonical 문서와 실행서를 2026-09-03 구현 상태에 맞추고, backend API 7개·unit 423개와 signed-out HTTP route를 검증했다.
-3. 로그인 화면과 공개·작업소 탐색을 정렬하고 synthetic 로그인 fixture로 개인정보 없는 회귀 계약을 고정했다 (`e970a9b`, `95b727d`).
-4. 공개 캐릭터 랜딩, AI Lab 장면과 RAG 기술 소개를 구현하고 dialog focus containment를 보강했다 (`abd479c`, `2958469`, `be4a9c1`).
-5. 공개·작업소·관리자 route registry, `/workshop/*` 이동, owner RAG 구성 분리와 legacy 영구 리다이렉트를 구현했다 (`54a3901`, `fe34994`, `acdfb7e`).
+1. 전체 화면 AI 연구소 월드 설계와 ADR 초안을 작성하고 6개 검토 지적을 보완해 독립 검토 `Ready`를 받았다. 사용자 승인 전 소스 구현은 변경하지 않았다.
+2. 공개 캐릭터 dialog를 body portal로 분리하고 모바일 안전 영역을 추가했으며, 누락된 workshop 오류 경계·개인정보 fixture·WORKBOARD 계약 모순을 전체 계획 리뷰에서 수정했다. 프론트 122개·backend unit 423개·정적 검사·빌드와 desktop/mobile 실제 브라우저를 검증했다.
+3. 공개·작업소·관리자 경계의 canonical 문서와 실행서를 2026-09-03 구현 상태에 맞추고, backend API 7개·unit 423개와 signed-out HTTP route를 검증했다.
+4. 로그인 화면과 공개·작업소 탐색을 정렬하고 synthetic 로그인 fixture로 개인정보 없는 회귀 계약을 고정했다 (`e970a9b`, `95b727d`).
+5. 공개 캐릭터 랜딩, AI Lab 장면과 RAG 기술 소개를 구현하고 dialog focus containment를 보강했다 (`abd479c`, `2958469`, `be4a9c1`).
 
 ## 다음 작업
 
-1. 기존 owner 세션으로 `/workshop/rag/search`와 `/admin/rag/configurations`의 실제 데이터 화면 smoke를 수행하거나 미검증 위험을 명시적으로 수용
-2. 2단계 `다중 도메인과 공개 릴리스 기반` 상세 설계
-3. 형식별 Parser Policy Version과 Saved RAG Configuration 연결, 재파싱·재청킹·재색인 수명주기 설계
-4. Parser Policy에 포함되는 DOCX 구조 파서와 원문 뷰어 계약 설계
+1. 전체 화면 AI 연구소 월드 설계 문서 검토·승인
+2. 승인 설계의 상세 구현 계획 작성
+3. 기존 owner 세션으로 `/workshop/rag/search`와 `/admin/rag/configurations`의 실제 데이터 화면 smoke를 수행하거나 미검증 위험을 명시적으로 수용
+4. 2단계 `다중 도메인과 공개 릴리스 기반` 상세 설계
+5. 형식별 Parser Policy Version과 Saved RAG Configuration 연결, 재파싱·재청킹·재색인 수명주기 설계
 
 ## 결정이 필요한 항목
 

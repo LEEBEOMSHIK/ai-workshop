@@ -53,3 +53,14 @@ class ProfileModelBindingRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ForeignKey("rag_model_definitions.id", ondelete="RESTRICT"), nullable=False
     )
     profile: Mapped[ProfileRecord] = relationship(back_populates="bindings")
+
+
+class ProfileDeploymentBindingRecord(Base):
+    __tablename__ = "rag_generation_profile_deployments"
+
+    profile_id: Mapped[UUID] = mapped_column(
+        ForeignKey("rag_profiles.id", ondelete="CASCADE"), primary_key=True
+    )
+    deployment_version_id: Mapped[UUID] = mapped_column(
+        ForeignKey("rag_model_deployment_versions.id", ondelete="RESTRICT"), nullable=False
+    )

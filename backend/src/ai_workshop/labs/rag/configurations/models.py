@@ -1,8 +1,10 @@
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    DateTime,
     Float,
     ForeignKey,
     ForeignKeyConstraint,
@@ -10,6 +12,7 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
+    Uuid,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -153,3 +156,47 @@ class RagSystemIndexingSubscriptionRecord(UUIDPrimaryKeyMixin, TimestampMixin, B
         nullable=False,
         unique=True,
     )
+
+
+class ExternalConfigurationApprovalRecord(UUIDPrimaryKeyMixin, Base):
+    __tablename__ = "rag_external_configuration_approvals"
+
+    configuration_version_id: Mapped[UUID] = mapped_column(
+        ForeignKey("rag_configuration_versions.id", ondelete="RESTRICT"),
+        nullable=False,
+        unique=True,
+    )
+    deployment_version_id: Mapped[UUID] = mapped_column(
+        ForeignKey("rag_model_deployment_versions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    installation_policy_version_id: Mapped[UUID] = mapped_column(
+        ForeignKey("rag_installation_data_policy_versions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    approved_by: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    disclosure_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ExternalConfigurationApprovalWorkspaceRecord(Base):
+    __tablename__ = "rag_external_configuration_approval_workspaces"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["workspace_policy_version_id", "workspace_id"],
+            [
+                "rag_workspace_data_policy_versions.id",
+                "rag_workspace_data_policy_versions.workspace_id",
+            ],
+            ondelete="RESTRICT",
+        ),
+    )
+
+    approval_id: Mapped[UUID] = mapped_column(
+        ForeignKey("rag_external_configuration_approvals.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    workspace_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    workspace_policy_version_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)

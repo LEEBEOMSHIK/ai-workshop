@@ -6,10 +6,15 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from ai_workshop.config import get_settings
 from ai_workshop.labs.rag.configurations import models as rag_configuration_models  # noqa: F401
+from ai_workshop.labs.rag.deployments import models as rag_deployment_models  # noqa: F401
 from ai_workshop.labs.rag.documents import models as rag_document_models  # noqa: F401
 from ai_workshop.labs.rag.evaluation import models as rag_evaluation_models  # noqa: F401
+from ai_workshop.labs.rag.generation import (
+    audit_models as rag_generation_audit_models,  # noqa: F401
+)
 from ai_workshop.labs.rag.ingestion import models as rag_ingestion_models  # noqa: F401
 from ai_workshop.labs.rag.models import models as rag_model_models  # noqa: F401
+from ai_workshop.labs.rag.policies import models as rag_policy_models  # noqa: F401
 from ai_workshop.platform.assets import models as asset_models  # noqa: F401
 from ai_workshop.platform.identity import models as identity_models  # noqa: F401
 from ai_workshop.platform.jobs import models as job_models  # noqa: F401

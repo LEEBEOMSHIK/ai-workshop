@@ -19,6 +19,8 @@ Hybrid 검색 결과에 근거 제한 LLM 답변과 인용 검증을 연결한�
   기록한다. 설정했지만 실행에 실패하면 조용히 건너뛰지 않는다.
 - LLM generation과 인용 검증은 완성된 대화형 RAG의 필수 조건이다. V1 추출 답변은
   검색·회귀 비교 기준선으로 유지한다.
+- 후속질문은 브라우저 현재 세션의 bounded 이전 turn을 사용해 독립 검색 질의로 확정한다.
+  첫 V2는 대화 전문을 서버에 영속 저장하지 않으며 매 turn 권한과 근거를 다시 검사한다.
 - 상세 설계는 `docs/superpowers/specs/2026-09-04-conversational-generative-rag-v2-design.md`,
   결정은 `docs/decisions/0008-required-generation-optional-reranker.md`를 따른다.
 
@@ -188,6 +190,8 @@ Hybrid 검색 결과에 근거 제한 LLM 답변과 인용 검증을 연결한�
 - 생성 profile·LLM runtime·인용 정책이 없거나 준비되지 않으면 `answer_ready=false`다.
 - 근거 부족 시 LLM을 호출하지 않고 명시적인 근거 부족 상태와 검색 근거를 반환한다.
 - 허용된 검색 근거를 벗어난 인용이나 검증 실패 생성문을 사용자에게 노출하지 않는다.
+- 후속질문은 bounded 이전 turn을 반영한 검색 질의를 사용하고 원 질문과 확정 질의를 함께
+  확인할 수 있다.
 - LLM 변경만으로 검색 색인을 다시 만들지 않고 모든 모델·profile·prompt 버전을 기록한다.
 - 비공개 질문·본문·prompt·생성 초안을 로그와 오류 응답에 남기지 않는다.
 
@@ -203,7 +207,8 @@ Hybrid 검색 결과에 근거 제한 LLM 답변과 인용 검증을 연결한�
 
 ## 다음 작업
 
-1. 대화형 생성 RAG V2의 저장 구성, `answer_ready`, 로컬 LLM runtime, 구조화된 답변과 인용 검증을 설계·구현
+1. 대화형 생성 RAG V2의 저장 구성, `answer_ready`, 문맥 기반 후속질문, 로컬 LLM runtime,
+   구조화된 답변과 인용 검증을 구현
 2. Windows 호스트 모델 캐시의 최소 snapshot 초기화와 5.32GB 기존 캐시 정리안을 `CACHE_POLICY.md` 절차로 조사·승인·재검증
 3. 2단계 `다중 도메인과 공개 릴리스 기반` 상세 설계
 

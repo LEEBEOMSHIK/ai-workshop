@@ -1,6 +1,6 @@
 # 대화형 생성 RAG V2 설계
 
-- 상태: 검토 요청
+- 상태: 승인됨
 - 기준일: 2026-09-04
 - 범위: 로그인 사용자의 RAG 검색부터 근거 제한 LLM 답변과 인용 검증까지
 - 관련 결정: `docs/decisions/0008-required-generation-optional-reranker.md`
@@ -119,23 +119,27 @@ API는 다음 상태를 구분한다.
 
 1. 요청 사용자의 workspace·folder 권한을 확인하고 검색 전에 범위를 확정한다.
 2. 저장 구성의 정확한 불변 버전과 세 준비 상태를 확인한다.
-3. BM25와 dense 후보를 같은 권한 범위에서 조회하고 RRF로 결합한다.
-4. reranker가 없으면 단계를 정상 생략하고, 있으면 허용된 후보만 전달한다.
-5. 근거 선별기가 LLM에 전달할 Evidence Unit과 충분성 상태를 결정한다.
-6. 근거가 부족하면 LLM을 호출하지 않고 `insufficient_evidence`를 반환한다.
-7. 충분한 경우 Generation Runtime Port에 현재 질문, 허용된 Evidence Unit과
+3. 현재 대화의 이전 user·검증 완료 assistant turn을 versioned context policy로 제한한다.
+4. 첫 질문은 원문을 사용하고, 후속질문은 Query Contextualizer가 history와 현재 질문을
+   독립적으로 검색 가능한 질의로 확정한다.
+5. BM25와 dense 후보를 같은 권한 범위에서 조회하고 RRF로 결합한다.
+6. reranker가 없으면 단계를 정상 생략하고, 있으면 허용된 후보만 전달한다.
+7. 근거 선별기가 LLM에 전달할 Evidence Unit과 충분성 상태를 결정한다.
+8. 근거가 부족하면 답변 생성 LLM을 호출하지 않고 `insufficient_evidence`를 반환한다.
+9. 충분한 경우 Generation Runtime Port에 원 질문, 확정 검색 질의, 제한된 대화 history,
+   허용된 Evidence Unit과
    generation profile을 전달한다.
-8. 런타임은 자유 텍스트가 아니라 답변 문장과 evidence ID가 연결된 versioned schema를
+10. 런타임은 자유 텍스트가 아니라 답변 문장과 evidence ID가 연결된 versioned schema를
    반환한다.
-9. 인용 검증기가 모든 evidence ID의 권한·검색 포함 여부, 원문 위치, 인용 coverage와
+11. 인용 검증기가 모든 evidence ID의 권한·검색 포함 여부, 원문 위치, 인용 coverage와
    구조적 무결성을 확인한다.
-10. 검증을 통과한 답변만 `answered`로 반환한다.
+12. 검증을 통과한 답변만 `answered`로 반환하고 현재 브라우저 대화에 추가한다.
 
-LLM은 첫 검색 순위를 바꾸지 않는다. 대화 문맥으로 검색 질의를 확정하는 기능도 별도
-versioned query policy로 기록하며, 원래 질문과 실제 검색 질의를 사용자에게 보여준다.
-첫 V2는 현재 질문만 검색과 생성에 사용하고 UI에서 같은 페이지의 질의·답변을 대화처럼
-누적한다. 이전 turn을 자동으로 질의에 섞는 문맥 기반 query rewriting은 별도 후속 계약이며
-현재 사용자에게 적용된 것처럼 표시하지 않는다.
+LLM은 검색 결과의 첫 순위를 직접 바꾸지 않는다. 문맥 기반 질의 확정은 generation
+profile에 연결된 versioned context policy로 기록하며, 원래 질문과 실제 검색 질의를
+사용자에게 보여준다. context policy는 history turn 수와 token budget을 profile에서 읽고
+오래된 turn을 임의 문자 수로 잘라 넣지 않는다. 문맥 질의 확정이 실패하면 원 질문으로
+조용히 대체하지 않고 `query_contextualization_unavailable`로 실패한다.
 
 ## 7. 응답과 실패 계약
 
@@ -149,6 +153,7 @@ generation.status = answered
                   | citation_validation_failed
 generation.text = 검증된 생성 답변 또는 null
 generation.citations = 문장과 Evidence Unit을 연결한 인용 목록
+resolved_query = 문맥에서 확정되어 실제 검색에 사용한 질의
 ```
 
 - `answered`: 검증된 답변 본문과 문장별 인용을 제공한다.
@@ -167,6 +172,8 @@ Generation Runtime Port는 provider SDK 객체를 도메인으로 노출하지 �
 항목으로 제한한다.
 
 - 현재 질문
+- versioned context policy가 선택한 이전 user·검증 완료 assistant turn
+- 문맥에서 확정한 실제 검색 질의
 - 허용된 Evidence Unit ID, 본문, 문서 표시 정보와 원문 위치
 - generation profile과 answer schema 버전
 - correlation ID와 timeout
@@ -196,10 +203,15 @@ precision·coverage와 abstention 기준을 모두 통과해야 한다.
   오류 코드만 기록한다.
 - 다른 모델 또는 provider로 조용히 전환하지 않는다.
 
-첫 V2의 이전 turn은 브라우저 현재 세션 표시 상태로만 유지하고 서버에 대화 전문을 새로
-영속 저장하지 않는다. 검색 실행에는 기존 감사 계약에 필요한 모델·profile·evidence ID와
-상태만 기록한다. 대화 저장과 문맥 기반 후속 질문은 보존·삭제 정책을 별도로 승인한 뒤
-추가한다.
+첫 V2의 이전 turn은 브라우저 현재 세션에서 유지하고 매 요청의 bounded history로 서버에
+전달한다. 서버는 history를 새 대화 자산으로 영속 저장하지 않으며, 현재 요청 처리와 기존
+감사 계약의 안전한 실행 메타데이터에만 사용한다. assistant history에는 인용 검증을 통과한
+답변만 포함한다. 새로고침 이후에도 대화를 복원하는 서버 저장 기능은 보존·삭제 정책을
+별도로 승인한 뒤 추가한다.
+
+클라이언트가 전달한 history는 권한 증거로 신뢰하지 않는다. 서버는 매 turn마다 현재
+workspace·folder 권한과 새로 검색한 Evidence Unit을 다시 검사하고, history에 포함된 과거
+인용 ID만으로 문서에 접근하거나 답변 근거를 확장하지 않는다.
 
 ## 10. 관리자와 사용자 UI
 
@@ -226,18 +238,20 @@ Generation Profile과 Answer Policy를 선택하고 리랭커는 `사용 안 함
 8. 모델·profile·prompt·검색 구성 버전으로 실행을 재현할 수 있다.
 9. 비공개 질문·본문·프롬프트·생성 초안이 로그와 오류 응답에 남지 않는다.
 10. BM25와 추출식 V1은 생성형 V2의 품질·회귀 비교 기준으로 유지된다.
-11. 같은 화면에서 여러 질의·응답을 대화 형태로 볼 수 있지만 첫 V2의 검색은 각 현재
-    질문을 독립적으로 처리한다.
+11. 후속질문은 이전 turn으로부터 독립 검색 질의를 확정하고 원 질문과 확정 질의를 함께
+    반환한다.
+12. 다른 대화의 history가 섞이지 않고 매 turn의 문서 권한을 다시 검사한다.
 
 ## 12. 구현 순서
 
-1. V2 저장 구성, 준비 상태와 응답 schema 계약
+1. V2 저장 구성, context policy, 준비 상태와 응답 schema 계약
 2. Generation Runtime Port, fake와 로컬 adapter
-3. 구조화된 생성 및 결정적 인용 검증
-4. 검색 application service와 생성 파이프라인 연결
-5. 관리자 LLM·Generation Profile 선택과 준비 상태 UI
-6. 로그인 사용자 대화형 답변·인용 UI
-7. 단위·통합·권한·privacy·실제 로컬 runtime smoke와 평가 비교
+3. 문맥 기반 Query Contextualizer와 bounded history 검증
+4. 구조화된 생성 및 결정적 인용 검증
+5. 검색 application service와 생성 파이프라인 연결
+6. 관리자 LLM·Generation Profile 선택과 준비 상태 UI
+7. 로그인 사용자 대화형 history·답변·인용 UI
+8. 단위·통합·권한·privacy·실제 로컬 runtime smoke와 평가 비교
 
 ## 13. 제외 범위
 
@@ -247,4 +261,4 @@ Generation Profile과 Answer Policy를 선택하고 리랭커는 `사용 안 함
 - 모델 기반 인용 검증을 단독 hard gate로 사용하는 방식
 - 자동 prompt 변경, 자동 모델 승격 또는 자동 파인튜닝
 - 범용 사용자 구성 DAG와 마이크로서비스 분리
-- 서버에 영속 저장되는 대화 기록과 이전 turn 기반 자동 query rewriting
+- 서버에 영속 저장되어 새로고침 뒤 복원되는 대화 기록

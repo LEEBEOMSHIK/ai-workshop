@@ -144,9 +144,6 @@ export function AgentCharacter({ lab, variant }: AgentCharacterProps) {
         "--dialog-left": `${placement.left}px`,
         "--dialog-top": `${placement.top}px`,
         "--dialog-tail-offset": `${placement.tailOffset}px`,
-        left: "var(--dialog-left)",
-        position: "fixed",
-        top: "var(--dialog-top)",
       }
     : {};
 
@@ -164,7 +161,7 @@ export function AgentCharacter({ lab, variant }: AgentCharacterProps) {
           setIsOpen(true);
         }}
       >
-        <span className={styles[variant]} style={{ display: "grid", placeItems: "center" }}>
+        <span className={`${styles.characterVisual} ${styles[variant]}`}>
           <span className={styles.avatar} aria-hidden="true">
             <span className={styles.antenna} />
             <span className={styles.head}>

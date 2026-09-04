@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 
 import { loadPublicLabCatalog } from "./catalog";
 import { LabWorldPage } from "./LabWorldPage";
@@ -17,9 +17,14 @@ describe("LabWorldPage", () => {
     expect(
       screen.getByRole("status", { name: "공개 연구실 상태" }),
     ).toHaveTextContent("공개된 Labs에서 제공");
-    expect(screen.getByRole("region", { name: "RAG 기술 연구실" })).toBeVisible();
+    const room = screen.getByRole("region", { name: "RAG 기술 연구실" });
+    expect(room).toBeVisible();
+    expect(within(room).getByText("문서 수집 라인")).toBeVisible();
+    expect(within(room).getByText("검색 코어")).toBeVisible();
+    expect(within(room).getByText("근거 검증 모니터")).toBeVisible();
+    expect(within(room).getAllByRole("button")).toHaveLength(1);
     expect(
-      screen.getByRole("button", { name: "RAG 총괄에게 말 걸기" }),
+      within(room).getByRole("button", { name: "RAG 총괄에게 말 걸기" }),
     ).toBeVisible();
     expect(screen.getByText("RAG 기술 연구실")).toBeVisible();
     expect(screen.getByText("연구 중")).toBeVisible();

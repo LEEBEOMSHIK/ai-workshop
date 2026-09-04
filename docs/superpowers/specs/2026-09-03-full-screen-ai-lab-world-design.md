@@ -5,7 +5,8 @@
 - 범위: 공개 `/`, `/labs`, RAG 연구실 장면, 기술 관리자 캐릭터와 소개 대화상자
 - 관련 설계: `docs/superpowers/specs/2026-09-02-public-ai-lab-rag-service-design.md`
 - 관련 결정: `docs/decisions/0005-public-ai-lab-world.md`,
-  `docs/decisions/0006-separate-public-entrance-and-labs.md`
+  `docs/decisions/0006-separate-public-entrance-and-labs.md`,
+  `docs/decisions/0007-public-rag-agent-workroom.md`
 
 ## 1. 배경
 
@@ -69,14 +70,14 @@ React 컴포넌트와 CSS Grid, gradient, pseudo-element로 방과 장비를 구
 | `/labs/rag` | RAG 공통 기술과 조직을 설명하는 독립 상세 화면 |
 
 `/labs`는 `/`로 리다이렉트하지 않는다. 두 경로는 같은 공개 catalog를 사용하지만 `/`는
-`LabEntrancePage`, `/labs`는 `LabWorldPage`를 렌더링한다. `/`의 캐릭터는 `/labs`로,
-`/labs`의 캐릭터는 해당 Lab 상세로 안내한다. 새로고침과 직접 접근 모두 인증 없이
-성공해야 한다.
+`LabEntrancePage`, `/labs`는 `LabWorldPage`를 렌더링한다. `/`의 전체 보기 동작은
+`/labs`로, 입구와 `/labs`의 캐릭터는 해당 Lab 상세로 안내한다. 새로고침과 직접 접근
+모두 인증 없이 성공해야 한다.
 
 ## 5. 사용자 흐름
 
 1. 방문자가 `/`에 들어오면 전체 화면 연구소 입구와 현재 공개된 기술 관리자를 본다.
-2. 입구의 관리자는 돌아다니는 상태이며 소개 말풍선에서 `/labs` 탐색을 안내한다.
+2. 입구의 관리자는 돌아다니는 상태이며 소개 말풍선에서 자신의 Lab 상세를 안내한다.
 3. 방문자가 `/labs`에 들어오면 공개된 RAG 방과 그 안에서 작업 중인 관리자를 본다.
 4. 방 안의 관리자를 클릭하거나 키보드로 선택하면 캐릭터에 연결된 소개 말풍선이 열린다.
 5. 작업 현장 말풍선은 역할 자기소개와 catalog의 `RAG 연구실 들어가기` 동작을 제공하고
@@ -196,8 +197,8 @@ app/(public)/labs/page.tsx --------> LabWorldPage (Server Component)
 ## 12. 검증 기준
 
 1. `/`와 `/labs`는 redirect 없이 각각 `200`으로 서로 다른 탐색 장면을 렌더링한다.
-2. `/`는 돌아다니는 관리자의 말풍선에서 `/labs`로 안내하고 `/labs`는 작업 중인 관리자의
-   말풍선에서 해당 Lab 상세 URL로 안내한다.
+2. `/`의 전체 보기 링크는 `/labs`로 안내하고, 입구와 `/labs`의 관리자 말풍선은 해당 Lab
+   상세 URL로 안내한다.
 3. 페이지의 주요 연구소 배경과 RAG 방은 고정 `76rem` 카드 안에 갇히지 않고 viewport 전체
    너비를 사용한다.
 4. 현재 공개된 RAG만 방으로 나타나며 미래 Lab의 빈 방이나 가짜 항목이 없다.

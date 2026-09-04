@@ -15,14 +15,16 @@ describe("HomeRoute", () => {
     expect(
       screen.getByRole("button", { name: "RAG 총괄에게 말 걸기" }),
     ).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: "연구실 전체 보기" }),
+    ).toHaveAttribute("href", routes.labs);
     expect(screen.queryByText("문서 수집 라인")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "RAG 총괄에게 말 걸기" }));
 
-    expect(screen.getByRole("link", { name: "AI Labs 살펴보기" })).toHaveAttribute(
-      "href",
-      routes.labs,
-    );
+    expect(
+      screen.getByRole("link", { name: "RAG 연구실 들어가기" }),
+    ).toHaveAttribute("href", routes.ragLab);
   });
 
   it("declares the public entrance as the canonical route", () => {

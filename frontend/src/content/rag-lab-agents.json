@@ -1,0 +1,70 @@
+{
+  "agents": [
+    {
+      "slug": "document-structure",
+      "name": "구조 분석가 루미",
+      "role": "파싱·구조 분석 담당",
+      "statusLabel": "작업 중",
+      "eyebrow": "PARSE · STRUCTURE",
+      "intro": "나는 문서의 구조를 읽어 검색 가능한 형태로 정리하는 기술 담당자야.",
+      "currentWork": "Markdown, TXT와 텍스트 PDF에서 제목과 본문 구조를 보존해 추출하고 있어.",
+      "inputOutput": "원본 문서를 받아 구조화된 파싱 결과와 원문 위치 정보를 전달해.",
+      "handoff": "정리한 문서는 청킹 담당에게 넘겨 근거 단위로 나누게 해."
+    },
+    {
+      "slug": "chunking",
+      "name": "근거 설계자 토리",
+      "role": "청킹 담당",
+      "statusLabel": "작업 중",
+      "eyebrow": "CHUNK · EVIDENCE UNIT",
+      "intro": "나는 문서 구조를 따라 검색과 인용에 적합한 근거 단위를 설계하는 기술 담당자야.",
+      "currentWork": "제목과 문단 경계를 살리면서 목표 길이와 중첩 규칙에 맞춰 문서를 나누고 있어.",
+      "inputOutput": "구조화된 파싱 결과를 받아 원문 위치가 연결된 청크를 만들어.",
+      "handoff": "완성한 근거 단위는 임베딩·색인 담당에게 전달해 검색 준비를 시켜."
+    },
+    {
+      "slug": "embedding-indexing",
+      "name": "색인 기술자 벡터",
+      "role": "임베딩·색인 담당",
+      "statusLabel": "작업 중",
+      "eyebrow": "EMBED · INDEX",
+      "intro": "나는 근거 단위를 sparse와 dense 검색이 함께 사용할 색인으로 만드는 기술 담당자야.",
+      "currentWork": "승인된 임베딩 프로파일과 청크 버전을 묶어 호환되는 새 색인 버전을 만들고 있어.",
+      "inputOutput": "원문 위치가 있는 청크를 받아 BM25 필드와 dense 벡터 색인을 준비해.",
+      "handoff": "준비된 색인은 검색·융합 담당이 같은 권한 범위 안에서 사용해."
+    },
+    {
+      "slug": "retrieval-fusion",
+      "name": "검색 조율자 리프",
+      "role": "검색·융합 담당",
+      "statusLabel": "작업 중",
+      "eyebrow": "BM25 · BI-ENCODER · RRF",
+      "intro": "나는 서로 다른 검색 신호를 조합해 관련 근거의 순서를 정하는 기술 담당자야.",
+      "currentWork": "BM25와 bi-encoder 검색 결과를 RRF로 결합하고 BM25 단독 기준선과 비교하고 있어.",
+      "inputOutput": "질의와 허용된 검색 범위를 받아 순위가 매겨진 근거 후보를 반환해.",
+      "handoff": "검색 후보는 근거·하이라이트 담당에게 보내 원문과 정확히 연결하게 해."
+    },
+    {
+      "slug": "evidence-highlighting",
+      "name": "근거 검증자 하이라",
+      "role": "근거·하이라이트 담당",
+      "statusLabel": "작업 중",
+      "eyebrow": "SOURCE · HIGHLIGHT",
+      "intro": "나는 검색 결과가 실제 원문의 어느 위치에서 왔는지 확인시키는 기술 담당자야.",
+      "currentWork": "정확한 문자열 일치와 의미상 관련 구간을 구분해 원문 뷰어에 표시하고 있어.",
+      "inputOutput": "순위화된 근거 후보를 받아 문서 버전과 위치가 연결된 하이라이트를 제공해.",
+      "handoff": "검증된 검색 결과와 위치 정보는 품질 평가 담당에게 전달해 측정하게 해."
+    },
+    {
+      "slug": "quality-evaluation",
+      "name": "품질 분석가 메트릭",
+      "role": "품질 평가 담당",
+      "statusLabel": "작업 중",
+      "eyebrow": "EVALUATE · COMPARE",
+      "intro": "나는 검색 구성과 근거 표시가 기준선보다 나아졌는지 검증하는 기술 담당자야.",
+      "currentWork": "저장된 구성을 같은 평가 세트로 실행해 Recall, MRR과 nDCG 결과를 비교하고 있어.",
+      "inputOutput": "고정된 질의·정답과 실행 스냅샷을 받아 재현 가능한 평가 결과를 남겨.",
+      "handoff": "평가를 통과한 결과만 RAG 총괄에게 보고하고 기본 구성 승격 판단에 사용하게 해."
+    }
+  ]
+}

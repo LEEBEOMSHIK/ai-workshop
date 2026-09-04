@@ -52,11 +52,7 @@ export function LabEntrancePage({ catalog }: LabEntrancePageProps) {
                 >
                   <p className={styles.entranceStatus}>{lab.statusLabel}</p>
                   <h2 id={`${lab.slug}-entrance-manager`}>{lab.name} 관리자</h2>
-                  <AgentCharacter
-                    lab={lab}
-                    variant="roaming"
-                    dialogAction={{ href: routes.labs, label: "AI Labs 살펴보기" }}
-                  />
+                  <AgentCharacter lab={lab} variant="roaming" />
                 </section>
               ))
             )}

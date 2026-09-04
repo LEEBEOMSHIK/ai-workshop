@@ -21,6 +21,18 @@ describe("global responsive styles", () => {
     expect(stylesheet).toContain("max-height: calc(100dvh - 2.5rem);");
   });
 
+  it("keeps Korean agent names from splitting inside dialog headings", () => {
+    const stylesheet = readFileSync(
+      resolve(process.cwd(), "src/features/public-labs/PublicLabScene.module.css"),
+      "utf8",
+    );
+    const dialogHeadingRule = stylesheet.match(
+      /\.dialog h2\s*\{(?<declarations>[^}]*)\}/,
+    )?.groups?.declarations;
+
+    expect(dialogHeadingRule).toContain("word-break: keep-all;");
+  });
+
   it("keeps exact 64rem and 48rem widths in the wider responsive tier", () => {
     const stylesheet = readFileSync(
       resolve(process.cwd(), "src/features/public-labs/PublicLabScene.module.css"),
@@ -31,5 +43,25 @@ describe("global responsive styles", () => {
     expect(stylesheet).toContain("@media (width < 48rem)");
     expect(stylesheet).not.toContain("@media (max-width: 64rem)");
     expect(stylesheet).not.toContain("@media (max-width: 48rem)");
+  });
+
+  it("connects workstations across wide, tablet and mobile pipeline layouts", () => {
+    const stylesheet = readFileSync(
+      resolve(process.cwd(), "src/features/public-labs/PublicLabScene.module.css"),
+      "utf8",
+    );
+
+    expect(stylesheet).toContain(".workerStation::after");
+    expect(stylesheet).toContain(
+      ".workerStation:nth-child(3n):not(:last-child)::after",
+    );
+    expect(stylesheet).toContain(
+      ".workerStation:nth-child(2n):not(:last-child)::after",
+    );
+    expect(stylesheet).toContain(
+      ".workerStation:nth-child(n):not(:last-child)::after",
+    );
+    expect(stylesheet).not.toContain('content: "→"');
+    expect(stylesheet).not.toContain('content: "↓"');
   });
 });

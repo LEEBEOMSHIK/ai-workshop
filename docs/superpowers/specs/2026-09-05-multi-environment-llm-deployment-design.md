@@ -1,6 +1,6 @@
 # 다중 환경 LLM Deployment와 데이터 전송 정책 설계
 
-- 상태: 사용자 승인 완료
+- 상태: 승인 완료
 - 작성일: 2026-09-05
 - 범위: RAG 생성 모델의 로컬·온프레미스·외부 API 실행과 사용자 고지
 - 선행 설계: `2026-09-04-conversational-generative-rag-v2-design.md`
@@ -24,8 +24,8 @@ OpenAI Responses API의 여러 모델을 등록하고 RAG 구성마다 선택할
 - 모델 정체성과 실제 실행 위치를 분리한다.
 - 저장된 RAG 구성이 정확한 불변 Deployment Version을 선택한다.
 - 현재 환경과 데이터 정책이 허용한 Deployment만 실행한다.
-- 로컬 OpenAI-compatible, 개발 전용 Codex SDK, OpenAI Responses API를 실제 adapter로
-  지원한다.
+- 첫 전달은 로컬 OpenAI-compatible과 OpenAI Responses API를 실제 adapter로 지원한다.
+- 개발 전용 Codex SDK는 OpenAI 첫 전달을 검증한 뒤 별도 변경으로 추가한다.
 - 관리자는 외부 전송을 명시적으로 승인하고 사용자는 대화 중 처리 위치를 항상 확인한다.
 - Provider별 응답을 기존 구조화 생성·인용 검증 계약으로 정규화한다.
 - 새 Provider는 기존 RAG 업무 로직을 바꾸지 않고 adapter로 추가할 수 있다.
@@ -44,8 +44,10 @@ OpenAI Responses API의 여러 모델을 등록하고 RAG 구성마다 선택할
 Model Definition
   └─ Model Deployment Version
        ├─ local_openai_compatible
-       ├─ codex_sdk
        └─ openai_responses
+
+후속 Provider
+  └─ codex_sdk
 
 Generation Profile
   └─ exact Model Deployment Version
@@ -72,6 +74,9 @@ Saved RAG Configuration Version
 
 ## 4. 지원 Provider와 환경
 
+첫 전달의 `ProviderKind`에는 `local_openai_compatible`과 `openai_responses`만 둔다.
+Codex와 타사 Provider는 enum, API 선택지 또는 빈 adapter로 미리 만들지 않는다.
+
 ### 로컬 OpenAI-compatible
 
 - 개발·운영 환경 모두에서 사용할 수 있다.
@@ -79,7 +84,7 @@ Saved RAG Configuration Version
 - `local`은 loopback, `on_premise`는 관리자가 승인한 사내 endpoint를 의미한다.
 - 실제 모델 목록에서 등록한 Provider 모델 ID가 정확히 일치해야 준비 상태가 된다.
 
-### Codex SDK
+### 후속: Codex SDK
 
 - `development_only=true`인 개발 전용 Deployment다.
 - Python Codex SDK의 pinned local runtime을 사용하고, 매 요청마다 `codex exec` 프로세스를
@@ -136,6 +141,12 @@ Codex CLI runtime을 포함한다고 설명한다. app-server WebSocket transpor
 - timeout·retry policy와 health check 설정
 - `development_only`
 - 생성자와 생성 시각
+
+capability는 비어 있지 않은 명명된 집합으로 검증한다. 실제 답변 준비에 필요한 capability와
+Deployment capability의 교집합 판정은 runtime readiness 후속 단계에서 구현한다. 현재
+`Settings.environment`의 `local | test | production` 값은 Deployment의
+`development | staging | production`과 직접 비교하지 않고 후속 resolver가 명시적으로
+정규화한다.
 
 같은 Deployment identity를 수정하지 않고 새 version을 만든다. 저장 RAG 구성은 version
 ID를 참조하므로 기존 실행을 재현할 수 있다. endpoint와 secret의 실제 값은 DB에 저장하지

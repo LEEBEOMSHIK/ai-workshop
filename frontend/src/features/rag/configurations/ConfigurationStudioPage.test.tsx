@@ -10,6 +10,87 @@ afterEach(() => {
 });
 
 describe("ConfigurationStudioPage", () => {
+  it("saves a generative package with the selected versioned LLM profile", async () => {
+    const data = studioData();
+    data.models.push({
+      id: "model-llm",
+      kind: "llm",
+      name: "local-korean-llm",
+      version: 2,
+      config: {
+        provider: "openai_compatible",
+        runtime_model: "runtime/exact-model",
+        data_policy: "local_only",
+      },
+    });
+    data.profiles.push({
+      id: "generation-local",
+      kind: "generation",
+      name: "grounded-generation",
+      version: 1,
+      config: {
+        prompt_ref: "rag-answer-v1",
+        context_prompt_ref: "rag-contextualize-v1",
+        citation_mode: "required",
+        context_policy: { max_history_turns: 6, max_history_tokens: 1024 },
+        generation: {
+          timeout_seconds: 30,
+          max_output_tokens: 512,
+          temperature: 0.1,
+          response_schema_version: 1,
+        },
+      },
+      bindings: [{ role: "llm", model_id: "model-llm" }],
+      evaluation_state: "draft",
+      is_default: false,
+    });
+    let requestBody: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (input !== "/api/v1/rag/configurations") {
+          throw new Error(`Unexpected request: ${String(input)}`);
+        }
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return jsonResponse(savedConfiguration({
+          generation_profile_id: "generation-local",
+          answer_policy: {
+            ...savedConfiguration().answer_policy,
+            mode: "generative",
+          },
+          answer_ready: true,
+          service_ready: true,
+          answer_reasons: [],
+        }), 201);
+      }),
+    );
+    const user = userEvent.setup();
+    render(<ConfigurationStudioPage initialData={data} />);
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "답변 방식" }),
+      "generative",
+    );
+    const generationSelect = screen.getByRole("combobox", { name: "Generation Profile" });
+    expect(
+      within(generationSelect).getByRole("option", {
+        name: "grounded-generation v1 · local-korean-llm v2",
+      }),
+    ).toHaveValue("generation-local");
+    const builder = screen.getByRole("region", { name: "새 RAG 패키지 구성" });
+    expect(within(builder).getByText("LLM").closest("p")).toHaveTextContent(
+      "local-korean-llm v2",
+    );
+    await user.type(screen.getByRole("textbox", { name: "구성 이름" }), "대화형 구성");
+    await user.click(screen.getByRole("checkbox", { name: /전사 지식/ }));
+    await user.click(screen.getByRole("button", { name: "저장" }));
+
+    expect(requestBody).toMatchObject({
+      generation_profile_id: "generation-local",
+      answer_policy: { mode: "generative" },
+    });
+  });
+
   it("shows only the automatic BM25 baseline before the user saves a configuration", () => {
     render(<ConfigurationStudioPage initialData={studioData()} />);
 
@@ -151,6 +232,7 @@ describe("ConfigurationStudioPage", () => {
       retrieval_profile_id: "retrieval-bge",
       generation_profile_id: null,
       answer_policy: {
+        mode: "extractive",
         min_semantic_score: 0.7,
         min_keyword_coverage: 0.5,
         require_complete_provenance: true,
@@ -220,9 +302,9 @@ describe("ConfigurationStudioPage", () => {
       ["Sparse Retriever", "BM25"],
       ["Dense Retriever", "Bi-encoder · multilingual-e5-base v1"],
       ["Fusion", "RRF (k=60)"],
-      ["Reranker", "사용 안 함 (V1)"],
+      ["Reranker", "사용 안 함 (선택)"],
       ["Answer Policy", "extractive v1"],
-      ["LLM", "사용 안 함 (V1)"],
+      ["LLM", "사용 안 함 (추출식)"],
     ] as const;
 
     for (const [label, value] of expectedComponents) {
@@ -447,6 +529,10 @@ function savedConfiguration(overrides: Partial<SavedConfiguration> = {}): SavedC
     is_default: false,
     experimental: true,
     search_ready: true,
+    answer_ready: false,
+    service_ready: false,
+    search_reasons: [],
+    answer_reasons: ["generation_not_configured"],
     ...overrides,
   };
 }

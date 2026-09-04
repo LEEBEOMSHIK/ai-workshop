@@ -1,4 +1,4 @@
-from typing import Self
+from typing import Literal, Self
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -13,6 +13,13 @@ from ai_workshop.labs.rag.highlighting.domain import (
 from ai_workshop.labs.rag.search.service import RelatedSource, SearchResult
 
 
+class ConversationTurnRequest(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=8000)
+    turn_id: UUID | None = None
+    validation_token: str | None = Field(default=None, max_length=256)
+
+
 class SearchRequest(BaseModel):
     query: str = Field(min_length=2, max_length=1000)
     configuration_id: UUID
@@ -20,6 +27,26 @@ class SearchRequest(BaseModel):
     folder_ids: list[UUID] = Field(default_factory=list)
     top_k: int = Field(default=10, ge=1, le=50)
     experimental: bool = False
+    history: list[ConversationTurnRequest] = Field(default_factory=list, max_length=20)
+
+
+class GeneratedCitationResponse(BaseModel):
+    claim_index: int
+    evidence_ids: list[UUID]
+
+
+class GenerationResponse(BaseModel):
+    status: Literal[
+        "answered",
+        "not_requested",
+        "insufficient_evidence",
+        "citation_validation_failed",
+    ]
+    text: str | None
+    citations: list[GeneratedCitationResponse]
+    reason_codes: list[str]
+    turn_id: UUID | None
+    validation_token: str | None
 
 
 class SourceLocationResponse(BaseModel):
@@ -165,6 +192,8 @@ class SearchResponse(BaseModel):
     related_sources: list[RelatedSourceResponse]
     configuration_version: ConfigurationVersionResponse
     experimental: bool
+    resolved_query: str
+    generation: GenerationResponse
 
     @classmethod
     def from_domain(cls, result: SearchResult) -> Self:
@@ -189,6 +218,21 @@ class SearchResponse(BaseModel):
                 version=configuration.configuration_version,
             ),
             experimental=configuration.experimental,
+            resolved_query=result.resolved_query,
+            generation=GenerationResponse(
+                status=result.generation.status.value,
+                text=result.generation.text,
+                citations=[
+                    GeneratedCitationResponse(
+                        claim_index=item.claim_index,
+                        evidence_ids=list(item.evidence_ids),
+                    )
+                    for item in result.generation.citations
+                ],
+                reason_codes=list(result.generation.reason_codes),
+                turn_id=result.generation.turn_id,
+                validation_token=result.generation.validation_token,
+            ),
         )
 
 

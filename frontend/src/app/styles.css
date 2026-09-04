@@ -1268,6 +1268,28 @@ h1 {
   margin-top: 2.5rem;
 }
 
+.conversation-results {
+  width: min(100%, 76rem);
+  margin: 2.5rem auto 0;
+}
+
+.conversation-notice,
+.resolved-query {
+  color: #8f9ba6;
+  font-size: 0.82rem;
+}
+
+.conversation-results > .search-results {
+  padding: clamp(1rem, 2vw, 1.5rem);
+  border: 1px solid #25323d;
+  border-radius: 1rem;
+  background: rgb(12 18 24 / 68%);
+}
+
+.conversation-results > .secondary-button {
+  margin-top: 1.5rem;
+}
+
 .submitted-query {
   margin: 0;
   color: #cbd4dc;
@@ -1284,6 +1306,7 @@ h1 {
 }
 
 .answer-state,
+.generated-answer,
 .evidence-card,
 .source-card,
 .normalized-element {
@@ -1291,6 +1314,29 @@ h1 {
   border: 1px solid #2a3742;
   border-radius: 0.85rem;
   background: #10171f;
+}
+
+.generated-answer {
+  border-left: 0.35rem solid #7bd6ff;
+}
+
+.generated-answer h2,
+.generated-answer p {
+  margin-top: 0;
+}
+
+.generated-answer p {
+  white-space: pre-wrap;
+  line-height: 1.75;
+}
+
+.generated-citations {
+  display: grid;
+  gap: 0.45rem;
+  margin-bottom: 0;
+  padding-left: 1.25rem;
+  color: #a9cbd8;
+  font-size: 0.82rem;
 }
 
 .answer-state {

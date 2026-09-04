@@ -11,6 +11,8 @@ import type {
 import { saveConfiguration } from "./api";
 import {
   hasResolvableEmbedding,
+  hasResolvableGeneration,
+  generationOptionLabel,
   indexingOptionLabel,
   isV1CompatibleRetrieval,
   summarizeRagPackage,
@@ -51,6 +53,12 @@ export function ConfigurationBuilder({
   const [retrievalProfileId, setRetrievalProfileId] = useState(
     compatibleRetrievalProfiles[0]?.id ?? "",
   );
+  const generationProfiles = useMemo(
+    () => profiles.filter((profile) => hasResolvableGeneration(profile, models)),
+    [models, profiles],
+  );
+  const [answerMode, setAnswerMode] = useState<"extractive" | "generative">("extractive");
+  const [generationProfileId, setGenerationProfileId] = useState("");
   const [name, setName] = useState("");
   const [workspaceIds, setWorkspaceIds] = useState<string[]>([]);
   const [minSemanticScore, setMinSemanticScore] = useState(0.7);
@@ -77,16 +85,30 @@ export function ConfigurationBuilder({
   const retrievalProfile = compatibleRetrievalProfiles.find(
     (profile) => profile.id === effectiveRetrievalProfileId,
   );
+  const effectiveGenerationProfileId = generationProfiles.some(
+    (profile) => profile.id === generationProfileId,
+  )
+    ? generationProfileId
+    : generationProfiles[0]?.id ?? "";
+  const generationProfile = generationProfiles.find(
+    (profile) => profile.id === effectiveGenerationProfileId,
+  );
   const packageSummary = summarizeRagPackage({
     indexing: indexingProfile,
     retrieval: retrievalProfile,
+    generation: answerMode === "generative" ? generationProfile : undefined,
     models,
   });
   const requiresNewIndex = Boolean(
     baselineIndexingId && indexingProfileId && baselineIndexingId !== indexingProfileId,
   );
   const canSave = Boolean(
-    name.trim() && indexingProfileId && effectiveRetrievalProfileId && workspaceIds.length > 0 && !saving,
+    name.trim() &&
+      indexingProfileId &&
+      effectiveRetrievalProfileId &&
+      workspaceIds.length > 0 &&
+      (answerMode === "extractive" || effectiveGenerationProfileId) &&
+      !saving,
   );
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -99,8 +121,10 @@ export function ConfigurationBuilder({
       name: name.trim(),
       indexing_profile_id: indexingProfileId,
       retrieval_profile_id: effectiveRetrievalProfileId,
-      generation_profile_id: null,
+      generation_profile_id:
+        answerMode === "generative" ? effectiveGenerationProfileId : null,
       answer_policy: {
+        mode: answerMode,
         min_semantic_score: minSemanticScore,
         min_keyword_coverage: minKeywordCoverage,
         require_complete_provenance: true,
@@ -197,7 +221,37 @@ export function ConfigurationBuilder({
 
         <fieldset disabled={saving}>
           <legend>답변 구성</legend>
-          <ReadOnlyComponent label="Answer Policy" value="extractive · complete provenance · separate sources" />
+          <label>
+            답변 방식
+            <select
+              value={answerMode}
+              onChange={(event) => setAnswerMode(event.target.value as "extractive" | "generative")}
+            >
+              <option value="extractive">추출식 기준선</option>
+              <option value="generative" disabled={generationProfiles.length === 0}>
+                근거 제한 LLM 생성
+              </option>
+            </select>
+          </label>
+          {answerMode === "generative" ? (
+            <label>
+              Generation Profile
+              <select
+                value={effectiveGenerationProfileId}
+                onChange={(event) => setGenerationProfileId(event.target.value)}
+              >
+                {generationProfiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>
+                    {generationOptionLabel(profile, models)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <ReadOnlyComponent
+            label="Answer Policy"
+            value={`${answerMode} · complete provenance · separate sources`}
+          />
           <ReadOnlyComponent label="LLM" value={packageSummary.llm} />
           <label>
             최소 semantic score
@@ -221,10 +275,9 @@ export function ConfigurationBuilder({
               onChange={(event) => setMinKeywordCoverage(Number(event.target.value))}
             />
           </label>
-          <label className="disabled-control">
-            <input type="checkbox" disabled />
-            LLM 생성 (V1에서는 사용 안 함)
-          </label>
+          {answerMode === "generative" ? (
+            <p className="control-help">후속질문 문맥과 인용 검증 정책이 Generation Profile 버전에 함께 고정됩니다.</p>
+          ) : null}
         </fieldset>
 
         <fieldset disabled={saving}>

@@ -34,10 +34,16 @@ from ai_workshop.labs.rag.models.domain import (
 from ai_workshop.shared.errors import AppError
 
 
-def _policy(*, configuration_id=None, version: int = 1) -> AnswerPolicyVersion:
+def _policy(
+    *,
+    configuration_id=None,
+    version: int = 1,
+    mode: str = "extractive",
+) -> AnswerPolicyVersion:
     return AnswerPolicyVersion.create(
         configuration_id=configuration_id or uuid4(),
         version=version,
+        mode=mode,
         min_semantic_score=0.82,
         min_keyword_coverage=0.75,
         require_complete_provenance=True,
@@ -103,6 +109,50 @@ def test_generation_profile_is_rejected_in_extractive_v1() -> None:
             answer_policy_version=_policy(configuration_id=configuration_id),
             workspace_ids=(uuid4(),),
         )
+
+
+def test_generation_profile_is_required_for_generative_configuration() -> None:
+    configuration_id = uuid4()
+    indexing_profile_id = uuid4()
+    policy = _policy(configuration_id=configuration_id, mode="generative")
+
+    with pytest.raises(ConfigurationValidationError, match="requires a Generation"):
+        SavedRagConfiguration.create(
+            configuration_id=configuration_id,
+            configuration_version_id=uuid4(),
+            owner_id=uuid4(),
+            name="생성 구성",
+            version=1,
+            indexing_profile_id=indexing_profile_id,
+            retrieval_profile_id=uuid4(),
+            retrieval_indexing_profile_id=indexing_profile_id,
+            generation_profile_id=None,
+            answer_policy_version=policy,
+            workspace_ids=(uuid4(),),
+        )
+
+    generation_profile_id = uuid4()
+    configuration = SavedRagConfiguration.create(
+        configuration_id=configuration_id,
+        configuration_version_id=uuid4(),
+        owner_id=uuid4(),
+        name="생성 구성",
+        version=1,
+        indexing_profile_id=indexing_profile_id,
+        retrieval_profile_id=uuid4(),
+        retrieval_indexing_profile_id=indexing_profile_id,
+        generation_profile_id=generation_profile_id,
+        answer_policy_version=policy,
+        workspace_ids=(uuid4(),),
+    )
+
+    assert configuration.generation_profile_id == generation_profile_id
+    assert configuration.answer_policy_version.mode == "generative"
+
+
+def test_answer_policy_rejects_unknown_mode() -> None:
+    with pytest.raises(ConfigurationValidationError, match="mode"):
+        _policy(mode="agentic")
 
 
 def test_answer_policy_and_configuration_versions_are_immutable() -> None:
@@ -321,6 +371,14 @@ class RecordingIngestionJobs:
         return job_id
 
 
+class GenerationReadiness:
+    def __init__(self, ready_profile_ids: set[UUID]) -> None:
+        self.ready_profile_ids = ready_profile_ids
+
+    async def is_ready(self, profile_id: UUID) -> bool:
+        return profile_id in self.ready_profile_ids
+
+
 @pytest.mark.asyncio
 async def test_search_readiness_is_mapped_by_immutable_configuration_version() -> None:
     ready = _configuration()
@@ -335,6 +393,53 @@ async def test_search_readiness_is_mapped_by_immutable_configuration_version() -
     result = await service.search_readiness((ready, pending))
 
     assert result == {ready.version_id: True, pending.version_id: False}
+
+
+@pytest.mark.asyncio
+async def test_service_readiness_requires_generation_only_for_generative_mode() -> None:
+    extractive = _configuration()
+    configuration_id = uuid4()
+    indexing_profile_id = uuid4()
+    generation_profile_id = uuid4()
+    generative = SavedRagConfiguration.create(
+        configuration_id=configuration_id,
+        configuration_version_id=uuid4(),
+        owner_id=uuid4(),
+        name="생성 구성",
+        version=1,
+        indexing_profile_id=indexing_profile_id,
+        retrieval_profile_id=uuid4(),
+        retrieval_indexing_profile_id=indexing_profile_id,
+        generation_profile_id=generation_profile_id,
+        answer_policy_version=_policy(
+            configuration_id=configuration_id,
+            mode="generative",
+        ),
+        workspace_ids=(uuid4(),),
+    )
+    repository = MemoryConfigurationRepository(
+        profiles=(),
+        accessible_workspace_ids=(),
+        ready_indexing_profile_ids=frozenset(
+            {extractive.indexing_profile_id, generative.indexing_profile_id}
+        ),
+    )
+    service = RagConfigurationService(
+        repository,
+        RecordingIngestionJobs(repository.events),
+        generation_readiness=GenerationReadiness({generation_profile_id}),
+    )
+
+    readiness = await service.readiness((extractive, generative))
+
+    assert readiness[extractive.version_id].search_ready is True
+    assert readiness[extractive.version_id].answer_ready is False
+    assert readiness[extractive.version_id].service_ready is False
+    assert readiness[extractive.version_id].answer_reasons == ("generation_not_configured",)
+    assert readiness[generative.version_id].search_ready is True
+    assert readiness[generative.version_id].answer_ready is True
+    assert readiness[generative.version_id].service_ready is True
+    assert readiness[generative.version_id].answer_reasons == ()
 
 
 def _technical_profiles() -> tuple[Profile, Profile]:
@@ -370,6 +475,60 @@ def _technical_profiles() -> tuple[Profile, Profile]:
         bindings=(),
     )
     return indexing, retrieval
+
+
+def _generation_profile() -> Profile:
+    return Profile.create(
+        kind=ProfileKind.GENERATION,
+        name="local-grounded-generation",
+        version=1,
+        config={
+            "prompt_ref": "rag-answer-v1",
+            "context_prompt_ref": "rag-contextualize-v1",
+            "citation_mode": "required",
+            "context_policy": {"max_history_turns": 6, "max_history_tokens": 1024},
+            "generation": {
+                "timeout_seconds": 30,
+                "max_output_tokens": 512,
+                "temperature": 0.1,
+                "response_schema_version": 1,
+            },
+        },
+        bindings=(ProfileModelBinding(ModelKind.LLM, uuid4()),),
+    )
+
+
+@pytest.mark.asyncio
+async def test_service_saves_generative_configuration_with_exact_profile() -> None:
+    indexing, retrieval = _technical_profiles()
+    generation = _generation_profile()
+    workspace_id = uuid4()
+    repository = MemoryConfigurationRepository(
+        profiles=(indexing, retrieval, generation),
+        accessible_workspace_ids=(workspace_id,),
+    )
+    service = RagConfigurationService(
+        repository,
+        RecordingIngestionJobs(repository.events),
+        commit=_commit(repository.events),
+    )
+
+    result = await service.create(
+        owner_id=uuid4(),
+        name="대화형 생성 구성",
+        indexing_profile_id=indexing.id,
+        retrieval_profile_id=retrieval.id,
+        generation_profile_id=generation.id,
+        answer_mode="generative",
+        min_semantic_score=0.8,
+        min_keyword_coverage=0.7,
+        require_complete_provenance=True,
+        conflict_mode="separate_sources",
+        workspace_ids=(workspace_id,),
+    )
+
+    assert result.configuration.generation_profile_id == generation.id
+    assert result.configuration.answer_policy_version.mode == "generative"
 
 
 def _retrieval_with_reranker(

@@ -47,7 +47,10 @@ class AnswerPolicyVersionRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         UniqueConstraint("configuration_id", "version"),
         UniqueConstraint("configuration_id", "id", "version"),
         CheckConstraint("version > 0", name="ck_rag_answer_policy_versions_positive"),
-        CheckConstraint("mode = 'extractive'", name="ck_rag_answer_policy_versions_mode"),
+        CheckConstraint(
+            "mode IN ('extractive', 'generative')",
+            name="ck_rag_answer_policy_versions_mode",
+        ),
         CheckConstraint(
             "min_semantic_score >= 0 AND min_semantic_score <= 1",
             name="ck_rag_answer_policy_versions_semantic_score",
@@ -91,10 +94,6 @@ class RagConfigurationVersionRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ),
         UniqueConstraint("configuration_id", "version"),
         CheckConstraint("version > 0", name="ck_rag_configuration_versions_positive"),
-        CheckConstraint(
-            "generation_profile_id IS NULL",
-            name="ck_rag_configuration_versions_no_generation_v1",
-        ),
         CheckConstraint(
             "evaluation_state IN ('draft', 'pending', 'passed', 'failed')",
             name="ck_rag_configuration_versions_evaluation_state",

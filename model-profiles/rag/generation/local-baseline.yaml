@@ -3,8 +3,17 @@ name: local-baseline
 version: 1
 evaluation_state: draft
 config:
-  prompt_ref: grounded-answer-v1
+  prompt_ref: rag-answer-v1
+  context_prompt_ref: rag-contextualize-v1
   citation_mode: required
+  context_policy:
+    max_history_turns: 6
+    max_history_tokens: 1024
+  generation:
+    timeout_seconds: 30
+    max_output_tokens: 512
+    temperature: 0.1
+    response_schema_version: 1
 bindings:
   - role: llm
     model_id: 00000000-0000-0000-0000-000000000301

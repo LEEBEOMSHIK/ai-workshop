@@ -64,6 +64,10 @@ class IngestionJobCreatorPort(Protocol):
     async def ensure_indexed(self, command: EnsureIndexedCommand) -> UUID: ...
 
 
+class GenerationReadinessPort(Protocol):
+    async def is_ready(self, profile_id: UUID) -> bool: ...
+
+
 async def _no_op_commit() -> None:
     return None
 
@@ -74,6 +78,15 @@ class ConfigurationSaveResult:
     indexing_job_ids: tuple[UUID, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class ConfigurationReadiness:
+    search_ready: bool
+    answer_ready: bool
+    service_ready: bool
+    search_reasons: tuple[str, ...] = ()
+    answer_reasons: tuple[str, ...] = ()
+
+
 class RagConfigurationService:
     def __init__(
         self,
@@ -81,10 +94,12 @@ class RagConfigurationService:
         ingestion_jobs: IngestionJobCreatorPort,
         *,
         commit: Callable[[], Awaitable[None]] = _no_op_commit,
+        generation_readiness: GenerationReadinessPort | None = None,
     ) -> None:
         self.repository = repository
         self.ingestion_jobs = ingestion_jobs
         self.commit = commit
+        self.generation_readiness = generation_readiness
 
     async def create(
         self,
@@ -99,6 +114,7 @@ class RagConfigurationService:
         require_complete_provenance: bool,
         conflict_mode: str,
         workspace_ids: tuple[UUID, ...],
+        answer_mode: str = "extractive",
     ) -> ConfigurationSaveResult:
         clean_name = name.strip()
         if not clean_name:
@@ -113,10 +129,22 @@ class RagConfigurationService:
                 "The system baseline identity cannot be overwritten or versioned.",
                 409,
             )
-        if generation_profile_id is not None:
+        if answer_mode not in {"extractive", "generative"}:
+            raise AppError(
+                "invalid_answer_mode",
+                "The answer mode must be extractive or generative.",
+                422,
+            )
+        if answer_mode == "extractive" and generation_profile_id is not None:
             raise AppError(
                 "generation_not_supported",
                 "Generation Profiles are not supported by extractive V1.",
+                422,
+            )
+        if answer_mode == "generative" and generation_profile_id is None:
+            raise AppError(
+                "generation_profile_required",
+                "A generative configuration requires a Generation Profile.",
                 422,
             )
         if not workspace_ids or len(set(workspace_ids)) != len(workspace_ids):
@@ -132,6 +160,11 @@ class RagConfigurationService:
             raise AppError("not_found", "The requested resource was not found.", 404)
         if retrieval is None or retrieval.kind is not ProfileKind.RETRIEVAL:
             raise AppError("not_found", "The requested resource was not found.", 404)
+        generation = None
+        if generation_profile_id is not None:
+            generation = await self.repository.find_profile(generation_profile_id)
+            if generation is None or generation.kind is not ProfileKind.GENERATION:
+                raise AppError("not_found", "The requested resource was not found.", 404)
         try:
             validate_v1_retrieval_profile(retrieval)
         except ConfigurationValidationError as exc:
@@ -159,6 +192,7 @@ class RagConfigurationService:
             policy = AnswerPolicyVersion.create(
                 configuration_id=configuration_id,
                 version=version,
+                mode=answer_mode,
                 min_semantic_score=min_semantic_score,
                 min_keyword_coverage=min_keyword_coverage,
                 require_complete_provenance=require_complete_provenance,
@@ -173,7 +207,7 @@ class RagConfigurationService:
                 indexing_profile_id=indexing.id,
                 retrieval_profile_id=retrieval.id,
                 retrieval_indexing_profile_id=retrieval_indexing_profile_id,
-                generation_profile_id=None,
+                generation_profile_id=(generation.id if generation is not None else None),
                 answer_policy_version=policy,
                 workspace_ids=authorized,
                 evaluation_state=EvaluationState.PENDING,
@@ -209,6 +243,34 @@ class RagConfigurationService:
             item.version_id: item.indexing_profile_id in ready_profile_ids
             for item in configurations
         }
+
+    async def readiness(
+        self,
+        configurations: tuple[SavedRagConfiguration, ...],
+    ) -> dict[UUID, ConfigurationReadiness]:
+        search = await self.search_readiness(configurations)
+        result: dict[UUID, ConfigurationReadiness] = {}
+        for item in configurations:
+            search_ready = search[item.version_id]
+            answer_ready = False
+            answer_reasons: tuple[str, ...]
+            if item.generation_profile_id is None:
+                answer_reasons = ("generation_not_configured",)
+            elif self.generation_readiness is None or not await self.generation_readiness.is_ready(
+                item.generation_profile_id
+            ):
+                answer_reasons = ("generation_runtime_unavailable",)
+            else:
+                answer_ready = True
+                answer_reasons = ()
+            result[item.version_id] = ConfigurationReadiness(
+                search_ready=search_ready,
+                answer_ready=answer_ready,
+                service_ready=search_ready and answer_ready,
+                search_reasons=(() if search_ready else ("active_index_unavailable",)),
+                answer_reasons=answer_reasons,
+            )
+        return result
 
     async def detail(
         self,

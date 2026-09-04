@@ -517,6 +517,12 @@ export interface components {
             /** Min Semantic Score */
             min_semantic_score: number;
             /**
+             * Mode
+             * @default extractive
+             * @enum {string}
+             */
+            mode: "extractive" | "generative";
+            /**
              * Require Complete Provenance
              * @default true
              * @constant
@@ -541,9 +547,9 @@ export interface components {
             min_semantic_score: number;
             /**
              * Mode
-             * @constant
+             * @enum {string}
              */
-            mode: "extractive";
+            mode: "extractive" | "generative";
             /**
              * Require Complete Provenance
              * @constant
@@ -609,6 +615,20 @@ export interface components {
          * @enum {string}
          */
         ConflictState: "none" | "separate_sources";
+        /** ConversationTurnRequest */
+        ConversationTurnRequest: {
+            /** Content */
+            content: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "assistant";
+            /** Turn Id */
+            turn_id?: string | null;
+            /** Validation Token */
+            validation_token?: string | null;
+        };
         /** DocumentResponse */
         DocumentResponse: {
             /**
@@ -926,6 +946,31 @@ export interface components {
             /** Parent Id */
             parent_id: string | null;
         };
+        /** GeneratedCitationResponse */
+        GeneratedCitationResponse: {
+            /** Claim Index */
+            claim_index: number;
+            /** Evidence Ids */
+            evidence_ids: string[];
+        };
+        /** GenerationResponse */
+        GenerationResponse: {
+            /** Citations */
+            citations: components["schemas"]["GeneratedCitationResponse"][];
+            /** Reason Codes */
+            reason_codes: string[];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "answered" | "not_requested" | "insufficient_evidence" | "citation_validation_failed";
+            /** Text */
+            text: string | null;
+            /** Turn Id */
+            turn_id: string | null;
+            /** Validation Token */
+            validation_token: string | null;
+        };
         /**
          * HighlightKind
          * @enum {string}
@@ -1231,6 +1276,10 @@ export interface components {
         /** SavedRagConfigurationResponse */
         SavedRagConfigurationResponse: {
             answer_policy: components["schemas"]["AnswerPolicyVersionResponse"];
+            /** Answer Ready */
+            answer_ready: boolean;
+            /** Answer Reasons */
+            answer_reasons: string[];
             evaluation_state: components["schemas"]["EvaluationState"];
             /** Experimental */
             experimental: boolean;
@@ -1261,6 +1310,10 @@ export interface components {
             retrieval_profile_id: string;
             /** Search Ready */
             search_ready: boolean;
+            /** Search Reasons */
+            search_reasons: string[];
+            /** Service Ready */
+            service_ready: boolean;
             /** Version */
             version: number;
             /**
@@ -1285,6 +1338,8 @@ export interface components {
             experimental: boolean;
             /** Folder Ids */
             folder_ids?: string[];
+            /** History */
+            history?: components["schemas"]["ConversationTurnRequest"][];
             /** Query */
             query: string;
             /**
@@ -1304,8 +1359,11 @@ export interface components {
             conflicts: components["schemas"]["EvidenceAnswerResponse"][];
             /** Experimental */
             experimental: boolean;
+            generation: components["schemas"]["GenerationResponse"];
             /** Related Sources */
             related_sources: components["schemas"]["RelatedSourceResponse"][];
+            /** Resolved Query */
+            resolved_query: string;
             status: components["schemas"]["AnswerStatus"];
             /** Warnings */
             warnings: string[];

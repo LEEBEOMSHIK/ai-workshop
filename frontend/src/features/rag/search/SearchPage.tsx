@@ -7,6 +7,7 @@ import {
   type FolderOption,
   type SavedConfiguration,
   type SearchOptions,
+  type SearchRequest,
   type SearchResult,
   type SearchSubmissionContext,
   type WorkspaceOption,
@@ -34,10 +35,10 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
   const [configurationId, setConfigurationId] = useState("");
   const [experimentalConsent, setExperimentalConsent] = useState(false);
   const [query, setQuery] = useState("");
-  const [completedSearch, setCompletedSearch] = useState<{
+  const [completedSearches, setCompletedSearches] = useState<Array<{
     result: SearchResult;
     context: SearchSubmissionContext;
-  } | null>(null);
+  }>>([]);
   const [loading, setLoading] = useState(initialOptions === undefined);
   const [optionsLoadFailed, setOptionsLoadFailed] = useState(false);
   const [searching, setSearching] = useState(false);
@@ -85,7 +86,11 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
     (configuration) => configuration.id === configurationId,
   );
   const requiresExperimentalConsent = selectedConfiguration?.experimental === true;
-  const selectedConfigurationReady = selectedConfiguration?.search_ready !== false;
+  const selectedConfigurationReady =
+    selectedConfiguration?.search_ready === true &&
+    selectedConfiguration.answer_ready === true &&
+    selectedConfiguration.service_ready === true;
+  const conversationLocked = completedSearches.length > 0;
 
   async function toggleWorkspace(workspaceId: string, selected: boolean) {
     if (selected) {
@@ -130,6 +135,25 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
         : [],
     );
     const experimental = requiresExperimentalConsent && experimentalConsent;
+    const history: SearchRequest["history"] = completedSearches.flatMap(({ result, context }) => {
+      const turns: SearchRequest["history"] = [
+        { role: "user", content: context.query, turn_id: null, validation_token: null },
+      ];
+      if (
+        result.generation?.status === "answered" &&
+        result.generation.text &&
+        result.generation.turn_id &&
+        result.generation.validation_token
+      ) {
+        turns.push({
+          role: "assistant",
+          content: result.generation.text,
+          turn_id: result.generation.turn_id,
+          validation_token: result.generation.validation_token,
+        });
+      }
+      return turns;
+    });
     const context: SearchSubmissionContext = {
       query: query.trim(),
       configuration: {
@@ -149,7 +173,6 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
     const generation = requestGeneration.current + 1;
     requestGeneration.current = generation;
     setError("");
-    setCompletedSearch(null);
     setSearching(true);
     try {
       const result = await searchEvidence(
@@ -160,15 +183,16 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
           folder_ids: context.folders.map((folder) => folder.id),
           top_k: 10,
           experimental,
+          history,
         },
         controller.signal,
       );
       if (requestGeneration.current === generation && !controller.signal.aborted) {
-        setCompletedSearch({ result, context });
+        setCompletedSearches((current) => [...current, { result, context }]);
+        setQuery("");
       }
     } catch (caught) {
       if (requestGeneration.current === generation && !controller.signal.aborted) {
-        setCompletedSearch(null);
         setError(searchErrorMessage(caught));
       }
     } finally {
@@ -186,12 +210,18 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
     setSearching(false);
   }
 
+  function startNewConversation() {
+    setCompletedSearches([]);
+    setQuery("");
+    setError("");
+  }
+
   return (
     <main className="search-shell">
       <header className="search-header">
         <p className="eyebrow">EVIDENCE-FIRST RAG SEARCH</p>
-        <h1 className="search-title">근거부터 확인하는 검색</h1>
-        <p>검색할 지식 공간과 저장된 구성을 직접 선택해 주세요.</p>
+        <h1 className="search-title">근거를 확인하는 AI 대화</h1>
+        <p>첫 질문 전에 지식 공간과 RAG 구성을 선택하면 같은 대화에서 후속질문을 이어갈 수 있습니다.</p>
       </header>
 
       {loading ? <p role="status">검색 옵션을 불러오는 중…</p> : null}
@@ -199,7 +229,7 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
 
       {!loading && !optionsLoadFailed ? (
         <form className="search-controls" onSubmit={handleSubmit}>
-          <fieldset disabled={searching}>
+          <fieldset disabled={searching || conversationLocked}>
             <legend>검색할 지식 공간</legend>
             {options.workspaces.length === 0 ? (
               <p role="status">검색할 수 있는 지식 공간이 없습니다.</p>
@@ -220,7 +250,7 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
           </fieldset>
 
           {workspaceIds.some((id) => (folderOptions[id] ?? []).length > 0) ? (
-            <fieldset disabled={searching}>
+            <fieldset disabled={searching || conversationLocked}>
               <legend>폴더 (선택 사항)</legend>
               {workspaceIds.flatMap((workspaceId) =>
                 (folderOptions[workspaceId] ?? []).map((folder) => (
@@ -246,7 +276,7 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
           <label>
             저장된 RAG 구성
             <select
-              disabled={searching}
+              disabled={searching || conversationLocked}
               value={configurationId}
               onChange={(event) => {
                 setConfigurationId(event.target.value);
@@ -263,9 +293,11 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
             <p role="status">사용할 수 있는 저장 구성이 없습니다.</p>
           ) : null}
           {selectedConfiguration && !selectedConfigurationReady ? (
-            <p role="status" aria-label="검색 색인 준비 상태">
-              선택한 구성의 검색 색인이 아직 준비되지 않았습니다. 문서 처리 상태를 확인해
-              주세요.
+            <p role="status" aria-label="RAG 서비스 준비 상태">
+              {!selectedConfiguration.search_ready
+                ? "선택한 구성의 검색 색인이 아직 준비되지 않았습니다."
+                : "선택한 구성의 LLM 답변이 아직 준비되지 않았습니다."}{" "}
+              관리자 구성 화면에서 준비 상태와 원인을 확인해 주세요.
             </p>
           ) : null}
           {requiresExperimentalConsent ? (
@@ -302,7 +334,7 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
               (requiresExperimentalConsent && !experimentalConsent)
             }
           >
-            {searching ? "검색 중…" : "근거 검색"}
+            {searching ? "답변 생성 중…" : "질문 보내기"}
           </button>
           {searching ? (
             <button type="button" className="secondary-button" onClick={cancelSearch}>
@@ -312,12 +344,32 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
         </form>
       ) : null}
 
-      {completedSearch ? (
-        <div className="search-results" data-testid="submitted-search-result">
-          <p className="submitted-query"><strong>제출한 질문</strong> {completedSearch.context.query}</p>
-          <EvidenceAnswer result={completedSearch.result} context={completedSearch.context} />
-          <RelatedSources result={completedSearch.result} context={completedSearch.context} />
-        </div>
+      {completedSearches.length > 0 ? (
+        <section className="conversation-results" aria-label="현재 대화">
+          <p className="conversation-notice">현재 대화는 이 브라우저 화면에서만 유지됩니다.</p>
+          {completedSearches.map((completedSearch, index) => (
+            <article
+              className="search-results"
+              data-testid="submitted-search-result"
+              key={completedSearch.result.generation?.turn_id ?? `${completedSearch.context.query}-${index}`}
+            >
+              <p className="submitted-query">
+                <strong>나</strong> {completedSearch.context.query}
+              </p>
+              {completedSearch.result.resolved_query &&
+              completedSearch.result.resolved_query !== completedSearch.context.query ? (
+                <p className="resolved-query">
+                  검색에 사용한 질의: {completedSearch.result.resolved_query}
+                </p>
+              ) : null}
+              <EvidenceAnswer result={completedSearch.result} context={completedSearch.context} />
+              <RelatedSources result={completedSearch.result} context={completedSearch.context} />
+            </article>
+          ))}
+          <button type="button" className="secondary-button" onClick={startNewConversation}>
+            새 대화
+          </button>
+        </section>
       ) : null}
     </main>
   );
@@ -329,6 +381,7 @@ function ConfigurationOption({ configuration }: { configuration: SavedConfigurat
       {configuration.name} v{configuration.version}
       {configuration.experimental ? " · 실험" : ""}
       {!configuration.search_ready ? " · 색인 준비 전" : ""}
+      {configuration.search_ready && !configuration.answer_ready ? " · LLM 준비 전" : ""}
     </option>
   );
 }

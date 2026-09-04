@@ -22,6 +22,25 @@ const submissionContext: SearchSubmissionContext = {
 };
 
 describe("EvidenceAnswer", () => {
+  it("renders a validated LLM answer with citations mapped to current evidence", () => {
+    renderAnswer(
+      searchResult({
+        generation: {
+          status: "answered",
+          text: "환매 요청은 영업일 기준 3일 전에 접수해야 합니다.",
+          citations: [{ claim_index: 0, evidence_ids: ["evidence-1"] }],
+          reason_codes: [],
+          turn_id: "turn-1",
+          validation_token: "signed-turn-1",
+        },
+      }),
+    );
+
+    const generated = screen.getByRole("region", { name: "AI 답변" });
+    expect(within(generated).getByText("환매 요청은 영업일 기준 3일 전에 접수해야 합니다.")).toBeVisible();
+    expect(within(generated).getByText("주장 1 · 환매 규정.txt")).toBeVisible();
+  });
+
   it("renders a supported extract with immutable provenance and distinct keyword and semantic labels", () => {
     const answer = evidence({
       warnings: ["provenance_incomplete"],
@@ -202,6 +221,15 @@ function searchResult(overrides: Partial<SearchResult> = {}): SearchResult {
       version: 3,
     },
     experimental: false,
+    resolved_query: "환매 제한은 무엇인가요?",
+    generation: {
+      status: "not_requested",
+      text: null,
+      citations: [],
+      reason_codes: [],
+      turn_id: null,
+      validation_token: null,
+    },
     ...overrides,
   };
 }

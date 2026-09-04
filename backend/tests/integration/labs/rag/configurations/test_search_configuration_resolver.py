@@ -33,6 +33,9 @@ from ai_workshop.labs.rag.ingestion.repository import (
     SqlAlchemyRagIngestionCommandRepository,
 )
 from ai_workshop.labs.rag.ingestion.service import RagIngestionService
+from ai_workshop.labs.rag.models.domain import ModelKind, ProfileKind, ProfileModelBinding
+from ai_workshop.labs.rag.models.repository import SqlAlchemyModelRegistryRepository
+from ai_workshop.labs.rag.models.service import RagModelRegistryService
 from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecord
 from ai_workshop.platform.identity.models import UserRecord
 from ai_workshop.platform.jobs.models import JobRecord
@@ -480,6 +483,63 @@ async def test_postgres_versions_visibility_jobs_subscriptions_and_exact_resolve
             assert exact_first.configuration_version == 1
             assert exact_first.answer_policy is not None
             assert exact_first.answer_policy.min_semantic_score == 0.81
+
+            registry = RagModelRegistryService(SqlAlchemyModelRegistryRepository(session))
+            llm = await registry.register_model(
+                kind=ModelKind.LLM,
+                name="synthetic-local-llm",
+                version=1,
+                config={
+                    "provider": "openai_compatible",
+                    "runtime_model": "synthetic/exact-model",
+                    "data_policy": "local_only",
+                },
+            )
+            generation_profile = await registry.register_profile(
+                kind=ProfileKind.GENERATION,
+                name="synthetic-grounded-generation",
+                version=1,
+                config={
+                    "prompt_ref": "rag-answer-v1",
+                    "context_prompt_ref": "rag-contextualize-v1",
+                    "citation_mode": "required",
+                    "context_policy": {
+                        "max_history_turns": 6,
+                        "max_history_tokens": 1024,
+                    },
+                    "generation": {
+                        "timeout_seconds": 30,
+                        "max_output_tokens": 512,
+                        "temperature": 0.1,
+                        "response_schema_version": 1,
+                    },
+                },
+                bindings=(ProfileModelBinding(ModelKind.LLM, llm.id),),
+            )
+            generative = await service.create(
+                owner_id=owner_id,
+                name="대화형 생성 구성",
+                indexing_profile_id=E5_INDEXING_PROFILE_ID,
+                retrieval_profile_id=BM25_RETRIEVAL_PROFILE_ID,
+                generation_profile_id=generation_profile.id,
+                answer_mode="generative",
+                min_semantic_score=0.8,
+                min_keyword_coverage=0.7,
+                require_complete_provenance=True,
+                conflict_mode="separate_sources",
+                workspace_ids=(workspace_id,),
+            )
+            resolved_generative = await resolver.resolve(
+                generative.configuration.id,
+                owner_id,
+            )
+
+            assert resolved_generative.generation_profile is not None
+            assert resolved_generative.generation_profile.profile_id == generation_profile.id
+            assert resolved_generative.generation_profile.model_id == llm.id
+            assert resolved_generative.generation_profile.runtime_model == (
+                "synthetic/exact-model"
+            )
 
             second_active_build.vector_dimension = 1024
             await session.flush()

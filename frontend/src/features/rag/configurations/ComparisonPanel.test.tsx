@@ -500,6 +500,10 @@ function savedConfiguration(overrides: Partial<SavedConfiguration> = {}): SavedC
     is_default: false,
     experimental: true,
     search_ready: true,
+    answer_ready: false,
+    service_ready: false,
+    search_reasons: [],
+    answer_reasons: ["generation_not_configured"],
     ...overrides,
   };
 }

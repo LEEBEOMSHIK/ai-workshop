@@ -1,10 +1,26 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Protocol
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from ai_workshop.labs.rag.embeddings.contracts import EmbeddingRuntimeUnavailableError
+from ai_workshop.labs.rag.generation.citation_validation import CitationValidator
+from ai_workshop.labs.rag.generation.contracts import (
+    GenerationRuntimePort,
+    GenerationRuntimeResponseError,
+    GenerationRuntimeUnavailableError,
+)
+from ai_workshop.labs.rag.generation.domain import (
+    ContextualizationRequest,
+    ConversationRole,
+    ConversationTurn,
+    GenerationOutcome,
+    GenerationRequest,
+    GenerationStatus,
+    GroundingEvidence,
+)
+from ai_workshop.labs.rag.generation.integrity import ConversationTurnSigner
 from ai_workshop.labs.rag.highlighting.domain import (
     EvidenceSelection,
     EvidenceSource,
@@ -22,6 +38,7 @@ from ai_workshop.labs.rag.search.configuration_port import (
     SearchConfigurationResolverPort,
 )
 from ai_workshop.shared.errors import AppError
+from ai_workshop.shared.request_context import correlation_id_context
 
 if TYPE_CHECKING:
     from ai_workshop.labs.rag.search.schemas import SearchRequest
@@ -48,6 +65,10 @@ class SearchResult:
     configuration: ResolvedSearchConfiguration
     related_sources: tuple[RelatedSource, ...]
     retrieved_evidence_ids: tuple[UUID, ...] = ()
+    resolved_query: str = ""
+    generation: GenerationOutcome = GenerationOutcome(
+        status=GenerationStatus.NOT_REQUESTED
+    )
 
 
 class SearchApplicationService:
@@ -59,12 +80,16 @@ class SearchApplicationService:
         sparse_retriever: SparseRetrieverPort,
         dense_retriever: DenseRetrieverPort,
         source_resolver: SearchSourceResolverPort,
+        generation_runtime: GenerationRuntimePort | None = None,
+        turn_signer: ConversationTurnSigner | None = None,
     ) -> None:
         self.configuration_resolver = configuration_resolver
         self.scope_resolver = scope_resolver
         self.sparse_retriever = sparse_retriever
         self.dense_retriever = dense_retriever
         self.source_resolver = source_resolver
+        self.generation_runtime = generation_runtime
+        self.turn_signer = turn_signer
 
     async def search(self, *, actor_id: UUID, request: SearchRequest) -> SearchResult:
         configuration = await self.configuration_resolver.resolve(
@@ -111,6 +136,49 @@ class SearchApplicationService:
         if not set(request.workspace_ids).issubset(configuration.workspace_ids):
             raise AppError("not_found", "The requested resource was not found.", 404)
 
+        generation_profile = configuration.generation_profile
+        if generation_profile is not None and (
+            self.generation_runtime is None or self.turn_signer is None
+        ):
+            raise AppError(
+                "llm_unavailable",
+                "Answer generation is temporarily unavailable.",
+                503,
+            )
+        history = self._validated_history(
+            request=request,
+            actor_id=actor_id,
+            configuration=configuration,
+        )
+        bounded_history = history
+        if generation_profile is not None:
+            bounded_history = generation_profile.context_policy.select(
+                history,
+                token_counter=configuration.embedding.count_tokens,
+            )
+        resolved_query = request.query.strip()
+        if generation_profile is not None and bounded_history:
+            if self.generation_runtime is None:
+                raise AppError(
+                    "query_contextualization_unavailable",
+                    "Conversation context is temporarily unavailable.",
+                    503,
+                )
+            try:
+                resolved_query = await self.generation_runtime.contextualize(
+                    ContextualizationRequest(
+                        question=request.query.strip(),
+                        history=bounded_history,
+                        profile=generation_profile,
+                    )
+                )
+            except (GenerationRuntimeUnavailableError, GenerationRuntimeResponseError) as exc:
+                raise AppError(
+                    "query_contextualization_unavailable",
+                    "Conversation context is temporarily unavailable.",
+                    503,
+                ) from exc
+
         retrieval = HybridRetrievalService(
             scope_resolver=self.scope_resolver,
             embedding=configuration.embedding,
@@ -119,7 +187,7 @@ class SearchApplicationService:
         )
         hits = await retrieval.search(
             actor_id=actor_id,
-            query=request.query,
+            query=resolved_query,
             workspace_ids=tuple(request.workspace_ids),
             folder_ids=tuple(request.folder_ids),
             indexing_profile_id=configuration.indexing_profile_id,
@@ -135,7 +203,7 @@ class SearchApplicationService:
         )
         try:
             selection = EvidenceSelector(configuration.embedding).select(
-                query=request.query.strip(),
+                query=resolved_query,
                 sources=sources,
                 policy=policy,
             )
@@ -145,6 +213,14 @@ class SearchApplicationService:
                 "Evidence selection is temporarily unavailable.",
                 503,
             ) from exc
+        generation = await self._generate(
+            actor_id=actor_id,
+            original_query=request.query.strip(),
+            resolved_query=resolved_query,
+            history=bounded_history,
+            configuration=configuration,
+            selection=selection,
+        )
         return SearchResult(
             selection=selection,
             configuration=configuration,
@@ -154,7 +230,130 @@ class SearchApplicationService:
                 for source in sources
                 for evidence in source.chunk.evidence_units
             ),
+            resolved_query=resolved_query,
+            generation=generation,
         )
+
+    def _validated_history(
+        self,
+        *,
+        request: SearchRequest,
+        actor_id: UUID,
+        configuration: ResolvedSearchConfiguration,
+    ) -> tuple[ConversationTurn, ...]:
+        history: list[ConversationTurn] = []
+        for item in request.history:
+            try:
+                turn = ConversationTurn(
+                    role=ConversationRole(item.role),
+                    content=item.content,
+                    turn_id=item.turn_id,
+                    validation_token=item.validation_token,
+                )
+            except ValueError as exc:
+                raise AppError(
+                    "conversation_history_invalid",
+                    "Conversation history is invalid.",
+                    422,
+                ) from exc
+            if turn.role is ConversationRole.ASSISTANT:
+                if self.turn_signer is None or not self.turn_signer.verify(
+                    turn,
+                    actor_id=actor_id,
+                    configuration_version_id=configuration.configuration_version_id,
+                ):
+                    raise AppError(
+                        "conversation_history_invalid",
+                        "Conversation history is invalid.",
+                        422,
+                    )
+            elif turn.turn_id is not None or turn.validation_token is not None:
+                raise AppError(
+                    "conversation_history_invalid",
+                    "Conversation history is invalid.",
+                    422,
+                )
+            history.append(turn)
+        return tuple(history)
+
+    async def _generate(
+        self,
+        *,
+        actor_id: UUID,
+        original_query: str,
+        resolved_query: str,
+        history: tuple[ConversationTurn, ...],
+        configuration: ResolvedSearchConfiguration,
+        selection: EvidenceSelection,
+    ) -> GenerationOutcome:
+        profile = configuration.generation_profile
+        if profile is None:
+            return GenerationOutcome(status=GenerationStatus.NOT_REQUESTED)
+        if selection.status.value == "insufficient_evidence":
+            return GenerationOutcome(status=GenerationStatus.INSUFFICIENT_EVIDENCE)
+        if self.generation_runtime is None or self.turn_signer is None:
+            raise AppError(
+                "llm_unavailable",
+                "Answer generation is temporarily unavailable.",
+                503,
+            )
+        evidence = _generation_evidence(selection)
+        try:
+            draft = await self.generation_runtime.generate(
+                GenerationRequest(
+                    question=original_query,
+                    resolved_query=resolved_query,
+                    history=history,
+                    evidence=evidence,
+                    profile=profile,
+                    correlation_id=correlation_id_context.get(),
+                )
+            )
+        except (GenerationRuntimeUnavailableError, GenerationRuntimeResponseError) as exc:
+            raise AppError(
+                "llm_unavailable",
+                "Answer generation is temporarily unavailable.",
+                503,
+            ) from exc
+        outcome = CitationValidator().validate(draft, allowed_evidence=evidence)
+        if outcome.status is not GenerationStatus.ANSWERED or outcome.text is None:
+            return outcome
+        turn_id = uuid4()
+        return replace(
+            outcome,
+            turn_id=turn_id,
+            validation_token=self.turn_signer.sign(
+                content=outcome.text,
+                actor_id=actor_id,
+                turn_id=turn_id,
+                configuration_version_id=configuration.configuration_version_id,
+            ),
+        )
+
+
+def _generation_evidence(
+    selection: EvidenceSelection,
+) -> tuple[GroundingEvidence, ...]:
+    answers = (
+        *((selection.answer,) if selection.answer is not None else ()),
+        *selection.conflicts,
+    )
+    return tuple(
+        GroundingEvidence(
+            evidence_id=answer.evidence.id,
+            text=answer.evidence.text,
+            document_id=answer.source.document_id,
+            asset_version_id=answer.source.chunk.asset_version_id,
+            projection_id=answer.evidence.projection_id,
+            chunk_id=answer.evidence.chunk_id,
+            element_id=answer.evidence.location.element_id,
+            page=answer.evidence.location.page,
+            char_start=answer.evidence.location.char_start,
+            char_end=answer.evidence.location.char_end,
+            bbox=answer.evidence.location.bbox,
+        )
+        for answer in answers
+    )
 
 
 def _related_sources(

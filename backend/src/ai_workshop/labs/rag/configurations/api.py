@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_workshop.config import Settings, get_settings
 from ai_workshop.labs.rag.configurations.schemas import (
     SavedRagConfigurationCreate,
     SavedRagConfigurationResponse,
@@ -18,9 +19,13 @@ router = APIRouter(prefix="/api/v1/rag/configurations", tags=["rag-configuration
 
 def get_rag_configuration_service(
     session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> RagConfigurationService:
     from ai_workshop.labs.rag.configurations.repository import (
         SqlAlchemyRagConfigurationRepository,
+    )
+    from ai_workshop.labs.rag.generation.readiness import (
+        SqlAlchemyGenerationReadiness,
     )
     from ai_workshop.labs.rag.ingestion.repository import (
         SqlAlchemyRagIngestionCommandRepository,
@@ -31,6 +36,7 @@ def get_rag_configuration_service(
         SqlAlchemyRagConfigurationRepository(session),
         RagIngestionService(SqlAlchemyRagIngestionCommandRepository(session)),
         commit=session.commit,
+        generation_readiness=SqlAlchemyGenerationReadiness(session, settings),
     )
 
 
@@ -40,11 +46,15 @@ async def list_configurations(
     service: Annotated[RagConfigurationService, Depends(get_rag_configuration_service)],
 ) -> list[SavedRagConfigurationResponse]:
     configurations = await service.list(user.id)
-    readiness = await service.search_readiness(tuple(configurations))
+    readiness = await service.readiness(tuple(configurations))
     return [
         SavedRagConfigurationResponse.from_domain(
             item,
-            search_ready=readiness[item.version_id],
+            search_ready=readiness[item.version_id].search_ready,
+            answer_ready=readiness[item.version_id].answer_ready,
+            service_ready=readiness[item.version_id].service_ready,
+            search_reasons=readiness[item.version_id].search_reasons,
+            answer_reasons=readiness[item.version_id].answer_reasons,
         )
         for item in configurations
     ]
@@ -63,16 +73,22 @@ async def create_configuration(
         indexing_profile_id=request.indexing_profile_id,
         retrieval_profile_id=request.retrieval_profile_id,
         generation_profile_id=request.generation_profile_id,
+        answer_mode=policy.mode,
         min_semantic_score=policy.min_semantic_score,
         min_keyword_coverage=policy.min_keyword_coverage,
         require_complete_provenance=policy.require_complete_provenance,
         conflict_mode=policy.conflict_mode,
         workspace_ids=tuple(request.workspace_ids),
     )
-    readiness = await service.search_readiness((result.configuration,))
+    readiness = await service.readiness((result.configuration,))
+    current = readiness[result.configuration.version_id]
     return SavedRagConfigurationResponse.from_domain(
         result.configuration,
-        search_ready=readiness[result.configuration.version_id],
+        search_ready=current.search_ready,
+        answer_ready=current.answer_ready,
+        service_ready=current.service_ready,
+        search_reasons=current.search_reasons,
+        answer_reasons=current.answer_reasons,
     )
 
 
@@ -83,10 +99,15 @@ async def configuration_detail(
     service: Annotated[RagConfigurationService, Depends(get_rag_configuration_service)],
 ) -> SavedRagConfigurationResponse:
     configuration = await service.detail(configuration_id, user.id)
-    readiness = await service.search_readiness((configuration,))
+    readiness = await service.readiness((configuration,))
+    current = readiness[configuration.version_id]
     return SavedRagConfigurationResponse.from_domain(
         configuration,
-        search_ready=readiness[configuration.version_id],
+        search_ready=current.search_ready,
+        answer_ready=current.answer_ready,
+        service_ready=current.service_ready,
+        search_reasons=current.search_reasons,
+        answer_reasons=current.answer_reasons,
     )
 
 
@@ -97,8 +118,13 @@ async def promote_configuration_default(
     service: Annotated[RagConfigurationService, Depends(get_rag_configuration_service)],
 ) -> SavedRagConfigurationResponse:
     configuration = await service.promote_default(configuration_id, user.id)
-    readiness = await service.search_readiness((configuration,))
+    readiness = await service.readiness((configuration,))
+    current = readiness[configuration.version_id]
     return SavedRagConfigurationResponse.from_domain(
         configuration,
-        search_ready=readiness[configuration.version_id],
+        search_ready=current.search_ready,
+        answer_ready=current.answer_ready,
+        service_ready=current.service_ready,
+        search_reasons=current.search_reasons,
+        answer_reasons=current.answer_reasons,
     )

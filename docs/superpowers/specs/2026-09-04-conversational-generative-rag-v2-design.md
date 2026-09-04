@@ -119,7 +119,8 @@ API는 다음 상태를 구분한다.
 
 1. 요청 사용자의 workspace·folder 권한을 확인하고 검색 전에 범위를 확정한다.
 2. 저장 구성의 정확한 불변 버전과 세 준비 상태를 확인한다.
-3. 현재 대화의 이전 user·검증 완료 assistant turn을 versioned context policy로 제한한다.
+3. 현재 대화의 이전 user turn과 서버 서명을 검증한 assistant turn을 versioned context
+   policy로 제한한다.
 4. 첫 질문은 원문을 사용하고, 후속질문은 Query Contextualizer가 history와 현재 질문을
    독립적으로 검색 가능한 질의로 확정한다.
 5. BM25와 dense 후보를 같은 권한 범위에서 조회하고 RRF로 결합한다.
@@ -133,7 +134,8 @@ API는 다음 상태를 구분한다.
    반환한다.
 11. 인용 검증기가 모든 evidence ID의 권한·검색 포함 여부, 원문 위치, 인용 coverage와
    구조적 무결성을 확인한다.
-12. 검증을 통과한 답변만 `answered`로 반환하고 현재 브라우저 대화에 추가한다.
+12. 검증을 통과한 답변만 `answered`로 반환하고, actor·구성 버전·turn·본문 해시에 묶인
+    무상태 검증 토큰을 함께 발급해 현재 브라우저 대화에 추가한다.
 
 LLM은 검색 결과의 첫 순위를 직접 바꾸지 않는다. 문맥 기반 질의 확정은 generation
 profile에 연결된 versioned context policy로 기록하며, 원래 질문과 실제 검색 질의를
@@ -153,6 +155,8 @@ generation.status = answered
                   | citation_validation_failed
 generation.text = 검증된 생성 답변 또는 null
 generation.citations = 문장과 Evidence Unit을 연결한 인용 목록
+generation.turn_id = 검증된 assistant turn 식별자 또는 null
+generation.validation_token = 다음 후속질문에서 사용할 무상태 검증 토큰 또는 null
 resolved_query = 문맥에서 확정되어 실제 검색에 사용한 질의
 ```
 
@@ -209,9 +213,13 @@ precision·coverage와 abstention 기준을 모두 통과해야 한다.
 답변만 포함한다. 새로고침 이후에도 대화를 복원하는 서버 저장 기능은 보존·삭제 정책을
 별도로 승인한 뒤 추가한다.
 
-클라이언트가 전달한 history는 권한 증거로 신뢰하지 않는다. 서버는 매 turn마다 현재
-workspace·folder 권한과 새로 검색한 Evidence Unit을 다시 검사하고, history에 포함된 과거
-인용 ID만으로 문서에 접근하거나 답변 근거를 확장하지 않는다.
+클라이언트가 전달한 history는 권한 증거로 신뢰하지 않는다. 서버는 assistant turn의
+검증 토큰을 현재 actor, 저장 구성의 정확한 version ID, turn ID와 답변 본문 해시에 대해
+HMAC으로 검증한다. 유효하지 않거나 다른 actor·구성의 assistant history는 요청을 거부한다.
+토큰에는 답변 본문을 저장하지 않으며 서버는 대화 전문을 영속화하지 않는다. user turn은
+참고 문맥일 뿐 권한이나 근거가 아니다. 서버는 매 turn마다 현재 workspace·folder 권한과
+새로 검색한 Evidence Unit을 다시 검사하고, history에 포함된 과거 인용 ID만으로 문서에
+접근하거나 답변 근거를 확장하지 않는다.
 
 ## 10. 관리자와 사용자 UI
 
@@ -241,6 +249,7 @@ Generation Profile과 Answer Policy를 선택하고 리랭커는 `사용 안 함
 11. 후속질문은 이전 turn으로부터 독립 검색 질의를 확정하고 원 질문과 확정 질의를 함께
     반환한다.
 12. 다른 대화의 history가 섞이지 않고 매 turn의 문서 권한을 다시 검사한다.
+13. 위조되거나 다른 actor·구성 버전에 발급된 assistant turn은 검색 전에 거부한다.
 
 ## 12. 구현 순서
 

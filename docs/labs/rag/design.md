@@ -402,6 +402,7 @@ that requested profile once.
   검증이다. 리랭커를 명시적으로 구성한 경우에만 실행하며 구성된 모델 실패를 조용히
   건너뛰지 않는다.
 - 후속질문은 versioned context policy가 선택한 bounded 이전 turn으로 실제 검색 질의를
-  확정하며, 원 질문과 확정 질의를 구분해 반환한다. 매 turn 권한과 근거 범위를 다시 검사한다.
+  확정하며, 원 질문과 확정 질의를 구분해 반환한다. assistant turn은 actor·구성 버전·본문에
+  묶인 서버 서명을 검증하고, 매 turn 권한과 근거 범위를 다시 검사한다.
 - 직접 답할 근거가 없으면 관련 문서가 있어도 INSUFFICIENT_EVIDENCE를 반환한다.
 - 사용자가 저장한 RAG 구성만 저장 목록과 비교 대상에 추가된다.

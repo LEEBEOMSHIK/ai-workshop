@@ -92,6 +92,15 @@ class ModelDefinition:
         if not name.strip() or version < 1:
             raise ProfileValidationError("Model name and positive version are required.")
         _validate_environment_references(config)
+        if kind is ModelKind.LLM and (
+            config.get("provider") != "openai_compatible"
+            or config.get("data_policy") != "local_only"
+            or not isinstance(config.get("runtime_model"), str)
+            or not str(config["runtime_model"]).strip()
+        ):
+            raise ProfileValidationError(
+                "An LLM model requires a local OpenAI-compatible runtime identity."
+            )
         frozen = freeze_json(config)
         if not isinstance(frozen, Mapping):
             raise TypeError("Model configuration must be a mapping.")
@@ -177,7 +186,73 @@ def _validate_profile_shape(
         if ModelKind.RERANKER in roles and "reranker" not in config:
             raise ProfileValidationError("A reranker binding requires reranker configuration.")
     else:
-        if "prompt_ref" not in config:
-            raise ProfileValidationError("A generation profile requires a prompt reference.")
-        if roles != {ModelKind.LLM}:
-            raise ProfileValidationError("A generation profile requires an LLM model.")
+        _validate_generation_profile(config, bindings)
+
+
+def _validate_generation_profile(
+    config: Mapping[str, JsonValue],
+    bindings: tuple[ProfileModelBinding, ...],
+) -> None:
+    required = {
+        "prompt_ref",
+        "context_prompt_ref",
+        "citation_mode",
+        "context_policy",
+        "generation",
+    }
+    if not required.issubset(config):
+        raise ProfileValidationError(
+            "A generation profile requires prompt, context, citation, and output settings."
+        )
+    if any(
+        not isinstance(config[key], str) or not str(config[key]).strip()
+        for key in ("prompt_ref", "context_prompt_ref")
+    ):
+        raise ProfileValidationError("A generation profile requires nonempty prompt references.")
+    if config["citation_mode"] != "required":
+        raise ProfileValidationError("A generation profile requires citation validation.")
+    if len(bindings) != 1 or bindings[0].role is not ModelKind.LLM:
+        raise ProfileValidationError("A generation profile requires exactly one LLM model.")
+
+    context = config["context_policy"]
+    generation = config["generation"]
+    if not isinstance(context, Mapping) or not isinstance(generation, Mapping):
+        raise ProfileValidationError("A generation profile requires structured settings.")
+    max_turns = context.get("max_history_turns")
+    max_context_tokens = context.get("max_history_tokens")
+    if (
+        not isinstance(max_turns, int)
+        or isinstance(max_turns, bool)
+        or max_turns < 1
+        or not isinstance(max_context_tokens, int)
+        or isinstance(max_context_tokens, bool)
+        or max_context_tokens < 1
+    ):
+        raise ProfileValidationError("A generation profile requires positive context limits.")
+
+    timeout = generation.get("timeout_seconds")
+    max_output_tokens = generation.get("max_output_tokens")
+    temperature = generation.get("temperature")
+    schema_version = generation.get("response_schema_version")
+    if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or timeout <= 0:
+        raise ProfileValidationError("A generation profile requires a positive timeout.")
+    if (
+        not isinstance(max_output_tokens, int)
+        or isinstance(max_output_tokens, bool)
+        or max_output_tokens < 1
+    ):
+        raise ProfileValidationError("A generation profile requires a positive output token limit.")
+    if (
+        not isinstance(temperature, (int, float))
+        or isinstance(temperature, bool)
+        or not 0 <= temperature <= 2
+    ):
+        raise ProfileValidationError(
+            "A generation profile temperature must be between zero and two."
+        )
+    if (
+        not isinstance(schema_version, int)
+        or isinstance(schema_version, bool)
+        or schema_version < 1
+    ):
+        raise ProfileValidationError("A generation profile requires a response schema version.")

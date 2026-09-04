@@ -1,5 +1,5 @@
 from collections.abc import Callable, Mapping
-from typing import cast
+from typing import Literal, cast
 from uuid import UUID
 
 from sqlalchemy import and_, or_, select, update
@@ -38,6 +38,8 @@ from ai_workshop.labs.rag.evaluation.models import (
     EvaluationRunConfigurationRecord,
     EvaluationRunRecord,
 )
+from ai_workshop.labs.rag.generation.domain import GenerationProfile
+from ai_workshop.labs.rag.generation.profile import resolve_generation_profile
 from ai_workshop.labs.rag.indexing.contracts import IndexDescriptor
 from ai_workshop.labs.rag.models.domain import (
     EvaluationState,
@@ -508,7 +510,7 @@ class SqlAlchemyRagConfigurationRepository:
         if policy is None or policy.configuration_id != identity.id:
             raise RuntimeError("A Saved RAG Configuration has no immutable Answer Policy.")
         if (
-            policy.mode != "extractive"
+            policy.mode not in {"extractive", "generative"}
             or policy.require_complete_provenance is not True
             or policy.conflict_mode != "separate_sources"
         ):
@@ -527,7 +529,7 @@ class SqlAlchemyRagConfigurationRepository:
             id=policy.id,
             configuration_id=policy.configuration_id,
             version=policy.version,
-            mode="extractive",
+            mode=cast(Literal["extractive", "generative"], policy.mode),
             min_semantic_score=policy.min_semantic_score,
             min_keyword_coverage=policy.min_keyword_coverage,
             require_complete_provenance=True,
@@ -777,6 +779,46 @@ class SqlAlchemySearchConfigurationResolver:
         except EmbeddingValidationError as exc:
             raise AppError("configuration_invalid", str(exc), 409) from exc
 
+        generation_profile: GenerationProfile | None = None
+        if configuration.generation_profile_id is not None:
+            generation = await self.repository.find_profile(
+                configuration.generation_profile_id
+            )
+            if generation is None or generation.kind is not ProfileKind.GENERATION:
+                raise AppError(
+                    "configuration_invalid",
+                    "The immutable generation profile is unavailable.",
+                    409,
+                )
+            llm_bindings = tuple(
+                binding
+                for binding in generation.bindings
+                if binding.role is ModelKind.LLM
+            )
+            if len(llm_bindings) != 1:
+                raise AppError(
+                    "configuration_invalid",
+                    "The immutable generation profile has no exact LLM binding.",
+                    409,
+                )
+            llm_record = await self.session.get(
+                ModelDefinitionRecord,
+                llm_bindings[0].model_id,
+            )
+            if llm_record is None:
+                raise AppError(
+                    "configuration_invalid",
+                    "The immutable generation model is unavailable.",
+                    409,
+                )
+            try:
+                generation_profile = resolve_generation_profile(
+                    generation,
+                    _model_to_domain(llm_record),
+                )
+            except ValueError as exc:
+                raise AppError("configuration_invalid", str(exc), 409) from exc
+
         if frozen_target is None:
             builds = list(
                 await self.session.scalars(
@@ -833,6 +875,7 @@ class SqlAlchemySearchConfigurationResolver:
             query_max_tokens=embedding_config.max_tokens,
             workspace_ids=workspace_ids,
             experimental=configuration.experimental,
+            generation_profile=generation_profile,
         )
 
 

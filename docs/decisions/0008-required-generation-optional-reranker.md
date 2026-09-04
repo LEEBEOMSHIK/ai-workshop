@@ -34,6 +34,8 @@ Hybrid Retrieval → Optional Reranking → Evidence Selection
   제공한다.
 - 로그인 사용자의 bounded 이전 turn으로 후속질문을 독립 검색 질의로 확정한다. history는
   브라우저 현재 세션에서 전달하고 첫 V2에서는 서버에 대화 전문을 영속 저장하지 않는다.
+- 이전 assistant turn은 actor·구성 버전·turn·본문 해시에 묶인 서버 HMAC 토큰을 검증한
+  경우에만 문맥에 포함한다. user turn과 과거 답변은 새 문서 권한이나 답변 근거가 아니다.
 - 문맥 확정 실패를 원 질문 검색으로 조용히 대체하지 않고, 매 turn 권한과 근거를 다시
   검사한다.
 

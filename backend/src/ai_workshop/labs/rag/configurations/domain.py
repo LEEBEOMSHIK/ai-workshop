@@ -1,6 +1,6 @@
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from typing import Literal
+from typing import Literal, cast
 from uuid import UUID, uuid4
 
 from ai_workshop.labs.rag.evaluation.domain import (
@@ -64,7 +64,7 @@ class AnswerPolicyVersion:
     id: UUID
     configuration_id: UUID
     version: int
-    mode: Literal["extractive"]
+    mode: Literal["extractive", "generative"]
     min_semantic_score: float
     min_keyword_coverage: float
     require_complete_provenance: Literal[True]
@@ -76,6 +76,7 @@ class AnswerPolicyVersion:
         *,
         configuration_id: UUID,
         version: int,
+        mode: str = "extractive",
         min_semantic_score: float,
         min_keyword_coverage: float,
         require_complete_provenance: bool,
@@ -84,6 +85,10 @@ class AnswerPolicyVersion:
         if version < 1:
             raise ConfigurationValidationError(
                 "An Answer Policy version must be positive."
+            )
+        if mode not in {"extractive", "generative"}:
+            raise ConfigurationValidationError(
+                "An Answer Policy mode must be extractive or generative."
             )
         policy = AnswerPolicy(
             min_semantic_score=min_semantic_score,
@@ -95,7 +100,7 @@ class AnswerPolicyVersion:
             id=uuid4(),
             configuration_id=configuration_id,
             version=version,
-            mode="extractive",
+            mode=cast(Literal["extractive", "generative"], mode),
             min_semantic_score=policy.min_semantic_score,
             min_keyword_coverage=policy.min_keyword_coverage,
             require_complete_provenance=True,
@@ -103,10 +108,6 @@ class AnswerPolicyVersion:
         )
 
     def to_answer_policy(self) -> AnswerPolicy:
-        if self.mode != "extractive":
-            raise ConfigurationValidationError(
-                "The first Answer Policy version must be extractive."
-            )
         return AnswerPolicy(
             min_semantic_score=self.min_semantic_score,
             min_keyword_coverage=self.min_keyword_coverage,
@@ -160,9 +161,19 @@ class SavedRagConfiguration:
             raise ConfigurationValidationError(
                 "The retrieval profile must reference the selected indexing profile."
             )
-        if generation_profile_id is not None:
+        if (
+            answer_policy_version.mode == "extractive"
+            and generation_profile_id is not None
+        ):
             raise ConfigurationValidationError(
                 "Generation Profiles are not supported by extractive V1."
+            )
+        if (
+            answer_policy_version.mode == "generative"
+            and generation_profile_id is None
+        ):
+            raise ConfigurationValidationError(
+                "A generative configuration requires a Generation Profile."
             )
         if answer_policy_version.configuration_id != configuration_id:
             raise ConfigurationValidationError(

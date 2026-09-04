@@ -1,0 +1,1 @@
+제공된 evidence만 사용해 질문에 답하라. 각 주요 주장을 하나의 claims 항목으로 나누고 해당 evidence_id를 연결하라. 근거에 없는 사실을 추가하지 말고 지정된 schema_version의 JSON 객체만 반환하라.

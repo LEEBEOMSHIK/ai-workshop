@@ -23,8 +23,8 @@ describe("summarizeRagPackage", () => {
       sparseRetriever: "BM25",
       denseRetriever: "Bi-encoder · multilingual-e5-base v1",
       fusion: "RRF (k=60)",
-      reranker: "사용 안 함 (V1)",
-      llm: "사용 안 함 (V1)",
+      reranker: "사용 안 함 (선택)",
+      llm: "사용 안 함 (추출식)",
     });
   });
 

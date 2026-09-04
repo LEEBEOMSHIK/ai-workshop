@@ -15,9 +15,35 @@ export function EvidenceAnswer({ result, context }: EvidenceAnswerProps) {
   const supported = answer !== null;
   const globalWarningId = useId();
   const hasGlobalWarning = result.warnings.length > 0;
+  const evidenceTitles = new Map(
+    [result.answer, ...result.conflicts]
+      .filter((item): item is EvidenceAnswerData => item !== null)
+      .map((item) => [item.source.evidence_unit_id, item.source.title]),
+  );
 
   return (
     <div className="answer-stack">
+      {result.generation?.status === "answered" && result.generation.text ? (
+        <section className="generated-answer" aria-labelledby="generated-answer-title">
+          <h2 id="generated-answer-title">AI 답변</h2>
+          <p>{result.generation.text}</p>
+          <ul className="generated-citations" aria-label="답변 인용">
+            {result.generation.citations.map((citation) => (
+              <li key={`${citation.claim_index}-${citation.evidence_ids.join("-")}`}>
+                주장 {citation.claim_index + 1} · {citation.evidence_ids
+                  .map((evidenceId) => evidenceTitles.get(evidenceId) ?? "확인된 근거")
+                  .join(", ")}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      {result.generation?.status === "citation_validation_failed" ? (
+        <section className="answer-state insufficient" aria-label="AI 답변 검증 실패">
+          <h2>AI 답변을 표시하지 않았습니다</h2>
+          <p>생성된 답변의 인용이 현재 검색 근거와 일치하지 않아 원문 근거만 제공합니다.</p>
+        </section>
+      ) : null}
       <section className={`answer-state ${supported ? "supported" : "insufficient"}`}>
         <div role="status" aria-describedby={hasGlobalWarning ? globalWarningId : undefined}>
           <h2>{supported ? "근거로 답변할 수 있습니다" : "직접 답할 근거가 부족합니다"}</h2>

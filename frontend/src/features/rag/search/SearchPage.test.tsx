@@ -14,6 +14,91 @@ afterEach(() => {
 });
 
 describe("SearchPage", () => {
+  it("sends signed prior turns for a contextual follow-up and keeps both turns visible", async () => {
+    const searchBodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (input === "/api/v1/workspaces") {
+          return jsonResponse([
+            { id: "company-1", name: "전사 규정", kind: "company", expires_at: null },
+          ]);
+        }
+        if (input === "/api/v1/rag/configurations") {
+          return jsonResponse([savedConfiguration()]);
+        }
+        if (input === "/api/v1/workspaces/company-1/folders") return jsonResponse([]);
+        if (input === "/api/v1/rag/search") {
+          const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+          searchBodies.push(body);
+          const first = searchBodies.length === 1;
+          return jsonResponse({
+            status: "supported",
+            answer: evidenceAnswer(),
+            conflict_state: "none",
+            conflicts: [],
+            warnings: [],
+            related_sources: [],
+            configuration_version: {
+              configuration_id: "configuration-1",
+              version_id: "configuration-version-1",
+              version: 3,
+            },
+            experimental: false,
+            resolved_query: first ? "위험 한도" : "위험 한도 7% 적용일",
+            generation: {
+              status: "answered",
+              text: first
+                ? "위험 한도는 순자산의 7%입니다."
+                : "적용일은 2026-09-01입니다.",
+              citations: [{ claim_index: 0, evidence_ids: ["evidence-1"] }],
+              reason_codes: [],
+              turn_id: first ? "turn-1" : "turn-2",
+              validation_token: first ? "signed-turn-1" : "signed-turn-2",
+            },
+          });
+        }
+        throw new Error(`Unexpected request: ${String(input)}`);
+      }),
+    );
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <SearchPage />
+      </MemoryRouter>,
+    );
+
+    await user.click(await screen.findByRole("checkbox", { name: /전사 규정/ }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "저장된 RAG 구성" }),
+      "configuration-1",
+    );
+    const query = screen.getByRole("searchbox", { name: "검색 질문" });
+    await user.type(query, "위험 한도는 얼마야?");
+    await user.click(screen.getByRole("button", { name: "질문 보내기" }));
+    expect(await screen.findByText("위험 한도는 순자산의 7%입니다.")).toBeVisible();
+
+    await user.type(query, "그건 언제부터야?");
+    await user.click(screen.getByRole("button", { name: "질문 보내기" }));
+
+    expect(await screen.findByText("적용일은 2026-09-01입니다.")).toBeVisible();
+    expect(screen.getByText("위험 한도는 얼마야?")).toBeVisible();
+    expect(screen.getByText("그건 언제부터야?")).toBeVisible();
+    expect(screen.getByText("검색에 사용한 질의: 위험 한도 7% 적용일")).toBeVisible();
+    expect(searchBodies[0]).toMatchObject({ history: [] });
+    expect(searchBodies[1]).toMatchObject({
+      history: [
+        { role: "user", content: "위험 한도는 얼마야?" },
+        {
+          role: "assistant",
+          content: "위험 한도는 순자산의 7%입니다.",
+          turn_id: "turn-1",
+          validation_token: "signed-turn-1",
+        },
+      ],
+    });
+  });
+
   it("searches only explicitly selected workspaces and places confirmed evidence before related documents", async () => {
     const requests: Array<[RequestInfo | URL, RequestInit | undefined]> = [];
     vi.stubGlobal(
@@ -80,7 +165,7 @@ describe("SearchPage", () => {
       "configuration-1",
     );
     await user.type(screen.getByRole("searchbox", { name: "검색 질문" }), "환매 제한은 무엇인가요?");
-    await user.click(screen.getByRole("button", { name: "근거 검색" }));
+    await user.click(screen.getByRole("button", { name: "질문 보내기" }));
 
     const evidenceHeading = await screen.findByRole("heading", { name: "확인된 근거" });
     const relatedHeading = screen.getByRole("heading", { name: "관련 문서" });
@@ -101,6 +186,7 @@ describe("SearchPage", () => {
         folder_ids: [],
         top_k: 10,
         experimental: false,
+        history: [],
       }),
     });
     expect(JSON.parse(String(searchRequest?.[1]?.body))).not.toHaveProperty("user_id");
@@ -176,7 +262,7 @@ describe("SearchPage", () => {
     await user.type(screen.getByRole("searchbox", { name: "검색 질문" }), "근거가 있나요?");
 
     expect(screen.getByText("실험")).toBeVisible();
-    const submit = screen.getByRole("button", { name: "근거 검색" });
+    const submit = screen.getByRole("button", { name: "질문 보내기" });
     expect(submit).toBeDisabled();
     await user.click(screen.getByRole("checkbox", { name: "평가 전 구성을 실험 검색에 사용" }));
     expect(submit).toBeEnabled();
@@ -249,7 +335,7 @@ describe("SearchPage", () => {
       "configuration-1",
     );
     await user.type(screen.getByRole("searchbox", { name: "검색 질문" }), "환매 규정");
-    await user.click(screen.getByRole("button", { name: "근거 검색" }));
+    await user.click(screen.getByRole("button", { name: "질문 보내기" }));
 
     expect(searchBody).toMatchObject({ folder_ids: ["folder-1"] });
   });
@@ -318,7 +404,7 @@ describe("SearchPage", () => {
     const query = screen.getByRole("searchbox", { name: "검색 질문" });
     await user.selectOptions(configuration, "configuration-a");
     await user.type(query, "첫 질문");
-    await user.click(screen.getByRole("button", { name: "근거 검색" }));
+    await user.click(screen.getByRole("button", { name: "질문 보내기" }));
 
     expect(company).toBeDisabled();
     expect(screen.getByRole("checkbox", { name: /개인 리서치/ })).toBeDisabled();
@@ -335,7 +421,7 @@ describe("SearchPage", () => {
     await user.click(screen.getByRole("checkbox", { name: "평가 전 구성을 실험 검색에 사용" }));
     await user.clear(query);
     await user.type(query, "두 번째 질문");
-    await user.click(screen.getByRole("button", { name: "근거 검색" }));
+    await user.click(screen.getByRole("button", { name: "질문 보내기" }));
 
     expect(screen.getByRole("checkbox", { name: "평가 전 구성을 실험 검색에 사용" })).toBeDisabled();
     secondSearch.resolve(
@@ -451,7 +537,7 @@ describe("SearchPage", () => {
     fireEvent.change(screen.getByRole("searchbox", { name: "검색 질문" }), {
       target: { value: "환매 규정" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "근거 검색" }));
+    fireEvent.click(screen.getByRole("button", { name: "질문 보내기" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
     expect(screen.queryByText(/비공개 문서 제목/)).not.toBeInTheDocument();
@@ -510,10 +596,10 @@ describe("SearchPage", () => {
     );
     await user.type(screen.getByRole("searchbox", { name: "검색 질문" }), "환매 규정");
 
-    expect(screen.getByRole("status", { name: "검색 색인 준비 상태" })).toHaveTextContent(
+    expect(screen.getByRole("status", { name: "RAG 서비스 준비 상태" })).toHaveTextContent(
       "선택한 구성의 검색 색인이 아직 준비되지 않았습니다",
     );
-    expect(screen.getByRole("button", { name: "근거 검색" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "질문 보내기" })).toBeDisabled();
   });
 
   it("announces empty authorized scopes and saved configurations", async () => {
@@ -612,11 +698,11 @@ function savedConfiguration(overrides: Record<string, unknown> = {}) {
     workspace_ids: ["company-1", "personal-1"],
     indexing_profile_id: "indexing-1",
     retrieval_profile_id: "retrieval-1",
-    generation_profile_id: null,
+    generation_profile_id: "generation-1",
     answer_policy: {
       id: "policy-1",
       version: 1,
-      mode: "extractive",
+      mode: "generative",
       min_keyword_coverage: 0.5,
       min_semantic_score: 0.7,
       require_complete_provenance: true,
@@ -627,6 +713,10 @@ function savedConfiguration(overrides: Record<string, unknown> = {}) {
     is_system: false,
     experimental: false,
     search_ready: true,
+    answer_ready: true,
+    service_ready: true,
+    search_reasons: [],
+    answer_reasons: [],
     ...overrides,
   };
 }

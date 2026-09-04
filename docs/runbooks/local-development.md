@@ -221,6 +221,25 @@ E2E 테스트는 `AI_WORKSHOP_E2E=1`, `AI_WORKSHOP_ENVIRONMENT=test`, `AI_WORKSH
 
 ## 7. 로그와 문제 해결
 
+### 로컬 생성 LLM 실행기
+
+생성형 RAG는 별도 로컬 OpenAI-compatible HTTP 실행기를 사용한다. 특정 제품이나 모델명을
+코드에 고정하지 않으며 관리자가 Model Registry에 `provider=openai_compatible`,
+`data_policy=local_only`, 정확한 `runtime_model`을 등록하고 Generation Profile에 연결한다.
+로컬 `.env`에 다음 값을 설정한 뒤 API를 재시작한다.
+
+```dotenv
+AI_WORKSHOP_GENERATION_BASE_URL=http://127.0.0.1:<local-port>
+# 실행기가 인증을 요구할 때만 설정
+AI_WORKSHOP_GENERATION_API_KEY=<local-secret>
+```
+
+endpoint는 loopback 주소만 허용한다. 준비 상태 확인은 `/v1/models`가 등록된
+`runtime_model`과 정확히 일치하는지 검사한다. 문맥 질의 확정과 답변 생성은
+`/v1/chat/completions`의 JSON 응답을 사용하며, 실행기 연결 실패·모델 불일치·잘못된
+구조화 출력은 다른 모델이나 추출식 답변으로 전환하지 않는다. 리랭커를 구성하지 않은
+상태는 정상이며 Hybrid RRF 결과가 곧바로 근거 선별 단계로 전달된다.
+
 ```powershell
 docker compose -f infrastructure/compose/compose.yaml ps
 docker compose -f infrastructure/compose/compose.yaml logs api worker beat postgres redis elasticsearch

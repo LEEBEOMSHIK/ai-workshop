@@ -36,11 +36,14 @@ export function SavedConfigurationList({
         {ordered.map((configuration) => {
           const indexing = profiles.find((profile) => profile.id === configuration.indexing_profile_id);
           const retrieval = profiles.find((profile) => profile.id === configuration.retrieval_profile_id);
+          const generation = profiles.find(
+            (profile) => profile.id === configuration.generation_profile_id,
+          );
           const embedding = indexing?.bindings
             .filter((binding) => binding.role === "embedding")
             .map((binding) => models.find((model) => model.id === binding.model_id))
             .find((model) => model !== undefined);
-          const summary = summarizeRagPackage({ indexing, retrieval, models });
+          const summary = summarizeRagPackage({ indexing, retrieval, generation, models });
           return (
             <article className="saved-configuration-card" key={configuration.version_id}>
               <div className="configuration-card-heading">
@@ -57,6 +60,7 @@ export function SavedConfigurationList({
                 <div><dt>평가 상태</dt><dd>{evaluationLabels[configuration.evaluation_state]}</dd></div>
                 <div><dt>Indexing</dt><dd>{profileIdentity(indexing)}</dd></div>
                 <div><dt>Retrieval</dt><dd>{profileIdentity(retrieval)}</dd></div>
+                <div><dt>Generation</dt><dd>{profileIdentity(generation)}</dd></div>
                 <div><dt>Parser</dt><dd>{summary.parser}</dd></div>
                 <div><dt>Chunker</dt><dd>{summary.chunker}</dd></div>
                 <div><dt>Embedding</dt><dd>{summary.embedding}</dd></div>
@@ -66,7 +70,15 @@ export function SavedConfigurationList({
                 <div><dt>Reranker</dt><dd>{summary.reranker}</dd></div>
                 <div><dt>Answer Policy</dt><dd>{configuration.answer_policy.mode} v{configuration.answer_policy.version}</dd></div>
                 <div><dt>LLM</dt><dd>{summary.llm}</dd></div>
+                <div><dt>검색 준비</dt><dd>{configuration.search_ready ? "완료" : "준비 필요"}</dd></div>
+                <div><dt>답변 준비</dt><dd>{configuration.answer_ready ? "완료" : "준비 필요"}</dd></div>
+                <div><dt>서비스 상태</dt><dd>{configuration.service_ready ? "사용 가능" : "사용 불가"}</dd></div>
               </dl>
+              {!configuration.service_ready ? (
+                <p className="configuration-readiness" role="status">
+                  {readinessMessage(configuration)}
+                </p>
+              ) : null}
               <details className="technical-identifiers">
                 <summary>기술 식별자 보기</summary>
                 <dl className="identity-list">
@@ -86,4 +98,22 @@ export function SavedConfigurationList({
       </div>
     </section>
   );
+}
+
+function readinessMessage(configuration: SavedConfiguration): string {
+  const reasons = [...configuration.search_reasons, ...configuration.answer_reasons];
+  if (reasons.length === 0) return "구성 요소의 실행 준비 상태를 확인해 주세요.";
+  return `준비 필요: ${reasons.map(readinessReasonLabel).join(", ")}`;
+}
+
+function readinessReasonLabel(reason: string): string {
+  const labels: Record<string, string> = {
+    generation_not_configured: "생성 프로파일 미구성",
+    generation_profile_not_found: "생성 프로파일을 찾을 수 없음",
+    generation_model_not_found: "LLM 모델을 찾을 수 없음",
+    generation_runtime_not_configured: "로컬 LLM 실행 주소 미설정",
+    generation_runtime_unavailable: "로컬 LLM 실행기 응답 없음",
+    generation_runtime_model_mismatch: "실행 중인 LLM 버전 불일치",
+  };
+  return labels[reason] ?? reason;
 }

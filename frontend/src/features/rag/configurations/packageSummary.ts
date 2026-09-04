@@ -14,13 +14,16 @@ export interface RagPackageSummary {
 export function summarizeRagPackage({
   indexing,
   retrieval,
+  generation,
   models,
 }: {
   indexing: Profile | undefined;
   retrieval: Profile | undefined;
+  generation?: Profile | undefined;
   models: ModelDefinition[];
 }): RagPackageSummary {
   const embedding = boundModel(indexing, "embedding", models);
+  const llm = boundModel(generation, "llm", models);
 
   return {
     parser: "형식별 자동 선택 · 현재 구성에 고정되지 않음",
@@ -31,8 +34,8 @@ export function summarizeRagPackage({
       ? `Bi-encoder · ${modelIdentity(embedding)}`
       : "사용 안 함",
     fusion: rrfIdentity(retrieval),
-    reranker: "사용 안 함 (V1)",
-    llm: "사용 안 함 (V1)",
+    reranker: "사용 안 함 (선택)",
+    llm: generation ? modelIdentity(llm) : "사용 안 함 (추출식)",
   };
 }
 
@@ -53,6 +56,20 @@ export function hasResolvableEmbedding(
   models: ModelDefinition[],
 ): boolean {
   return profile.kind === "indexing" && boundModel(profile, "embedding", models) !== undefined;
+}
+
+export function hasResolvableGeneration(
+  profile: Profile,
+  models: ModelDefinition[],
+): boolean {
+  return profile.kind === "generation" && boundModel(profile, "llm", models) !== undefined;
+}
+
+export function generationOptionLabel(
+  profile: Profile,
+  models: ModelDefinition[],
+): string {
+  return `${profileIdentity(profile)} · ${modelIdentity(boundModel(profile, "llm", models))}`;
 }
 
 export function modelIdentity(model: ModelDefinition | undefined): string {

@@ -12,6 +12,7 @@ dependencies = [
     { name = "elasticsearch", extra = ["async"] },
     { name = "email-validator" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "psycopg", extra = ["pool"] },
     { name = "psycopg-binary", marker = "platform_machine != 'ARM64' or sys_platform != 'win32'" },
     { name = "pwdlib", extra = ["argon2"] },
@@ -27,7 +28,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -42,6 +42,7 @@ requires-dist = [
     { name = "elasticsearch", extras = ["async"], specifier = ">=9.5,<9.6" },
     { name = "email-validator", specifier = ">=2.3,<3.0" },
     { name = "fastapi", specifier = ">=0.116,<1.0" },
+    { name = "httpx", specifier = ">=0.28,<1.0" },
     { name = "psycopg", extras = ["pool"], specifier = ">=3.2,<4.0" },
     { name = "psycopg-binary", marker = "platform_machine != 'ARM64' or sys_platform != 'win32'", specifier = ">=3.2,<4.0" },
     { name = "pwdlib", extras = ["argon2"], specifier = ">=0.3,<1.0" },
@@ -57,7 +58,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx", specifier = ">=0.28,<1.0" },
     { name = "mypy", specifier = ">=1.17,<2.0" },
     { name = "pytest", specifier = ">=8.4,<10.0" },
     { name = "pytest-asyncio", specifier = ">=1.1,<2.0" },

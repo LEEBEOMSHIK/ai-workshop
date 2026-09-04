@@ -11,6 +11,7 @@ from ai_workshop.labs.rag.models.domain import EvaluationState
 
 
 class AnswerPolicyCreate(BaseModel):
+    mode: Literal["extractive", "generative"] = "extractive"
     min_semantic_score: float = Field(ge=0.0, le=1.0)
     min_keyword_coverage: float = Field(ge=0.0, le=1.0)
     require_complete_provenance: Literal[True] = True
@@ -29,7 +30,7 @@ class SavedRagConfigurationCreate(BaseModel):
 class AnswerPolicyVersionResponse(BaseModel):
     id: UUID
     version: int
-    mode: Literal["extractive"]
+    mode: Literal["extractive", "generative"]
     min_semantic_score: float
     min_keyword_coverage: float
     require_complete_provenance: Literal[True]
@@ -64,6 +65,10 @@ class SavedRagConfigurationResponse(BaseModel):
     is_default: bool
     experimental: bool
     search_ready: bool
+    answer_ready: bool
+    service_ready: bool
+    search_reasons: list[str]
+    answer_reasons: list[str]
 
     @classmethod
     def from_domain(
@@ -71,6 +76,10 @@ class SavedRagConfigurationResponse(BaseModel):
         configuration: SavedRagConfiguration,
         *,
         search_ready: bool,
+        answer_ready: bool = False,
+        service_ready: bool = False,
+        search_reasons: tuple[str, ...] = (),
+        answer_reasons: tuple[str, ...] = ("generation_not_configured",),
     ) -> Self:
         return cls(
             id=configuration.id,
@@ -90,4 +99,8 @@ class SavedRagConfigurationResponse(BaseModel):
             is_default=configuration.is_default,
             experimental=configuration.experimental,
             search_ready=search_ready,
+            answer_ready=answer_ready,
+            service_ready=service_ready,
+            search_reasons=list(search_reasons),
+            answer_reasons=list(answer_reasons),
         )

@@ -750,7 +750,7 @@
   }
 }
 
-@media (max-width: 64rem) {
+@media (width < 64rem) {
   .hero {
     padding-block: 2.5rem 1.5rem;
   }
@@ -786,7 +786,7 @@
   }
 }
 
-@media (max-width: 48rem) {
+@media (width < 48rem) {
   .page > header {
     padding-inline: 1rem;
   }
@@ -922,7 +922,7 @@
   }
 
   .dialog {
-    max-height: calc(100dvh - 2rem);
+    max-height: calc(100dvh - 2.5rem);
   }
 }
 

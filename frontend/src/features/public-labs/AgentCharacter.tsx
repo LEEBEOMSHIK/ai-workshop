@@ -44,7 +44,7 @@ export function AgentCharacter({ lab, variant }: AgentCharacterProps) {
 
   function closeDialog() {
     setIsOpen(false);
-    triggerRef.current?.focus();
+    triggerRef.current?.focus({ preventScroll: true });
   }
 
   function trapDialogFocus(event: ReactKeyboardEvent<HTMLDivElement>) {
@@ -80,7 +80,7 @@ export function AgentCharacter({ lab, variant }: AgentCharacterProps) {
     function handleEscape(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setIsOpen(false);
-        triggerRef.current?.focus();
+        triggerRef.current?.focus({ preventScroll: true });
       }
     }
 

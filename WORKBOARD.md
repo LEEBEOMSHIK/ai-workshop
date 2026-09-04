@@ -1,16 +1,21 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-04
-- 현재 단계: 전체 화면 AI 연구소 월드 구현
-- 전체 상태: 사용자가 전체 화면 AI 연구소 월드 설계를 승인하고 구현 진행을 요청했다. 상세 구현 계획을 작성한 뒤 TDD로 `/`·`/labs` 동일 월드, RAG 방과 반응형 캐릭터 대화를 구현하고 독립 검토·실제 브라우저 검증까지 진행한다.
+- 현재 단계: 전체 화면 AI 연구소 월드 구현 완료
+- 전체 상태: `/`·`/labs` 동일 월드, RAG 연구실과 반응형 캐릭터 말풍선을 구현했다. 6개 화면·200% 확대·동작 감소 실제 브라우저 검증과 전체 자동 검증, 독립 코드 리뷰가 완료됐다.
 
 ## 현재 작업
 
 ### 목표
 
-승인된 전체 화면 AI 연구소 월드 설계를 상세 계획과 테스트로 구현하고, 공개 URL·접근성·반응형·실제 브라우저 계약을 검증한다.
+승인된 전체 화면 AI 연구소 월드 설계를 구현하고 공개 URL·접근성·반응형·실제 브라우저 계약을 검증했다.
 
 ### 진행 상태
+
+- `/`와 `/labs`는 같은 공개 catalog와 `LabWorldPage`를 사용해 인증 없이 동일한 전체 너비 AI 연구소 월드를 직접 렌더링한다.
+- RAG 연구실, 세 비상호작용 장비와 작업 중인 RAG 총괄 캐릭터를 구현했다. 캐릭터 소개는 데스크톱·태블릿 연결 말풍선과 48rem 미만 하단 패널로 동작한다.
+- 6개 기준 화면, exact 1024/768/767px breakpoint, 물리 1440×900의 200% 확대 대응 조건과 강제 reduced-motion을 실제 Chrome에서 검증했다. 상세 증거는 `docs/worklogs/2026-09-04-full-screen-ai-lab-world-verification.md`에 있다.
+- 최종 frontend Vitest 38개 파일·142개 테스트, TypeScript, ESLint, Next.js production build 11개 route, 프로젝트 에이전트 계약과 diff 검사가 통과했다. 전체 독립 리뷰는 수정 라운드 후 Critical·Important·Minor 없이 `Ready: Yes`다.
 
 - 2026-09-04 사용자가 `구현 진행해`로 설계를 승인했다. `writing-plans`와 `test-driven-development`를 적용해 계획 작성 후 실패 테스트부터 구현한다.
 - 작업 등급은 공개 URL과 반응형 UI 계약을 바꾸는 고위험 프론트 변경이다. 프론트엔드 엔지니어, 요구·구현 설계자, 시스템 아키텍트와 독립 코드 리뷰어를 선택했고 백엔드·DB·RAG 모델·인프라 역할은 변경 범위가 없어 제외했다.
@@ -20,12 +25,12 @@
 - 상세 설계는 `docs/superpowers/specs/2026-09-03-full-screen-ai-lab-world-design.md`, 결정 초안은 `docs/decisions/0005-public-ai-lab-world.md`에 작성했다.
 - 독립 검토에서 초기 초점, 빈·오류 상태, route-group 경로, catalog CTA와 비변경 범위를 보완한 뒤 남은 finding 없이 `Ready` 판정을 받았다.
 - 프로젝트 에이전트 계약 `validate`와 `git diff --check`가 통과했다. 검증기 테스트는 Windows에서 POSIX 셸 fixture를 실행하는 기존 5건이 실패하고 47건이 통과했으며 이번 문서 작업에서 검증기 소스는 변경하지 않았다.
-- 아래 브라우저·테스트 결과는 새 전체 화면 월드가 아니라 2026-09-03 기존 카드형 공개 화면의 기준선 검증이다. 새 월드는 아직 구현·브라우저 검증하지 않았다.
+- 아래 2026-09-03 카드형 공개 화면 결과는 구현 전 기준선 기록이며, 현재 전체 화면 월드의 정본 검증은 2026-09-04 worklog를 따른다.
 - Chrome 연결이 복구됐고 `/`와 `/labs`의 desktop 화면, 캐릭터 소개 열기, 초기 닫기 버튼 focus, Escape 닫기와 trigger focus 복귀를 실제 브라우저에서 확인했다.
 - `/labs` 스크롤 상태에서 소개 대화상자 layer와 animated character의 실제 경계가 모두 `240×269px`로 일치하고 character computed transform이 활성화된 것을 측정했다. `position: fixed` layer가 transformed ancestor를 containing block으로 사용해 dialog 하단이 viewport 797px보다 큰 약 1085px까지 내려가는 것이 직접 원인이다.
 - 대화상자를 `document.body` portal로 분리하고 모바일 eyebrow에 닫기 버튼 안전 영역을 추가했다. 독립 실제 브라우저 재검증에서 desktop `1189×797`, mobile `390×844` 모두 viewport containment, 가로 overflow 없음, 닫기 초기 focus, Tab 순환, Escape 닫기와 trigger focus 복귀를 통과했다.
 - 공개 `/`, `/labs`, `/labs/rag`의 navigation/content 겹침이 없고 공개 RAG CTA가 `/login?next=%2Fworkshop%2Frag%2Fsearch`로 이동하는 것을 확인했다. 인증 정보가 없는 브라우저였으므로 owner 로그인 후 실제 데이터 화면은 검증하지 않았다.
-- `prefers-reduced-motion`은 연결 브라우저에 media override capability가 없어 실제 에뮬레이션하지 못했다. CSS의 reduce media query가 `.roaming`, `.working`, `.statusLight` 애니메이션을 제거하는 정적 근거만 확인했으며 실제 브라우저 통과로 주장하지 않는다.
+- 별도 headless Chrome에 reduced-motion을 강제해 `matchMedia`와 캐릭터·상태등·장비 computed animation이 모두 비활성임을 확인했다.
 - 전체 계획 리뷰에서 retired `/app` 아래 남은 오류 경계를 `/workshop/error.tsx`로 이동하고 회귀 테스트를 추가했다. Setup·인증 backend/frontend 테스트의 개인 식별값과 과거 bootstrap 예시의 개인 이메일을 합성 값으로 교체했으며 개인정보 독립 검증에서 현재 추적 파일의 개인 이메일과 테스트 fixture 이름이 0건임을 확인했다.
 - 최종 재검증은 frontend Vitest `36 files, 122 passed`, TypeScript, ESLint 무경고, production build, backend focused `8 passed`, unit `423 passed`, Ruff와 mypy가 통과했다. backend unit을 저장소 루트에서 실행하면 루트 `.env`가 기본값 테스트에 주입돼 1건 실패하므로 정본 `backend/` 작업 디렉터리에서 실행해야 한다.
 - 공개 전시실은 `/`, `/labs`, `/labs/rag`에서 인증 없이 접근하며, 비공개 작업소는 `/workshop/*`, owner 시스템 관리는 `/admin/*`로 분리됐다.
@@ -132,29 +137,26 @@
 
 ### 완료 기준
 
-- `/`와 `/labs`의 동일 월드 직접 렌더, RAG 방·관리자와 `/labs/rag` 진입 계약이 명확하다.
-- 전체 viewport, desktop 말풍선, mobile 하단 패널과 접근성·반응형 검증 기준이 명확하다.
-- 현재 공개된 RAG만 표시하고 미래 Lab placeholder, backend·DB·catalog 계약 변경을 범위에서 제외한다.
-- 기존 공개 서비스 설계, 비전, 시스템 설계와 ADR가 새 화면 계약과 충돌하지 않는다.
-- 사용자 승인 전 구현 계획과 프론트 소스 변경을 시작하지 않는다.
+- `/`와 `/labs`의 동일 월드 직접 렌더, RAG 방·관리자와 `/labs/rag` 진입이 구현되고 검증됐다.
+- 전체 viewport, 연결 말풍선, mobile 하단 패널과 접근성·반응형 계약이 실제 브라우저에서 통과했다.
+- 현재 공개된 RAG만 표시하며 미래 Lab placeholder, backend·DB·catalog 계약은 변경하지 않았다.
+- 설계·ADR·구현 계획·검증 worklog가 현재 코드와 일치하고 독립 리뷰 `Ready: Yes`를 받았다.
 
 ## 최근 완료 작업
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. 전체 화면 AI 연구소 월드 설계와 ADR 초안을 작성하고 6개 검토 지적을 보완해 독립 검토 `Ready`를 받았다. 사용자 승인 전 소스 구현은 변경하지 않았다.
-2. 공개 캐릭터 dialog를 body portal로 분리하고 모바일 안전 영역을 추가했으며, 누락된 workshop 오류 경계·개인정보 fixture·WORKBOARD 계약 모순을 전체 계획 리뷰에서 수정했다. 프론트 122개·backend unit 423개·정적 검사·빌드와 desktop/mobile 실제 브라우저를 검증했다.
-3. 공개·작업소·관리자 경계의 canonical 문서와 실행서를 2026-09-03 구현 상태에 맞추고, backend API 7개·unit 423개와 signed-out HTTP route를 검증했다.
-4. 로그인 화면과 공개·작업소 탐색을 정렬하고 synthetic 로그인 fixture로 개인정보 없는 회귀 계약을 고정했다 (`e970a9b`, `95b727d`).
-5. 공개 캐릭터 랜딩, AI Lab 장면과 RAG 기술 소개를 구현하고 dialog focus containment를 보강했다 (`abd479c`, `2958469`, `be4a9c1`).
+1. 전체 화면 AI 연구소 월드를 구현했다. 6개 화면·200% 확대·동작 감소 브라우저 검증, frontend 142개 테스트·정적 검사·빌드와 독립 리뷰가 통과했다 (`docs/worklogs/2026-09-04-full-screen-ai-lab-world-verification.md`).
+2. 전체 화면 AI 연구소 월드 설계와 ADR 초안을 작성하고 6개 검토 지적을 보완해 독립 검토 `Ready`를 받았다.
+3. 공개 캐릭터 dialog를 body portal로 분리하고 모바일 안전 영역을 추가했으며, 누락된 workshop 오류 경계·개인정보 fixture·WORKBOARD 계약 모순을 전체 계획 리뷰에서 수정했다. 프론트 122개·backend unit 423개·정적 검사·빌드와 desktop/mobile 실제 브라우저를 검증했다.
+4. 공개·작업소·관리자 경계의 canonical 문서와 실행서를 2026-09-03 구현 상태에 맞추고, backend API 7개·unit 423개와 signed-out HTTP route를 검증했다.
+5. 로그인 화면과 공개·작업소 탐색을 정렬하고 synthetic 로그인 fixture로 개인정보 없는 회귀 계약을 고정했다 (`e970a9b`, `95b727d`).
 
 ## 다음 작업
 
-1. 전체 화면 AI 연구소 월드 상세 구현 계획 작성과 자체 검토
-2. TDD 기반 공개 route·월드 장면·캐릭터 연결 대화 구현
-3. 독립 코드 리뷰와 전체 프론트·실제 브라우저 검증
-4. 기존 owner 세션으로 `/workshop/rag/search`와 `/admin/rag/configurations`의 실제 데이터 화면 smoke를 수행하거나 미검증 위험을 명시적으로 수용
-5. 2단계 `다중 도메인과 공개 릴리스 기반` 상세 설계
+1. 기존 owner 세션으로 `/workshop/rag/search`와 `/admin/rag/configurations`의 실제 데이터 화면 smoke를 수행하거나 미검증 위험을 명시적으로 수용
+2. 2단계 `다중 도메인과 공개 릴리스 기반` 상세 설계
+3. 승인된 2단계 설계에 따라 공개 RAG 대화형 검색과 불변 공개 릴리스 구현 범위를 계획
 
 ## 결정이 필요한 항목
 
@@ -171,6 +173,7 @@
 
 - 새 작업을 시작하기 전에 이 파일과 루트 `AGENTS.md`를 읽는다.
 - 첫 RAG 검색 수직 슬라이스의 최종 증거와 선별 실패 기록은 `docs/worklogs/2026-09-01-rag-integration-verification.md`로 공식 인계했다.
+- 전체 화면 AI 연구소 월드의 구현·문제 해결·브라우저 검증은 `docs/worklogs/2026-09-04-full-screen-ai-lab-world-verification.md`를 정본으로 사용한다.
 - 작업 트리의 `.idea/`는 사용자 환경 파일이므로 별도 요청 없이 추적하거나 수정하지 않는다.
 - RAG worktree의 Git 등록과 물리 폴더, 미등록 foundation 복사본, 네 테스트 임시 폴더가 모두 제거됐다. 상세 결과는 캐시 감사 보고서를 따른다.
 - 루트 `.pnpm-store` junction과 `node_modules`는 제거됐다.

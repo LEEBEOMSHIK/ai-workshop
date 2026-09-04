@@ -33,6 +33,16 @@ describe("calculateDialogPlacement", () => {
     ).toMatchObject({ side: "above", left: 180, top: 236, tailOffset: 200 });
   });
 
+  it("places the dialog below when horizontal sides and the space above are unavailable", () => {
+    expect(
+      calculateDialogPlacement(
+        { left: 300, top: 40, right: 460, bottom: 140, width: 160, height: 100 },
+        { width: 400, height: 240 },
+        { width: 800, height: 800 },
+      ),
+    ).toMatchObject({ side: "below", left: 180, top: 164, tailOffset: 200 });
+  });
+
   it("clamps an above dialog's left edge and tail within the viewport-safe range", () => {
     expect(
       calculateDialogPlacement(

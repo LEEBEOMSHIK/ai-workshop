@@ -196,6 +196,7 @@ describe("AgentCharacter", () => {
     const user = userEvent.setup();
     const lab = listPublicLabs()[0];
     expect(lab).toBeDefined();
+    const focus = vi.spyOn(HTMLElement.prototype, "focus");
 
     render(<AgentCharacter lab={lab!} variant="roaming" />);
 
@@ -205,5 +206,6 @@ describe("AgentCharacter", () => {
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
+    expect(focus).toHaveBeenLastCalledWith({ preventScroll: true });
   });
 });

@@ -355,7 +355,8 @@ Replace the `76rem` card shell with:
 - below `64rem` and below `40rem` viewport height, reduced decoration density and spacing
 - reduced-motion rules that remove all nonessential animations
 
-Do not set global `body` overflow or add a dependency/image asset.
+Do not add a permanent global stylesheet restriction to `body` overflow or add a dependency/image
+asset. Keep Task 2's temporary inline body scroll lock while the modal dialog is open.
 
 - [ ] **Step 5: Verify Task 3 component tests GREEN**
 

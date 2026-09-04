@@ -1,8 +1,9 @@
 # Workboard
 
-- 마지막 갱신일: 2026-09-04
-- 현재 단계: 대화형 생성 RAG V2 설계
-- 전체 상태: 검색·근거 추적 V1은 구현·검증됐지만 LLM 생성 답변은 미구현이다. 완성된 RAG의 다음 게이트를 필수 LLM·인용 검증과 선택적 리랭커로 재정의했다.
+- 마지막 갱신일: 2026-09-05
+- 현재 단계: 다중 환경 LLM Deployment와 OpenAI Responses 첫 구현 계획
+- 전체 상태: 승인된 Deployment·데이터 정책 설계를 기존 로컬 런타임과 OpenAI Responses
+  API의 첫 실행 수직 슬라이스로 나누어 구현할 준비를 마쳤다.
 
 ## 현재 작업
 
@@ -12,6 +13,21 @@ Hybrid 검색 결과에 근거 제한 LLM 답변과 인용 검증을 연결한�
 동작하는 선택 단계로 두고, 구성한 모델의 실패는 조용히 우회하지 않는다.
 
 ### 진행 상태
+
+- 2026-09-05 사용자는 모델과 실행 위치를 분리한 Deployment Registry, 회사 기본 정책보다
+  지식 공간이 강화만 가능한 외부 전송 정책, 관리자 1회 명시 승인과 사용자 상시 안내를
+  승인했다.
+- 첫 실제 Provider 범위는 로컬 OpenAI-compatible, 개발 전용 Codex SDK와 OpenAI Responses
+  API의 여러 모델이다. 다른 외부 Provider는 검증된 adapter를 후속 추가하며 가짜 선택지를
+  미리 노출하지 않는다.
+- 조직 공용 인증정보는 환경변수 또는 Secret Manager에 두고 DB에는 관리자만 연결할 수 있는
+  secret reference만 저장한다. 사용자별 API Key와 자동 Provider fallback은 첫 범위에서
+  제외한다.
+- 승인된 상세 설계는
+  `docs/superpowers/specs/2026-09-05-multi-environment-llm-deployment-design.md`다.
+- 사용자가 설계 전체를 승인했다. 첫 구현은 Provider를 동시에 늘리지 않고 기존 로컬
+  OpenAI-compatible 유지와 OpenAI Responses API 완성까지 진행한다. 세부 TDD 순서와 파일
+  경계는 `docs/superpowers/plans/2026-09-05-rag-llm-deployments-openai.md`를 따른다.
 
 - 2026-09-04 사용자는 LLM 답변이 없는 현재 상태를 완성된 RAG로 판단하지 않고, 다음
   작업을 대화형 생성 RAG로 우선하기로 확정했다.
@@ -23,6 +39,14 @@ Hybrid 검색 결과에 근거 제한 LLM 답변과 인용 검증을 연결한�
   첫 V2는 대화 전문을 서버에 영속 저장하지 않으며 매 turn 권한과 근거를 다시 검사한다.
 - 상세 설계는 `docs/superpowers/specs/2026-09-04-conversational-generative-rag-v2-design.md`,
   결정은 `docs/decisions/0008-required-generation-optional-reranker.md`를 따른다.
+- V2 저장 구성·준비 상태·로컬 OpenAI-compatible adapter·구조화 생성·인용 hard gate와
+  문맥 기반 후속질문을 구현했다. 검증된 assistant turn만 actor·구성 버전·본문에 묶인
+  무상태 서버 서명으로 다음 요청에 포함한다.
+- 관리자 화면은 답변 방식과 Generation Profile·LLM 버전을 선택하고 검색·답변·서비스
+  준비 상태를 표시한다. 로그인 사용자 화면은 원 질문, 실제 검색 질의, 검증된 AI 답변과
+  문장별 인용을 대화 단위로 유지한다.
+- 자동 검증 결과와 실제 런타임 전 남은 게이트는
+  `docs/worklogs/2026-09-04-conversational-generative-rag-v2.md`를 따른다.
 
 - 2026-09-04 중복 판정은 같은 지식공간 안에서 원본 바이트 SHA-256이 완전히 같은 신규 문서만 차단한다. 같은 파일명의 다른 내용은 허용하고, 기존 문서 계보에는 사용자가 해당 문서의 `새 버전 올리기`를 선택한 경우에만 추가하기로 확정했다.
 - 파싱 후 정규화 본문 해시는 원본 중복 판정과 목적·시점이 다르므로 이번 동기 업로드 계약에 섞지 않고 후속 ingestion 설계로 분리한다.
@@ -199,18 +223,19 @@ Hybrid 검색 결과에 근거 제한 LLM 답변과 인용 검증을 연결한�
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. 파일명과 분리된 지식 공간 범위 SHA-256 중복 판정, 명시적 새 버전 업로드, 검색 준비 상태 안내와 결과 UUID 비노출을 구현·검증했다 (`docs/worklogs/2026-09-04-rag-upload-identity-and-search-readiness.md`).
-2. 비민감 합성 문서로 Asset 검증·E5 색인·BM25 검색·근거·정확 하이라이트·원문 추적을 실제 owner Chrome에서 검증했다. 최초 고정 모델 캐시 실패와 복구, 남은 Hybrid·LLM·UX·버전·캐시 문제를 공식 기록했다 (`docs/worklogs/2026-09-04-owner-rag-live-smoke.md`).
-3. 공개 RAG 작업실에 총괄과 여섯 기술 담당자, 역할별 dialog와 연결 흐름을 구현했다. frontend 168개 테스트·정적 검사·빌드, desktop/tablet/mobile 실제 브라우저와 독립 재검토가 통과했다 (`docs/worklogs/2026-09-04-rag-lab-agent-workroom-verification.md`).
-4. 공개 `/`의 연구소 입구와 `/labs`의 작업 현장을 분리했다. 전체 frontend 145개 테스트, 8개 브라우저 조건과 독립 재리뷰가 통과했다 (`docs/worklogs/2026-09-04-public-lab-route-separation-verification.md`).
-5. 전체 화면 AI 연구소 월드를 구현했다. 6개 화면·200% 확대·동작 감소 브라우저 검증, frontend 142개 테스트·정적 검사·빌드와 독립 리뷰가 통과했다 (`docs/worklogs/2026-09-04-full-screen-ai-lab-world-verification.md`).
+1. 대화형 생성 RAG V2의 저장 구성·준비 상태·로컬 LLM adapter·문맥 기반 후속질문·구조화 답변·인용 검증과 관리자/사용자 UI를 구현하고 자동 검증했다 (`docs/worklogs/2026-09-04-conversational-generative-rag-v2.md`).
+2. 파일명과 분리된 지식 공간 범위 SHA-256 중복 판정, 명시적 새 버전 업로드, 검색 준비 상태 안내와 결과 UUID 비노출을 구현·검증했다 (`docs/worklogs/2026-09-04-rag-upload-identity-and-search-readiness.md`).
+3. 비민감 합성 문서로 Asset 검증·E5 색인·BM25 검색·근거·정확 하이라이트·원문 추적을 실제 owner Chrome에서 검증했다. 최초 고정 모델 캐시 실패와 복구, 남은 Hybrid·LLM·UX·버전·캐시 문제를 공식 기록했다 (`docs/worklogs/2026-09-04-owner-rag-live-smoke.md`).
+4. 공개 RAG 작업실에 총괄과 여섯 기술 담당자, 역할별 dialog와 연결 흐름을 구현했다. frontend 168개 테스트·정적 검사·빌드, desktop/tablet/mobile 실제 브라우저와 독립 재검토가 통과했다 (`docs/worklogs/2026-09-04-rag-lab-agent-workroom-verification.md`).
+5. 공개 `/`의 연구소 입구와 `/labs`의 작업 현장을 분리했다. 전체 frontend 145개 테스트, 8개 브라우저 조건과 독립 재리뷰가 통과했다 (`docs/worklogs/2026-09-04-public-lab-route-separation-verification.md`).
 
 ## 다음 작업
 
-1. 대화형 생성 RAG V2의 저장 구성, `answer_ready`, 문맥 기반 후속질문, 로컬 LLM runtime,
-   구조화된 답변과 인용 검증을 구현
-2. Windows 호스트 모델 캐시의 최소 snapshot 초기화와 5.32GB 기존 캐시 정리안을 `CACHE_POLICY.md` 절차로 조사·승인·재검증
-3. 2단계 `다중 도메인과 공개 릴리스 기반` 상세 설계
+1. 대화형 생성 RAG V2의 자동 검증을 재확인하고 관련 변경만 독립 기준 커밋으로 고정
+2. 불변 Deployment Version·Installation/Workspace Data Policy·외부 승인·감사 migration과
+   관리자 API를 TDD로 구현
+3. 기존 로컬 adapter를 Deployment resolver로 이전하고 OpenAI Responses API, 검색 전 정책
+   gate, 관리자/사용자 고지 UI와 비민감 실제 smoke를 순서대로 구현
 
 ## 결정이 필요한 항목
 
@@ -224,8 +249,9 @@ Hybrid 검색 결과에 근거 제한 LLM 답변과 인용 검증을 연결한�
 - `backend/.pytest-nextjs-final-contract`는 untracked지만 Windows 관리자 ACL 때문에 현재 비관리자 환경에서 삭제할 수 없다.
 - `backend/.pytest-tmp`는 Git ignored 경로이며 같은 ACL 문제로 내부 확인과 삭제가 거부된다. 2026-09-03 기본 unit 실행도 이 경로 정리 단계에서 실패했고 fresh `%TEMP%` basetemp로 우회 검증했다. 두 경로 모두 애플리케이션 소스와 실행 데이터에는 영향을 주지 않으며, 대화형 Windows 관리자 세션에서 소유권과 내용을 확인한 뒤 정확 경로만 삭제해야 한다.
 - 이번 backend unit 검증에서 만든 `.local-data/pytest-unit-current`도 정확 경로 삭제를 시도했으나 접근이 거부됐다. 애플리케이션 데이터에는 포함되지 않는 테스트 임시물이며 관리자 세션에서 해당 경로만 제거해야 한다.
-- 실제 BM25 기준선 검색은 더 이상 차단되지 않는다. 생성형 RAG는 V2 계약 구현과 로컬
-  LLM runtime·generation profile이 아직 없어 완료할 수 없다.
+- 실제 BM25 기준선 검색과 생성형 V2 애플리케이션 구현은 더 이상 차단되지 않는다. 실제
+  생성 답변 smoke는 승인된 로컬 LLM 모델·실행기와 DB에 등록된 정확한 Generation Profile이
+  아직 없어 완료할 수 없다.
 
 ## 작업 인계 메모
 

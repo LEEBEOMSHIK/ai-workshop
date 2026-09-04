@@ -1,6 +1,6 @@
 # 다중 환경 LLM Deployment와 데이터 전송 정책 설계
 
-- 상태: 사용자 검토 대기
+- 상태: 사용자 승인 완료
 - 작성일: 2026-09-05
 - 범위: RAG 생성 모델의 로컬·온프레미스·외부 API 실행과 사용자 고지
 - 선행 설계: `2026-09-04-conversational-generative-rag-v2-design.md`

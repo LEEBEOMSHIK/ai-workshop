@@ -11,6 +11,12 @@ describe("LabWorldPage", () => {
     expect(
       screen.getByRole("heading", { name: "AI 기술 관리자들이 일하는 연구소" }),
     ).toBeVisible();
+    expect(
+      screen.getByRole("status", { name: "공개 연구실 상태" }),
+    ).toHaveTextContent(`현재 공개된 연구실 ${ready.labs.length}곳`);
+    expect(
+      screen.getByRole("status", { name: "공개 연구실 상태" }),
+    ).toHaveTextContent("공개된 Labs에서 제공");
     expect(screen.getByRole("region", { name: "RAG 기술 연구실" })).toBeVisible();
     expect(
       screen.getByRole("button", { name: "RAG 총괄에게 말 걸기" }),
@@ -24,6 +30,9 @@ describe("LabWorldPage", () => {
     render(<LabWorldPage catalog={{ status: "ready", labs: [] }} />);
 
     expect(screen.getByText("현재 공개된 연구실을 준비하고 있습니다")).toBeVisible();
+    expect(
+      screen.getByRole("status", { name: "공개 연구실 상태" }),
+    ).toHaveTextContent("현재 공개된 연구실 0곳");
     expect(screen.getByRole("navigation", { name: "공개 전시실" })).toBeVisible();
     expect(screen.queryByText("RAG 기술 연구실")).not.toBeInTheDocument();
   });
@@ -34,6 +43,9 @@ describe("LabWorldPage", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(
       "연구실 정보를 불러오지 못했습니다",
     );
+    expect(
+      screen.getByRole("status", { name: "공개 연구실 상태" }),
+    ).toHaveTextContent("공개 연구실 상태를 확인할 수 없습니다");
     expect(screen.getByRole("navigation", { name: "공개 전시실" })).toBeVisible();
     expect(screen.queryByText("RAG 기술 연구실")).not.toBeInTheDocument();
   });

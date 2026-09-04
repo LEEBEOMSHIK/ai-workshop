@@ -338,6 +338,7 @@ class MemoryConfigurationRepository:
         self.workspace_policies = workspace_policies
         self.approvals: list[ExternalConfigurationApproval] = []
         self.reject_approval = reject_approval
+        self.external_execution_locks = 0
 
     async def find_profile(self, profile_id: UUID) -> Profile | None:
         return self.profiles.get(profile_id)
@@ -363,6 +364,9 @@ class MemoryConfigurationRepository:
         self, deployment_version_id: UUID
     ) -> ModelDeploymentVersion | None:
         return self.deployments.get(deployment_version_id)
+
+    async def lock_external_execution_policy(self) -> None:
+        self.external_execution_locks += 1
 
     async def latest_installation_policy(self) -> InstallationDataPolicyVersion:
         if self.installation_policy is None:
@@ -751,6 +755,7 @@ async def test_external_generation_persists_exact_current_policy_snapshot() -> N
         (ApprovedWorkspacePolicySnapshot(policy.workspace_id, policy.id))
         for policy in workspace_policies
     )
+    assert repository.external_execution_locks == 1
     assert repository.events == ["configuration", "approval", "commit"]
 
 

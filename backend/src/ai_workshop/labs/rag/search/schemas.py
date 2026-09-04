@@ -3,6 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from ai_workshop.labs.rag.deployments.domain import ExecutionLocation, ProviderKind
 from ai_workshop.labs.rag.highlighting.domain import (
     AnswerStatus,
     ConflictState,
@@ -35,6 +36,16 @@ class GeneratedCitationResponse(BaseModel):
     evidence_ids: list[UUID]
 
 
+class GenerationExecutionResponse(BaseModel):
+    provider: ProviderKind
+    model_name: str
+    model_version: int
+    deployment_name: str
+    location: ExecutionLocation
+    external_transfer: bool
+    disclosure: str
+
+
 class GenerationResponse(BaseModel):
     status: Literal[
         "answered",
@@ -47,6 +58,7 @@ class GenerationResponse(BaseModel):
     reason_codes: list[str]
     turn_id: UUID | None
     validation_token: str | None
+    execution: GenerationExecutionResponse | None
 
 
 class SourceLocationResponse(BaseModel):
@@ -232,6 +244,21 @@ class SearchResponse(BaseModel):
                 reason_codes=list(result.generation.reason_codes),
                 turn_id=result.generation.turn_id,
                 validation_token=result.generation.validation_token,
+                execution=(
+                    GenerationExecutionResponse(
+                        provider=result.generation.execution.provider,
+                        model_name=result.generation.execution.model_name,
+                        model_version=result.generation.execution.model_version,
+                        deployment_name=result.generation.execution.deployment_name,
+                        location=result.generation.execution.location,
+                        external_transfer=(
+                            result.generation.execution.external_transfer
+                        ),
+                        disclosure=result.generation.execution.disclosure,
+                    )
+                    if result.generation.execution is not None
+                    else None
+                ),
             ),
         )
 

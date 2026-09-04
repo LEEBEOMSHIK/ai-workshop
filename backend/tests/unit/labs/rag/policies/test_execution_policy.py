@@ -28,6 +28,10 @@ class MemoryPolicyReader:
     ) -> None:
         self.installation = installation
         self.workspaces = {policy.workspace_id: policy for policy in workspaces}
+        self.external_execution_locks = 0
+
+    async def lock_external_execution_policy(self) -> None:
+        self.external_execution_locks += 1
 
     async def latest_installation_policy(self) -> InstallationDataPolicyVersion:
         return self.installation
@@ -264,3 +268,4 @@ async def test_resolver_loads_exact_latest_versions_for_each_decision() -> None:
     assert second.workspace_policy_version_ids == (
         repository.workspaces[workspace_id].id,
     )
+    assert repository.external_execution_locks == 2

@@ -3,7 +3,26 @@ from dataclasses import dataclass
 from enum import StrEnum
 from uuid import UUID
 
-from ai_workshop.labs.rag.deployments.domain import ModelDeploymentVersion
+from ai_workshop.labs.rag.deployments.domain import (
+    ExecutionLocation,
+    ModelDeploymentVersion,
+    ProviderKind,
+)
+
+_DISCLOSURES: dict[ExecutionLocation, tuple[str, str]] = {
+    ExecutionLocation.LOCAL: (
+        "local-generation-v1",
+        "사내 로컬 모델에서 처리됩니다.",
+    ),
+    ExecutionLocation.ON_PREMISE: (
+        "on-premise-generation-v1",
+        "사내 온프레미스 모델에서 처리됩니다.",
+    ),
+    ExecutionLocation.EXTERNAL: (
+        "external-generation-v1",
+        "OpenAI 외부 API로 현재 질문, 제한된 이전 대화와 선별된 문서 근거가 전송됩니다.",
+    ),
+}
 
 
 class ConversationRole(StrEnum):
@@ -16,6 +35,18 @@ class GenerationStatus(StrEnum):
     NOT_REQUESTED = "not_requested"
     INSUFFICIENT_EVIDENCE = "insufficient_evidence"
     CITATION_VALIDATION_FAILED = "citation_validation_failed"
+
+
+@dataclass(frozen=True, slots=True)
+class GenerationExecutionSnapshot:
+    provider: ProviderKind
+    model_name: str
+    model_version: int
+    deployment_name: str
+    location: ExecutionLocation
+    external_transfer: bool
+    disclosure: str
+    disclosure_version: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,3 +208,23 @@ class GenerationOutcome:
     reason_codes: tuple[str, ...] = ()
     turn_id: UUID | None = None
     validation_token: str | None = None
+    execution: GenerationExecutionSnapshot | None = None
+
+
+def generation_execution_snapshot(
+    profile: GenerationProfile,
+) -> GenerationExecutionSnapshot:
+    deployment = profile.deployment
+    if deployment is None:
+        raise ValueError("Generation execution requires an exact Deployment.")
+    disclosure_version, disclosure = _DISCLOSURES[deployment.location]
+    return GenerationExecutionSnapshot(
+        provider=deployment.provider,
+        model_name=profile.model_name,
+        model_version=profile.model_version,
+        deployment_name=deployment.display_name,
+        location=deployment.location,
+        external_transfer=deployment.external_transfer,
+        disclosure=disclosure,
+        disclosure_version=disclosure_version,
+    )

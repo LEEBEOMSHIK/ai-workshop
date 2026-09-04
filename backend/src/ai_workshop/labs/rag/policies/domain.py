@@ -126,6 +126,7 @@ class PolicyDecision:
     reason_code: PolicyReasonCode | None
     installation_policy_version_id: UUID
     workspace_policy_version_ids: tuple[UUID, ...]
+    workspace_policy_snapshots: tuple[tuple[UUID, UUID], ...] = ()
 
     def __post_init__(self) -> None:
         if self.reason_code is not None and not isinstance(
@@ -145,15 +146,17 @@ def resolve_external_transfer_policy(
     workspace_policies = tuple(workspaces)
     _validate_workspace_restrictions(installation, workspace_policies)
     version_ids = tuple(policy.id for policy in workspace_policies)
+    snapshots = tuple((policy.workspace_id, policy.id) for policy in workspace_policies)
 
     if provider is ProviderKind.LOCAL_OPENAI_COMPATIBLE:
-        return PolicyDecision(True, None, installation.id, version_ids)
+        return PolicyDecision(True, None, installation.id, version_ids, snapshots)
     if installation.mode is OutboundMode.DENY:
         return PolicyDecision(
             False,
             PolicyReasonCode.PROVIDER_NOT_ALLOWED,
             installation.id,
             version_ids,
+            snapshots,
         )
     if provider not in installation.approved_providers:
         return PolicyDecision(
@@ -161,6 +164,7 @@ def resolve_external_transfer_policy(
             PolicyReasonCode.PROVIDER_NOT_ALLOWED,
             installation.id,
             version_ids,
+            snapshots,
         )
 
     for policy in workspace_policies:
@@ -170,6 +174,7 @@ def resolve_external_transfer_policy(
                 PolicyReasonCode.WORKSPACE_EXTERNAL_TRANSFER_DENIED,
                 installation.id,
                 version_ids,
+                snapshots,
             )
         if (
             policy.mode is WorkspaceOutboundMode.APPROVED_PROVIDERS
@@ -180,9 +185,10 @@ def resolve_external_transfer_policy(
                 PolicyReasonCode.WORKSPACE_EXTERNAL_TRANSFER_DENIED,
                 installation.id,
                 version_ids,
+                snapshots,
             )
 
-    return PolicyDecision(True, None, installation.id, version_ids)
+    return PolicyDecision(True, None, installation.id, version_ids, snapshots)
 
 
 def _validated_providers(

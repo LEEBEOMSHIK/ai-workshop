@@ -8,7 +8,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ai_workshop.config import Settings, get_settings
 from ai_workshop.infrastructure.object_store.local import LocalObjectStore
 from ai_workshop.infrastructure.search.elasticsearch import create_elasticsearch
+from ai_workshop.labs.rag.generation.audit import SqlAlchemyGenerationAuditRepository
 from ai_workshop.labs.rag.generation.integrity import ConversationTurnSigner
+from ai_workshop.labs.rag.generation.runtime_resolver import (
+    GenerationRuntimeResolver,
+    builtin_generation_runtime_factories,
+)
+from ai_workshop.labs.rag.policies.repository import SqlAlchemyDataPolicyRepository
+from ai_workshop.labs.rag.policies.service import GenerationPolicyResolver
 from ai_workshop.labs.rag.retrieval.elasticsearch import (
     ElasticsearchDenseRetriever,
     ElasticsearchSparseRetriever,
@@ -71,6 +78,16 @@ async def get_search_service(
             turn_signer=ConversationTurnSigner(
                 settings.secret_key.get_secret_value().encode("utf-8")
             ),
+            generation_policy_resolver=GenerationPolicyResolver(
+                SqlAlchemyDataPolicyRepository(session)
+            ),
+            generation_runtime_resolver=GenerationRuntimeResolver(
+                environment=settings.environment,
+                endpoint_refs=settings.provider_endpoint_refs,
+                secret_refs=settings.provider_secret_refs,
+                factories=builtin_generation_runtime_factories(),
+            ),
+            generation_audit_repository=SqlAlchemyGenerationAuditRepository(session),
         )
     finally:
         await client.close()

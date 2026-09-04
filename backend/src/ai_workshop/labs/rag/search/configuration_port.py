@@ -11,6 +11,21 @@ from ai_workshop.labs.rag.retrieval.domain import SearchIndexTarget
 
 
 @dataclass(frozen=True, slots=True)
+class ResolvedWorkspacePolicyApproval:
+    workspace_id: UUID
+    policy_version_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedExternalApproval:
+    configuration_version_id: UUID
+    deployment_version_id: UUID
+    installation_policy_version_id: UUID
+    disclosure_version: str
+    workspace_policies: tuple[ResolvedWorkspacePolicyApproval, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedSearchConfiguration:
     configuration_id: UUID
     configuration_version_id: UUID
@@ -26,6 +41,7 @@ class ResolvedSearchConfiguration:
     experimental: bool = True
     generation_profile: GenerationProfile | None = None
     generation_runtime: GenerationRuntimePort | None = None
+    external_approval: ResolvedExternalApproval | None = None
 
     def __post_init__(self) -> None:
         if self.configuration_version < 1:
@@ -40,6 +56,10 @@ class ResolvedSearchConfiguration:
         if self.generation_profile is None and self.generation_runtime is not None:
             raise ValueError(
                 "A resolved generation runtime requires its exact profile."
+            )
+        if self.generation_profile is None and self.external_approval is not None:
+            raise ValueError(
+                "A resolved external approval requires its exact generation profile."
             )
 
 

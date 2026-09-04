@@ -47,6 +47,7 @@ from ai_workshop.labs.rag.indexing.elasticsearch import ElasticsearchSearchIndex
 from ai_workshop.labs.rag.indexing.service import IndexingService
 from ai_workshop.labs.rag.ingestion.models import RagIngestionJobRecord
 from ai_workshop.labs.rag.models.models import ProfileRecord
+from ai_workshop.labs.rag.search.schemas import GenerationExecutionResponse
 from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecord
 from ai_workshop.platform.identity.cli import bootstrap_owner
 from ai_workshop.platform.identity.domain import User
@@ -524,6 +525,31 @@ def test_projection_failure_diagnostics_are_safe_and_bounded() -> None:
         for item in diagnostics
     )
     assert all("error_message" not in item for item in diagnostics)
+
+
+def test_generation_execution_e2e_contract_is_public_metadata_only() -> None:
+    execution = GenerationExecutionResponse(
+        provider="openai_responses",
+        model_name="OpenAI synthetic model",
+        model_version=3,
+        deployment_name="OpenAI synthetic answer",
+        location="external",
+        external_transfer=True,
+        disclosure=(
+            "OpenAI 외부 API로 현재 질문, 제한된 이전 대화와 선별된 "
+            "문서 근거가 전송됩니다."
+        ),
+    )
+
+    assert set(execution.model_dump(mode="json")) == {
+        "provider",
+        "model_name",
+        "model_version",
+        "deployment_name",
+        "location",
+        "external_transfer",
+        "disclosure",
+    }
 
 
 def test_search_payload_serializes_uuid_ids_for_the_api_contract() -> None:
@@ -1856,6 +1882,15 @@ async def test_first_rag_search_vertical_slice_on_actual_stack(
         )
         assert baseline_status == 200
         assert baseline_result["status"] == "supported"
+        assert baseline_result["generation"] == {
+            "status": "not_requested",
+            "text": None,
+            "citations": [],
+            "reason_codes": [],
+            "turn_id": None,
+            "validation_token": None,
+            "execution": None,
+        }
         assert isinstance(baseline_result["answer"], dict)
         _assert_grounded_answer(
             baseline_result["answer"],

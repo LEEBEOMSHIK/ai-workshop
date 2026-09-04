@@ -96,6 +96,9 @@ class SqlAlchemyGenerationAuditRepository:
         await self._session.flush()
         return audit
 
+    async def commit(self) -> None:
+        await self._session.commit()
+
     async def get(self, audit_id: UUID) -> GenerationExecutionAudit | None:
         record = await self._session.get(GenerationExecutionAuditRecord, audit_id)
         if record is None:

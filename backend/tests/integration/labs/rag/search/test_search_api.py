@@ -1,13 +1,24 @@
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import replace
 from hashlib import sha256
 from pathlib import Path
-from uuid import UUID
+from threading import Event, Thread
+from typing import Annotated
+from uuid import UUID, uuid4
 
+import psycopg
 import pymupdf
 import pytest
+from alembic.config import Config
+from fastapi import Depends
 from fastapi.testclient import TestClient
+from httpx import Response
+from psycopg import sql
+from sqlalchemy import make_url
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_workshop.config import get_settings
 from ai_workshop.labs.rag.deployments.domain import (
     DeploymentCapability,
     DeploymentEnvironment,
@@ -29,6 +40,10 @@ from ai_workshop.labs.rag.embeddings.contracts import (
 from ai_workshop.labs.rag.embeddings.sentence_transformers import (
     SentenceTransformerEmbedding,
 )
+from ai_workshop.labs.rag.generation.audit import (
+    GenerationExecutionAudit,
+    SqlAlchemyGenerationAuditRepository,
+)
 from ai_workshop.labs.rag.generation.contracts import (
     GenerationRuntimePort,
     GenerationRuntimeUnavailableError,
@@ -42,16 +57,21 @@ from ai_workshop.labs.rag.generation.domain import (
     StructuredGeneration,
 )
 from ai_workshop.labs.rag.generation.execution import (
+    GenerationProviderError,
     ProviderContextualizationResult,
     ProviderExecutionMetadata,
     ProviderGenerationResult,
     ProviderHealthResult,
+    ResolvedGenerationRuntime,
 )
 from ai_workshop.labs.rag.generation.integrity import ConversationTurnSigner
 from ai_workshop.labs.rag.highlighting.domain import AnswerPolicy, EvidenceSource
 from ai_workshop.labs.rag.indexing.contracts import IndexDescriptor
 from ai_workshop.labs.rag.ingestion.serialization import serialize_parsed_document
 from ai_workshop.labs.rag.models.domain import Profile, ProfileKind
+from ai_workshop.labs.rag.policies.domain import PolicyDecision
+from ai_workshop.labs.rag.policies.repository import SqlAlchemyDataPolicyRepository
+from ai_workshop.labs.rag.policies.service import GenerationPolicyResolver
 from ai_workshop.labs.rag.retrieval.domain import (
     ActiveIndexAlias,
     DenseHit,
@@ -64,7 +84,9 @@ from ai_workshop.labs.rag.retrieval.domain import (
 from ai_workshop.labs.rag.search import viewer as viewer_module
 from ai_workshop.labs.rag.search.api import get_search_service, get_viewer_service
 from ai_workshop.labs.rag.search.configuration_port import (
+    ResolvedExternalApproval,
     ResolvedSearchConfiguration,
+    ResolvedWorkspacePolicyApproval,
     SearchConfigurationResolverPort,
 )
 from ai_workshop.labs.rag.search.service import (
@@ -80,7 +102,9 @@ from ai_workshop.main import create_app
 from ai_workshop.platform.assets.storage import StoredObject
 from ai_workshop.platform.identity.api import get_current_user
 from ai_workshop.platform.identity.domain import User, UserRole
+from ai_workshop.shared.db import get_session
 from ai_workshop.shared.errors import AppError
+from alembic import command
 
 ACTOR_ID = UUID("10000000-0000-0000-0000-000000000001")
 OTHER_ACTOR_ID = UUID("10000000-0000-0000-0000-000000000002")
@@ -89,7 +113,9 @@ PRIVATE_WORKSPACE_ID = UUID("20000000-0000-0000-0000-000000000002")
 CONFIGURATION_ID = UUID("30000000-0000-0000-0000-000000000001")
 CONFIGURATION_VERSION_ID = UUID("30000000-0000-0000-0000-000000000002")
 POLICY_VERSION_ID = UUID("30000000-0000-0000-0000-000000000003")
-INDEXING_PROFILE_ID = UUID("40000000-0000-0000-0000-000000000001")
+INDEXING_PROFILE_ID = UUID("00000000-0000-0000-0000-000000000201")
+RETRIEVAL_PROFILE_ID = UUID("00000000-0000-0000-0000-000000000202")
+BACKEND_ROOT = Path(__file__).resolve().parents[5]
 
 
 def owner() -> User:
@@ -315,7 +341,8 @@ def _configuration(
 
 
 def _generation_deployment() -> ModelDeploymentVersion:
-    return ModelDeploymentVersion.create(
+    return replace(
+        ModelDeploymentVersion.create(
         deployment_id=UUID("c0000000-0000-0000-0000-000000000010"),
         version=1,
         display_name="Synthetic local generation",
@@ -327,7 +354,10 @@ def _generation_deployment() -> ModelDeploymentVersion:
         provider_model_id="test/exact-model",
         endpoint_ref="local-runtime",
         secret_ref=None,
-        capabilities=(DeploymentCapability.STRUCTURED_OUTPUT,),
+        capabilities=(
+            DeploymentCapability.STRUCTURED_OUTPUT,
+            DeploymentCapability.CONTEXTUALIZATION,
+        ),
         external_transfer=False,
         transmitted_data_categories=(),
         data_processing_notice_ref=None,
@@ -336,7 +366,9 @@ def _generation_deployment() -> ModelDeploymentVersion:
         retry_backoff_seconds=0.0,
         healthcheck_enabled=True,
         development_only=False,
-        created_by=ACTOR_ID,
+            created_by=ACTOR_ID,
+        ),
+        id=UUID("c0000000-0000-0000-0000-000000000011"),
     )
 
 
@@ -407,6 +439,65 @@ class RecordingGenerationRuntime:
             ),
             execution=_execution_metadata(),
         )
+
+
+class AllowingPolicyResolver:
+    async def resolve(self, *, deployment, workspace_ids):
+        del deployment, workspace_ids
+        return PolicyDecision(
+            True,
+            None,
+            UUID("c0000000-0000-0000-0000-000000000020"),
+            (),
+        )
+
+
+class RecordingGenerationAuditRepository:
+    def __init__(self) -> None:
+        self.audits: list[GenerationExecutionAudit] = []
+
+    async def add(self, audit: GenerationExecutionAudit) -> GenerationExecutionAudit:
+        self.audits.append(audit)
+        return audit
+
+    async def commit(self) -> None:
+        return None
+
+
+class FailingAfterFlushAuditRepository:
+    def __init__(self, delegate: SqlAlchemyGenerationAuditRepository) -> None:
+        self.delegate = delegate
+
+    async def add(self, audit: GenerationExecutionAudit) -> GenerationExecutionAudit:
+        await self.delegate.add(audit)
+        raise RuntimeError("synthetic audit persistence failure")
+
+    async def commit(self) -> None:
+        await self.delegate.commit()
+
+
+class LockSignallingDataPolicyRepository(SqlAlchemyDataPolicyRepository):
+    def __init__(self, session: AsyncSession, lock_attempted: Event) -> None:
+        super().__init__(session)
+        self.lock_attempted = lock_attempted
+
+    async def lock_external_execution_policy(self) -> None:
+        self.lock_attempted.set()
+        await super().lock_external_execution_policy()
+
+
+class RecordingRuntimeResolver:
+    def __init__(self, runtime: RecordingGenerationRuntime) -> None:
+        self.runtime = runtime
+        self.calls: list[tuple[ModelDeploymentVersion, PolicyDecision]] = []
+
+    def resolve(
+        self,
+        deployment: ModelDeploymentVersion,
+        policy: PolicyDecision,
+    ) -> ResolvedGenerationRuntime:
+        self.calls.append((deployment, policy))
+        return ResolvedGenerationRuntime(deployment, self.runtime)
 
 
 def _execution_metadata() -> ProviderExecutionMetadata:
@@ -520,6 +611,8 @@ def _search_service(
         dense_retriever=DenseRetriever(),
         source_resolver=source_resolver,
         turn_signer=ConversationTurnSigner(b"s" * 32),
+        generation_policy_resolver=AllowingPolicyResolver(),
+        generation_audit_repository=RecordingGenerationAuditRepository(),
     )
     return service, resolver, source_resolver, exact_embedding
 
@@ -549,6 +642,618 @@ def _post_search(
         return client.post(
             "/api/v1/rag/search",
             json=payload,
+        )
+
+
+def _task8_database_url(base_url: str, database: str) -> str:
+    return make_url(base_url).set(database=database).render_as_string(
+        hide_password=False
+    )
+
+
+def _task8_sync_url(database_url: str) -> str:
+    return database_url.replace("postgresql+psycopg://", "postgresql://", 1)
+
+
+@contextmanager
+def _isolated_task8_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[str]:
+    base_settings = get_settings()
+    database = f"ai_workshop_t8_search_{uuid4().hex}"
+    isolated_url = _task8_database_url(base_settings.database_url, database)
+    administrative = _task8_database_url(base_settings.database_url, "postgres")
+    with psycopg.connect(_task8_sync_url(administrative), autocommit=True) as connection:
+        connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
+    try:
+        monkeypatch.setenv("AI_WORKSHOP_DATABASE_URL", isolated_url)
+        get_settings.cache_clear()
+        command.upgrade(Config(str(BACKEND_ROOT / "alembic.ini")), "0016_rag_llm_deployments")
+        yield isolated_url
+    finally:
+        get_settings.cache_clear()
+        with psycopg.connect(
+            _task8_sync_url(administrative), autocommit=True
+        ) as connection:
+            connection.execute(
+                sql.SQL("DROP DATABASE {} WITH (FORCE)").format(
+                    sql.Identifier(database)
+                )
+            )
+
+
+def _seed_task8_generation_contract(isolated_url: str) -> dict[str, UUID]:
+    ids = {
+        name: uuid4()
+        for name in (
+            "workspace",
+            "llm_model",
+            "generation_profile",
+            "deployment",
+            "deployment_version",
+            "installation_policy_version",
+            "workspace_policy",
+            "workspace_policy_version",
+            "configuration",
+            "answer_policy",
+            "configuration_version",
+            "approval",
+        )
+    }
+    with psycopg.connect(_task8_sync_url(isolated_url)) as connection:
+        connection.execute(
+            "INSERT INTO users (id, display_name, email, normalized_email, "
+            "password_hash, role, is_active) VALUES (%s, 'Owner', "
+            "'owner@example.test', 'owner@example.test', 'synthetic-hash', "
+            "'owner', true)",
+            (ACTOR_ID,),
+        )
+        connection.execute(
+            "INSERT INTO workspaces (id, name, kind, created_by) "
+            "VALUES (%s, 'Synthetic external workspace', 'personal', %s)",
+            (ids["workspace"], ACTOR_ID),
+        )
+        connection.execute(
+            "INSERT INTO workspace_memberships (id, workspace_id, user_id, role) "
+            "VALUES (%s, %s, %s, 'owner')",
+            (uuid4(), ids["workspace"], ACTOR_ID),
+        )
+        connection.execute(
+            "INSERT INTO rag_model_definitions (id, kind, name, version, config) "
+            "VALUES (%s, 'llm', 'OpenAI synthetic model', 3, '{}'::json)",
+            (ids["llm_model"],),
+        )
+        connection.execute(
+            "INSERT INTO rag_profiles (id, kind, name, version, config, "
+            "evaluation_state, is_default) VALUES (%s, 'generation', "
+            "'Synthetic external generation', 1, "
+            "'{\"prompt_ref\":\"rag-answer-v1\","
+            "\"context_prompt_ref\":\"rag-contextualize-v1\","
+            "\"citation_mode\":\"required\","
+            "\"context_policy\":{\"max_history_turns\":4,"
+            "\"max_history_tokens\":100},"
+            "\"generation\":{\"timeout_seconds\":10,"
+            "\"max_output_tokens\":200,\"temperature\":0.1,"
+            "\"response_schema_version\":1}}'::json, 'passed', false)",
+            (ids["generation_profile"],),
+        )
+        connection.execute(
+            "INSERT INTO rag_secret_references (namespace, reference_name, created_by) "
+            "VALUES ('provider_secret', 'openai-primary', %s)",
+            (ACTOR_ID,),
+        )
+        connection.execute(
+            "INSERT INTO rag_model_deployments (id, created_by) VALUES (%s, %s)",
+            (ids["deployment"], ACTOR_ID),
+        )
+        connection.execute(
+            """
+            INSERT INTO rag_model_deployment_versions (
+                id, deployment_id, version, display_name, description,
+                model_definition_id, provider, location, allowed_environments,
+                provider_model_id, endpoint_ref, secret_ref_namespace, secret_ref,
+                capabilities, external_transfer, transmitted_data_categories,
+                data_processing_notice_ref, timeout_seconds, max_retries,
+                retry_backoff_seconds, healthcheck_enabled, development_only,
+                created_by
+            ) VALUES (
+                %s, %s, 1, 'OpenAI synthetic answer', 'Synthetic external', %s,
+                'openai_responses', 'external', '["development"]'::json,
+                'synthetic/exact-model', 'openai-responses', 'provider_secret',
+                'openai-primary', '["structured_output", "contextualization"]'::json, true,
+                '["question", "bounded_history", "evidence"]'::json,
+                'public-notice-v1', 10, 0, 0, true, false, %s
+            )
+            """,
+            (
+                ids["deployment_version"],
+                ids["deployment"],
+                ids["llm_model"],
+                ACTOR_ID,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO rag_generation_profile_deployments "
+            "(profile_id, deployment_version_id) VALUES (%s, %s)",
+            (ids["generation_profile"], ids["deployment_version"]),
+        )
+        installation_policy_id = connection.execute(
+            "SELECT id FROM rag_installation_data_policies WHERE singleton_key"
+        ).fetchone()[0]
+        connection.execute(
+            "INSERT INTO rag_installation_data_policy_versions "
+            "(id, policy_id, version, outbound_mode, approved_providers, changed_by) "
+            "VALUES (%s, %s, 2, 'approved_providers', "
+            "'[\"openai_responses\"]'::json, %s)",
+            (ids["installation_policy_version"], installation_policy_id, ACTOR_ID),
+        )
+        connection.execute(
+            "INSERT INTO rag_workspace_data_policies (id, workspace_id) VALUES (%s, %s)",
+            (ids["workspace_policy"], ids["workspace"]),
+        )
+        connection.execute(
+            "INSERT INTO rag_workspace_data_policy_versions "
+            "(id, policy_id, workspace_id, version, outbound_mode, "
+            "approved_providers, changed_by) VALUES (%s, %s, %s, 1, "
+            "'approved_providers', '[\"openai_responses\"]'::json, %s)",
+            (
+                ids["workspace_policy_version"],
+                ids["workspace_policy"],
+                ids["workspace"],
+                ACTOR_ID,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO rag_configurations (id, owner_id, name, is_system) "
+            "VALUES (%s, %s, 'Task 8 external configuration', false)",
+            (ids["configuration"], ACTOR_ID),
+        )
+        connection.execute(
+            "INSERT INTO rag_answer_policy_versions (id, configuration_id, "
+            "version, mode, min_semantic_score, min_keyword_coverage, "
+            "require_complete_provenance, conflict_mode) VALUES "
+            "(%s, %s, 1, 'generative', 0.8, 1.0, true, 'separate_sources')",
+            (ids["answer_policy"], ids["configuration"]),
+        )
+        connection.execute(
+            "INSERT INTO rag_configuration_versions (id, configuration_id, version, "
+            "indexing_profile_id, retrieval_profile_id, generation_profile_id, "
+            "answer_policy_version_id, evaluation_state, is_default) VALUES "
+            "(%s, %s, 1, %s, %s, %s, %s, 'draft', false)",
+            (
+                ids["configuration_version"],
+                ids["configuration"],
+                INDEXING_PROFILE_ID,
+                RETRIEVAL_PROFILE_ID,
+                ids["generation_profile"],
+                ids["answer_policy"],
+            ),
+        )
+        connection.execute(
+            "INSERT INTO rag_configuration_workspace_subscriptions "
+            "(id, configuration_version_id, workspace_id) VALUES (%s, %s, %s)",
+            (uuid4(), ids["configuration_version"], ids["workspace"]),
+        )
+        connection.execute(
+            "INSERT INTO rag_external_configuration_approvals "
+            "(id, configuration_version_id, deployment_version_id, "
+            "installation_policy_version_id, approved_by, disclosure_version, "
+            "created_at) VALUES (%s, %s, %s, %s, %s, "
+            "'external-generation-v1', now())",
+            (
+                ids["approval"],
+                ids["configuration_version"],
+                ids["deployment_version"],
+                ids["installation_policy_version"],
+                ACTOR_ID,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO rag_external_configuration_approval_workspaces "
+            "(approval_id, workspace_id, workspace_policy_version_id) "
+            "VALUES (%s, %s, %s)",
+            (
+                ids["approval"],
+                ids["workspace"],
+                ids["workspace_policy_version"],
+            ),
+        )
+        connection.commit()
+    return ids
+
+
+def _task8_external_deployment(ids: dict[str, UUID]) -> ModelDeploymentVersion:
+    return replace(
+        ModelDeploymentVersion.create(
+            deployment_id=ids["deployment"],
+            version=1,
+            display_name="OpenAI synthetic answer",
+            description="Synthetic external",
+            model_definition_id=ids["llm_model"],
+            provider=ProviderKind.OPENAI_RESPONSES,
+            location=ExecutionLocation.EXTERNAL,
+            allowed_environments=(DeploymentEnvironment.DEVELOPMENT,),
+            provider_model_id="synthetic/exact-model",
+            endpoint_ref="openai-responses",
+            secret_ref="openai-primary",
+            capabilities=(
+                DeploymentCapability.STRUCTURED_OUTPUT,
+                DeploymentCapability.CONTEXTUALIZATION,
+            ),
+            external_transfer=True,
+            transmitted_data_categories=("question", "bounded_history", "evidence"),
+            data_processing_notice_ref="public-notice-v1",
+            timeout_seconds=10,
+            max_retries=0,
+            retry_backoff_seconds=0,
+            healthcheck_enabled=True,
+            development_only=False,
+            created_by=ACTOR_ID,
+        ),
+        id=ids["deployment_version"],
+    )
+
+
+class ExactExternalRuntime(RecordingGenerationRuntime):
+    def __init__(self, deployment: ModelDeploymentVersion) -> None:
+        super().__init__(resolved_query="위험 한도")
+        self.deployment = deployment
+
+    def execution(self) -> ProviderExecutionMetadata:
+        return ProviderExecutionMetadata(
+            provider=self.deployment.provider,
+            provider_model_id=self.deployment.provider_model_id,
+            deployment_version_id=self.deployment.id,
+            input_tokens=11,
+            output_tokens=7,
+            latency_ms=3,
+        )
+
+    async def health(self) -> ProviderHealthResult:
+        self.health_calls += 1
+        return ProviderHealthResult(True, self.deployment.provider_model_id, self.execution())
+
+    async def contextualize(
+        self, request: ContextualizationRequest
+    ) -> ProviderContextualizationResult:
+        self.contextualization_requests.append(request)
+        return ProviderContextualizationResult(
+            resolved_query=self.resolved_query,
+            execution=self.execution(),
+        )
+
+    async def generate(self, request: GenerationRequest) -> ProviderGenerationResult:
+        self.generation_requests.append(request)
+        return ProviderGenerationResult(
+            StructuredGeneration(
+                schema_version=1,
+                claims=(
+                    GeneratedClaim(
+                        "위험 한도는 순자산의 7%입니다.",
+                        (request.evidence[0].evidence_id,),
+                    ),
+                ),
+            ),
+            self.execution(),
+        )
+
+
+class ExactExternalRuntimeResolver:
+    def __init__(self, runtime: ExactExternalRuntime) -> None:
+        self.runtime = runtime
+        self.calls = 0
+
+    def resolve(self, deployment, policy):
+        assert deployment == self.runtime.deployment
+        assert policy.allowed
+        self.calls += 1
+        return ResolvedGenerationRuntime(deployment, self.runtime)
+
+
+def test_postgresql_current_approval_policy_strengthening_and_audit_hygiene(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with _isolated_task8_database(monkeypatch) as isolated_url:
+        ids = _seed_task8_generation_contract(isolated_url)
+        deployment = _task8_external_deployment(ids)
+        runtime = ExactExternalRuntime(deployment)
+        runtime_resolver = ExactExternalRuntimeResolver(runtime)
+        policy_lock_attempted = Event()
+        fail_audit = False
+        source = _source(
+            1,
+            "위험 한도는 순자산의 7%입니다.",
+            workspace_id=ids["workspace"],
+        )
+
+        async def search_service_override(
+            session: Annotated[AsyncSession, Depends(get_session)],
+        ) -> AsyncIterator[SearchApplicationService]:
+            policy_repository = LockSignallingDataPolicyRepository(
+                session,
+                policy_lock_attempted,
+            )
+            stored = await policy_repository.get_external_approval_for_configuration(
+                ids["configuration_version"]
+            )
+            assert stored is not None
+            profile = _generation_profile()
+            profile = replace(
+                profile,
+                profile_id=ids["generation_profile"],
+                model_id=ids["llm_model"],
+                model_name="OpenAI synthetic model",
+                model_version=3,
+                runtime_model=deployment.provider_model_id,
+                deployment=deployment,
+            )
+            configuration = replace(
+                _configuration(RecordingEmbedding()),
+                configuration_id=ids["configuration"],
+                configuration_version_id=ids["configuration_version"],
+                configuration_version=1,
+                answer_policy_version_id=ids["answer_policy"],
+                workspace_ids=(ids["workspace"],),
+                generation_profile=profile,
+                generation_runtime=None,
+                external_approval=ResolvedExternalApproval(
+                    configuration_version_id=stored.configuration_version_id,
+                    deployment_version_id=stored.deployment_version_id,
+                    installation_policy_version_id=(
+                        stored.installation_policy_version_id
+                    ),
+                    disclosure_version=stored.disclosure_version,
+                    workspace_policies=tuple(
+                        ResolvedWorkspacePolicyApproval(
+                            item.workspace_id, item.policy_version_id
+                        )
+                        for item in stored.workspace_policies
+                    ),
+                ),
+            )
+            audit_repository = SqlAlchemyGenerationAuditRepository(session)
+            yield SearchApplicationService(
+                configuration_resolver=InMemorySearchConfigurationResolver(configuration),
+                scope_resolver=RecordingScopeResolver(),
+                sparse_retriever=SparseRetriever(
+                    (SparseHit(source.chunk, rank=1, score=10.0),)
+                ),
+                dense_retriever=DenseRetriever(),
+                source_resolver=AuthoritativeSourceResolver((source,)),
+                turn_signer=ConversationTurnSigner(b"s" * 32),
+                generation_policy_resolver=GenerationPolicyResolver(policy_repository),
+                generation_runtime_resolver=runtime_resolver,
+                generation_audit_repository=(
+                    FailingAfterFlushAuditRepository(audit_repository)
+                    if fail_audit
+                    else audit_repository
+                ),
+            )
+
+        app = create_app()
+        app.dependency_overrides[get_current_user] = owner
+        app.dependency_overrides[get_search_service] = search_service_override
+        payload = {
+            "query": "위험 한도",
+            "configuration_id": str(ids["configuration"]),
+            "workspace_ids": [str(ids["workspace"])],
+            "folder_ids": [],
+            "top_k": 10,
+            "experimental": True,
+            "history": [{"role": "user", "content": "bounded history canary"}],
+        }
+        with TestClient(app) as client:
+            current = client.post("/api/v1/rag/search", json=payload)
+
+        assert current.status_code == 200, current.text
+        assert current.json()["generation"]["execution"] == {
+            "provider": "openai_responses",
+            "model_name": "OpenAI synthetic model",
+            "model_version": 3,
+            "deployment_name": "OpenAI synthetic answer",
+            "location": "external",
+            "external_transfer": True,
+            "disclosure": (
+                "OpenAI 외부 API로 현재 질문, 제한된 이전 대화와 선별된 "
+                "문서 근거가 전송됩니다."
+            ),
+        }
+        assert runtime_resolver.calls == 1
+        assert len(runtime.contextualization_requests) == 1
+        assert len(runtime.generation_requests) == 1
+        current_correlation_id = UUID(current.headers["x-correlation-id"])
+
+        insufficient_payload = dict(payload)
+        insufficient_payload["query"] = "opaque-no-match-token"
+        insufficient_payload["history"] = []
+        with TestClient(app) as client:
+            insufficient = client.post(
+                "/api/v1/rag/search",
+                json=insufficient_payload,
+            )
+
+        assert insufficient.status_code == 200, insufficient.text
+        assert insufficient.json()["generation"]["status"] == "insufficient_evidence"
+        assert insufficient.json()["generation"]["text"] is None
+        assert runtime_resolver.calls == 2
+        assert len(runtime.contextualization_requests) == 1
+        assert len(runtime.generation_requests) == 1
+        insufficient_correlation_id = UUID(insufficient.headers["x-correlation-id"])
+
+        fail_audit = True
+        with TestClient(app) as client:
+            audit_failure = client.post("/api/v1/rag/search", json=payload)
+        fail_audit = False
+
+        assert audit_failure.status_code == 503
+        assert audit_failure.json()["error"]["code"] == "llm_unavailable"
+        assert "위험 한도는 순자산의 7%" not in audit_failure.text
+        assert runtime_resolver.calls == 3
+        assert len(runtime.contextualization_requests) == 2
+        assert len(runtime.generation_requests) == 2
+        with psycopg.connect(_task8_sync_url(isolated_url)) as connection:
+            assert connection.execute(
+                "SELECT count(*) FROM rag_generation_execution_audits"
+            ).fetchone()[0] == 2
+
+        strengthened_policy_id = uuid4()
+        denied: Response | None = None
+        request_errors: list[BaseException] = []
+
+        def post_while_policy_writer_holds_lock() -> None:
+            nonlocal denied
+            try:
+                with TestClient(app) as client:
+                    denied = client.post("/api/v1/rag/search", json=payload)
+            except BaseException as exc:  # pragma: no cover - asserted below
+                request_errors.append(exc)
+
+        with psycopg.connect(_task8_sync_url(isolated_url)) as connection:
+            connection.execute(
+                "SELECT id FROM rag_installation_data_policies "
+                "WHERE singleton_key IS TRUE FOR UPDATE"
+            ).fetchone()
+            policy_lock_attempted.clear()
+            search_thread = Thread(
+                target=post_while_policy_writer_holds_lock,
+                daemon=True,
+            )
+            search_thread.start()
+            assert policy_lock_attempted.wait(timeout=2)
+            assert search_thread.is_alive()
+            assert runtime_resolver.calls == 3
+            assert len(runtime.contextualization_requests) == 2
+            assert len(runtime.generation_requests) == 2
+            connection.execute(
+                "INSERT INTO rag_workspace_data_policy_versions "
+                "(id, policy_id, workspace_id, version, outbound_mode, "
+                "approved_providers, changed_by) VALUES (%s, %s, %s, 2, "
+                "'deny', '[]'::json, %s)",
+                (
+                    strengthened_policy_id,
+                    ids["workspace_policy"],
+                    ids["workspace"],
+                    ACTOR_ID,
+                ),
+            )
+            connection.commit()
+
+        search_thread.join(timeout=5)
+        assert not search_thread.is_alive()
+        assert request_errors == []
+        assert denied is not None
+
+        assert denied.status_code == 403
+        assert denied.json()["error"]["code"] == "workspace_external_transfer_denied"
+        assert runtime_resolver.calls == 3
+        assert len(runtime.contextualization_requests) == 2
+        assert len(runtime.generation_requests) == 2
+        denied_correlation_id = UUID(denied.headers["x-correlation-id"])
+        with psycopg.connect(_task8_sync_url(isolated_url)) as connection:
+            audits = connection.execute(
+                "SELECT actor_id, configuration_version_id, generation_profile_id, "
+                "deployment_version_id, installation_policy_version_id, provider, "
+                "provider_model_id, location, external_transfer, policy_allowed, "
+                "policy_reason_code, prompt_ref, prompt_version, evidence_ids, "
+                "input_tokens, output_tokens, provider_reported_input_tokens, "
+                "provider_reported_output_tokens, cost_basis_version, "
+                "estimated_cost_microunits, status, safe_error_code, correlation_id, "
+                "latency_ms "
+                "FROM rag_generation_execution_audits ORDER BY created_at, id"
+            ).fetchall()
+            snapshots = connection.execute(
+                "SELECT a.status, s.workspace_id, s.workspace_policy_version_id "
+                "FROM rag_generation_audit_workspace_policies s "
+                "JOIN rag_generation_execution_audits a ON a.id = s.audit_id "
+                "ORDER BY a.created_at, a.id"
+            ).fetchall()
+            columns = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = 'rag_generation_execution_audits'"
+                ).fetchall()
+            }
+        assert len(audits) == 3
+        for audit in audits:
+            assert audit[:9] == (
+                ACTOR_ID,
+                ids["configuration_version"],
+                ids["generation_profile"],
+                ids["deployment_version"],
+                ids["installation_policy_version"],
+                "openai_responses",
+                "synthetic/exact-model",
+                "external",
+                True,
+            )
+            assert audit[11:13] == ("rag-answer-v1", 1)
+            assert audit[18:20] == (None, None)
+            assert audit[23] >= 0
+        assert audits[0][9:23] == (
+            True,
+            None,
+            "rag-answer-v1",
+            1,
+            [source.chunk.evidence_units[0].id],
+            22,
+            14,
+            22,
+            14,
+            None,
+            None,
+            "succeeded",
+            None,
+            current_correlation_id,
+        )
+        assert audits[1][9:23] == (
+            True,
+            None,
+            "rag-answer-v1",
+            1,
+            [],
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            "allowed",
+            None,
+            insufficient_correlation_id,
+        )
+        assert audits[2][9:23] == (
+            False,
+            "workspace_external_transfer_denied",
+            "rag-answer-v1",
+            1,
+            [],
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            "denied",
+            "workspace_external_transfer_denied",
+            denied_correlation_id,
+        )
+        assert snapshots == [
+            ("succeeded", ids["workspace"], ids["workspace_policy_version"]),
+            ("allowed", ids["workspace"], ids["workspace_policy_version"]),
+            ("denied", ids["workspace"], strengthened_policy_id),
+        ]
+        assert not columns.intersection(
+            {
+                "question",
+                "history",
+                "evidence_text",
+                "answer",
+                "provider_body",
+                "secret_ref",
+                "endpoint_ref",
+                "url",
+            }
         )
 
 
@@ -625,6 +1330,7 @@ def test_supported_search_returns_extractive_answer_and_authenticated_actor() ->
         "reason_codes": [],
         "turn_id": None,
         "validation_token": None,
+        "execution": None,
     }
     assert resolver.calls == [(CONFIGURATION_ID, ACTOR_ID)]
     assert source_resolver.calls[0][0] == ACTOR_ID
@@ -650,6 +1356,15 @@ def test_generative_search_returns_only_citation_validated_answer() -> None:
     ]
     assert payload["generation"]["turn_id"] is not None
     assert payload["generation"]["validation_token"]
+    assert payload["generation"]["execution"] == {
+        "provider": "local_openai_compatible",
+        "model_name": "test llm",
+        "model_version": 1,
+        "deployment_name": "Synthetic local generation",
+        "location": "local",
+        "external_transfer": False,
+        "disclosure": "사내 로컬 모델에서 처리됩니다.",
+    }
     assert runtime.contextualization_requests == []
     assert len(runtime.generation_requests) == 1
 
@@ -664,8 +1379,31 @@ def test_generative_search_requires_runtime_before_retrieval() -> None:
     response = _post_search(service, query="위험 한도")
 
     assert response.status_code == 503
-    assert response.json()["error"]["code"] == "llm_unavailable"
+    assert response.json()["error"]["code"] == "deployment_not_ready"
     assert source_resolver.calls == []
+
+
+def test_exact_runtime_is_resolved_once_and_provider_failure_never_falls_back() -> None:
+    class FailingRuntime(RecordingGenerationRuntime):
+        async def generate(self, request: GenerationRequest) -> ProviderGenerationResult:
+            self.generation_requests.append(request)
+            raise GenerationProviderError("provider_timeout", retryable=True)
+
+    runtime = FailingRuntime()
+    service, _, _, _ = _search_service(
+        sources=(_source(1, "위험 한도는 순자산의 7%입니다."),),
+        generative=True,
+        generation_runtime=None,
+    )
+    resolver = RecordingRuntimeResolver(runtime)
+    service.generation_runtime_resolver = resolver
+
+    response = _post_search(service, query="위험 한도")
+
+    assert response.status_code == 504
+    assert response.json()["error"]["code"] == "provider_timeout"
+    assert len(resolver.calls) == 1
+    assert len(runtime.generation_requests) == 1
 
 
 def test_generative_search_requires_exact_model_health_before_retrieval() -> None:
@@ -679,7 +1417,7 @@ def test_generative_search_requires_exact_model_health_before_retrieval() -> Non
     response = _post_search(service, query="위험 한도")
 
     assert response.status_code == 503
-    assert response.json()["error"]["code"] == "llm_unavailable"
+    assert response.json()["error"]["code"] == "deployment_not_ready"
     assert runtime.health_calls == 1
     assert source_resolver.calls == []
     assert runtime.contextualization_requests == []
@@ -782,6 +1520,12 @@ def test_generative_search_skips_llm_when_evidence_is_insufficient() -> None:
     assert response.json()["generation"]["status"] == "insufficient_evidence"
     assert response.json()["generation"]["text"] is None
     assert runtime.generation_requests == []
+    audit = service.generation_audit_repository
+    assert isinstance(audit, RecordingGenerationAuditRepository)
+    assert len(audit.audits) == 1
+    assert audit.audits[0].status == "allowed"
+    assert audit.audits[0].input_tokens is None
+    assert audit.audits[0].output_tokens is None
 
 
 def test_forged_assistant_history_is_rejected_before_retrieval() -> None:
@@ -830,9 +1574,113 @@ def test_contextualization_runtime_failure_is_explicit_and_does_not_search() -> 
     )
 
     assert response.status_code == 503
-    assert response.json()["error"]["code"] == "query_contextualization_unavailable"
+    assert response.json()["error"]["code"] == "deployment_not_ready"
     assert "private runtime detail" not in response.text
     assert source_resolver.calls == []
+
+
+@pytest.mark.parametrize(
+    ("failure_kind", "expected_code"),
+    [
+        ("retrieval", "bm25_search_unavailable"),
+        ("evidence", "evidence_embedding_unavailable"),
+    ],
+)
+def test_search_failure_after_contextualization_persists_safe_execution_audit(
+    failure_kind: str,
+    expected_code: str,
+) -> None:
+    class TokenContextRuntime(RecordingGenerationRuntime):
+        async def contextualize(
+            self, request: ContextualizationRequest
+        ) -> ProviderContextualizationResult:
+            self.contextualization_requests.append(request)
+            return ProviderContextualizationResult(
+                resolved_query=self.resolved_query,
+                execution=replace(
+                    _execution_metadata(),
+                    input_tokens=5,
+                    output_tokens=2,
+                    latency_ms=7,
+                ),
+            )
+
+    runtime = TokenContextRuntime()
+    embedding = RecordingEmbedding(
+        document_error=(
+            EmbeddingRuntimeUnavailableError("private evidence error")
+            if failure_kind == "evidence"
+            else None
+        )
+    )
+    service, _, _, _ = _search_service(
+        sources=(_source(1, "위험 한도는 순자산의 7%입니다."),),
+        embedding=embedding,
+        sparse_failure=(
+            SearchBackendUnavailableError("private retrieval error")
+            if failure_kind == "retrieval"
+            else None
+        ),
+        generative=True,
+        generation_runtime=runtime,
+    )
+
+    response = _post_search(
+        service,
+        query="위험 한도",
+        history=[{"role": "user", "content": "bounded history canary"}],
+    )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == expected_code
+    assert "private retrieval error" not in response.text
+    assert "private evidence error" not in response.text
+    assert len(runtime.contextualization_requests) == 1
+    assert runtime.generation_requests == []
+    audit = service.generation_audit_repository
+    assert isinstance(audit, RecordingGenerationAuditRepository)
+    assert len(audit.audits) == 1
+    recorded = audit.audits[0]
+    assert recorded.status == "failed"
+    assert recorded.safe_error_code == expected_code
+    assert recorded.evidence_ids == ()
+    assert recorded.input_tokens == 5
+    assert recorded.output_tokens == 2
+    assert recorded.provider_reported_input_tokens == 5
+    assert recorded.provider_reported_output_tokens == 2
+    assert recorded.latency_ms == 7
+    assert recorded.correlation_id == UUID(response.headers["x-correlation-id"])
+
+
+def test_search_failure_is_masked_only_when_required_audit_persistence_fails() -> None:
+    class FailingAuditRepository(RecordingGenerationAuditRepository):
+        async def add(
+            self, audit: GenerationExecutionAudit
+        ) -> GenerationExecutionAudit:
+            del audit
+            raise RuntimeError("private audit storage detail")
+
+    runtime = RecordingGenerationRuntime()
+    service, _, _, _ = _search_service(
+        sources=(_source(1, "위험 한도는 순자산의 7%입니다."),),
+        sparse_failure=SearchBackendUnavailableError("private retrieval error"),
+        generative=True,
+        generation_runtime=runtime,
+    )
+    service.generation_audit_repository = FailingAuditRepository()
+
+    response = _post_search(
+        service,
+        query="위험 한도",
+        history=[{"role": "user", "content": "bounded history canary"}],
+    )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "llm_unavailable"
+    assert "private retrieval error" not in response.text
+    assert "private audit storage detail" not in response.text
+    assert len(runtime.contextualization_requests) == 1
+    assert runtime.generation_requests == []
 
 
 def test_invalid_generated_citation_never_exposes_draft() -> None:
@@ -867,10 +1715,100 @@ def test_invalid_generated_citation_never_exposes_draft() -> None:
 
     response = _post_search(service, query="위험 한도")
 
-    assert response.status_code == 200
-    assert response.json()["generation"]["status"] == "citation_validation_failed"
-    assert response.json()["generation"]["text"] is None
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "citation_validation_failed"
     assert private_draft not in response.text
+
+
+def test_generation_execution_identity_mismatch_discards_answer() -> None:
+    class WrongExecutionRuntime(RecordingGenerationRuntime):
+        async def generate(self, request: GenerationRequest) -> ProviderGenerationResult:
+            result = await super().generate(request)
+            return ProviderGenerationResult(
+                generation=result.generation,
+                execution=ProviderExecutionMetadata(
+                    provider=result.execution.provider,
+                    provider_model_id=result.execution.provider_model_id,
+                    deployment_version_id=UUID(
+                        "ffffffff-ffff-ffff-ffff-ffffffffffff"
+                    ),
+                    input_tokens=1,
+                    output_tokens=1,
+                    latency_ms=1,
+                ),
+            )
+
+    runtime = WrongExecutionRuntime()
+    service, _, _, _ = _search_service(
+        sources=(_source(1, "위험 한도는 순자산의 7%입니다."),),
+        generative=True,
+        generation_runtime=runtime,
+    )
+
+    response = _post_search(service, query="위험 한도")
+
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "provider_invalid_response"
+    assert "순자산의 7%" not in response.text
+
+
+def test_health_execution_identity_mismatch_fails_before_generation() -> None:
+    class WrongHealthRuntime(RecordingGenerationRuntime):
+        async def health(self) -> ProviderHealthResult:
+            self.health_calls += 1
+            execution = _execution_metadata()
+            return ProviderHealthResult(
+                ready=True,
+                observed_provider_model_id=execution.provider_model_id,
+                execution=ProviderExecutionMetadata(
+                    provider=execution.provider,
+                    provider_model_id=execution.provider_model_id,
+                    deployment_version_id=UUID(
+                        "ffffffff-ffff-ffff-ffff-ffffffffffff"
+                    ),
+                    input_tokens=None,
+                    output_tokens=None,
+                    latency_ms=1,
+                ),
+            )
+
+    runtime = WrongHealthRuntime()
+    service, _, _, _ = _search_service(
+        sources=(_source(1, "위험 한도는 순자산의 7%입니다."),),
+        generative=True,
+        generation_runtime=runtime,
+    )
+
+    response = _post_search(service, query="위험 한도")
+
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "provider_invalid_response"
+    assert runtime.generation_requests == []
+
+
+def test_audit_failure_never_exposes_generated_answer() -> None:
+    class FailingAuditRepository(RecordingGenerationAuditRepository):
+        async def add(
+            self, audit: GenerationExecutionAudit
+        ) -> GenerationExecutionAudit:
+            del audit
+            raise RuntimeError("private audit storage detail")
+
+    runtime = RecordingGenerationRuntime()
+    service, _, _, _ = _search_service(
+        sources=(_source(1, "위험 한도는 순자산의 7%입니다."),),
+        generative=True,
+        generation_runtime=runtime,
+    )
+    service.generation_audit_repository = FailingAuditRepository()
+
+    response = _post_search(service, query="위험 한도")
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "llm_unavailable"
+    assert "순자산의 7%" not in response.text
+    assert "private audit storage detail" not in response.text
+    assert len(runtime.generation_requests) == 1
 
 
 def test_configuration_workspace_subscription_is_checked_before_scope_resolution() -> None:

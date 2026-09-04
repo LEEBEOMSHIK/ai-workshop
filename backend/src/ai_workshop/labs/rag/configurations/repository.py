@@ -72,7 +72,11 @@ from ai_workshop.labs.rag.retrieval.domain import (
     FrozenIndexTarget,
     SearchIndexTarget,
 )
-from ai_workshop.labs.rag.search.configuration_port import ResolvedSearchConfiguration
+from ai_workshop.labs.rag.search.configuration_port import (
+    ResolvedExternalApproval,
+    ResolvedSearchConfiguration,
+    ResolvedWorkspacePolicyApproval,
+)
 from ai_workshop.platform.assets.domain import VersionStatus
 from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecord
 from ai_workshop.platform.workspaces.domain import WorkspaceKind
@@ -143,6 +147,11 @@ class SqlAlchemyRagConfigurationRepository:
         return await SqlAlchemyDeploymentRepository(self.session).get_version(
             deployment_version_id
         )
+
+    async def lock_external_execution_policy(self) -> None:
+        await SqlAlchemyDataPolicyRepository(
+            self.session
+        ).lock_external_execution_policy()
 
     async def latest_installation_policy(self) -> InstallationDataPolicyVersion:
         return await SqlAlchemyDataPolicyRepository(
@@ -828,6 +837,7 @@ class SqlAlchemySearchConfigurationResolver:
             raise AppError("configuration_invalid", str(exc), 409) from exc
 
         generation_profile: GenerationProfile | None = None
+        external_approval: ResolvedExternalApproval | None = None
         if configuration.generation_profile_id is not None:
             generation = await self.repository.find_profile(
                 configuration.generation_profile_id
@@ -870,6 +880,25 @@ class SqlAlchemySearchConfigurationResolver:
                 )
             except ValueError as exc:
                 raise AppError("configuration_invalid", str(exc), 409) from exc
+            stored_approval = await SqlAlchemyDataPolicyRepository(
+                self.session
+            ).get_external_approval_for_configuration(configuration.version_id)
+            if stored_approval is not None:
+                external_approval = ResolvedExternalApproval(
+                    configuration_version_id=stored_approval.configuration_version_id,
+                    deployment_version_id=stored_approval.deployment_version_id,
+                    installation_policy_version_id=(
+                        stored_approval.installation_policy_version_id
+                    ),
+                    disclosure_version=stored_approval.disclosure_version,
+                    workspace_policies=tuple(
+                        ResolvedWorkspacePolicyApproval(
+                            workspace_id=snapshot.workspace_id,
+                            policy_version_id=snapshot.policy_version_id,
+                        )
+                        for snapshot in stored_approval.workspace_policies
+                    ),
+                )
 
         if frozen_target is None:
             builds = list(
@@ -928,6 +957,7 @@ class SqlAlchemySearchConfigurationResolver:
             workspace_ids=workspace_ids,
             experimental=configuration.experimental,
             generation_profile=generation_profile,
+            external_approval=external_approval,
         )
 
 

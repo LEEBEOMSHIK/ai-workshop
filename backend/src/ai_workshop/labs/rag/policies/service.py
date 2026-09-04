@@ -32,6 +32,8 @@ from ai_workshop.shared.errors import AppError
 
 
 class PolicyReader(Protocol):
+    async def lock_external_execution_policy(self) -> None: ...
+
     async def latest_installation_policy(self) -> InstallationDataPolicyVersion: ...
 
     async def latest_workspace_policies(
@@ -82,6 +84,8 @@ class GenerationPolicyResolver:
         workspace_ids: tuple[UUID, ...],
     ) -> PolicyDecision:
         requested_workspace_ids = _unique_ids(workspace_ids)
+        if deployment.location is ExecutionLocation.EXTERNAL:
+            await self._repository.lock_external_execution_policy()
         installation = await self._repository.latest_installation_policy()
         workspace_policies = await self._repository.latest_workspace_policies(
             requested_workspace_ids
@@ -95,12 +99,21 @@ class GenerationPolicyResolver:
             if workspace_id in policy_by_workspace
         )
         audit_ids = tuple(policy.id for policy in exact_policies)
+        audit_snapshots = tuple(
+            (policy.workspace_id, policy.id) for policy in exact_policies
+        )
 
         if deployment.location in {
             ExecutionLocation.LOCAL,
             ExecutionLocation.ON_PREMISE,
         }:
-            return PolicyDecision(True, None, installation.id, audit_ids)
+            return PolicyDecision(
+                True,
+                None,
+                installation.id,
+                audit_ids,
+                audit_snapshots,
+            )
 
         if len(exact_policies) != len(requested_workspace_ids):
             return PolicyDecision(
@@ -108,6 +121,7 @@ class GenerationPolicyResolver:
                 PolicyReasonCode.WORKSPACE_EXTERNAL_TRANSFER_DENIED,
                 installation.id,
                 audit_ids,
+                audit_snapshots,
             )
 
         installation_decision = resolve_external_transfer_policy(
@@ -121,6 +135,7 @@ class GenerationPolicyResolver:
                 installation_decision.reason_code,
                 installation.id,
                 audit_ids,
+                audit_snapshots,
             )
         try:
             return resolve_external_transfer_policy(
@@ -134,6 +149,7 @@ class GenerationPolicyResolver:
                 PolicyReasonCode.WORKSPACE_EXTERNAL_TRANSFER_DENIED,
                 installation.id,
                 audit_ids,
+                audit_snapshots,
             )
 
 

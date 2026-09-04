@@ -56,6 +56,23 @@ class SqlAlchemyDataPolicyRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    async def lock_external_execution_policy(self) -> None:
+        """Freeze the policy version frontier for this transaction.
+
+        Policy writers take ``FOR UPDATE`` on the same singleton row before
+        appending either Installation or Workspace versions. ``FOR SHARE`` makes
+        one of two orders explicit: a committed writer is visible to the following
+        execution read, or a writer waits until the execution transaction has
+        completed its provider call and audit write.
+        """
+        policy_id = await self._session.scalar(
+            select(InstallationDataPolicyRecord.id)
+            .where(InstallationDataPolicyRecord.singleton_key.is_(True))
+            .with_for_update(read=True)
+        )
+        if policy_id is None:
+            raise RuntimeError("The Installation data policy is not initialized.")
+
     async def installation_policy_id(self, *, for_update: bool = False) -> UUID:
         statement = select(InstallationDataPolicyRecord.id).where(
             InstallationDataPolicyRecord.singleton_key.is_(True)

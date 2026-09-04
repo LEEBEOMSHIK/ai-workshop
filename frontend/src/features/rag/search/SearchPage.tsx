@@ -25,6 +25,8 @@ const workspaceKindLabels: Record<WorkspaceOption["kind"], string> = {
   temporary: "임시",
 };
 
+const MAX_SEARCH_HISTORY_ITEMS = 20;
+
 export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions }) {
   const [options, setOptions] = useState<SearchOptions>(
     initialOptions ?? { configurations: [], workspaces: [] },
@@ -135,25 +137,27 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
         : [],
     );
     const experimental = requiresExperimentalConsent && experimentalConsent;
-    const history: SearchRequest["history"] = completedSearches.flatMap(({ result, context }) => {
-      const turns: SearchRequest["history"] = [
-        { role: "user", content: context.query, turn_id: null, validation_token: null },
-      ];
-      if (
-        result.generation?.status === "answered" &&
-        result.generation.text &&
-        result.generation.turn_id &&
-        result.generation.validation_token
-      ) {
-        turns.push({
-          role: "assistant",
-          content: result.generation.text,
-          turn_id: result.generation.turn_id,
-          validation_token: result.generation.validation_token,
-        });
-      }
-      return turns;
-    });
+    const history: SearchRequest["history"] = completedSearches
+      .flatMap(({ result, context }) => {
+        const turns: SearchRequest["history"] = [
+          { role: "user", content: context.query, turn_id: null, validation_token: null },
+        ];
+        if (
+          result.generation?.status === "answered" &&
+          result.generation.text &&
+          result.generation.turn_id &&
+          result.generation.validation_token
+        ) {
+          turns.push({
+            role: "assistant",
+            content: result.generation.text,
+            turn_id: result.generation.turn_id,
+            validation_token: result.generation.validation_token,
+          });
+        }
+        return turns;
+      })
+      .slice(-MAX_SEARCH_HISTORY_ITEMS);
     const context: SearchSubmissionContext = {
       query: query.trim(),
       configuration: {

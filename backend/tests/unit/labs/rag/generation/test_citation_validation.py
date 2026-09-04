@@ -1,5 +1,7 @@
 from uuid import UUID
 
+import pytest
+
 from ai_workshop.labs.rag.generation.citation_validation import CitationValidator
 from ai_workshop.labs.rag.generation.domain import (
     GeneratedClaim,
@@ -91,6 +93,35 @@ def test_numeric_or_date_claim_must_match_at_least_one_cited_evidence() -> None:
             )
         ),
         allowed_evidence=(evidence(),),
+    )
+
+    assert outcome.status is GenerationStatus.CITATION_VALIDATION_FAILED
+    assert outcome.reason_codes == ("exact_value_not_supported",)
+
+
+@pytest.mark.parametrize(
+    ("evidence_text", "claim_text"),
+    [
+        ("투자 기간은 3년입니다.", "투자 기간은 9년입니다."),
+        (
+            "적용일은 2026년 9월 1일입니다.",
+            "적용일은 2026년 10월 1일입니다.",
+        ),
+    ],
+    ids=("korean-year-duration", "korean-calendar-date"),
+)
+def test_korean_numeric_or_date_claim_must_match_cited_evidence(
+    evidence_text: str,
+    claim_text: str,
+) -> None:
+    outcome = CitationValidator().validate(
+        generation(
+            GeneratedClaim(
+                text=claim_text,
+                evidence_ids=(EVIDENCE_ID,),
+            )
+        ),
+        allowed_evidence=(evidence(text=evidence_text),),
     )
 
     assert outcome.status is GenerationStatus.CITATION_VALIDATION_FAILED

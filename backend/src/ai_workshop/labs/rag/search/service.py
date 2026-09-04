@@ -137,8 +137,9 @@ class SearchApplicationService:
             raise AppError("not_found", "The requested resource was not found.", 404)
 
         generation_profile = configuration.generation_profile
+        generation_runtime = self.generation_runtime
         if generation_profile is not None and (
-            self.generation_runtime is None or self.turn_signer is None
+            generation_runtime is None or self.turn_signer is None
         ):
             raise AppError(
                 "llm_unavailable",
@@ -152,20 +153,29 @@ class SearchApplicationService:
         )
         bounded_history = history
         if generation_profile is not None:
+            assert generation_runtime is not None
             bounded_history = generation_profile.context_policy.select(
                 history,
                 token_counter=configuration.embedding.count_tokens,
             )
-        resolved_query = request.query.strip()
-        if generation_profile is not None and bounded_history:
-            if self.generation_runtime is None:
+            try:
+                generation_ready = await generation_runtime.health(generation_profile)
+            except (
+                GenerationRuntimeUnavailableError,
+                GenerationRuntimeResponseError,
+            ):
+                generation_ready = False
+            if not generation_ready:
                 raise AppError(
-                    "query_contextualization_unavailable",
-                    "Conversation context is temporarily unavailable.",
+                    "llm_unavailable",
+                    "Answer generation is temporarily unavailable.",
                     503,
                 )
+        resolved_query = request.query.strip()
+        if generation_profile is not None and bounded_history:
+            assert generation_runtime is not None
             try:
-                resolved_query = await self.generation_runtime.contextualize(
+                resolved_query = await generation_runtime.contextualize(
                     ContextualizationRequest(
                         question=request.query.strip(),
                         history=bounded_history,

@@ -187,7 +187,7 @@ class LocalOpenAICompatibleRuntime:
                     timeout=timeout,
                 )
             else:
-                async with httpx.AsyncClient() as client:
+                async with httpx.AsyncClient(trust_env=False) as client:
                     response = await client.request(
                         method,
                         f"{self.base_url}{path}",

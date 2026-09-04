@@ -319,14 +319,21 @@ def _generation_profile(*, max_history_turns: int = 4) -> GenerationProfile:
 
 
 class RecordingGenerationRuntime:
-    def __init__(self, *, resolved_query: str = "위험 한도 적용일") -> None:
+    def __init__(
+        self,
+        *,
+        resolved_query: str = "위험 한도 적용일",
+        healthy: bool = True,
+    ) -> None:
         self.resolved_query = resolved_query
+        self.healthy = healthy
+        self.health_profiles: list[GenerationProfile] = []
         self.contextualization_requests: list[ContextualizationRequest] = []
         self.generation_requests: list[GenerationRequest] = []
 
     async def health(self, profile: GenerationProfile) -> bool:
-        del profile
-        return True
+        self.health_profiles.append(profile)
+        return self.healthy
 
     async def contextualize(self, request: ContextualizationRequest) -> str:
         self.contextualization_requests.append(request)
@@ -590,6 +597,26 @@ def test_generative_search_requires_runtime_before_retrieval() -> None:
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "llm_unavailable"
     assert source_resolver.calls == []
+
+
+def test_generative_search_requires_exact_model_health_before_retrieval() -> None:
+    runtime = RecordingGenerationRuntime(healthy=False)
+    service, _, source_resolver, _ = _search_service(
+        sources=(_source(1, "위험 한도는 순자산의 7%입니다."),),
+        generative=True,
+        generation_runtime=runtime,
+    )
+
+    response = _post_search(service, query="위험 한도")
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "llm_unavailable"
+    assert [profile.runtime_model for profile in runtime.health_profiles] == [
+        "test/exact-model"
+    ]
+    assert source_resolver.calls == []
+    assert runtime.contextualization_requests == []
+    assert runtime.generation_requests == []
 
 
 def test_follow_up_uses_signed_history_and_resolved_query_for_retrieval() -> None:

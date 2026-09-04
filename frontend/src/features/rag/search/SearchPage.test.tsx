@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, vi } from "vitest";
 
+import type { SavedConfiguration } from "./api";
 import { SearchPage } from "./SearchPage";
 
 function MemoryRouter({ children }: { children: ReactNode }) {
@@ -97,6 +98,98 @@ describe("SearchPage", () => {
         },
       ],
     });
+  });
+
+  it("sends only the newest 20 completed conversation turns", async () => {
+    const searchBodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (input === "/api/v1/workspaces/company-1/folders") return jsonResponse([]);
+        if (input === "/api/v1/rag/search") {
+          const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+          searchBodies.push(body);
+          const turn = searchBodies.length;
+          return jsonResponse({
+            status: "supported",
+            answer: evidenceAnswer(),
+            conflict_state: "none",
+            conflicts: [],
+            warnings: [],
+            related_sources: [],
+            configuration_version: {
+              configuration_id: "configuration-1",
+              version_id: "configuration-version-1",
+              version: 3,
+            },
+            experimental: false,
+            resolved_query: `질문 ${turn}`,
+            generation: {
+              status: "answered",
+              text: `답변 ${turn}`,
+              citations: [{ claim_index: 0, evidence_ids: ["evidence-1"] }],
+              reason_codes: [],
+              turn_id: `turn-${turn}`,
+              validation_token: `signed-turn-${turn}`,
+            },
+          });
+        }
+        throw new Error(`Unexpected request: ${String(input)}`);
+      }),
+    );
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <SearchPage
+          initialOptions={{
+            configurations: [savedConfiguration()],
+            workspaces: [
+              { id: "company-1", name: "전사 규정", kind: "company", expires_at: null },
+            ],
+          }}
+        />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole("checkbox", { name: /전사 규정/ }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "저장된 RAG 구성" }),
+      "configuration-1",
+    );
+    const query = screen.getByRole("searchbox", { name: "검색 질문" });
+    for (let turn = 1; turn <= 12; turn += 1) {
+      await user.type(query, `질문 ${turn}`);
+      await user.click(screen.getByRole("button", { name: "질문 보내기" }));
+      await waitFor(() => expect(query).toHaveValue(""));
+    }
+
+    const lastHistory = searchBodies[11].history as Array<{
+      role: string;
+      content: string;
+    }>;
+    expect(lastHistory).toHaveLength(20);
+    expect(lastHistory.map(({ role, content }) => `${role}:${content}`)).toEqual([
+      "user:질문 2",
+      "assistant:답변 2",
+      "user:질문 3",
+      "assistant:답변 3",
+      "user:질문 4",
+      "assistant:답변 4",
+      "user:질문 5",
+      "assistant:답변 5",
+      "user:질문 6",
+      "assistant:답변 6",
+      "user:질문 7",
+      "assistant:답변 7",
+      "user:질문 8",
+      "assistant:답변 8",
+      "user:질문 9",
+      "assistant:답변 9",
+      "user:질문 10",
+      "assistant:답변 10",
+      "user:질문 11",
+      "assistant:답변 11",
+    ]);
   });
 
   it("searches only explicitly selected workspaces and places confirmed evidence before related documents", async () => {
@@ -688,7 +781,9 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function savedConfiguration(overrides: Record<string, unknown> = {}) {
+function savedConfiguration(
+  overrides: Partial<SavedConfiguration> = {},
+): SavedConfiguration {
   return {
     id: "configuration-1",
     version_id: "configuration-version-1",

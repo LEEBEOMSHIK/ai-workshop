@@ -65,6 +65,37 @@ def test_runtime_rejects_non_loopback_endpoint() -> None:
 
 
 @pytest.mark.asyncio
+async def test_internally_owned_client_does_not_trust_proxy_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client_options: dict[str, object] = {}
+
+    class RecordingClient:
+        def __init__(self, **options: object) -> None:
+            client_options.update(options)
+
+        async def __aenter__(self) -> "RecordingClient":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def request(self, method: str, url: str, **_options: object) -> httpx.Response:
+            request = httpx.Request(method, url)
+            return httpx.Response(
+                200,
+                request=request,
+                json={"data": [{"id": "runtime/exact-model"}]},
+            )
+
+    monkeypatch.setattr(httpx, "AsyncClient", RecordingClient)
+    runtime = LocalOpenAICompatibleRuntime(base_url="http://127.0.0.1:11434")
+
+    assert await runtime.health(profile()) is True
+    assert client_options["trust_env"] is False
+
+
+@pytest.mark.asyncio
 async def test_health_requires_exact_registered_runtime_model() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/v1/models"

@@ -82,6 +82,21 @@ describe("AgentCharacter", () => {
     expect(labLink).toHaveFocus();
   });
 
+  it("keeps the catalog Lab detail action when no entrance override is provided", async () => {
+    const user = userEvent.setup();
+    const lab = listPublicLabs()[0];
+    expect(lab).toBeDefined();
+
+    render(<AgentCharacter lab={lab!} variant="working" />);
+
+    await user.click(screen.getByRole("button", { name: "RAG 총괄에게 말 걸기" }));
+
+    expect(screen.getByRole("link", { name: "RAG 연구실 들어가기" })).toHaveAttribute(
+      "href",
+      "/labs/rag",
+    );
+  });
+
   it("focuses the close button and returns focus to the character trigger", async () => {
     const user = userEvent.setup();
     const lab = listPublicLabs()[0];

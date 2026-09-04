@@ -1,25 +1,34 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-04
-- 현재 단계: 전체 화면 AI 연구소 월드 구현 완료
-- 전체 상태: `/`·`/labs` 동일 월드, RAG 연구실과 반응형 캐릭터 말풍선을 구현했다. 6개 화면·200% 확대·동작 감소 실제 브라우저 검증과 전체 자동 검증, 독립 코드 리뷰가 완료됐다.
+- 현재 단계: 공개 연구소 입구와 Lab 작업 현장 분리 완료
+- 전체 상태: `/`는 돌아다니는 관리자를 만나는 연구소 입구, `/labs`는 장비와 작업 중인 관리자를 보는 Lab 작업 현장으로 분리됐다. 자동·실제 브라우저 검증과 독립 재리뷰가 완료됐다.
 
 ## 현재 작업
 
 ### 목표
 
-승인된 전체 화면 AI 연구소 월드 설계를 구현하고 공개 URL·접근성·반응형·실제 브라우저 계약을 검증했다.
+같은 공개 catalog를 유지하면서 `/`의 연구소 입구와 `/labs`의 Lab 작업 현장을 분리하고 URL·접근성·반응형 계약을 검증했다.
 
 ### 진행 상태
 
-- `/`와 `/labs`는 같은 공개 catalog와 `LabWorldPage`를 사용해 인증 없이 동일한 전체 너비 AI 연구소 월드를 직접 렌더링한다.
+- 2026-09-04 사용자가 `/`와 `/labs`의 중복 화면을 지적하고 입구와 작업 현장으로 분리하는 짧은 설계를 승인했다.
+- 직접 원인은 두 route가 같은 `LabWorldPage`를 렌더링하고 `/labs`도 `/`를 canonical로 선언한 기존 승인 계약이다.
+- `/`는 `LabEntrancePage`와 roaming 관리자를, `/labs`는 기존 `LabWorldPage`와 working 관리자를 사용한다. 공개 catalog·RAG 상세·백엔드 계약은 변경하지 않는다.
+- URL 책임 변경은 `docs/decisions/0006-separate-public-entrance-and-labs.md`에 기록했고 기존 ADR-0005의 동일 화면 결정만 대체한다.
+- `/`의 `AI Labs 살펴보기`는 `/labs`로, `/labs`의 `RAG 연구실 들어가기`는 catalog의 `/labs/rag`로 연결된다. 두 경로는 각각 자기 canonical을 사용한다.
+- 관련 테스트 18개와 전체 frontend `39 files, 145 passed`, TypeScript, ESLint, Next.js production build `11/11` route가 통과했다.
+- 6개 기준 viewport, 정확한 767px 경계, DPR2 200% 조건과 reduced-motion을 실제 Chrome에서 검증했다. 상세 증거는 `docs/worklogs/2026-09-04-public-lab-route-separation-verification.md`에 있다.
+- 독립 재리뷰는 Critical·Important·Minor finding 없이 `Ready: Yes`다.
+
+- 이전 구현은 `/`와 `/labs`가 같은 `LabWorldPage`를 렌더링했으며, 이 계약은 ADR-0006에 따라 입구와 작업 현장으로 대체됐다.
 - RAG 연구실, 세 비상호작용 장비와 작업 중인 RAG 총괄 캐릭터를 구현했다. 캐릭터 소개는 데스크톱·태블릿 연결 말풍선과 48rem 미만 하단 패널로 동작한다.
 - 6개 기준 화면, exact 1024/768/767px breakpoint, 물리 1440×900의 200% 확대 대응 조건과 강제 reduced-motion을 실제 Chrome에서 검증했다. 상세 증거는 `docs/worklogs/2026-09-04-full-screen-ai-lab-world-verification.md`에 있다.
 - 최종 frontend Vitest 38개 파일·142개 테스트, TypeScript, ESLint, Next.js production build 11개 route, 프로젝트 에이전트 계약과 diff 검사가 통과했다. 전체 독립 리뷰는 수정 라운드 후 Critical·Important·Minor 없이 `Ready: Yes`다.
 
 - 2026-09-04 사용자가 `구현 진행해`로 설계를 승인했다. `writing-plans`와 `test-driven-development`를 적용해 계획 작성 후 실패 테스트부터 구현한다.
 - 작업 등급은 공개 URL과 반응형 UI 계약을 바꾸는 고위험 프론트 변경이다. 프론트엔드 엔지니어, 요구·구현 설계자, 시스템 아키텍트와 독립 코드 리뷰어를 선택했고 백엔드·DB·RAG 모델·인프라 역할은 변경 범위가 없어 제외했다.
-- 사용자는 `/`를 연구소 입구 겸 전체 월드로 사용하고 `/labs`도 동일한 연구소 화면을 제공하는 방향을 승인했다.
+- 2026-09-03 승인된 `/`·`/labs` 동일 화면 결정은 2026-09-04 사용자 재확인에 따라 서로 다른 탐색 단계로 대체됐다.
 - 구현 방식은 게임 엔진이나 WebGL이 아니라 접근 가능한 DOM·CSS 기반 2D 연구소로 결정했다. 현재 단계에서는 설계 문서만 작성하고 승인 전 소스 구현을 변경하지 않는다.
 - 연구소 월드는 viewport 전체를 사용하며, RAG 방 안의 작업 중인 관리자 캐릭터를 선택하면 중앙 modal이 아닌 캐릭터와 연결된 말풍선을 열고 `/labs/rag` 상세로 안내한다.
 - 상세 설계는 `docs/superpowers/specs/2026-09-03-full-screen-ai-lab-world-design.md`, 결정 초안은 `docs/decisions/0005-public-ai-lab-world.md`에 작성했다.
@@ -137,20 +146,21 @@
 
 ### 완료 기준
 
-- `/`와 `/labs`의 동일 월드 직접 렌더, RAG 방·관리자와 `/labs/rag` 진입이 구현되고 검증됐다.
-- 전체 viewport, 연결 말풍선, mobile 하단 패널과 접근성·반응형 계약이 실제 브라우저에서 통과했다.
+- `/`는 연구소 입구, `/labs`는 Lab 작업 현장으로 redirect 없이 구분됐다.
+- 입구의 roaming 관리자는 `/labs`로, 작업 현장의 working 관리자는 `/labs/{slug}`로 안내한다.
+- 전체 viewport, 연결 말풍선, mobile 하단 패널과 접근성·반응형 계약이 자동 테스트와 실제 브라우저에서 통과했다.
 - 현재 공개된 RAG만 표시하며 미래 Lab placeholder, backend·DB·catalog 계약은 변경하지 않았다.
-- 설계·ADR·구현 계획·검증 worklog가 현재 코드와 일치하고 독립 리뷰 `Ready: Yes`를 받았다.
+- 설계·ADR과 `WORKBOARD.md`가 코드와 일치하고 독립 리뷰 `Ready: Yes`를 받았다.
 
 ## 최근 완료 작업
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. 전체 화면 AI 연구소 월드를 구현했다. 6개 화면·200% 확대·동작 감소 브라우저 검증, frontend 142개 테스트·정적 검사·빌드와 독립 리뷰가 통과했다 (`docs/worklogs/2026-09-04-full-screen-ai-lab-world-verification.md`).
-2. 전체 화면 AI 연구소 월드 설계와 ADR 초안을 작성하고 6개 검토 지적을 보완해 독립 검토 `Ready`를 받았다.
-3. 공개 캐릭터 dialog를 body portal로 분리하고 모바일 안전 영역을 추가했으며, 누락된 workshop 오류 경계·개인정보 fixture·WORKBOARD 계약 모순을 전체 계획 리뷰에서 수정했다. 프론트 122개·backend unit 423개·정적 검사·빌드와 desktop/mobile 실제 브라우저를 검증했다.
-4. 공개·작업소·관리자 경계의 canonical 문서와 실행서를 2026-09-03 구현 상태에 맞추고, backend API 7개·unit 423개와 signed-out HTTP route를 검증했다.
-5. 로그인 화면과 공개·작업소 탐색을 정렬하고 synthetic 로그인 fixture로 개인정보 없는 회귀 계약을 고정했다 (`e970a9b`, `95b727d`).
+1. 공개 `/`의 연구소 입구와 `/labs`의 작업 현장을 분리했다. 전체 frontend 145개 테스트, 8개 브라우저 조건과 독립 재리뷰가 통과했다 (`docs/worklogs/2026-09-04-public-lab-route-separation-verification.md`).
+2. 전체 화면 AI 연구소 월드를 구현했다. 6개 화면·200% 확대·동작 감소 브라우저 검증, frontend 142개 테스트·정적 검사·빌드와 독립 리뷰가 통과했다 (`docs/worklogs/2026-09-04-full-screen-ai-lab-world-verification.md`).
+3. 전체 화면 AI 연구소 월드 설계와 ADR 초안을 작성하고 6개 검토 지적을 보완해 독립 검토 `Ready`를 받았다.
+4. 공개 캐릭터 dialog를 body portal로 분리하고 모바일 안전 영역을 추가했으며, 누락된 workshop 오류 경계·개인정보 fixture·WORKBOARD 계약 모순을 전체 계획 리뷰에서 수정했다. 프론트 122개·backend unit 423개·정적 검사·빌드와 desktop/mobile 실제 브라우저를 검증했다.
+5. 공개·작업소·관리자 경계의 canonical 문서와 실행서를 2026-09-03 구현 상태에 맞추고, backend API 7개·unit 423개와 signed-out HTTP route를 검증했다.
 
 ## 다음 작업
 

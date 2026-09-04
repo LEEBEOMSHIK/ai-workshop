@@ -1,4 +1,4 @@
-import { LabWorldPage } from "../features/public-labs/LabWorldPage";
+import { LabEntrancePage } from "../features/public-labs/LabEntrancePage";
 import { loadPublicLabCatalog } from "../features/public-labs/catalog";
 
 export const metadata = {
@@ -6,5 +6,5 @@ export const metadata = {
 };
 
 export default function HomeRoute() {
-  return <LabWorldPage catalog={loadPublicLabCatalog()} />;
+  return <LabEntrancePage catalog={loadPublicLabCatalog()} />;
 }

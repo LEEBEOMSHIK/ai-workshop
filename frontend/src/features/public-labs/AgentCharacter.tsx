@@ -22,6 +22,10 @@ import styles from "./PublicLabScene.module.css";
 interface AgentCharacterProps {
   lab: PublicLab;
   variant: "roaming" | "working";
+  dialogAction?: {
+    href: string;
+    label: string;
+  };
 }
 
 const focusableSelector = [
@@ -33,7 +37,7 @@ const focusableSelector = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(", ");
 
-export function AgentCharacter({ lab, variant }: AgentCharacterProps) {
+export function AgentCharacter({ lab, variant, dialogAction }: AgentCharacterProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [placement, setPlacement] = useState<DialogPlacement | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -210,8 +214,8 @@ export function AgentCharacter({ lab, variant }: AgentCharacterProps) {
                   <p>{lab.manager.intro}</p>
                   <p>{lab.manager.invitation}</p>
                 </div>
-                <Link className={styles.labLink} href={lab.href}>
-                  {lab.manager.ctaLabel}
+                <Link className={styles.labLink} href={dialogAction?.href ?? lab.href}>
+                  {dialogAction?.label ?? lab.manager.ctaLabel}
                 </Link>
               </div>
             </div>,

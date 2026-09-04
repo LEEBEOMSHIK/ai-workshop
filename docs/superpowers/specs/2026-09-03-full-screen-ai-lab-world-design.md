@@ -4,7 +4,8 @@
 - 기준일: 2026-09-03
 - 범위: 공개 `/`, `/labs`, RAG 연구실 장면, 기술 관리자 캐릭터와 소개 대화상자
 - 관련 설계: `docs/superpowers/specs/2026-09-02-public-ai-lab-rag-service-design.md`
-- 관련 결정: `docs/decisions/0005-public-ai-lab-world.md`
+- 관련 결정: `docs/decisions/0005-public-ai-lab-world.md`,
+  `docs/decisions/0006-separate-public-entrance-and-labs.md`
 
 ## 1. 배경
 
@@ -21,8 +22,9 @@ RAG만 방으로 표현하고, RAG 관리자가 방 안에서 작업하는 모�
 
 ### 목표
 
-- `/`에서 별도 소개 페이지를 거치지 않고 AI 연구소 전체 장면을 바로 보여준다.
-- `/`와 `/labs`가 동일한 공간·데이터·상호작용을 제공한다.
+- `/`에서 돌아다니는 기술 관리자를 발견하는 AI 연구소 입구를 바로 보여준다.
+- `/labs`에서 각 기술 관리자가 실제 연구실 안에서 일하는 작업 현장을 보여준다.
+- 두 화면은 같은 공개 catalog를 사용하되 서로 다른 탐색 단계와 동작을 제공한다.
 - RAG 방, 작업 중인 RAG 기술 관리자와 실제 공개 RAG 상세 진입 관계를 공간적으로 표현한다.
 - 데스크톱, 태블릿, 모바일과 낮은 높이의 화면에서도 핵심 콘텐츠와 대화 동작을 보존한다.
 - 키보드, 화면 읽기 도구와 동작 감소 설정을 지원한다.
@@ -62,34 +64,39 @@ React 컴포넌트와 CSS Grid, gradient, pseudo-element로 방과 장비를 구
 
 | URL | 책임 |
 | --- | --- |
-| `/` | 공개 AI 연구소 월드의 canonical 입구이자 전체 장면 |
-| `/labs` | 같은 월드를 직접 `200`으로 렌더링하는 공유 가능한 별칭 |
+| `/` | 돌아다니는 기술 관리자를 만나는 공개 AI 연구소 canonical 입구 |
+| `/labs` | 각 기술 연구실과 작업 중인 관리자를 보여주는 canonical 작업 현장 |
 | `/labs/rag` | RAG 공통 기술과 조직을 설명하는 독립 상세 화면 |
 
-`/labs`는 `/`로 리다이렉트하지 않는다. 두 경로는 같은 `LabWorldPage` 컴포넌트와 같은 공개
-catalog를 사용한다. 경로별 metadata는 달라도 되지만 장면, 표시 상태와 상호작용은 같아야
-한다. 새로고침과 직접 접근 모두 인증 없이 성공해야 한다.
+`/labs`는 `/`로 리다이렉트하지 않는다. 두 경로는 같은 공개 catalog를 사용하지만 `/`는
+`LabEntrancePage`, `/labs`는 `LabWorldPage`를 렌더링한다. `/`의 캐릭터는 `/labs`로,
+`/labs`의 캐릭터는 해당 Lab 상세로 안내한다. 새로고침과 직접 접근 모두 인증 없이
+성공해야 한다.
 
 ## 5. 사용자 흐름
 
-1. 방문자가 `/` 또는 `/labs`에 들어오면 전체 화면 연구소와 현재 공개된 RAG 방을 본다.
-2. 방 안에는 RAG 기술 관리자가 장비를 살피거나 작업하는 상태로 보인다.
-3. 방문자가 캐릭터를 클릭하거나 키보드로 선택하면 캐릭터에 연결된 소개 말풍선이 열린다.
-4. 말풍선은 역할 자기소개, 현재 관리 기술과 catalog의 `RAG 연구실 들어가기` 동작을
-   제공한다.
-5. 상세 동작은 `/labs/rag`로 이동한다.
+1. 방문자가 `/`에 들어오면 전체 화면 연구소 입구와 현재 공개된 기술 관리자를 본다.
+2. 입구의 관리자는 돌아다니는 상태이며 소개 말풍선에서 `/labs` 탐색을 안내한다.
+3. 방문자가 `/labs`에 들어오면 공개된 RAG 방과 그 안에서 작업 중인 관리자를 본다.
+4. 방 안의 관리자를 클릭하거나 키보드로 선택하면 캐릭터에 연결된 소개 말풍선이 열린다.
+5. 작업 현장 말풍선은 역할 자기소개와 catalog의 `RAG 연구실 들어가기` 동작을 제공하고
+   `/labs/rag`로 이동한다.
 6. 닫기, `Escape` 또는 상세 이동으로 대화를 종료한다. 닫은 경우 초점은 캐릭터로 돌아간다.
 
 ## 6. 컴포넌트와 데이터 경계
 
 ```text
-app/page.tsx --------+
-                     +--> LabWorldPage (Server Component)
-app/(public)/labs/page.tsx --+       ├─ PublicNavigation
-                             ├─ WorldIntro / Status HUD
-                             └─ RagLabRoom
-                                  ├─ 장식·작업 장비
-                                  └─ AgentCharacter (Client Component)
+app/page.tsx ----------------------> LabEntrancePage (Server Component)
+                                      ├─ PublicNavigation
+                                      ├─ EntranceIntro / Status HUD
+                                      └─ AgentCharacter (roaming, `/labs` 안내)
+
+app/(public)/labs/page.tsx --------> LabWorldPage (Server Component)
+                                      ├─ PublicNavigation
+                                      ├─ WorldIntro / Status HUD
+                                      └─ RagLabRoom
+                                           ├─ 장식·작업 장비
+                                           └─ AgentCharacter (working, Lab 상세 안내)
                                        └─ body portal의 AgentDialog
 ```
 
@@ -178,15 +185,19 @@ app/(public)/labs/page.tsx --+       ├─ PublicNavigation
 
 ## 11. 오류와 빈 상태
 
-- 공개 catalog가 비어 있으면 `현재 공개된 연구실을 준비하고 있습니다` 상태를 표시한다.
+- 공개 catalog가 비어 있으면 `/`는 `현재 공개된 기술 관리자를 준비하고 있습니다`,
+  `/labs`는 `현재 공개된 연구실을 준비하고 있습니다` 상태를 표시한다.
+- catalog 조회가 실패하면 `/`는 연구소 입구 오류를, `/labs`는 연구실 정보 오류를 각각
+  명시하고 공개 탐색은 유지한다.
 - catalog 조회가 실패하면 비공개 데이터나 하드코딩된 RAG 항목으로 조용히 대체하지 않는다.
 - 캐릭터 위치를 측정하지 못하면 viewport 안의 안전한 중앙 대화상자로 명시적으로 대체한다.
 - 위치 계산 실패는 콘텐츠 접근 실패가 되어서는 안 되며 닫기와 상세 이동은 계속 동작한다.
 
 ## 12. 검증 기준
 
-1. `/`와 `/labs`는 redirect 없이 각각 `200`으로 같은 AI 연구소 월드를 렌더링한다.
-2. 두 경로의 방, catalog 콘텐츠, 캐릭터와 상세 URL이 동일하다.
+1. `/`와 `/labs`는 redirect 없이 각각 `200`으로 서로 다른 탐색 장면을 렌더링한다.
+2. `/`는 돌아다니는 관리자의 말풍선에서 `/labs`로 안내하고 `/labs`는 작업 중인 관리자의
+   말풍선에서 해당 Lab 상세 URL로 안내한다.
 3. 페이지의 주요 연구소 배경과 RAG 방은 고정 `76rem` 카드 안에 갇히지 않고 viewport 전체
    너비를 사용한다.
 4. 현재 공개된 RAG만 방으로 나타나며 미래 Lab의 빈 방이나 가짜 항목이 없다.
@@ -199,8 +210,7 @@ app/(public)/labs/page.tsx --+       ├─ PublicNavigation
 9. 대화상자가 열린 동안 배경 상호작용이 차단되고 닫힌 뒤 이전 스크롤 상태가 복원된다.
 10. 동작 감소 설정에서 비필수 애니메이션이 실행되지 않는다.
 11. `/labs/rag` 직접 접근과 캐릭터 CTA 이동이 인증 없이 동작한다.
-12. catalog 빈 상태는 `현재 공개된 연구실을 준비하고 있습니다` 문구와 공개 탐색을 포함한
-   정상 화면을 렌더링하며, 오류 상태도 정상 오류 안내와 공개 탐색을 렌더링한다. 두 상태
+12. catalog 빈 상태와 오류 상태는 11절의 경로별 문구와 공개 탐색을 렌더링한다. 두 상태
    모두 비공개 데이터나 하드코딩 fallback을 노출하지 않는다.
 13. 공개 catalog·schema·content 계약, 백엔드 API와 DB migration에는 변경이 없다.
 14. frontend 단위·컴포넌트 테스트, TypeScript, ESLint와 production build가 통과한다.
@@ -208,11 +218,13 @@ app/(public)/labs/page.tsx --+       ├─ PublicNavigation
 
 ## 13. 예상 변경 범위
 
-- `frontend/src/app/page.tsx`, `frontend/src/app/(public)/labs/page.tsx`: 같은 월드 조합 사용
+- `frontend/src/app/page.tsx`: 공개 연구소 입구 조합 사용
+- `frontend/src/app/(public)/labs/page.tsx`: Lab 작업 현장 조합과 독립 canonical 사용
+- `frontend/src/features/public-labs/LabEntrancePage.tsx`: 돌아다니는 관리자와 입구 장면 소유
 - `frontend/src/features/public-labs/LabWorldPage.tsx`: canonical 장면 소유
 - `frontend/src/features/public-labs/AgentCharacter.tsx`: anchor 측정과 반응형 대화 표현
 - `frontend/src/features/public-labs/PublicLabScene.module.css`: 전체 화면 방과 레이어·반응형
-- 관련 public-labs 테스트: route 동등성, 대화 접근성, 위치 계산과 반응형 계약
+- 관련 public-labs 테스트: route 책임·canonical·CTA 분리, 대화 접근성, 위치 계산과 반응형 계약
 
 구현 계획에서는 위치 계산을 순수 함수로 분리할지, 브라우저 관측을 어떤 경계에서 수행할지,
 기존 `HomePage`를 제거할지까지 파일 단위로 확정한다. 이 문서가 승인되기 전에는 소스 구현을

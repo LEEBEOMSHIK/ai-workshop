@@ -4,6 +4,7 @@ import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiError } from "../../../shared/api/client";
 import {
+  type DeploymentOption,
   type FolderOption,
   type SavedConfiguration,
   type SearchOptions,
@@ -12,6 +13,7 @@ import {
   type SearchSubmissionContext,
   type WorkspaceOption,
   listSearchFolders,
+  loadGenerationProcessingOptions,
   loadSearchOptions,
   searchEvidence,
 } from "./api";
@@ -27,10 +29,26 @@ const workspaceKindLabels: Record<WorkspaceOption["kind"], string> = {
 
 const MAX_SEARCH_HISTORY_ITEMS = 20;
 
+const providerLabels: Record<DeploymentOption["provider"], string> = {
+  local_openai_compatible: "로컬 OpenAI 호환",
+  openai_responses: "OpenAI Responses API",
+};
+
+const locationLabels: Record<DeploymentOption["location"], string> = {
+  local: "로컬",
+  on_premise: "사내 온프레미스",
+  external: "외부 API",
+};
+
 export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions }) {
   const [options, setOptions] = useState<SearchOptions>(
     initialOptions ?? { configurations: [], workspaces: [] },
   );
+  const [processingOptionsLoading, setProcessingOptionsLoading] = useState(
+    initialOptions?.generationProfiles === undefined || initialOptions?.deployments === undefined,
+  );
+  const [processingOptionsFailed, setProcessingOptionsFailed] = useState(false);
+  const [processingDetailsOpen, setProcessingDetailsOpen] = useState(false);
   const [folderOptions, setFolderOptions] = useState<Record<string, FolderOption[]>>({});
   const [workspaceIds, setWorkspaceIds] = useState<string[]>([]);
   const [folderIds, setFolderIds] = useState<string[]>([]);
@@ -54,7 +72,11 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
     loadSearchOptions()
       .then((loaded) => {
         if (active) {
-          setOptions(loaded);
+          setOptions((current) => ({
+            ...current,
+            configurations: loaded.configurations,
+            workspaces: loaded.workspaces,
+          }));
           setOptionsLoadFailed(false);
         }
       })
@@ -66,6 +88,31 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
       })
       .finally(() => {
         if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [initialOptions]);
+
+  useEffect(() => {
+    if (
+      initialOptions?.generationProfiles !== undefined && initialOptions.deployments !== undefined
+    ) return;
+    let active = true;
+    loadGenerationProcessingOptions({
+      generationProfiles: initialOptions?.generationProfiles,
+      deployments: initialOptions?.deployments,
+    })
+      .then((loaded) => {
+        if (!active) return;
+        setOptions((current) => ({ ...current, ...loaded }));
+        setProcessingOptionsFailed(false);
+      })
+      .catch(() => {
+        if (active) setProcessingOptionsFailed(true);
+      })
+      .finally(() => {
+        if (active) setProcessingOptionsLoading(false);
       });
     return () => {
       active = false;
@@ -87,6 +134,14 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
   const selectedConfiguration = options.configurations.find(
     (configuration) => configuration.id === configurationId,
   );
+  const selectedGenerationProfile = options.generationProfiles?.find(
+    (profile) => profile.id === selectedConfiguration?.generation_profile_id,
+  );
+  const selectedDeployment = options.deployments?.find(
+    (deployment) => deployment.deployment_version_id === selectedGenerationProfile?.deployment_version_id,
+  );
+  const generationRequested = selectedConfiguration?.answer_policy.mode === "generative";
+  const selectedProcessingKnown = !generationRequested || selectedDeployment !== undefined;
   const requiresExperimentalConsent = selectedConfiguration?.experimental === true;
   const selectedConfigurationReady =
     selectedConfiguration?.search_ready === true &&
@@ -117,6 +172,7 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
       workspaceIds.length === 0 ||
       query.trim().length < 2 ||
       !selectedConfigurationReady ||
+      !selectedProcessingKnown ||
       (requiresExperimentalConsent && !experimentalConsent)
     ) {
       return;
@@ -285,6 +341,7 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
               onChange={(event) => {
                 setConfigurationId(event.target.value);
                 setExperimentalConsent(false);
+                setProcessingDetailsOpen(false);
               }}
             >
               <option value="">구성을 선택하세요</option>
@@ -303,6 +360,16 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
                 : "선택한 구성의 LLM 답변이 아직 준비되지 않았습니다."}{" "}
               관리자 구성 화면에서 준비 상태와 원인을 확인해 주세요.
             </p>
+          ) : null}
+          {selectedConfiguration ? (
+            <ProcessingDisclosure
+              configuration={selectedConfiguration}
+              deployment={selectedDeployment}
+              loading={processingOptionsLoading}
+              failed={processingOptionsFailed}
+              detailsOpen={processingDetailsOpen}
+              onToggleDetails={() => setProcessingDetailsOpen((current) => !current)}
+            />
           ) : null}
           {requiresExperimentalConsent ? (
             <aside className="experimental-consent" aria-label="실험 구성 안내">
@@ -334,6 +401,7 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
               workspaceIds.length === 0 ||
               !configurationId ||
               !selectedConfigurationReady ||
+              !selectedProcessingKnown ||
               query.trim().length < 2 ||
               (requiresExperimentalConsent && !experimentalConsent)
             }
@@ -379,6 +447,86 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
   );
 }
 
+function ProcessingDisclosure({
+  configuration,
+  deployment,
+  loading,
+  failed,
+  detailsOpen,
+  onToggleDetails,
+}: {
+  configuration: SavedConfiguration;
+  deployment: DeploymentOption | undefined;
+  loading: boolean;
+  failed: boolean;
+  detailsOpen: boolean;
+  onToggleDetails: () => void;
+}) {
+  if (configuration.answer_policy.mode !== "generative") {
+    return (
+      <aside className="processing-disclosure" aria-label="선택한 구성 처리 안내">
+        <p role="status" aria-label="선택한 구성 처리 안내">
+          LLM 생성을 요청하지 않는 추출식 구성입니다. 검색된 원문 근거를 그대로 제공합니다.
+        </p>
+      </aside>
+    );
+  }
+  if (!deployment) {
+    const message = loading
+      ? "선택한 구성의 모델 및 처리 위치를 확인하는 중입니다."
+      : safeProcessingUnavailableMessage(configuration.answer_reasons, failed);
+    return (
+      <aside className="processing-disclosure" aria-label="선택한 구성 처리 안내">
+        <p role="status" aria-label="선택한 구성 처리 안내">{message}</p>
+      </aside>
+    );
+  }
+  return (
+    <aside className="processing-disclosure" aria-label="선택한 구성 처리 안내">
+      <p role="status" aria-label="선택한 구성 처리 안내">{deployment.approval.disclosure}</p>
+      <button
+        type="button"
+        className="processing-details-toggle"
+        aria-expanded={detailsOpen}
+        aria-controls="selected-processing-details"
+        onClick={onToggleDetails}
+      >
+        모델 및 처리 위치 상세
+      </button>
+      {detailsOpen ? (
+        <div id="selected-processing-details" role="region" aria-label="모델 및 처리 위치 상세">
+          <dl className="identity-list">
+            <div><dt>실행 배포</dt><dd>{deployment.display_name}</dd></div>
+            <div><dt>Model Definition</dt><dd>{deployment.model_name} v{deployment.model_version}</dd></div>
+            <div><dt>공급자</dt><dd>{providerLabels[deployment.provider]}</dd></div>
+            <div><dt>Provider 모델 ID</dt><dd>{deployment.provider_model_id}</dd></div>
+            <div><dt>처리 위치</dt><dd>{locationLabels[deployment.location]}</dd></div>
+            <div><dt>외부 전송</dt><dd>{deployment.external_transfer ? "외부 전송 대상" : "외부 전송 없음"}</dd></div>
+          </dl>
+        </div>
+      ) : null}
+    </aside>
+  );
+}
+
+function safeProcessingUnavailableMessage(reasonCodes: string[], failed: boolean): string {
+  const messages: Record<string, string> = {
+    deployment_not_allowed_in_environment: "현재 환경에서는 선택한 생성 실행을 사용할 수 없습니다.",
+    workspace_external_transfer_denied: "지식 공간 정책에서 외부 전송을 허용하지 않습니다.",
+    provider_not_allowed: "회사 정책에서 선택한 외부 생성 서비스를 허용하지 않습니다.",
+    deployment_not_ready: "선택한 생성 실행의 준비 상태를 확인해 주세요.",
+    provider_authentication_failed: "생성 서비스 인증 상태를 확인해 주세요.",
+    provider_rate_limited: "생성 서비스 요청 한도를 확인해 주세요.",
+    provider_timeout: "생성 서비스 응답 시간이 초과되었습니다.",
+    provider_invalid_response: "생성 서비스 응답 상태를 확인해 주세요.",
+  };
+  const known = reasonCodes.map((code) => messages[code]).find(Boolean);
+  if (known) return known;
+  return failed
+    ? "선택한 구성의 모델 및 처리 위치를 불러오지 못했습니다."
+    : "선택한 구성의 모델 및 처리 위치를 확인할 수 없습니다.";
+}
+
 function ConfigurationOption({ configuration }: { configuration: SavedConfiguration }) {
   return (
     <option value={configuration.id}>
@@ -392,6 +540,19 @@ function ConfigurationOption({ configuration }: { configuration: SavedConfigurat
 
 function searchErrorMessage(error: unknown): string {
   if (!(error instanceof ApiError)) return "검색 요청을 완료하지 못했습니다.";
+  const generationMessages: Record<string, string> = {
+    deployment_not_allowed_in_environment: "현재 환경에서는 선택한 생성 실행을 사용할 수 없습니다.",
+    workspace_external_transfer_denied: "선택한 지식 공간의 외부 전송 정책이 생성을 허용하지 않습니다.",
+    provider_not_allowed: "현재 데이터 정책이 선택한 외부 생성 서비스를 허용하지 않습니다.",
+    deployment_not_ready: "선택한 생성 실행이 준비되지 않았습니다.",
+    provider_authentication_failed: "생성 서비스 인증 상태를 확인해 주세요.",
+    provider_rate_limited: "생성 서비스 요청 한도에 도달했습니다.",
+    provider_timeout: "생성 서비스 응답 시간이 초과되었습니다.",
+    provider_invalid_response: "생성 서비스가 유효한 응답을 반환하지 않았습니다.",
+    structured_output_invalid: "생성 서비스의 구조화 응답을 확인할 수 없습니다.",
+    citation_validation_failed: "생성 답변의 근거 인용을 확인할 수 없습니다.",
+  };
+  if (generationMessages[error.code]) return generationMessages[error.code];
   if (error.status === 401) return "로그인이 필요합니다.";
   if (error.status === 404) return "검색 범위 또는 구성을 찾을 수 없습니다.";
   if (error.status === 409) return "선택한 검색 구성을 지금 사용할 수 없습니다.";

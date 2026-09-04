@@ -23,10 +23,21 @@ const submissionContext: SearchSubmissionContext = {
 
 describe("EvidenceAnswer", () => {
   it("renders a validated LLM answer with citations mapped to current evidence", () => {
+    const execution = {
+      deployment_name: "OpenAI 금융 답변",
+      model_name: "OpenAI GPT-5 mini",
+      model_version: 2,
+      provider: "openai_responses" as const,
+      location: "external" as const,
+      external_transfer: true,
+      disclosure: "질문과 선별 근거가 외부 API에서 처리되었습니다.",
+    };
+    Reflect.set(execution, "deployment_version_id", "deployment-version-secret");
+    Reflect.set(execution, "secret_ref", "sk-not-a-real-secret");
     renderAnswer(
       searchResult({
       generation: {
-        execution: null,
+        execution,
         status: "answered",
           text: "환매 요청은 영업일 기준 3일 전에 접수해야 합니다.",
           citations: [{ claim_index: 0, evidence_ids: ["evidence-1"] }],
@@ -40,6 +51,69 @@ describe("EvidenceAnswer", () => {
     const generated = screen.getByRole("region", { name: "AI 답변" });
     expect(within(generated).getByText("환매 요청은 영업일 기준 3일 전에 접수해야 합니다.")).toBeVisible();
     expect(within(generated).getByText("주장 1 · 환매 규정.txt")).toBeVisible();
+    const executionDetails = within(generated).getByLabelText("실제 생성 실행");
+    expect(executionDetails).toHaveTextContent("OpenAI GPT-5 mini v2");
+    expect(executionDetails).toHaveTextContent("OpenAI Responses API");
+    expect(executionDetails).toHaveTextContent("외부 API");
+    expect(executionDetails).toHaveTextContent("외부 전송 실행됨");
+    expect(executionDetails).not.toHaveTextContent(/deployment-version-secret|sk-not-a-real-secret/);
+  });
+
+  it("uses only safe citation reason messages and never renders an unknown raw reason", () => {
+    renderAnswer(searchResult({
+      generation: {
+        execution: null,
+        status: "citation_validation_failed",
+        text: null,
+        citations: [],
+        reason_codes: ["exact_value_not_supported", "provider raw secret detail"],
+        turn_id: null,
+        validation_token: null,
+      },
+    }));
+
+    const failure = screen.getByRole("region", { name: "AI 답변 검증 실패" });
+    expect(failure).toHaveTextContent("답변의 수치가 현재 근거로 확인되지 않았습니다.");
+    expect(failure).not.toHaveTextContent("provider raw secret detail");
+    expect(screen.queryByLabelText("실제 생성 실행")).not.toBeInTheDocument();
+  });
+
+  it("preserves the response execution snapshot when the surrounding selected context changes", () => {
+    const result = searchResult({
+      generation: {
+        execution: {
+          deployment_name: "응답 당시 사내 배포",
+          model_name: "응답 당시 모델",
+          model_version: 7,
+          provider: "local_openai_compatible",
+          location: "on_premise",
+          external_transfer: false,
+          disclosure: "응답 당시 승인된 사내 환경에서 처리되었습니다.",
+        },
+        status: "answered",
+        text: "근거 제한 답변입니다.",
+        citations: [],
+        reason_codes: [],
+        turn_id: "turn-snapshot",
+        validation_token: "signed-snapshot",
+      },
+    });
+    const { rerender } = render(<EvidenceAnswer result={result} context={submissionContext} />);
+
+    rerender(<EvidenceAnswer
+      result={result}
+      context={{
+        ...submissionContext,
+        configuration: { ...submissionContext.configuration, name: "현재 선택한 다른 구성" },
+      }}
+    />);
+
+    const execution = screen.getByLabelText("실제 생성 실행");
+    expect(execution).toHaveTextContent("응답 당시 사내 배포");
+    expect(execution).toHaveTextContent("응답 당시 모델 v7");
+    expect(execution).toHaveTextContent("사내 온프레미스");
+    expect(execution).toHaveTextContent("외부 전송 없음");
+    expect(execution).not.toHaveTextContent("현재 선택한 다른 구성");
   });
 
   it("renders a supported extract with immutable provenance and distinct keyword and semantic labels", () => {

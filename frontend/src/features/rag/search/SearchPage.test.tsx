@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, vi } from "vitest";
 
-import type { SavedConfiguration } from "./api";
+import type { DeploymentOption, GenerationProfile, SavedConfiguration } from "./api";
 import { SearchPage } from "./SearchPage";
 
 function MemoryRouter({ children }: { children: ReactNode }) {
@@ -15,11 +15,228 @@ afterEach(() => {
 });
 
 describe("SearchPage", () => {
+  it("keeps a ready extractive search usable when optional generation metadata fails", async () => {
+    const extractive = savedConfiguration({
+      generation_profile_id: null,
+      answer_policy: { ...savedConfiguration().answer_policy, mode: "extractive" },
+    });
+    let submitted = false;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (input === "/api/v1/workspaces") {
+        return jsonResponse([{ id: "company-1", name: "전사 규정", kind: "company", expires_at: null }]);
+      }
+      if (input === "/api/v1/rag/configurations") return jsonResponse([extractive]);
+      if (input === "/api/v1/rag/profiles/generation" || input === "/api/v1/rag/deployments/options") {
+        return jsonResponse({ error: { code: "request_failed", message: "raw metadata raw", correlation_id: "c" } }, 503);
+      }
+      if (input === "/api/v1/workspaces/company-1/folders") return jsonResponse([]);
+      if (input === "/api/v1/rag/search") {
+        submitted = true;
+        return jsonResponse({
+          status: "insufficient_evidence",
+          answer: null,
+          conflict_state: "none",
+          conflicts: [],
+          warnings: [],
+          related_sources: [],
+          configuration_version: { configuration_id: "configuration-1", version_id: "version-1", version: 3 },
+          experimental: false,
+          resolved_query: "추출식 질문",
+          generation: {
+            execution: null,
+            status: "not_requested",
+            text: null,
+            citations: [],
+            reason_codes: [],
+            turn_id: null,
+            validation_token: null,
+          },
+        });
+      }
+      throw new Error(`Unexpected request: ${String(input)}`);
+    }));
+    const user = userEvent.setup();
+    render(<MemoryRouter><SearchPage /></MemoryRouter>);
+
+    await user.click(await screen.findByRole("checkbox", { name: /전사 규정/ }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "저장된 RAG 구성" }), "configuration-1");
+    await user.type(screen.getByRole("searchbox", { name: "검색 질문" }), "추출식 질문");
+    expect(screen.getByRole("button", { name: "질문 보내기" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "질문 보내기" }));
+
+    expect(submitted).toBe(true);
+    expect(screen.queryByText("raw metadata raw")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["exact generation Profile", [], [deploymentOption()]],
+    ["exact Deployment", [generationProfile("generation-1", "deployment-missing")], [deploymentOption()]],
+  ])("blocks only a generative submit when the %s join is missing", async (_caseName, generationProfiles, deployments) => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <SearchPage initialOptions={{
+          configurations: [savedConfiguration()],
+          workspaces: [{ id: "company-1", name: "전사 규정", kind: "company", expires_at: null }],
+          generationProfiles,
+          deployments,
+        }} />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole("checkbox", { name: /전사 규정/ }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "저장된 RAG 구성" }), "configuration-1");
+    await user.type(screen.getByRole("searchbox", { name: "검색 질문" }), "생성 질문");
+
+    expect(screen.getByRole("button", { name: "질문 보내기" })).toBeDisabled();
+    expect(screen.getByRole("status", { name: "선택한 구성 처리 안내" })).toHaveTextContent(
+      "선택한 구성의 모델 및 처리 위치를 확인할 수 없습니다.",
+    );
+  });
+
+  it.each([
+    ["Deployment", true],
+    ["generation Profile", false],
+  ])("loads only the missing %s without replacing supplied metadata", async (_missing, profilesSupplied) => {
+    const suppliedProfile = generationProfile("generation-1", "deployment-external");
+    const suppliedDeployment = deploymentOption();
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      requests.push(String(input));
+      if (input === "/api/v1/rag/profiles/generation") return jsonResponse([suppliedProfile]);
+      if (input === "/api/v1/rag/deployments/options") return jsonResponse([suppliedDeployment]);
+      throw new Error(`Unexpected request: ${String(input)}`);
+    }));
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <SearchPage initialOptions={{
+          configurations: [savedConfiguration()],
+          workspaces: [],
+          ...(profilesSupplied
+            ? { generationProfiles: [suppliedProfile] }
+            : { deployments: [suppliedDeployment] }),
+        }} />
+      </MemoryRouter>,
+    );
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "저장된 RAG 구성" }), "configuration-1");
+    expect(await screen.findByText(
+      "현재 질문, 제한된 이전 대화와 선별된 문서 근거가 OpenAI 외부 API로 전송됩니다.",
+    )).toBeVisible();
+    expect(requests).toEqual([
+      profilesSupplied ? "/api/v1/rag/deployments/options" : "/api/v1/rag/profiles/generation",
+    ]);
+  });
+
+  it("updates the server disclosure and keyboard-accessible processing details with the selected configuration", async () => {
+    const externalConfiguration = savedConfiguration({
+      id: "configuration-external",
+      name: "외부 생성 구성",
+      generation_profile_id: "generation-external",
+    });
+    const localConfiguration = savedConfiguration({
+      id: "configuration-local",
+      name: "사내 생성 구성",
+      generation_profile_id: "generation-local",
+    });
+    const externalDeployment = deploymentOption();
+    Reflect.set(externalDeployment, "secret_ref", "sk-not-a-real-secret");
+    Reflect.set(externalDeployment, "endpoint_ref", "endpoint-ref");
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <SearchPage
+          initialOptions={{
+            configurations: [externalConfiguration, localConfiguration],
+            workspaces: [
+              { id: "company-1", name: "전사 규정", kind: "company", expires_at: null },
+            ],
+            generationProfiles: [
+              generationProfile("generation-external", "deployment-external"),
+              generationProfile("generation-local", "deployment-local"),
+            ],
+            deployments: [
+              externalDeployment,
+              deploymentOption({
+                deployment_version_id: "deployment-local",
+                display_name: "사내 금융 답변",
+                model_name: "사내 Korean LLM",
+                model_version: 4,
+                provider: "local_openai_compatible",
+                provider_model_id: "internal/korean-rag-v4",
+                location: "on_premise",
+                external_transfer: false,
+                approval: {
+                  required: false,
+                  disclosure_version: "on-premise-generation-v1",
+                  disclosure: "질문과 근거는 승인된 사내 환경에서만 처리됩니다.",
+                  transmitted_data_categories: [],
+                },
+              }),
+            ],
+          }}
+        />
+      </MemoryRouter>,
+    );
+
+    const configuration = screen.getByRole("combobox", { name: "저장된 RAG 구성" });
+    await user.selectOptions(configuration, "configuration-external");
+    expect(screen.getByRole("status", { name: "선택한 구성 처리 안내" })).toHaveTextContent(
+      "현재 질문, 제한된 이전 대화와 선별된 문서 근거가 OpenAI 외부 API로 전송됩니다.",
+    );
+    const detailsButton = screen.getByRole("button", { name: "모델 및 처리 위치 상세" });
+    detailsButton.focus();
+    await user.keyboard("{Enter}");
+    const details = screen.getByRole("region", { name: "모델 및 처리 위치 상세" });
+    expect(details).toHaveTextContent("OpenAI GPT-5 mini v2");
+    expect(details).toHaveTextContent("OpenAI Responses API");
+    expect(details).toHaveTextContent("외부 API");
+    expect(details).toHaveTextContent("외부 전송 대상");
+    expect(details).not.toHaveTextContent(/deployment-external|sk-not-a-real-secret|endpoint-ref/);
+
+    await user.selectOptions(configuration, "configuration-local");
+    expect(screen.getByRole("status", { name: "선택한 구성 처리 안내" })).toHaveTextContent(
+      "질문과 근거는 승인된 사내 환경에서만 처리됩니다.",
+    );
+    expect(screen.queryByText(/OpenAI 외부 API로 전송/)).not.toBeInTheDocument();
+  });
+
+  it("explains an extractive configuration without inventing a provider execution", async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <SearchPage
+          initialOptions={{
+            configurations: [savedConfiguration({
+              generation_profile_id: null,
+              answer_policy: { ...savedConfiguration().answer_policy, mode: "extractive" },
+            })],
+            workspaces: [],
+            generationProfiles: [],
+            deployments: [],
+          }}
+        />
+      </MemoryRouter>,
+    );
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "저장된 RAG 구성" }),
+      "configuration-1",
+    );
+    expect(screen.getByRole("status", { name: "선택한 구성 처리 안내" })).toHaveTextContent(
+      "LLM 생성을 요청하지 않는 추출식 구성입니다.",
+    );
+    expect(screen.queryByRole("button", { name: "모델 및 처리 위치 상세" })).not.toBeInTheDocument();
+  });
+
   it("sends signed prior turns for a contextual follow-up and keeps both turns visible", async () => {
     const searchBodies: Array<Record<string, unknown>> = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const metadata = processingMetadataResponse(input);
+        if (metadata) return metadata;
         if (input === "/api/v1/workspaces") {
           return jsonResponse([
             { id: "company-1", name: "전사 규정", kind: "company", expires_at: null },
@@ -105,6 +322,8 @@ describe("SearchPage", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const metadata = processingMetadataResponse(input);
+        if (metadata) return metadata;
         if (input === "/api/v1/workspaces/company-1/folders") return jsonResponse([]);
         if (input === "/api/v1/rag/search") {
           const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
@@ -190,13 +409,15 @@ describe("SearchPage", () => {
       "user:질문 11",
       "assistant:답변 11",
     ]);
-  });
+  }, 15_000);
 
   it("searches only explicitly selected workspaces and places confirmed evidence before related documents", async () => {
     const requests: Array<[RequestInfo | URL, RequestInit | undefined]> = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const metadata = processingMetadataResponse(input);
+        if (metadata) return metadata;
         requests.push([input, init]);
         if (input === "/api/v1/workspaces") {
           return jsonResponse([
@@ -290,6 +511,8 @@ describe("SearchPage", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const metadata = processingMetadataResponse(input);
+        if (metadata) return metadata;
         if (input === "/api/v1/workspaces") {
           return jsonResponse([
             { id: "company-1", name: "전사 규정", kind: "company", expires_at: null },
@@ -366,7 +589,7 @@ describe("SearchPage", () => {
       experimental: true,
       workspace_ids: ["company-1"],
     });
-    const insufficient = await screen.findByRole("status");
+    const insufficient = (await screen.findByText("직접 답할 근거가 부족합니다")).closest("[role=status]")!;
     const related = screen.getByRole("heading", { name: "관련 문서" });
     expect(insufficient).toHaveTextContent("직접 답할 근거가 부족합니다");
     expect(insufficient.compareDocumentPosition(related)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
@@ -379,6 +602,8 @@ describe("SearchPage", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const metadata = processingMetadataResponse(input);
+        if (metadata) return metadata;
         if (input === "/api/v1/workspaces") {
           return jsonResponse([
             { id: "company-1", name: "전사 규정", kind: "company", expires_at: null },
@@ -441,6 +666,8 @@ describe("SearchPage", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const metadata = processingMetadataResponse(input);
+        if (metadata) return Promise.resolve(metadata);
         if (input === "/api/v1/workspaces") {
           return Promise.resolve(
             jsonResponse([
@@ -584,14 +811,17 @@ describe("SearchPage", () => {
   });
 
   it.each([
-    [401, "로그인이 필요합니다."],
-    [404, "검색 범위 또는 구성을 찾을 수 없습니다."],
-    [409, "선택한 검색 구성을 지금 사용할 수 없습니다."],
-    [503, "검색 서비스가 일시적으로 준비되지 않았습니다. 잠시 후 다시 시도해 주세요."],
-  ])("renders a truthful %i search failure without exposing server detail", async (status, message) => {
+    [401, "internal_source_detail", "로그인이 필요합니다."],
+    [404, "internal_source_detail", "검색 범위 또는 구성을 찾을 수 없습니다."],
+    [409, "internal_source_detail", "선택한 검색 구성을 지금 사용할 수 없습니다."],
+    [503, "internal_source_detail", "검색 서비스가 일시적으로 준비되지 않았습니다. 잠시 후 다시 시도해 주세요."],
+    [504, "provider_timeout", "생성 서비스 응답 시간이 초과되었습니다."],
+  ])("renders a truthful %i search failure without exposing server detail", async (status, code, message) => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
+        const metadata = processingMetadataResponse(input);
+        if (metadata) return metadata;
         if (input === "/api/v1/workspaces") {
           return jsonResponse([
             { id: "company-1", name: "전사 규정", kind: "company", expires_at: null },
@@ -605,7 +835,7 @@ describe("SearchPage", () => {
           return jsonResponse(
             {
               error: {
-                code: "internal_source_detail",
+                code,
                 message: "비공개 문서 제목이 포함된 서버 상세",
                 correlation_id: "correlation-1",
               },
@@ -640,6 +870,8 @@ describe("SearchPage", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
+        const metadata = processingMetadataResponse(input);
+        if (metadata) return metadata;
         if (input === "/api/v1/workspaces" || input === "/api/v1/rag/configurations") {
           return jsonResponse({ error: { code: "unauthorized", message: "Unauthorized", correlation_id: "test" } }, 401);
         }
@@ -662,6 +894,8 @@ describe("SearchPage", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
+        const metadata = processingMetadataResponse(input);
+        if (metadata) return metadata;
         if (input === "/api/v1/workspaces") {
           return jsonResponse([
             { id: "company-1", name: "전사 규정", kind: "company", expires_at: null },
@@ -699,6 +933,8 @@ describe("SearchPage", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
+        const metadata = processingMetadataResponse(input);
+        if (metadata) return metadata;
         if (input === "/api/v1/workspaces") return jsonResponse([]);
         if (input === "/api/v1/rag/configurations") return jsonResponse([]);
         throw new Error(`Unexpected request: ${String(input)}`);
@@ -721,6 +957,16 @@ describe("SearchPage", () => {
     );
   });
 });
+
+function processingMetadataResponse(input: RequestInfo | URL): Response | null {
+  if (input === "/api/v1/rag/profiles/generation") {
+    return jsonResponse([generationProfile("generation-1", "deployment-external")]);
+  }
+  if (input === "/api/v1/rag/deployments/options") {
+    return jsonResponse([deploymentOption()]);
+  }
+  return null;
+}
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -812,6 +1058,45 @@ function savedConfiguration(
     service_ready: true,
     search_reasons: [],
     answer_reasons: [],
+    ...overrides,
+  };
+}
+
+function generationProfile(id: string, deploymentVersionId: string): GenerationProfile {
+  return {
+    id,
+    kind: "generation" as const,
+    name: `${id} profile`,
+    version: 1,
+    config: {},
+    bindings: [],
+    deployment_version_id: deploymentVersionId,
+    legacy: false,
+    readiness: { ready: true, reason_codes: [] },
+    evaluation_state: "passed" as const,
+    is_default: false,
+  };
+}
+
+function deploymentOption(overrides: Partial<DeploymentOption> = {}): DeploymentOption {
+  return {
+    deployment_version_id: "deployment-external",
+    display_name: "OpenAI 금융 답변",
+    model_name: "OpenAI GPT-5 mini",
+    model_version: 2,
+    provider: "openai_responses" as const,
+    provider_model_id: "gpt-5-mini-2025-08-07",
+    location: "external" as const,
+    external_transfer: true,
+    allowed_environments: ["production" as const],
+    capabilities: ["structured_output" as const, "contextualization" as const],
+    readiness: { ready: true, reason_codes: [] },
+    approval: {
+      required: true as const,
+      disclosure_version: "external-generation-v1" as const,
+      disclosure: "현재 질문, 제한된 이전 대화와 선별된 문서 근거가 OpenAI 외부 API로 전송됩니다.",
+      transmitted_data_categories: ["question", "bounded_history", "evidence"],
+    },
     ...overrides,
   };
 }

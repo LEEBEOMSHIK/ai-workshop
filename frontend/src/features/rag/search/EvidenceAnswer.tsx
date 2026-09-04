@@ -36,12 +36,19 @@ export function EvidenceAnswer({ result, context }: EvidenceAnswerProps) {
               </li>
             ))}
           </ul>
+          {result.generation.execution ? (
+            <GenerationExecutionDetails execution={result.generation.execution} />
+          ) : null}
         </section>
       ) : null}
       {result.generation?.status === "citation_validation_failed" ? (
         <section className="answer-state insufficient" aria-label="AI 답변 검증 실패">
           <h2>AI 답변을 표시하지 않았습니다</h2>
           <p>생성된 답변의 인용이 현재 검색 근거와 일치하지 않아 원문 근거만 제공합니다.</p>
+          <p>{generationValidationMessage(result.generation.reason_codes)}</p>
+          {result.generation.execution ? (
+            <GenerationExecutionDetails execution={result.generation.execution} />
+          ) : null}
         </section>
       ) : null}
       <section className={`answer-state ${supported ? "supported" : "insufficient"}`}>
@@ -88,6 +95,46 @@ export function EvidenceAnswer({ result, context }: EvidenceAnswerProps) {
       ) : null}
     </div>
   );
+}
+
+function GenerationExecutionDetails({
+  execution,
+}: {
+  execution: NonNullable<NonNullable<SearchResult["generation"]>["execution"]>;
+}) {
+  const providers: Record<typeof execution.provider, string> = {
+    local_openai_compatible: "로컬 OpenAI 호환",
+    openai_responses: "OpenAI Responses API",
+  };
+  const locations: Record<typeof execution.location, string> = {
+    local: "로컬",
+    on_premise: "사내 온프레미스",
+    external: "외부 API",
+  };
+  return (
+    <section className="generation-execution" aria-label="실제 생성 실행">
+      <h3>실제 생성 실행</h3>
+      <dl className="identity-list">
+        <div><dt>실행 배포</dt><dd>{execution.deployment_name}</dd></div>
+        <div><dt>Model Definition</dt><dd>{execution.model_name} v{execution.model_version}</dd></div>
+        <div><dt>공급자</dt><dd>{providers[execution.provider]}</dd></div>
+        <div><dt>처리 위치</dt><dd>{locations[execution.location]}</dd></div>
+        <div><dt>외부 전송</dt><dd>{execution.external_transfer ? "외부 전송 실행됨" : "외부 전송 없음"}</dd></div>
+      </dl>
+      <p>{execution.disclosure}</p>
+    </section>
+  );
+}
+
+function generationValidationMessage(reasonCodes: string[]): string {
+  const messages: Record<string, string> = {
+    claim_citation_missing: "답변 주장에 확인 가능한 근거 인용이 없습니다.",
+    evidence_not_allowed: "답변 인용이 현재 허용된 근거 범위를 벗어났습니다.",
+    exact_value_not_supported: "답변의 수치가 현재 근거로 확인되지 않았습니다.",
+    evidence_provenance_incomplete: "답변 근거의 원문 위치 정보가 완전하지 않습니다.",
+  };
+  return reasonCodes.map((code) => messages[code]).find(Boolean)
+    ?? "생성 답변의 근거 인용을 확인할 수 없습니다.";
 }
 
 function EvidenceCard({

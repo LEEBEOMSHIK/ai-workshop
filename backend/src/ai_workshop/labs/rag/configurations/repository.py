@@ -17,6 +17,8 @@ from ai_workshop.labs.rag.configurations.models import (
     RagConfigurationWorkspaceSubscriptionRecord,
     RagSystemIndexingSubscriptionRecord,
 )
+from ai_workshop.labs.rag.deployments.domain import ModelDeploymentVersion
+from ai_workshop.labs.rag.deployments.repository import SqlAlchemyDeploymentRepository
 from ai_workshop.labs.rag.documents.models import RagIndexBuildRecord
 from ai_workshop.labs.rag.embeddings.contracts import (
     EmbeddingModelConfig,
@@ -53,8 +55,17 @@ from ai_workshop.labs.rag.models.domain import (
 )
 from ai_workshop.labs.rag.models.models import (
     ModelDefinitionRecord,
+    ProfileDeploymentBindingRecord,
     ProfileModelBindingRecord,
     ProfileRecord,
+)
+from ai_workshop.labs.rag.policies.domain import (
+    InstallationDataPolicyVersion,
+    WorkspaceDataPolicyVersion,
+)
+from ai_workshop.labs.rag.policies.repository import (
+    ExternalConfigurationApproval,
+    SqlAlchemyDataPolicyRepository,
 )
 from ai_workshop.labs.rag.retrieval.domain import (
     ActiveIndexAlias,
@@ -73,7 +84,10 @@ from ai_workshop.platform.workspaces.repository import workspace_is_active
 from ai_workshop.shared.errors import AppError
 
 
-def _profile_to_domain(record: ProfileRecord) -> Profile:
+def _profile_to_domain(
+    record: ProfileRecord,
+    deployment_version_id: UUID | None = None,
+) -> Profile:
     config = cast(dict[str, JsonValue], record.config)
     frozen = freeze_json(config)
     if not isinstance(frozen, Mapping):
@@ -90,6 +104,7 @@ def _profile_to_domain(record: ProfileRecord) -> Profile:
         ),
         evaluation_state=EvaluationState(record.evaluation_state),
         is_default=record.is_default,
+        deployment_version_id=deployment_version_id,
     )
 
 
@@ -113,7 +128,40 @@ class SqlAlchemyRagConfigurationRepository:
 
     async def find_profile(self, profile_id: UUID) -> Profile | None:
         record = await self.session.get(ProfileRecord, profile_id)
-        return _profile_to_domain(record) if record is not None else None
+        if record is None:
+            return None
+        deployment_version_id = await self.session.scalar(
+            select(ProfileDeploymentBindingRecord.deployment_version_id).where(
+                ProfileDeploymentBindingRecord.profile_id == profile_id
+            )
+        )
+        return _profile_to_domain(record, deployment_version_id)
+
+    async def get_deployment_version(
+        self, deployment_version_id: UUID
+    ) -> ModelDeploymentVersion | None:
+        return await SqlAlchemyDeploymentRepository(self.session).get_version(
+            deployment_version_id
+        )
+
+    async def latest_installation_policy(self) -> InstallationDataPolicyVersion:
+        return await SqlAlchemyDataPolicyRepository(
+            self.session
+        ).latest_installation_policy()
+
+    async def latest_workspace_policies(
+        self, workspace_ids: tuple[UUID, ...]
+    ) -> tuple[WorkspaceDataPolicyVersion, ...]:
+        return await SqlAlchemyDataPolicyRepository(
+            self.session
+        ).latest_workspace_policies(workspace_ids)
+
+    async def add_external_approval(
+        self, approval: ExternalConfigurationApproval
+    ) -> ExternalConfigurationApproval:
+        return await SqlAlchemyDataPolicyRepository(
+            self.session
+        ).add_external_approval(approval)
 
     async def authorized_workspace_ids(
         self,
@@ -790,20 +838,23 @@ class SqlAlchemySearchConfigurationResolver:
                     "The immutable generation profile is unavailable.",
                     409,
                 )
-            llm_bindings = tuple(
-                binding
-                for binding in generation.bindings
-                if binding.role is ModelKind.LLM
-            )
-            if len(llm_bindings) != 1:
+            if generation.deployment_version_id is None or generation.bindings:
                 raise AppError(
                     "configuration_invalid",
-                    "The immutable generation profile has no exact LLM binding.",
+                    "The immutable generation profile has no exact Deployment binding.",
+                    409,
+                )
+            deployment = await self.repository.get_deployment_version(
+                generation.deployment_version_id
+            )
+            if deployment is None:
+                raise AppError(
+                    "configuration_invalid",
+                    "The immutable Generation Deployment is unavailable.",
                     409,
                 )
             llm_record = await self.session.get(
-                ModelDefinitionRecord,
-                llm_bindings[0].model_id,
+                ModelDefinitionRecord, deployment.model_definition_id
             )
             if llm_record is None:
                 raise AppError(
@@ -814,6 +865,7 @@ class SqlAlchemySearchConfigurationResolver:
             try:
                 generation_profile = resolve_generation_profile(
                     generation,
+                    deployment,
                     _model_to_domain(llm_record),
                 )
             except ValueError as exc:

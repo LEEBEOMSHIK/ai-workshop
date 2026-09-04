@@ -59,6 +59,7 @@ class RagModelRegistryService:
         version: int,
         config: dict[str, JsonValue],
         bindings: tuple[ProfileModelBinding, ...],
+        deployment_version_id: UUID | None = None,
         evaluation_state: EvaluationState = EvaluationState.DRAFT,
     ) -> Profile:
         if await self.repository.profile_version_exists(kind, name.strip(), version):
@@ -74,6 +75,28 @@ class RagModelRegistryService:
                 "A profile binding must reference a model of the same kind.",
                 422,
             )
+        if deployment_version_id is not None:
+            deployment = await self.repository.find_deployment_version(
+                deployment_version_id
+            )
+            if deployment is None:
+                raise AppError(
+                    "invalid_deployment_binding",
+                    "A profile Deployment binding is invalid.",
+                    422,
+                )
+            deployment_models = await self.repository.find_models(
+                (deployment.model_definition_id,)
+            )
+            if (
+                len(deployment_models) != 1
+                or deployment_models[0].kind is not ModelKind.LLM
+            ):
+                raise AppError(
+                    "invalid_deployment_binding",
+                    "A Generation Profile Deployment must reference an LLM.",
+                    422,
+                )
         try:
             profile = Profile.create(
                 kind=kind,
@@ -81,6 +104,7 @@ class RagModelRegistryService:
                 version=version,
                 config=config,
                 bindings=bindings,
+                deployment_version_id=deployment_version_id,
                 evaluation_state=evaluation_state,
             )
         except ProfileValidationError as exc:
@@ -98,6 +122,7 @@ class RagModelRegistryService:
             version=document.version,
             config=document.config,
             bindings=tuple(item.to_domain() for item in document.bindings),
+            deployment_version_id=document.deployment_version_id,
             evaluation_state=document.evaluation_state,
         )
 
@@ -105,6 +130,12 @@ class RagModelRegistryService:
         profile = await self.repository.find_profile(profile_id)
         if profile is None:
             raise AppError("not_found", "The requested resource was not found.", 404)
+        if profile.legacy:
+            raise AppError(
+                "legacy_profile_read_only",
+                "A legacy Generation Profile is read-only.",
+                409,
+            )
         try:
             promoted = profile.as_default()
         except ProfileValidationError as exc:

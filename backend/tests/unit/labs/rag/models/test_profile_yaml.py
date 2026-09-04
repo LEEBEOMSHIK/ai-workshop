@@ -3,7 +3,11 @@ from uuid import UUID
 
 import pytest
 
-from ai_workshop.labs.rag.models.domain import Profile, ProfileKind
+from ai_workshop.labs.rag.models.domain import (
+    Profile,
+    ProfileKind,
+    ProfileValidationError,
+)
 from ai_workshop.labs.rag.models.schemas import parse_profile_yaml
 from ai_workshop.shared.errors import AppError
 
@@ -19,7 +23,6 @@ PROFILE_ROOT = Path(__file__).resolve().parents[6] / "model-profiles" / "rag"
         ("retrieval/bm25.yaml", ProfileKind.RETRIEVAL),
         ("retrieval/hybrid-rrf.yaml", ProfileKind.RETRIEVAL),
         ("retrieval/hybrid-bge-m3-rrf-v1.yaml", ProfileKind.RETRIEVAL),
-        ("generation/local-baseline.yaml", ProfileKind.GENERATION),
     ],
 )
 def test_default_yaml_profiles_are_valid_domain_profiles(
@@ -41,6 +44,24 @@ def test_default_yaml_profiles_are_valid_domain_profiles(
 
     assert profile.kind is expected_kind
     assert profile.is_default is False
+
+
+def test_legacy_generation_yaml_is_preserved_but_cannot_create_a_new_profile() -> None:
+    document = parse_profile_yaml(
+        (PROFILE_ROOT / "generation/local-baseline.yaml").read_text(encoding="utf-8"),
+        expected_kind=ProfileKind.GENERATION,
+    )
+
+    with pytest.raises(ProfileValidationError, match="exactly one Deployment"):
+        Profile.create(
+            kind=document.kind,
+            name=document.name,
+            version=document.version,
+            config=document.config,
+            bindings=tuple(item.to_domain() for item in document.bindings),
+            deployment_version_id=document.deployment_version_id,
+            evaluation_state=document.evaluation_state,
+        )
 
 
 def test_e5_structure_aware_version_two_keeps_the_approved_chunking_values() -> None:

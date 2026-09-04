@@ -27,10 +27,26 @@ BM25_BASELINE_CONFIGURATION_VERSION_ID = UUID(
     "00000000-0000-0000-0000-000000000503"
 )
 BM25_BASELINE_NAME = "BM25 기준선"
+EXTERNAL_GENERATION_DISCLOSURE_VERSION = "external-generation-v1"
 
 
 class ConfigurationValidationError(ValueError):
     pass
+
+
+@dataclass(frozen=True, slots=True)
+class ExternalTransferApprovalConfirmation:
+    confirmed: bool
+    disclosure_version: str
+
+    def __post_init__(self) -> None:
+        if (
+            self.confirmed is not True
+            or self.disclosure_version != EXTERNAL_GENERATION_DISCLOSURE_VERSION
+        ):
+            raise ConfigurationValidationError(
+                "External transfer approval must use the current disclosure."
+            )
 
 
 def validate_v1_retrieval_profile(profile: Profile) -> None:

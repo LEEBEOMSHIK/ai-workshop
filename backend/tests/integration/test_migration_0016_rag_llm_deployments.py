@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -11,8 +12,13 @@ import pytest
 from alembic.config import Config
 from psycopg import sql
 from sqlalchemy import make_url
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from ai_workshop.config import get_settings
+from ai_workshop.labs.rag.deployments.repository import SqlAlchemyDeploymentRepository
+from ai_workshop.labs.rag.generation.domain import GenerationProfile
+from ai_workshop.labs.rag.generation.profile import resolve_generation_profile
+from ai_workshop.labs.rag.models.repository import SqlAlchemyModelRegistryRepository
 from alembic import command
 
 pytestmark = pytest.mark.integration
@@ -123,8 +129,16 @@ def _insert_legacy_generation_fixture(
                 "prompt_ref": "answer-v1",
                 "context_prompt_ref": "contextualize-v1",
                 "citation_mode": "required",
-                "context_policy": {"max_prior_turns": 2},
-                "generation": {"max_output_tokens": 256},
+                "context_policy": {
+                    "max_history_turns": 2,
+                    "max_history_tokens": 1024,
+                },
+                "generation": {
+                    "timeout_seconds": 30,
+                    "max_output_tokens": 256,
+                    "temperature": 0.1,
+                    "response_schema_version": 1,
+                },
             },
         ),
     ):
@@ -178,6 +192,29 @@ def _insert_legacy_generation_fixture(
     )
     connection.commit()
     return ids
+
+
+async def _resolve_migration_created_profile(
+    database_url: str,
+    *,
+    profile_id: UUID,
+    deployment_version_id: UUID,
+) -> GenerationProfile:
+    engine = create_async_engine(database_url)
+    try:
+        async with AsyncSession(engine, expire_on_commit=False) as session:
+            registry = SqlAlchemyModelRegistryRepository(session)
+            profile = await registry.find_profile(profile_id)
+            deployment = await SqlAlchemyDeploymentRepository(session).get_version(
+                deployment_version_id
+            )
+            assert profile is not None
+            assert deployment is not None
+            models = await registry.find_models((deployment.model_definition_id,))
+            assert len(models) == 1
+            return resolve_generation_profile(profile, deployment, models[0])
+    finally:
+        await engine.dispose()
 
 
 def _insert_external_approval_fixture(
@@ -452,14 +489,15 @@ def test_legacy_upgrade_copies_convertible_local_profiles_without_mutation(
             ).fetchone() == (1,)
             copied = connection.execute(
                 """
-                SELECT profile.name, profile.version, binding.deployment_version_id
+                SELECT profile.id, profile.name, profile.version,
+                       binding.deployment_version_id
                 FROM rag_profiles AS profile
                 JOIN rag_generation_profile_deployments AS binding
                   ON binding.profile_id = profile.id
                 """
             ).fetchone()
             assert copied is not None
-            assert copied[0:2] == ("Migration generation", 2)
+            assert copied[1:3] == ("Migration generation", 2)
 
             with pytest.raises(psycopg.errors.UniqueViolation):
                 connection.execute(
@@ -484,7 +522,8 @@ def test_legacy_upgrade_copies_convertible_local_profiles_without_mutation(
                 )
             connection.rollback()
 
-            deployment_version_id = copied[2]
+            copied_profile_id = copied[0]
+            deployment_version_id = copied[3]
             with pytest.raises(psycopg.errors.RaiseException, match="immutable"):
                 connection.execute(
                     "UPDATE rag_model_deployment_versions "
@@ -545,6 +584,19 @@ def test_legacy_upgrade_copies_convertible_local_profiles_without_mutation(
                     (uuid4(), workspace_policy_id, ids["workspace"], ids["owner"]),
                 )
             connection.rollback()
+
+        resolved_copy = asyncio.run(
+            _resolve_migration_created_profile(
+                isolated_url,
+                profile_id=copied_profile_id,
+                deployment_version_id=deployment_version_id,
+            )
+        )
+        assert resolved_copy.profile_id == copied_profile_id
+        assert resolved_copy.deployment is not None
+        assert resolved_copy.deployment.id == deployment_version_id
+        assert resolved_copy.model_id == ids["llm"]
+        assert resolved_copy.runtime_model == "synthetic/exact-local-model"
 
         command.downgrade(config, REVISION_0015)
         with psycopg.connect(_sync_url(isolated_url)) as connection:

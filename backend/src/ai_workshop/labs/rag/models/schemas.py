@@ -57,7 +57,8 @@ class ProfileCreate(BaseModel):
     name: str = Field(min_length=1, max_length=180)
     version: int = Field(ge=1)
     config: dict[str, JsonValue]
-    bindings: list[ProfileBindingCreate]
+    bindings: list[ProfileBindingCreate] = Field(default_factory=list)
+    deployment_version_id: UUID | None = None
     evaluation_state: EvaluationState = EvaluationState.DRAFT
 
 
@@ -84,6 +85,11 @@ def parse_profile_yaml(content: str, *, expected_kind: ProfileKind) -> ProfileYa
     return document
 
 
+class ProfileReadinessResponse(BaseModel):
+    ready: bool
+    reason_codes: list[str]
+
+
 class ProfileResponse(BaseModel):
     id: UUID
     kind: ProfileKind
@@ -93,6 +99,9 @@ class ProfileResponse(BaseModel):
     bindings: list[ProfileBindingCreate]
     evaluation_state: EvaluationState
     is_default: bool
+    deployment_version_id: UUID | None
+    legacy: bool
+    readiness: ProfileReadinessResponse
 
     @classmethod
     def from_domain(cls, profile: Profile) -> Self:
@@ -111,4 +120,14 @@ class ProfileResponse(BaseModel):
             ],
             evaluation_state=profile.evaluation_state,
             is_default=profile.is_default,
+            deployment_version_id=profile.deployment_version_id,
+            legacy=profile.legacy,
+            readiness=ProfileReadinessResponse(
+                ready=False,
+                reason_codes=(
+                    ["deployment_not_ready"]
+                    if profile.kind is ProfileKind.GENERATION
+                    else []
+                ),
+            ),
         )

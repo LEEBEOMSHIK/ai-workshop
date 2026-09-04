@@ -161,3 +161,14 @@ def test_frozen_version_cannot_be_replaced_with_an_invalid_value() -> None:
 
     with pytest.raises(DeploymentValidationError, match="timeout"):
         replace(deployment, timeout_seconds=0)
+
+
+def test_development_only_deployment_rejects_non_development_allowlist() -> None:
+    with pytest.raises(DeploymentValidationError, match="development-only"):
+        create_deployment(
+            allowed_environments=(
+                DeploymentEnvironment.DEVELOPMENT,
+                DeploymentEnvironment.PRODUCTION,
+            ),
+            development_only=True,
+        )

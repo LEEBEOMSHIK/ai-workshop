@@ -1,4 +1,4 @@
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -19,6 +19,7 @@ class MemoryRegistryRepository(ModelRegistryRepository):
     def __init__(self) -> None:
         self.models: list[ModelDefinition] = []
         self.profiles: list[Profile] = []
+        self.set_default_calls = 0
 
     async def model_version_exists(self, kind: ModelKind, name: str, version: int) -> bool:
         return any(
@@ -35,6 +36,10 @@ class MemoryRegistryRepository(ModelRegistryRepository):
 
     async def find_models(self, model_ids: tuple[UUID, ...]) -> list[ModelDefinition]:
         return [model for model in self.models if model.id in model_ids]
+
+    async def find_deployment_version(self, deployment_version_id: UUID):
+        del deployment_version_id
+        return None
 
     async def profile_version_exists(
         self, kind: ProfileKind, name: str, version: int
@@ -55,6 +60,7 @@ class MemoryRegistryRepository(ModelRegistryRepository):
         return next((profile for profile in self.profiles if profile.id == profile_id), None)
 
     async def set_default(self, profile: Profile) -> Profile:
+        self.set_default_calls += 1
         self.profiles = [
             current
             if current.kind is not profile.kind
@@ -67,6 +73,7 @@ class MemoryRegistryRepository(ModelRegistryRepository):
                 current.bindings,
                 current.evaluation_state,
                 current.id == profile.id,
+                current.deployment_version_id,
             )
             for current in self.profiles
         ]
@@ -176,3 +183,38 @@ async def test_only_passed_profile_is_promoted_and_replaces_kind_default() -> No
     profiles = await service.list_profiles(ProfileKind.RETRIEVAL)
     assert promoted.is_default is True
     assert [profile.id for profile in profiles if profile.is_default] == [second.id]
+
+
+@pytest.mark.asyncio
+async def test_legacy_generation_profile_cannot_be_promoted_or_change_default() -> None:
+    repository = MemoryRegistryRepository()
+    current_default = Profile(
+        id=uuid4(),
+        kind=ProfileKind.GENERATION,
+        name="deployment-bound-default",
+        version=2,
+        config={},
+        bindings=(),
+        evaluation_state=EvaluationState.PASSED,
+        is_default=True,
+        deployment_version_id=uuid4(),
+    )
+    legacy = Profile(
+        id=uuid4(),
+        kind=ProfileKind.GENERATION,
+        name="legacy-model-bound",
+        version=1,
+        config={},
+        bindings=(ProfileModelBinding(ModelKind.LLM, uuid4()),),
+        evaluation_state=EvaluationState.PASSED,
+        is_default=False,
+    )
+    repository.profiles = [current_default, legacy]
+
+    with pytest.raises(AppError) as caught:
+        await RagModelRegistryService(repository).promote_default(legacy.id)
+
+    assert caught.value.status_code == 409
+    assert caught.value.code == "legacy_profile_read_only"
+    assert repository.set_default_calls == 0
+    assert repository.profiles == [current_default, legacy]

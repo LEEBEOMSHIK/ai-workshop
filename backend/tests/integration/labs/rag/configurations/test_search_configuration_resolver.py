@@ -26,6 +26,14 @@ from ai_workshop.labs.rag.configurations.repository import (
     SqlAlchemySearchConfigurationResolver,
 )
 from ai_workshop.labs.rag.configurations.service import RagConfigurationService
+from ai_workshop.labs.rag.deployments.domain import (
+    DeploymentCapability,
+    DeploymentEnvironment,
+    ExecutionLocation,
+    ModelDeploymentVersion,
+    ProviderKind,
+)
+from ai_workshop.labs.rag.deployments.repository import SqlAlchemyDeploymentRepository
 from ai_workshop.labs.rag.documents.models import RagIndexBuildRecord, RagProjectionRecord
 from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand, RagIngestionError
 from ai_workshop.labs.rag.ingestion.models import RagAssetHandoffFailureRecord
@@ -33,7 +41,7 @@ from ai_workshop.labs.rag.ingestion.repository import (
     SqlAlchemyRagIngestionCommandRepository,
 )
 from ai_workshop.labs.rag.ingestion.service import RagIngestionService
-from ai_workshop.labs.rag.models.domain import ModelKind, ProfileKind, ProfileModelBinding
+from ai_workshop.labs.rag.models.domain import ModelKind, ProfileKind
 from ai_workshop.labs.rag.models.repository import SqlAlchemyModelRegistryRepository
 from ai_workshop.labs.rag.models.service import RagModelRegistryService
 from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecord
@@ -495,6 +503,30 @@ async def test_postgres_versions_visibility_jobs_subscriptions_and_exact_resolve
                     "data_policy": "local_only",
                 },
             )
+            deployment = ModelDeploymentVersion.create(
+                deployment_id=uuid4(),
+                version=1,
+                display_name="Synthetic local generation",
+                description="Synthetic",
+                model_definition_id=llm.id,
+                provider=ProviderKind.LOCAL_OPENAI_COMPATIBLE,
+                location=ExecutionLocation.LOCAL,
+                allowed_environments=(DeploymentEnvironment.DEVELOPMENT,),
+                provider_model_id="synthetic/exact-model",
+                endpoint_ref="local-generation",
+                secret_ref=None,
+                capabilities=(DeploymentCapability.STRUCTURED_OUTPUT,),
+                external_transfer=False,
+                transmitted_data_categories=(),
+                data_processing_notice_ref=None,
+                timeout_seconds=30,
+                max_retries=1,
+                retry_backoff_seconds=0.5,
+                healthcheck_enabled=True,
+                development_only=False,
+                created_by=owner_id,
+            )
+            await SqlAlchemyDeploymentRepository(session).add_version(deployment)
             generation_profile = await registry.register_profile(
                 kind=ProfileKind.GENERATION,
                 name="synthetic-grounded-generation",
@@ -514,7 +546,8 @@ async def test_postgres_versions_visibility_jobs_subscriptions_and_exact_resolve
                         "response_schema_version": 1,
                     },
                 },
-                bindings=(ProfileModelBinding(ModelKind.LLM, llm.id),),
+                bindings=(),
+                deployment_version_id=deployment.id,
             )
             generative = await service.create(
                 owner_id=owner_id,

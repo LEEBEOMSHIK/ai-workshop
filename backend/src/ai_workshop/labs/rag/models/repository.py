@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_workshop.labs.rag.deployments.domain import ModelDeploymentVersion
 from ai_workshop.labs.rag.models.domain import (
     EvaluationState,
     JsonValue,
@@ -18,6 +19,7 @@ from ai_workshop.labs.rag.models.domain import (
 )
 from ai_workshop.labs.rag.models.models import (
     ModelDefinitionRecord,
+    ProfileDeploymentBindingRecord,
     ProfileModelBindingRecord,
     ProfileRecord,
 )
@@ -37,6 +39,10 @@ class ModelRegistryRepository(Protocol):
     async def list_models(self) -> list[ModelDefinition]: ...
 
     async def find_models(self, model_ids: tuple[UUID, ...]) -> list[ModelDefinition]: ...
+
+    async def find_deployment_version(
+        self, deployment_version_id: UUID
+    ) -> ModelDeploymentVersion | None: ...
 
     async def profile_version_exists(
         self,
@@ -68,7 +74,10 @@ def _model_to_domain(record: ModelDefinitionRecord) -> ModelDefinition:
     )
 
 
-def _profile_to_domain(record: ProfileRecord) -> Profile:
+def _profile_to_domain(
+    record: ProfileRecord,
+    deployment_version_id: UUID | None = None,
+) -> Profile:
     config = cast(dict[str, JsonValue], record.config)
     frozen = freeze_json(config)
     if not isinstance(frozen, Mapping):
@@ -85,6 +94,7 @@ def _profile_to_domain(record: ProfileRecord) -> Profile:
         ),
         evaluation_state=EvaluationState(record.evaluation_state),
         is_default=record.is_default,
+        deployment_version_id=deployment_version_id,
     )
 
 
@@ -180,7 +190,15 @@ class SqlAlchemyModelRegistryRepository:
         ]
         self.session.add(record)
         await self.session.flush()
-        return _profile_to_domain(record)
+        if profile.deployment_version_id is not None:
+            self.session.add(
+                ProfileDeploymentBindingRecord(
+                    profile_id=profile.id,
+                    deployment_version_id=profile.deployment_version_id,
+                )
+            )
+            await self.session.flush()
+        return _profile_to_domain(record, profile.deployment_version_id)
 
     async def list_profiles(self, kind: ProfileKind | None = None) -> list[Profile]:
         statement = select(ProfileRecord)
@@ -189,14 +207,46 @@ class SqlAlchemyModelRegistryRepository:
         result = await self.session.execute(
             statement.order_by(ProfileRecord.kind, ProfileRecord.name, ProfileRecord.version)
         )
-        return [_profile_to_domain(record) for record in result.scalars()]
+        records = list(result.scalars())
+        deployment_ids = await self._deployment_ids(tuple(record.id for record in records))
+        return [
+            _profile_to_domain(record, deployment_ids.get(record.id))
+            for record in records
+        ]
 
     async def find_profile(self, profile_id: UUID) -> Profile | None:
         result = await self.session.execute(
             select(ProfileRecord).where(ProfileRecord.id == profile_id)
         )
         record = result.scalar_one_or_none()
-        return _profile_to_domain(record) if record else None
+        if record is None:
+            return None
+        deployment_ids = await self._deployment_ids((record.id,))
+        return _profile_to_domain(record, deployment_ids.get(record.id))
+
+    async def find_deployment_version(
+        self, deployment_version_id: UUID
+    ) -> ModelDeploymentVersion | None:
+        from ai_workshop.labs.rag.deployments.repository import (
+            SqlAlchemyDeploymentRepository,
+        )
+
+        return await SqlAlchemyDeploymentRepository(self.session).get_version(
+            deployment_version_id
+        )
+
+    async def _deployment_ids(
+        self, profile_ids: tuple[UUID, ...]
+    ) -> dict[UUID, UUID]:
+        if not profile_ids:
+            return {}
+        rows = await self.session.execute(
+            select(
+                ProfileDeploymentBindingRecord.profile_id,
+                ProfileDeploymentBindingRecord.deployment_version_id,
+            ).where(ProfileDeploymentBindingRecord.profile_id.in_(profile_ids))
+        )
+        return {profile_id: deployment_id for profile_id, deployment_id in rows}
 
     async def set_default(self, profile: Profile) -> Profile:
         await self.session.execute(
@@ -212,4 +262,5 @@ class SqlAlchemyModelRegistryRepository:
             raise LookupError("Profile does not exist.")
         record.is_default = True
         await self.session.flush()
-        return _profile_to_domain(record)
+        deployment_ids = await self._deployment_ids((record.id,))
+        return _profile_to_domain(record, deployment_ids.get(record.id))

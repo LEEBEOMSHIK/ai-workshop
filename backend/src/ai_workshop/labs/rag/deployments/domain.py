@@ -88,6 +88,12 @@ class ModelDeploymentVersion:
             )
         if len(set(environments)) != len(environments):
             raise DeploymentValidationError("Allowed environments must be unique.")
+        if self.development_only and environments != (
+            DeploymentEnvironment.DEVELOPMENT,
+        ):
+            raise DeploymentValidationError(
+                "A development-only deployment may allow only development."
+            )
 
         capabilities = frozenset(self.capabilities)
         if not capabilities or any(

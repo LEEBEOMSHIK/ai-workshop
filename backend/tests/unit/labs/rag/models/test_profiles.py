@@ -11,10 +11,26 @@ from ai_workshop.labs.rag.models.domain import (
     ProfileModelBinding,
     ProfileValidationError,
 )
+from ai_workshop.labs.rag.models.schemas import ProfileResponse
 
 
 def binding(role: ModelKind) -> ProfileModelBinding:
     return ProfileModelBinding(role=role, model_id=uuid4())
+
+
+def generation_config() -> dict[str, object]:
+    return {
+        "prompt_ref": "rag-answer-v1",
+        "context_prompt_ref": "rag-contextualize-v1",
+        "citation_mode": "required",
+        "context_policy": {"max_history_turns": 6, "max_history_tokens": 1024},
+        "generation": {
+            "timeout_seconds": 30,
+            "max_output_tokens": 512,
+            "temperature": 0.1,
+            "response_schema_version": 1,
+        },
+    }
 
 
 def test_model_configuration_is_immutable_and_rejects_literal_secrets() -> None:
@@ -100,7 +116,8 @@ def test_generation_requires_llm_and_prompt_reference() -> None:
             name="generation-baseline",
             version=1,
             config={},
-            bindings=(binding(ModelKind.LLM),),
+            bindings=(),
+            deployment_version_id=uuid4(),
         )
 
 
@@ -132,26 +149,16 @@ def test_llm_model_requires_local_openai_compatible_runtime_identity() -> None:
 
 
 def test_generation_profile_requires_complete_context_and_output_contract() -> None:
-    llm = binding(ModelKind.LLM)
-    valid_config = {
-        "prompt_ref": "rag-answer-v1",
-        "context_prompt_ref": "rag-contextualize-v1",
-        "citation_mode": "required",
-        "context_policy": {"max_history_turns": 6, "max_history_tokens": 1024},
-        "generation": {
-            "timeout_seconds": 30,
-            "max_output_tokens": 512,
-            "temperature": 0.1,
-            "response_schema_version": 1,
-        },
-    }
+    deployment_version_id = uuid4()
+    valid_config = generation_config()
 
     profile = Profile.create(
         kind=ProfileKind.GENERATION,
         name="local-grounded-generation",
         version=1,
         config=valid_config,
-        bindings=(llm,),
+        bindings=(),
+        deployment_version_id=deployment_version_id,
     )
 
     assert profile.kind is ProfileKind.GENERATION
@@ -165,32 +172,82 @@ def test_generation_profile_requires_complete_context_and_output_contract() -> N
                 name="incomplete-generation",
                 version=1,
                 config=invalid,
-                bindings=(llm,),
+                bindings=(),
+                deployment_version_id=deployment_version_id,
             )
 
 
-def test_generation_profile_requires_exactly_one_llm_binding() -> None:
-    config = {
-        "prompt_ref": "rag-answer-v1",
-        "context_prompt_ref": "rag-contextualize-v1",
-        "citation_mode": "required",
-        "context_policy": {"max_history_turns": 6, "max_history_tokens": 1024},
-        "generation": {
-            "timeout_seconds": 30,
-            "max_output_tokens": 512,
-            "temperature": 0.1,
-            "response_schema_version": 1,
-        },
-    }
+def test_generation_profile_requires_exactly_one_deployment_version() -> None:
+    deployment_version_id = uuid4()
+
+    profile = Profile.create(
+        kind=ProfileKind.GENERATION,
+        name="external-generation",
+        version=1,
+        config=generation_config(),
+        bindings=(),
+        deployment_version_id=deployment_version_id,
+    )
+
+    assert profile.deployment_version_id == deployment_version_id
 
     with pytest.raises(ProfileValidationError, match="exactly one"):
         Profile.create(
             kind=ProfileKind.GENERATION,
-            name="duplicate-llm",
+            name="missing-deployment",
             version=1,
-            config=config,
-            bindings=(binding(ModelKind.LLM), binding(ModelKind.LLM)),
+            config=generation_config(),
+            bindings=(),
         )
+
+    with pytest.raises(ProfileValidationError, match="exactly one"):
+        Profile.create(
+            kind=ProfileKind.GENERATION,
+            name="dual-binding",
+            version=1,
+            config=generation_config(),
+            bindings=(binding(ModelKind.LLM),),
+            deployment_version_id=deployment_version_id,
+        )
+
+
+def test_non_generation_profile_rejects_deployment_binding() -> None:
+    with pytest.raises(ProfileValidationError, match="Deployment"):
+        Profile.create(
+            kind=ProfileKind.RETRIEVAL,
+            name="invalid-deployment-retrieval",
+            version=1,
+            config={"bm25": {}},
+            bindings=(),
+            deployment_version_id=uuid4(),
+        )
+
+
+def test_legacy_generation_profile_response_is_read_only_and_not_ready() -> None:
+    legacy = Profile(
+        id=uuid4(),
+        kind=ProfileKind.GENERATION,
+        name="Legacy generation",
+        version=1,
+        config=Profile.create(
+            kind=ProfileKind.GENERATION,
+            name="Current generation",
+            version=1,
+            config=generation_config(),
+            bindings=(),
+            deployment_version_id=uuid4(),
+        ).config,
+        bindings=(binding(ModelKind.LLM),),
+        evaluation_state=EvaluationState.DRAFT,
+        deployment_version_id=None,
+    )
+
+    response = ProfileResponse.from_domain(legacy)
+
+    assert response.legacy is True
+    assert response.deployment_version_id is None
+    assert response.readiness.ready is False
+    assert response.readiness.reason_codes == ["deployment_not_ready"]
 
 
 def test_only_passed_profile_can_become_default() -> None:

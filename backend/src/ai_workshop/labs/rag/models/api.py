@@ -95,6 +95,7 @@ async def register_profile(
         version=request.version,
         config=request.config,
         bindings=tuple(item.to_domain() for item in request.bindings),
+        deployment_version_id=request.deployment_version_id,
         evaluation_state=request.evaluation_state,
     )
     return ProfileResponse.from_domain(profile)

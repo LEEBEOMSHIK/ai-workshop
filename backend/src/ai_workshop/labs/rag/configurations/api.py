@@ -35,8 +35,8 @@ def get_rag_configuration_service(
     return RagConfigurationService(
         SqlAlchemyRagConfigurationRepository(session),
         RagIngestionService(SqlAlchemyRagIngestionCommandRepository(session)),
-        commit=session.commit,
         generation_readiness=SqlAlchemyGenerationReadiness(session, settings),
+        environment=settings.environment,
     )
 
 
@@ -79,6 +79,11 @@ async def create_configuration(
         require_complete_provenance=policy.require_complete_provenance,
         conflict_mode=policy.conflict_mode,
         workspace_ids=tuple(request.workspace_ids),
+        external_transfer_approval=(
+            request.external_transfer_approval.to_domain()
+            if request.external_transfer_approval is not None
+            else None
+        ),
     )
     readiness = await service.readiness((result.configuration,))
     current = readiness[result.configuration.version_id]

@@ -1,10 +1,11 @@
 from typing import Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ai_workshop.labs.rag.configurations.domain import (
     AnswerPolicyVersion,
+    ExternalTransferApprovalConfirmation,
     SavedRagConfiguration,
 )
 from ai_workshop.labs.rag.models.domain import EvaluationState
@@ -18,6 +19,19 @@ class AnswerPolicyCreate(BaseModel):
     conflict_mode: Literal["separate_sources"] = "separate_sources"
 
 
+class ExternalTransferApprovalInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmed: Literal[True]
+    disclosure_version: Literal["external-generation-v1"]
+
+    def to_domain(self) -> ExternalTransferApprovalConfirmation:
+        return ExternalTransferApprovalConfirmation(
+            confirmed=self.confirmed,
+            disclosure_version=self.disclosure_version,
+        )
+
+
 class SavedRagConfigurationCreate(BaseModel):
     name: str = Field(min_length=1, max_length=180)
     indexing_profile_id: UUID
@@ -25,6 +39,7 @@ class SavedRagConfigurationCreate(BaseModel):
     generation_profile_id: UUID | None = None
     answer_policy: AnswerPolicyCreate
     workspace_ids: list[UUID] = Field(min_length=1)
+    external_transfer_approval: ExternalTransferApprovalInput | None = None
 
 
 class AnswerPolicyVersionResponse(BaseModel):

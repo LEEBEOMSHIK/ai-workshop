@@ -123,6 +123,7 @@ class Profile:
     bindings: tuple[ProfileModelBinding, ...]
     evaluation_state: EvaluationState
     is_default: bool = False
+    deployment_version_id: UUID | None = None
 
     @classmethod
     def create(
@@ -133,13 +134,14 @@ class Profile:
         version: int,
         config: dict[str, JsonValue],
         bindings: tuple[ProfileModelBinding, ...],
+        deployment_version_id: UUID | None = None,
         evaluation_state: EvaluationState = EvaluationState.DRAFT,
         is_default: bool = False,
     ) -> "Profile":
         if not name.strip() or version < 1:
             raise ProfileValidationError("Profile name and positive version are required.")
         _validate_environment_references(config)
-        _validate_profile_shape(kind, config, bindings)
+        _validate_profile_shape(kind, config, bindings, deployment_version_id)
         if is_default and evaluation_state is not EvaluationState.PASSED:
             raise ProfileValidationError("A default profile requires a passed evaluation.")
         frozen = freeze_json(config)
@@ -154,6 +156,7 @@ class Profile:
             tuple(bindings),
             evaluation_state,
             is_default,
+            deployment_version_id,
         )
 
     def as_default(self) -> "Profile":
@@ -161,19 +164,36 @@ class Profile:
             raise ProfileValidationError("A passed evaluation is required for default promotion.")
         return replace(self, is_default=True)
 
+    @property
+    def legacy(self) -> bool:
+        return (
+            self.kind is ProfileKind.GENERATION
+            and self.deployment_version_id is None
+            and any(binding.role is ModelKind.LLM for binding in self.bindings)
+        )
+
 
 def _validate_profile_shape(
     kind: ProfileKind,
     config: Mapping[str, JsonValue],
     bindings: tuple[ProfileModelBinding, ...],
+    deployment_version_id: UUID | None,
 ) -> None:
     roles = {binding.role for binding in bindings}
     if kind is ProfileKind.INDEXING:
+        if deployment_version_id is not None:
+            raise ProfileValidationError(
+                "A non-generation profile cannot bind a Deployment."
+            )
         if "chunker" not in config:
             raise ProfileValidationError("An indexing profile requires a chunker configuration.")
         if roles != {ModelKind.EMBEDDING}:
             raise ProfileValidationError("An indexing profile requires an embedding model.")
     elif kind is ProfileKind.RETRIEVAL:
+        if deployment_version_id is not None:
+            raise ProfileValidationError(
+                "A non-generation profile cannot bind a Deployment."
+            )
         if "bm25" not in config:
             raise ProfileValidationError("A retrieval profile requires BM25 configuration.")
         if ModelKind.LLM in roles:
@@ -186,12 +206,13 @@ def _validate_profile_shape(
         if ModelKind.RERANKER in roles and "reranker" not in config:
             raise ProfileValidationError("A reranker binding requires reranker configuration.")
     else:
-        _validate_generation_profile(config, bindings)
+        _validate_generation_profile(config, bindings, deployment_version_id)
 
 
 def _validate_generation_profile(
     config: Mapping[str, JsonValue],
     bindings: tuple[ProfileModelBinding, ...],
+    deployment_version_id: UUID | None,
 ) -> None:
     required = {
         "prompt_ref",
@@ -211,8 +232,10 @@ def _validate_generation_profile(
         raise ProfileValidationError("A generation profile requires nonempty prompt references.")
     if config["citation_mode"] != "required":
         raise ProfileValidationError("A generation profile requires citation validation.")
-    if len(bindings) != 1 or bindings[0].role is not ModelKind.LLM:
-        raise ProfileValidationError("A generation profile requires exactly one LLM model.")
+    if deployment_version_id is None or bindings:
+        raise ProfileValidationError(
+            "A generation profile requires exactly one Deployment and no model binding."
+        )
 
     context = config["context_policy"]
     generation = config["generation"]

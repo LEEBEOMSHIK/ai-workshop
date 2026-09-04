@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from uuid import UUID
 
+from ai_workshop.labs.rag.deployments.domain import ModelDeploymentVersion
+
 
 class ConversationRole(StrEnum):
     USER = "user"
@@ -77,6 +79,7 @@ class GenerationProfile:
     max_output_tokens: int
     temperature: float
     response_schema_version: int
+    deployment: ModelDeploymentVersion | None = None
 
     def __post_init__(self) -> None:
         string_fields = (
@@ -99,6 +102,11 @@ class GenerationProfile:
             raise ValueError("Generation temperature must be between zero and two.")
         if self.response_schema_version < 1:
             raise ValueError("Generation response schema version must be positive.")
+        if self.deployment is not None and (
+            self.deployment.model_definition_id != self.model_id
+            or self.deployment.provider_model_id != self.runtime_model
+        ):
+            raise ValueError("Generation Deployment identity must match the model contract.")
 
 
 @dataclass(frozen=True, slots=True)

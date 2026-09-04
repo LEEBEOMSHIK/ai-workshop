@@ -1,12 +1,22 @@
 from uuid import UUID, uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
+from ai_workshop.labs.rag.deployments.domain import (
+    DeploymentCapability,
+    DeploymentEnvironment,
+    ExecutionLocation,
+    ModelDeploymentVersion,
+    ProviderKind,
+)
 from ai_workshop.labs.rag.models.domain import (
+    EvaluationState,
     ModelDefinition,
     ModelKind,
     Profile,
     ProfileKind,
+    ProfileModelBinding,
 )
 from ai_workshop.labs.rag.models.repository import ModelRegistryRepository
 from ai_workshop.labs.rag.models.service import (
@@ -22,6 +32,7 @@ class MemoryRegistryRepository(ModelRegistryRepository):
     def __init__(self) -> None:
         self.models: list[ModelDefinition] = []
         self.profiles: list[Profile] = []
+        self.deployments: dict[UUID, ModelDeploymentVersion] = {}
 
     async def model_version_exists(self, kind: ModelKind, name: str, version: int) -> bool:
         return any(
@@ -38,6 +49,11 @@ class MemoryRegistryRepository(ModelRegistryRepository):
 
     async def find_models(self, model_ids: tuple[UUID, ...]) -> list[ModelDefinition]:
         return [item for item in self.models if item.id in model_ids]
+
+    async def find_deployment_version(
+        self, deployment_version_id: UUID
+    ) -> ModelDeploymentVersion | None:
+        return self.deployments.get(deployment_version_id)
 
     async def profile_version_exists(
         self, kind: ProfileKind, name: str, version: int
@@ -68,6 +84,7 @@ class MemoryRegistryRepository(ModelRegistryRepository):
                 item.bindings,
                 item.evaluation_state,
                 item.id == profile.id,
+                item.deployment_version_id,
             )
             if item.kind is profile.kind
             else item
@@ -170,6 +187,51 @@ def test_unpassed_profile_cannot_be_promoted_to_default() -> None:
     assert promoted.json()["error"]["code"] == "profile_not_evaluated"
 
 
+@pytest.mark.parametrize(
+    "route",
+    [
+        "/api/v1/admin/rag/profiles/{profile_id}/default",
+        "/api/v1/rag/profiles/{profile_id}/default",
+    ],
+)
+def test_both_profile_apis_reject_legacy_default_promotion(route: str) -> None:
+    repository = MemoryRegistryRepository()
+    current_default = Profile(
+        id=uuid4(),
+        kind=ProfileKind.GENERATION,
+        name="deployment-bound-default",
+        version=2,
+        config={},
+        bindings=(),
+        evaluation_state=EvaluationState.PASSED,
+        is_default=True,
+        deployment_version_id=uuid4(),
+    )
+    legacy = Profile(
+        id=uuid4(),
+        kind=ProfileKind.GENERATION,
+        name="legacy-model-bound",
+        version=1,
+        config={},
+        bindings=(ProfileModelBinding(ModelKind.LLM, uuid4()),),
+        evaluation_state=EvaluationState.PASSED,
+        is_default=False,
+    )
+    repository.profiles = [current_default, legacy]
+    app = create_app()
+    app.dependency_overrides[get_current_user] = owner
+    app.dependency_overrides[get_rag_model_registry_service] = lambda: (
+        RagModelRegistryService(repository)
+    )
+
+    with TestClient(app) as client:
+        response = client.post(route.format(profile_id=legacy.id))
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "legacy_profile_read_only"
+    assert repository.profiles == [current_default, legacy]
+
+
 def test_yaml_profile_is_validated_and_registered_through_the_api() -> None:
     repository = MemoryRegistryRepository()
     app = create_app()
@@ -185,9 +247,37 @@ def test_yaml_profile_is_validated_and_registered_through_the_api() -> None:
                 "kind": "llm",
                 "name": "answer-model",
                 "version": 1,
-                "config": {"endpoint_env": "LOCAL_LLM_ENDPOINT"},
+                "config": {
+                    "provider": "openai_compatible",
+                    "runtime_model": "synthetic/exact-model",
+                    "data_policy": "local_only",
+                },
             },
         ).json()
+        deployment = ModelDeploymentVersion.create(
+            deployment_id=uuid4(),
+            version=1,
+            display_name="Synthetic local deployment",
+            description="Synthetic",
+            model_definition_id=UUID(model["id"]),
+            provider=ProviderKind.LOCAL_OPENAI_COMPATIBLE,
+            location=ExecutionLocation.LOCAL,
+            allowed_environments=(DeploymentEnvironment.DEVELOPMENT,),
+            provider_model_id="synthetic/exact-model",
+            endpoint_ref="local-generation",
+            secret_ref=None,
+            capabilities=(DeploymentCapability.STRUCTURED_OUTPUT,),
+            external_transfer=False,
+            transmitted_data_categories=(),
+            data_processing_notice_ref=None,
+            timeout_seconds=30,
+            max_retries=1,
+            retry_backoff_seconds=0.5,
+            healthcheck_enabled=True,
+            development_only=False,
+            created_by=owner().id,
+        )
+        repository.deployments[deployment.id] = deployment
         response = client.post(
             "/api/v1/admin/rag/profiles/generation/yaml",
             json={
@@ -198,18 +288,27 @@ version: 1
 evaluation_state: draft
 config:
   prompt_ref: grounded-answer-v1
-bindings:
-  - role: llm
-    model_id: {model["id"]}
+  context_prompt_ref: contextualize-v1
+  citation_mode: required
+  context_policy:
+    max_history_turns: 6
+    max_history_tokens: 1024
+  generation:
+    timeout_seconds: 30
+    max_output_tokens: 512
+    temperature: 0.1
+    response_schema_version: 1
+bindings: []
+deployment_version_id: {deployment.id}
 """
             },
         )
 
     assert response.status_code == 201
     assert response.json()["kind"] == "generation"
-    assert response.json()["bindings"] == [
-        {"role": "llm", "model_id": model["id"]}
-    ]
+    assert response.json()["bindings"] == []
+    assert response.json()["deployment_version_id"] == str(deployment.id)
+    assert response.json()["legacy"] is False
 
 
 def test_member_can_read_registry_but_cannot_mutate_admin_or_legacy_api() -> None:

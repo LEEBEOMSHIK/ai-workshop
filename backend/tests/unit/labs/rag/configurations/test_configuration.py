@@ -8,6 +8,7 @@ from sqlalchemy import CheckConstraint, ForeignKeyConstraint
 from ai_workshop.labs.rag.configurations.domain import (
     AnswerPolicyVersion,
     ConfigurationValidationError,
+    ExternalTransferApprovalConfirmation,
     SavedRagConfiguration,
     validate_v1_retrieval_profile,
 )
@@ -16,6 +17,13 @@ from ai_workshop.labs.rag.configurations.models import (
     RagConfigurationVersionRecord,
 )
 from ai_workshop.labs.rag.configurations.service import RagConfigurationService
+from ai_workshop.labs.rag.deployments.domain import (
+    DeploymentCapability,
+    DeploymentEnvironment,
+    ExecutionLocation,
+    ModelDeploymentVersion,
+    ProviderKind,
+)
 from ai_workshop.labs.rag.evaluation.domain import (
     CandidateStatus,
     EvaluationMetrics,
@@ -30,6 +38,16 @@ from ai_workshop.labs.rag.models.domain import (
     Profile,
     ProfileKind,
     ProfileModelBinding,
+)
+from ai_workshop.labs.rag.policies.domain import (
+    InstallationDataPolicyVersion,
+    OutboundMode,
+    WorkspaceDataPolicyVersion,
+    WorkspaceOutboundMode,
+)
+from ai_workshop.labs.rag.policies.repository import (
+    ApprovedWorkspacePolicySnapshot,
+    ExternalConfigurationApproval,
 )
 from ai_workshop.shared.errors import AppError
 
@@ -303,6 +321,10 @@ class MemoryConfigurationRepository:
         accessible_workspace_ids: tuple[UUID, ...],
         active_asset_version_ids: tuple[UUID, ...] = (),
         ready_indexing_profile_ids: frozenset[UUID] = frozenset(),
+        deployments: tuple[ModelDeploymentVersion, ...] = (),
+        installation_policy: InstallationDataPolicyVersion | None = None,
+        workspace_policies: tuple[WorkspaceDataPolicyVersion, ...] = (),
+        reject_approval: bool = False,
     ) -> None:
         self.profiles = {profile.id: profile for profile in profiles}
         self.accessible = accessible_workspace_ids
@@ -311,6 +333,11 @@ class MemoryConfigurationRepository:
         self.identities: dict[tuple[UUID, str], UUID] = {}
         self.saved: list[SavedRagConfiguration] = []
         self.events: list[str] = []
+        self.deployments = {item.id: item for item in deployments}
+        self.installation_policy = installation_policy
+        self.workspace_policies = workspace_policies
+        self.approvals: list[ExternalConfigurationApproval] = []
+        self.reject_approval = reject_approval
 
     async def find_profile(self, profile_id: UUID) -> Profile | None:
         return self.profiles.get(profile_id)
@@ -331,6 +358,35 @@ class MemoryConfigurationRepository:
         self.events.append("configuration")
         self.saved.append(configuration)
         return configuration
+
+    async def get_deployment_version(
+        self, deployment_version_id: UUID
+    ) -> ModelDeploymentVersion | None:
+        return self.deployments.get(deployment_version_id)
+
+    async def latest_installation_policy(self) -> InstallationDataPolicyVersion:
+        if self.installation_policy is None:
+            raise RuntimeError("Synthetic Installation policy is not configured.")
+        return self.installation_policy
+
+    async def latest_workspace_policies(
+        self, workspace_ids: tuple[UUID, ...]
+    ) -> tuple[WorkspaceDataPolicyVersion, ...]:
+        return tuple(
+            policy
+            for workspace_id in workspace_ids
+            for policy in self.workspace_policies
+            if policy.workspace_id == workspace_id
+        )
+
+    async def add_external_approval(
+        self, approval: ExternalConfigurationApproval
+    ) -> ExternalConfigurationApproval:
+        if self.reject_approval:
+            raise ValueError("synthetic stale approval")
+        self.events.append("approval")
+        self.approvals.append(approval)
+        return approval
 
     async def active_asset_version_ids(
         self, workspace_ids: tuple[UUID, ...]
@@ -437,9 +493,9 @@ async def test_service_readiness_requires_generation_only_for_generative_mode() 
     assert readiness[extractive.version_id].service_ready is False
     assert readiness[extractive.version_id].answer_reasons == ("generation_not_configured",)
     assert readiness[generative.version_id].search_ready is True
-    assert readiness[generative.version_id].answer_ready is True
-    assert readiness[generative.version_id].service_ready is True
-    assert readiness[generative.version_id].answer_reasons == ()
+    assert readiness[generative.version_id].answer_ready is False
+    assert readiness[generative.version_id].service_ready is False
+    assert readiness[generative.version_id].answer_reasons == ("deployment_not_ready",)
 
 
 def _technical_profiles() -> tuple[Profile, Profile]:
@@ -477,7 +533,7 @@ def _technical_profiles() -> tuple[Profile, Profile]:
     return indexing, retrieval
 
 
-def _generation_profile() -> Profile:
+def _generation_profile(deployment_version_id: UUID) -> Profile:
     return Profile.create(
         kind=ProfileKind.GENERATION,
         name="local-grounded-generation",
@@ -494,18 +550,91 @@ def _generation_profile() -> Profile:
                 "response_schema_version": 1,
             },
         },
-        bindings=(ProfileModelBinding(ModelKind.LLM, uuid4()),),
+        bindings=(),
+        deployment_version_id=deployment_version_id,
+    )
+
+
+def _deployment(
+    *,
+    location: ExecutionLocation,
+    provider: ProviderKind,
+    model_definition_id: UUID | None = None,
+    development_only: bool = False,
+) -> ModelDeploymentVersion:
+    external = location is ExecutionLocation.EXTERNAL
+    return ModelDeploymentVersion.create(
+        deployment_id=uuid4(),
+        version=1,
+        display_name="Synthetic generation deployment",
+        description="Synthetic",
+        model_definition_id=model_definition_id or uuid4(),
+        provider=provider,
+        location=location,
+        allowed_environments=(DeploymentEnvironment.DEVELOPMENT,),
+        provider_model_id="exact-provider-model",
+        endpoint_ref="synthetic-endpoint",
+        secret_ref="synthetic-secret" if external else None,
+        capabilities=(DeploymentCapability.STRUCTURED_OUTPUT,),
+        external_transfer=external,
+        transmitted_data_categories=("question", "evidence") if external else (),
+        data_processing_notice_ref="public-notice-v1" if external else None,
+        timeout_seconds=30,
+        max_retries=1,
+        retry_backoff_seconds=0.5,
+        healthcheck_enabled=True,
+        development_only=development_only,
+        created_by=uuid4(),
+    )
+
+
+def _installation_policy(
+    *, mode: OutboundMode = OutboundMode.APPROVED_PROVIDERS
+) -> InstallationDataPolicyVersion:
+    return InstallationDataPolicyVersion.create(
+        policy_id=uuid4(),
+        version=2,
+        mode=mode,
+        approved_providers=(
+            (ProviderKind.OPENAI_RESPONSES,)
+            if mode is OutboundMode.APPROVED_PROVIDERS
+            else ()
+        ),
+        changed_by=uuid4(),
+    )
+
+
+def _workspace_policy(workspace_id: UUID) -> WorkspaceDataPolicyVersion:
+    return WorkspaceDataPolicyVersion.create(
+        policy_id=uuid4(),
+        workspace_id=workspace_id,
+        version=3,
+        mode=WorkspaceOutboundMode.APPROVED_PROVIDERS,
+        approved_providers=(ProviderKind.OPENAI_RESPONSES,),
+        changed_by=uuid4(),
+    )
+
+
+def _approval() -> ExternalTransferApprovalConfirmation:
+    return ExternalTransferApprovalConfirmation(
+        confirmed=True,
+        disclosure_version="external-generation-v1",
     )
 
 
 @pytest.mark.asyncio
 async def test_service_saves_generative_configuration_with_exact_profile() -> None:
     indexing, retrieval = _technical_profiles()
-    generation = _generation_profile()
+    deployment = _deployment(
+        location=ExecutionLocation.LOCAL,
+        provider=ProviderKind.LOCAL_OPENAI_COMPATIBLE,
+    )
+    generation = _generation_profile(deployment.id)
     workspace_id = uuid4()
     repository = MemoryConfigurationRepository(
         profiles=(indexing, retrieval, generation),
         accessible_workspace_ids=(workspace_id,),
+        deployments=(deployment,),
     )
     service = RagConfigurationService(
         repository,
@@ -529,6 +658,266 @@ async def test_service_saves_generative_configuration_with_exact_profile() -> No
 
     assert result.configuration.generation_profile_id == generation.id
     assert result.configuration.answer_policy_version.mode == "generative"
+
+
+@pytest.mark.asyncio
+async def test_external_generation_requires_owner_confirmation_before_save() -> None:
+    indexing, retrieval = _technical_profiles()
+    deployment = _deployment(
+        location=ExecutionLocation.EXTERNAL,
+        provider=ProviderKind.OPENAI_RESPONSES,
+    )
+    generation = _generation_profile(deployment.id)
+    workspace_id = uuid4()
+    repository = MemoryConfigurationRepository(
+        profiles=(indexing, retrieval, generation),
+        accessible_workspace_ids=(workspace_id,),
+        deployments=(deployment,),
+    )
+    service = RagConfigurationService(
+        repository,
+        RecordingIngestionJobs(repository.events),
+        commit=_commit(repository.events),
+    )
+
+    with pytest.raises(AppError) as caught:
+        await service.create(
+            owner_id=uuid4(),
+            name="외부 생성 구성",
+            indexing_profile_id=indexing.id,
+            retrieval_profile_id=retrieval.id,
+            generation_profile_id=generation.id,
+            answer_mode="generative",
+            min_semantic_score=0.8,
+            min_keyword_coverage=0.7,
+            require_complete_provenance=True,
+            conflict_mode="separate_sources",
+            workspace_ids=(workspace_id,),
+        )
+
+    assert caught.value.code == "external_transfer_approval_required"
+    assert repository.saved == []
+    assert repository.approvals == []
+    assert repository.events == []
+
+
+@pytest.mark.asyncio
+async def test_external_generation_persists_exact_current_policy_snapshot() -> None:
+    indexing, retrieval = _technical_profiles()
+    workspace_ids = (uuid4(), uuid4())
+    deployment = _deployment(
+        location=ExecutionLocation.EXTERNAL,
+        provider=ProviderKind.OPENAI_RESPONSES,
+    )
+    generation = _generation_profile(deployment.id)
+    installation = _installation_policy()
+    workspace_policies = tuple(_workspace_policy(item) for item in workspace_ids)
+    repository = MemoryConfigurationRepository(
+        profiles=(indexing, retrieval, generation),
+        accessible_workspace_ids=workspace_ids,
+        deployments=(deployment,),
+        installation_policy=installation,
+        workspace_policies=workspace_policies,
+    )
+    service = RagConfigurationService(
+        repository,
+        RecordingIngestionJobs(repository.events),
+        commit=_commit(repository.events),
+    )
+    owner_id = uuid4()
+
+    result = await service.create(
+        owner_id=owner_id,
+        name="외부 생성 구성",
+        indexing_profile_id=indexing.id,
+        retrieval_profile_id=retrieval.id,
+        generation_profile_id=generation.id,
+        answer_mode="generative",
+        min_semantic_score=0.8,
+        min_keyword_coverage=0.7,
+        require_complete_provenance=True,
+        conflict_mode="separate_sources",
+        workspace_ids=workspace_ids,
+        external_transfer_approval=_approval(),
+    )
+
+    approval = repository.approvals[0]
+    assert approval.configuration_version_id == result.configuration.version_id
+    assert approval.deployment_version_id == deployment.id
+    assert approval.installation_policy_version_id == installation.id
+    assert approval.approved_by == owner_id
+    assert approval.disclosure_version == "external-generation-v1"
+    assert approval.workspace_policies == tuple(
+        (ApprovedWorkspacePolicySnapshot(policy.workspace_id, policy.id))
+        for policy in workspace_policies
+    )
+    assert repository.events == ["configuration", "approval", "commit"]
+
+
+@pytest.mark.asyncio
+async def test_external_generation_rejects_denied_or_stale_policy_before_commit() -> None:
+    indexing, retrieval = _technical_profiles()
+    workspace_id = uuid4()
+    deployment = _deployment(
+        location=ExecutionLocation.EXTERNAL,
+        provider=ProviderKind.OPENAI_RESPONSES,
+    )
+    generation = _generation_profile(deployment.id)
+
+    for repository, expected_code in (
+        (
+            MemoryConfigurationRepository(
+                profiles=(indexing, retrieval, generation),
+                accessible_workspace_ids=(workspace_id,),
+                deployments=(deployment,),
+                installation_policy=_installation_policy(),
+                workspace_policies=(),
+            ),
+            "workspace_external_transfer_denied",
+        ),
+        (
+            MemoryConfigurationRepository(
+            profiles=(indexing, retrieval, generation),
+            accessible_workspace_ids=(workspace_id,),
+            deployments=(deployment,),
+            installation_policy=_installation_policy(mode=OutboundMode.DENY),
+            workspace_policies=(_workspace_policy(workspace_id),),
+            ),
+            "provider_not_allowed",
+        ),
+        (
+            MemoryConfigurationRepository(
+                profiles=(indexing, retrieval, generation),
+                accessible_workspace_ids=(workspace_id,),
+                deployments=(deployment,),
+                installation_policy=_installation_policy(),
+                workspace_policies=(_workspace_policy(workspace_id),),
+                reject_approval=True,
+            ),
+            "external_approval_stale",
+        ),
+    ):
+        service = RagConfigurationService(
+            repository,
+            RecordingIngestionJobs(repository.events),
+            commit=_commit(repository.events),
+        )
+        with pytest.raises(AppError) as caught:
+            await service.create(
+                owner_id=uuid4(),
+                name="거절 구성",
+                indexing_profile_id=indexing.id,
+                retrieval_profile_id=retrieval.id,
+                generation_profile_id=generation.id,
+                answer_mode="generative",
+                min_semantic_score=0.8,
+                min_keyword_coverage=0.7,
+                require_complete_provenance=True,
+                conflict_mode="separate_sources",
+                workspace_ids=(workspace_id,),
+                external_transfer_approval=_approval(),
+            )
+        assert caught.value.code == expected_code
+        assert "commit" not in repository.events
+
+
+@pytest.mark.asyncio
+async def test_local_generation_rejects_external_approval_payload() -> None:
+    indexing, retrieval = _technical_profiles()
+    workspace_id = uuid4()
+    deployment = _deployment(
+        location=ExecutionLocation.LOCAL,
+        provider=ProviderKind.LOCAL_OPENAI_COMPATIBLE,
+    )
+    generation = _generation_profile(deployment.id)
+    repository = MemoryConfigurationRepository(
+        profiles=(indexing, retrieval, generation),
+        accessible_workspace_ids=(workspace_id,),
+        deployments=(deployment,),
+    )
+
+    with pytest.raises(AppError) as caught:
+        await RagConfigurationService(
+            repository,
+            RecordingIngestionJobs(repository.events),
+        ).create(
+            owner_id=uuid4(),
+            name="로컬 구성",
+            indexing_profile_id=indexing.id,
+            retrieval_profile_id=retrieval.id,
+            generation_profile_id=generation.id,
+            answer_mode="generative",
+            min_semantic_score=0.8,
+            min_keyword_coverage=0.7,
+            require_complete_provenance=True,
+            conflict_mode="separate_sources",
+            workspace_ids=(workspace_id,),
+            external_transfer_approval=_approval(),
+        )
+
+    assert caught.value.code == "external_transfer_approval_not_allowed"
+    assert repository.saved == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("location", "provider"),
+    [
+        (ExecutionLocation.LOCAL, ProviderKind.LOCAL_OPENAI_COMPATIBLE),
+        (ExecutionLocation.EXTERNAL, ProviderKind.OPENAI_RESPONSES),
+    ],
+)
+async def test_development_only_deployment_is_rejected_in_production(
+    location: ExecutionLocation,
+    provider: ProviderKind,
+) -> None:
+    indexing, retrieval = _technical_profiles()
+    workspace_id = uuid4()
+    deployment = _deployment(
+        location=location,
+        provider=provider,
+        development_only=True,
+    )
+    # Simulate contradictory metadata already persisted before the domain hardening.
+    object.__setattr__(
+        deployment,
+        "allowed_environments",
+        (DeploymentEnvironment.PRODUCTION,),
+    )
+    generation = _generation_profile(deployment.id)
+    repository = MemoryConfigurationRepository(
+        profiles=(indexing, retrieval, generation),
+        accessible_workspace_ids=(workspace_id,),
+        deployments=(deployment,),
+        installation_policy=_installation_policy(),
+        workspace_policies=(_workspace_policy(workspace_id),),
+    )
+
+    with pytest.raises(AppError) as caught:
+        await RagConfigurationService(
+            repository,
+            RecordingIngestionJobs(repository.events),
+            environment="production",
+        ).create(
+            owner_id=uuid4(),
+            name="production forbidden development Deployment",
+            indexing_profile_id=indexing.id,
+            retrieval_profile_id=retrieval.id,
+            generation_profile_id=generation.id,
+            answer_mode="generative",
+            min_semantic_score=0.8,
+            min_keyword_coverage=0.7,
+            require_complete_provenance=True,
+            conflict_mode="separate_sources",
+            workspace_ids=(workspace_id,),
+            external_transfer_approval=(
+                _approval() if location is ExecutionLocation.EXTERNAL else None
+            ),
+        )
+
+    assert caught.value.code == "deployment_not_allowed_in_environment"
+    assert repository.saved == []
+    assert repository.approvals == []
 
 
 def _retrieval_with_reranker(

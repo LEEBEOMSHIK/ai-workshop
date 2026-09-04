@@ -150,7 +150,10 @@ class SqlAlchemyDataPolicyRepository:
         )
         if for_update:
             statement = statement.with_for_update()
-        return await self._session.scalar(statement)
+        policy_id = await self._session.scalar(statement)
+        if policy_id is None or isinstance(policy_id, UUID):
+            return policy_id
+        raise TypeError("Workspace data policy identity must be a UUID.")
 
     async def create_workspace_policy_identity(
         self,

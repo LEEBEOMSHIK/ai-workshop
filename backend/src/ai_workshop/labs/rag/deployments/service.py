@@ -1,5 +1,7 @@
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from time import monotonic
 from typing import Annotated, Protocol
 from uuid import UUID, uuid4
 
@@ -11,9 +13,11 @@ from ai_workshop.config import Settings, get_settings
 from ai_workshop.labs.rag.deployments.domain import (
     DeploymentValidationError,
     ModelDeploymentVersion,
+    ProviderKind,
 )
 from ai_workshop.labs.rag.deployments.repository import (
     DeploymentCatalogEntry,
+    DeploymentHealthCheck,
     DeploymentRepositoryConflict,
     SqlAlchemyDeploymentRepository,
 )
@@ -23,7 +27,20 @@ from ai_workshop.labs.rag.deployments.secrets import (
     SecretReferenceError,
     SecretReferenceResolver,
 )
+from ai_workshop.labs.rag.generation.execution import (
+    GenerationProviderError,
+    ResolvedGenerationRuntime,
+)
+from ai_workshop.labs.rag.generation.openai_compatible import (
+    LocalOpenAICompatibleRuntime,
+)
+from ai_workshop.labs.rag.generation.runtime_resolver import (
+    GenerationRuntimeResolver,
+)
 from ai_workshop.labs.rag.models.domain import ModelDefinition, ModelKind
+from ai_workshop.labs.rag.policies.domain import PolicyDecision
+from ai_workshop.labs.rag.policies.repository import SqlAlchemyDataPolicyRepository
+from ai_workshop.labs.rag.policies.service import GenerationPolicyResolver
 from ai_workshop.shared.db import get_session
 from ai_workshop.shared.errors import AppError
 
@@ -54,6 +71,154 @@ class DeploymentRepository(Protocol):
     ) -> ModelDeploymentVersion: ...
 
     async def list_versions(self) -> list[DeploymentCatalogEntry]: ...
+
+
+class DeploymentHealthRepository(Protocol):
+    async def get_version(self, version_id: UUID) -> ModelDeploymentVersion | None: ...
+
+    async def add_health_check(
+        self, health_check: DeploymentHealthCheck
+    ) -> DeploymentHealthCheck: ...
+
+
+class DeploymentPolicyResolver(Protocol):
+    async def resolve(
+        self,
+        *,
+        deployment: ModelDeploymentVersion,
+        workspace_ids: tuple[UUID, ...],
+    ) -> PolicyDecision: ...
+
+
+class RuntimeResolver(Protocol):
+    def resolve(
+        self,
+        deployment: ModelDeploymentVersion,
+        policy: PolicyDecision,
+    ) -> ResolvedGenerationRuntime: ...
+
+
+@dataclass(frozen=True, slots=True)
+class DeploymentHealthResult:
+    status: str
+    safe_error_code: str | None
+    provider: ProviderKind
+    provider_model_id: str
+    observed_provider_model_id: str | None
+    latency_ms: int
+
+
+class DeploymentHealthService:
+    def __init__(
+        self,
+        repository: DeploymentHealthRepository,
+        policy_resolver: DeploymentPolicyResolver,
+        runtime_resolver: RuntimeResolver,
+    ) -> None:
+        self._repository = repository
+        self._policy_resolver = policy_resolver
+        self._runtime_resolver = runtime_resolver
+
+    async def check(
+        self,
+        version_id: UUID,
+        *,
+        actor_id: UUID,
+    ) -> DeploymentHealthResult:
+        deployment = await self._repository.get_version(version_id)
+        if deployment is None:
+            raise AppError("not_found", "The requested resource was not found.", 404)
+        started = monotonic()
+        if (
+            not deployment.healthcheck_enabled
+            or deployment.provider is ProviderKind.OPENAI_RESPONSES
+        ):
+            return await self._record_failure(
+                deployment,
+                actor_id=actor_id,
+                code="deployment_not_ready",
+                latency_ms=_latency_ms(started),
+            )
+        try:
+            policy = await self._policy_resolver.resolve(
+                deployment=deployment,
+                workspace_ids=(),
+            )
+            resolved = self._runtime_resolver.resolve(deployment, policy)
+            health = await resolved.adapter.health()
+            if (
+                health.execution.deployment_version_id != deployment.id
+                or health.execution.provider is not deployment.provider
+                or health.execution.provider_model_id != deployment.provider_model_id
+                or health.ready
+                and health.observed_provider_model_id
+                != deployment.provider_model_id
+            ):
+                raise GenerationProviderError(
+                    "provider_invalid_response",
+                    retryable=False,
+                )
+            if not health.ready:
+                return await self._record_failure(
+                    deployment,
+                    actor_id=actor_id,
+                    code="deployment_not_ready",
+                    latency_ms=health.execution.latency_ms,
+                )
+        except GenerationProviderError as exc:
+            return await self._record_failure(
+                deployment,
+                actor_id=actor_id,
+                code=exc.code,
+                latency_ms=_latency_ms(started),
+            )
+        recorded = DeploymentHealthCheck(
+            id=uuid4(),
+            deployment_version_id=deployment.id,
+            status="ready",
+            safe_error_code=None,
+            observed_provider_model_id=health.observed_provider_model_id,
+            latency_ms=health.execution.latency_ms,
+            checked_by=actor_id,
+            created_at=datetime.now(UTC),
+        )
+        await self._repository.add_health_check(recorded)
+        return DeploymentHealthResult(
+            status=recorded.status,
+            safe_error_code=None,
+            provider=deployment.provider,
+            provider_model_id=deployment.provider_model_id,
+            observed_provider_model_id=recorded.observed_provider_model_id,
+            latency_ms=recorded.latency_ms or 0,
+        )
+
+    async def _record_failure(
+        self,
+        deployment: ModelDeploymentVersion,
+        *,
+        actor_id: UUID,
+        code: str,
+        latency_ms: int,
+    ) -> DeploymentHealthResult:
+        recorded = DeploymentHealthCheck(
+            id=uuid4(),
+            deployment_version_id=deployment.id,
+            status="failed",
+            safe_error_code=code,
+            observed_provider_model_id=None,
+            latency_ms=latency_ms,
+            checked_by=actor_id,
+            created_at=datetime.now(UTC),
+        )
+        await self._repository.add_health_check(recorded)
+        return DeploymentHealthResult(
+            status=recorded.status,
+            safe_error_code=code,
+            provider=deployment.provider,
+            provider_model_id=deployment.provider_model_id,
+            observed_provider_model_id=None,
+            latency_ms=latency_ms,
+        )
 
 
 class DeploymentRegistryService:
@@ -227,3 +392,33 @@ def get_deployment_registry_service(
         endpoint_refs=settings.provider_endpoint_refs,
         secret_refs=settings.provider_secret_refs,
     )
+
+
+def get_deployment_health_service(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> DeploymentHealthService:
+    repository = SqlAlchemyDeploymentRepository(session)
+    runtime_resolver = GenerationRuntimeResolver(
+        environment=settings.environment,
+        endpoint_refs=settings.provider_endpoint_refs,
+        secret_refs=settings.provider_secret_refs,
+        factories={
+            ProviderKind.LOCAL_OPENAI_COMPATIBLE: (
+                lambda deployment, endpoint, secret: LocalOpenAICompatibleRuntime(
+                    deployment=deployment,
+                    endpoint=endpoint,
+                    api_key=secret,
+                )
+            )
+        },
+    )
+    return DeploymentHealthService(
+        repository,
+        GenerationPolicyResolver(SqlAlchemyDataPolicyRepository(session)),
+        runtime_resolver,
+    )
+
+
+def _latency_ms(started: float) -> int:
+    return max(0, int((monotonic() - started) * 1000))

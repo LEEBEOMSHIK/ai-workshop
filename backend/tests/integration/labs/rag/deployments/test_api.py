@@ -5,15 +5,18 @@ from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Annotated
 from uuid import UUID, uuid4
 
 import psycopg
 import pytest
 from alembic.config import Config
+from fastapi import Depends
 from fastapi.testclient import TestClient
 from psycopg import sql
 from pydantic import SecretStr
 from sqlalchemy import make_url
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_workshop.config import get_settings
 from ai_workshop.labs.rag.deployments import domain as deployment_domain
@@ -24,14 +27,22 @@ from ai_workshop.labs.rag.deployments.repository import (
     SqlAlchemyDeploymentRepository,
 )
 from ai_workshop.labs.rag.deployments.service import (
+    DeploymentHealthService,
     DeploymentRegistryService,
+    get_deployment_health_service,
     get_deployment_registry_service,
 )
+from ai_workshop.labs.rag.generation.execution import (
+    ProviderExecutionMetadata,
+    ProviderHealthResult,
+    ResolvedGenerationRuntime,
+)
 from ai_workshop.labs.rag.models.domain import ModelDefinition, ModelKind, freeze_json
+from ai_workshop.labs.rag.policies.domain import PolicyDecision
 from ai_workshop.main import create_app
 from ai_workshop.platform.identity.api import get_current_user
 from ai_workshop.platform.identity.domain import User, UserRole
-from ai_workshop.shared.db import create_engine, create_session_factory
+from ai_workshop.shared.db import create_engine, create_session_factory, get_session
 from alembic import command
 
 pytestmark = pytest.mark.integration
@@ -142,6 +153,76 @@ def payload(model_id: UUID) -> dict[str, object]:
     }
 
 
+def local_payload(model_id: UUID) -> dict[str, object]:
+    return {
+        **payload(model_id),
+        "display_name": "Local exact health",
+        "description": "Synthetic local deployment",
+        "provider": "local_openai_compatible",
+        "location": "local",
+        "allowed_environments": ["development"],
+        "endpoint_ref": "local-runtime",
+        "secret_ref": None,
+        "external_transfer": False,
+        "transmitted_data_categories": [],
+        "data_processing_notice_ref": None,
+        "max_retries": 0,
+    }
+
+
+class AllowedHealthPolicyResolver:
+    async def resolve(
+        self,
+        *,
+        deployment: ModelDeploymentVersion,
+        workspace_ids: tuple[UUID, ...],
+    ) -> PolicyDecision:
+        del deployment
+        assert workspace_ids == ()
+        return PolicyDecision(True, None, UUID(int=1), ())
+
+
+class ExactHealthRuntimeResolver:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def resolve(
+        self,
+        deployment: ModelDeploymentVersion,
+        policy: PolicyDecision,
+    ) -> ResolvedGenerationRuntime:
+        del policy
+        return ResolvedGenerationRuntime(  # type: ignore[arg-type]
+            deployment,
+            ExactHealthRuntime(deployment, self),
+        )
+
+
+class ExactHealthRuntime:
+    def __init__(
+        self,
+        deployment: ModelDeploymentVersion,
+        resolver: ExactHealthRuntimeResolver,
+    ) -> None:
+        self.deployment = deployment
+        self.resolver = resolver
+
+    async def health(self) -> ProviderHealthResult:
+        self.resolver.calls += 1
+        return ProviderHealthResult(
+            ready=True,
+            observed_provider_model_id=self.deployment.provider_model_id,
+            execution=ProviderExecutionMetadata(
+                provider=self.deployment.provider,
+                provider_model_id=self.deployment.provider_model_id,
+                deployment_version_id=self.deployment.id,
+                input_tokens=None,
+                output_tokens=None,
+                latency_ms=self.resolver.calls,
+            ),
+        )
+
+
 def configured_service(repository: MemoryDeploymentRepository) -> DeploymentRegistryService:
     return DeploymentRegistryService(
         repository,
@@ -177,7 +258,10 @@ def isolated_api_database(
         monkeypatch.setenv(
             "AI_WORKSHOP_PROVIDER_ENDPOINT_REFS",
             json.dumps(
-                {"openai-responses": "https://endpoint-value.example.invalid"}
+                {
+                    "openai-responses": "https://endpoint-value.example.invalid",
+                    "local-runtime": "http://127.0.0.1:11434",
+                }
             ),
         )
         monkeypatch.setenv(
@@ -458,10 +542,17 @@ def test_postgresql_api_create_list_and_repository_paths(
                 "/api/v1/admin/rag/deployments", json=payload(model_id)
             )
             listed = client.get("/api/v1/admin/rag/deployments")
+            health = client.post(
+                "/api/v1/admin/rag/deployment-versions/"
+                f"{created.json()['version_id']}/health-check"
+            )
 
         assert created.status_code == 201
         assert listed.status_code == 200
         assert listed.json() == [created.json()]
+        assert health.status_code == 200
+        assert health.json()["status"] == "failed"
+        assert health.json()["safe_error_code"] == "deployment_not_ready"
         deployment_id = UUID(created.json()["deployment_id"])
 
         async def verify_repository_paths() -> None:
@@ -500,8 +591,101 @@ def test_postgresql_api_create_list_and_repository_paths(
                 "SELECT count(*) FROM rag_model_deployment_versions"
             ).fetchone() == (1,)
             assert connection.execute(
+                "SELECT status, safe_error_code "
+                "FROM rag_model_deployment_health_checks"
+            ).fetchall() == [("failed", "deployment_not_ready")]
+            assert connection.execute(
                 "SELECT namespace, reference_name FROM rag_secret_references"
             ).fetchall() == [("provider_secret", "openai-primary")]
+
+
+def test_postgresql_local_health_appends_two_immutable_rows_and_reads_latest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with isolated_api_database(monkeypatch) as isolated_url:
+        owner, model_id = seed_owner_and_model(isolated_url)
+        runtime_resolver = ExactHealthRuntimeResolver()
+        app = actual_api_app(owner)
+
+        def health_service(
+            session: Annotated[AsyncSession, Depends(get_session)],
+        ) -> DeploymentHealthService:
+            return DeploymentHealthService(
+                SqlAlchemyDeploymentRepository(session),
+                AllowedHealthPolicyResolver(),
+                runtime_resolver,
+            )
+
+        app.dependency_overrides[get_deployment_health_service] = health_service
+        with TestClient(app) as client:
+            created = client.post(
+                "/api/v1/admin/rag/deployments",
+                json=local_payload(model_id),
+            )
+            version_id = UUID(created.json()["version_id"])
+            first = client.post(
+                f"/api/v1/admin/rag/deployment-versions/{version_id}/health-check"
+            )
+            second = client.post(
+                f"/api/v1/admin/rag/deployment-versions/{version_id}/health-check"
+            )
+
+        assert created.status_code == 201
+        assert first.status_code == second.status_code == 200
+        assert first.json()["status"] == second.json()["status"] == "ready"
+        assert first.json()["observed_provider_model_id"] == "approved-model-version"
+        assert second.json()["observed_provider_model_id"] == "approved-model-version"
+        assert first.json()["latency_ms"] == 1
+        assert second.json()["latency_ms"] == 2
+
+        async def verify_latest() -> None:
+            engine = create_engine(get_settings())
+            sessions = create_session_factory(engine)
+            try:
+                async with sessions.begin() as session:
+                    latest = await SqlAlchemyDeploymentRepository(
+                        session
+                    ).latest_health_check(version_id)
+                    assert latest is not None
+                    assert latest.status == "ready"
+                    assert latest.observed_provider_model_id == "approved-model-version"
+                    assert latest.latency_ms == 2
+            finally:
+                await engine.dispose()
+
+        asyncio.run(verify_latest())
+
+        with psycopg.connect(_sync_url(isolated_url), autocommit=True) as connection:
+            rows = connection.execute(
+                """
+                SELECT id, status, safe_error_code, observed_provider_model_id,
+                       latency_ms
+                FROM rag_model_deployment_health_checks
+                WHERE deployment_version_id = %s
+                ORDER BY created_at, id
+                """,
+                (version_id,),
+            ).fetchall()
+            assert [row[1:] for row in rows] == [
+                ("ready", None, "approved-model-version", 1),
+                ("ready", None, "approved-model-version", 2),
+            ]
+            with pytest.raises(psycopg.errors.RaiseException, match="immutable"):
+                connection.execute(
+                    "UPDATE rag_model_deployment_health_checks "
+                    "SET status = 'failed' WHERE id = %s",
+                    (rows[0][0],),
+                )
+            with pytest.raises(psycopg.errors.RaiseException, match="immutable"):
+                connection.execute(
+                    "DELETE FROM rag_model_deployment_health_checks WHERE id = %s",
+                    (rows[0][0],),
+                )
+            assert connection.execute(
+                "SELECT count(*) FROM rag_model_deployment_health_checks "
+                "WHERE deployment_version_id = %s",
+                (version_id,),
+            ).fetchone() == (2,)
 
 
 def test_postgresql_api_rolls_back_identity_and_registry_on_unique_conflict(

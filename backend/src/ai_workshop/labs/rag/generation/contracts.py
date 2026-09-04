@@ -2,9 +2,12 @@ from typing import Protocol
 
 from ai_workshop.labs.rag.generation.domain import (
     ContextualizationRequest,
-    GenerationProfile,
     GenerationRequest,
-    StructuredGeneration,
+)
+from ai_workshop.labs.rag.generation.execution import (
+    ProviderContextualizationResult,
+    ProviderGenerationResult,
+    ProviderHealthResult,
 )
 
 
@@ -17,11 +20,13 @@ class GenerationRuntimeResponseError(RuntimeError):
 
 
 class GenerationRuntimePort(Protocol):
-    async def health(self, profile: GenerationProfile) -> bool: ...
+    async def health(self) -> ProviderHealthResult: ...
 
-    async def contextualize(self, request: ContextualizationRequest) -> str: ...
+    async def contextualize(
+        self, request: ContextualizationRequest
+    ) -> ProviderContextualizationResult: ...
 
-    async def generate(self, request: GenerationRequest) -> StructuredGeneration: ...
+    async def generate(self, request: GenerationRequest) -> ProviderGenerationResult: ...
 
 
 class TokenCounterPort(Protocol):

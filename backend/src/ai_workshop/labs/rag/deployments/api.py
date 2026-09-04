@@ -5,17 +5,37 @@ from fastapi import APIRouter, Depends, status
 
 from ai_workshop.labs.rag.deployments.schemas import (
     DeploymentAdminResponse,
+    DeploymentHealthResponse,
     DeploymentOptionResponse,
     DeploymentVersionCreate,
 )
 from ai_workshop.labs.rag.deployments.service import (
+    DeploymentHealthService,
     DeploymentRegistryService,
+    get_deployment_health_service,
     get_deployment_registry_service,
 )
 from ai_workshop.platform.identity.api import get_current_user, require_owner
 from ai_workshop.platform.identity.domain import User
 
 router = APIRouter(tags=["rag-deployments"])
+
+
+@router.post(
+    "/api/v1/admin/rag/deployment-versions/{version_id}/health-check",
+    response_model=DeploymentHealthResponse,
+)
+async def check_deployment_health(
+    version_id: UUID,
+    user: Annotated[User, Depends(require_owner)],
+    service: Annotated[
+        DeploymentHealthService,
+        Depends(get_deployment_health_service),
+    ],
+) -> DeploymentHealthResponse:
+    return DeploymentHealthResponse.from_result(
+        await service.check(version_id, actor_id=user.id)
+    )
 
 
 @router.post(

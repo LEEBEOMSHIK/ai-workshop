@@ -7,7 +7,6 @@ from uuid import UUID, uuid4
 from ai_workshop.labs.rag.embeddings.contracts import EmbeddingRuntimeUnavailableError
 from ai_workshop.labs.rag.generation.citation_validation import CitationValidator
 from ai_workshop.labs.rag.generation.contracts import (
-    GenerationRuntimePort,
     GenerationRuntimeResponseError,
     GenerationRuntimeUnavailableError,
 )
@@ -20,6 +19,7 @@ from ai_workshop.labs.rag.generation.domain import (
     GenerationStatus,
     GroundingEvidence,
 )
+from ai_workshop.labs.rag.generation.execution import GenerationProviderError
 from ai_workshop.labs.rag.generation.integrity import ConversationTurnSigner
 from ai_workshop.labs.rag.highlighting.domain import (
     EvidenceSelection,
@@ -80,7 +80,6 @@ class SearchApplicationService:
         sparse_retriever: SparseRetrieverPort,
         dense_retriever: DenseRetrieverPort,
         source_resolver: SearchSourceResolverPort,
-        generation_runtime: GenerationRuntimePort | None = None,
         turn_signer: ConversationTurnSigner | None = None,
     ) -> None:
         self.configuration_resolver = configuration_resolver
@@ -88,7 +87,6 @@ class SearchApplicationService:
         self.sparse_retriever = sparse_retriever
         self.dense_retriever = dense_retriever
         self.source_resolver = source_resolver
-        self.generation_runtime = generation_runtime
         self.turn_signer = turn_signer
 
     async def search(self, *, actor_id: UUID, request: SearchRequest) -> SearchResult:
@@ -137,7 +135,7 @@ class SearchApplicationService:
             raise AppError("not_found", "The requested resource was not found.", 404)
 
         generation_profile = configuration.generation_profile
-        generation_runtime = self.generation_runtime
+        generation_runtime = configuration.generation_runtime
         if generation_profile is not None and (
             generation_runtime is None or self.turn_signer is None
         ):
@@ -159,8 +157,9 @@ class SearchApplicationService:
                 token_counter=configuration.embedding.count_tokens,
             )
             try:
-                generation_ready = await generation_runtime.health(generation_profile)
+                generation_ready = (await generation_runtime.health()).ready
             except (
+                GenerationProviderError,
                 GenerationRuntimeUnavailableError,
                 GenerationRuntimeResponseError,
             ):
@@ -175,14 +174,19 @@ class SearchApplicationService:
         if generation_profile is not None and bounded_history:
             assert generation_runtime is not None
             try:
-                resolved_query = await generation_runtime.contextualize(
+                contextualization = await generation_runtime.contextualize(
                     ContextualizationRequest(
                         question=request.query.strip(),
                         history=bounded_history,
                         profile=generation_profile,
                     )
                 )
-            except (GenerationRuntimeUnavailableError, GenerationRuntimeResponseError) as exc:
+                resolved_query = contextualization.resolved_query
+            except (
+                GenerationProviderError,
+                GenerationRuntimeUnavailableError,
+                GenerationRuntimeResponseError,
+            ) as exc:
                 raise AppError(
                     "query_contextualization_unavailable",
                     "Conversation context is temporarily unavailable.",
@@ -301,7 +305,8 @@ class SearchApplicationService:
             return GenerationOutcome(status=GenerationStatus.NOT_REQUESTED)
         if selection.status.value == "insufficient_evidence":
             return GenerationOutcome(status=GenerationStatus.INSUFFICIENT_EVIDENCE)
-        if self.generation_runtime is None or self.turn_signer is None:
+        generation_runtime = configuration.generation_runtime
+        if generation_runtime is None or self.turn_signer is None:
             raise AppError(
                 "llm_unavailable",
                 "Answer generation is temporarily unavailable.",
@@ -309,7 +314,7 @@ class SearchApplicationService:
             )
         evidence = _generation_evidence(selection)
         try:
-            draft = await self.generation_runtime.generate(
+            generation_result = await generation_runtime.generate(
                 GenerationRequest(
                     question=original_query,
                     resolved_query=resolved_query,
@@ -319,7 +324,12 @@ class SearchApplicationService:
                     correlation_id=correlation_id_context.get(),
                 )
             )
-        except (GenerationRuntimeUnavailableError, GenerationRuntimeResponseError) as exc:
+            draft = generation_result.generation
+        except (
+            GenerationProviderError,
+            GenerationRuntimeUnavailableError,
+            GenerationRuntimeResponseError,
+        ) as exc:
             raise AppError(
                 "llm_unavailable",
                 "Answer generation is temporarily unavailable.",

@@ -8,6 +8,13 @@ import pymupdf
 import pytest
 from fastapi.testclient import TestClient
 
+from ai_workshop.labs.rag.deployments.domain import (
+    DeploymentCapability,
+    DeploymentEnvironment,
+    ExecutionLocation,
+    ModelDeploymentVersion,
+    ProviderKind,
+)
 from ai_workshop.labs.rag.documents.domain import (
     EvidenceUnit,
     ParsedDocument,
@@ -22,7 +29,10 @@ from ai_workshop.labs.rag.embeddings.contracts import (
 from ai_workshop.labs.rag.embeddings.sentence_transformers import (
     SentenceTransformerEmbedding,
 )
-from ai_workshop.labs.rag.generation.contracts import GenerationRuntimeUnavailableError
+from ai_workshop.labs.rag.generation.contracts import (
+    GenerationRuntimePort,
+    GenerationRuntimeUnavailableError,
+)
 from ai_workshop.labs.rag.generation.domain import (
     ContextPolicy,
     ContextualizationRequest,
@@ -30,6 +40,12 @@ from ai_workshop.labs.rag.generation.domain import (
     GenerationProfile,
     GenerationRequest,
     StructuredGeneration,
+)
+from ai_workshop.labs.rag.generation.execution import (
+    ProviderContextualizationResult,
+    ProviderExecutionMetadata,
+    ProviderGenerationResult,
+    ProviderHealthResult,
 )
 from ai_workshop.labs.rag.generation.integrity import ConversationTurnSigner
 from ai_workshop.labs.rag.highlighting.domain import AnswerPolicy, EvidenceSource
@@ -266,6 +282,7 @@ def _configuration(
     with_policy: bool = True,
     experimental: bool = True,
     generation_profile: GenerationProfile | None = None,
+    generation_runtime: GenerationRuntimePort | None = None,
 ) -> ResolvedSearchConfiguration:
     return ResolvedSearchConfiguration(
         configuration_id=CONFIGURATION_ID,
@@ -293,6 +310,33 @@ def _configuration(
         workspace_ids=(WORKSPACE_ID,),
         experimental=experimental,
         generation_profile=generation_profile,
+        generation_runtime=generation_runtime,
+    )
+
+
+def _generation_deployment() -> ModelDeploymentVersion:
+    return ModelDeploymentVersion.create(
+        deployment_id=UUID("c0000000-0000-0000-0000-000000000010"),
+        version=1,
+        display_name="Synthetic local generation",
+        description="Synthetic search fixture",
+        model_definition_id=UUID("c0000000-0000-0000-0000-000000000002"),
+        provider=ProviderKind.LOCAL_OPENAI_COMPATIBLE,
+        location=ExecutionLocation.LOCAL,
+        allowed_environments=(DeploymentEnvironment.DEVELOPMENT,),
+        provider_model_id="test/exact-model",
+        endpoint_ref="local-runtime",
+        secret_ref=None,
+        capabilities=(DeploymentCapability.STRUCTURED_OUTPUT,),
+        external_transfer=False,
+        transmitted_data_categories=(),
+        data_processing_notice_ref=None,
+        timeout_seconds=10.0,
+        max_retries=0,
+        retry_backoff_seconds=0.0,
+        healthcheck_enabled=True,
+        development_only=False,
+        created_by=ACTOR_ID,
     )
 
 
@@ -315,6 +359,7 @@ def _generation_profile(*, max_history_turns: int = 4) -> GenerationProfile:
         max_output_tokens=200,
         temperature=0.1,
         response_schema_version=1,
+        deployment=_generation_deployment(),
     )
 
 
@@ -327,29 +372,53 @@ class RecordingGenerationRuntime:
     ) -> None:
         self.resolved_query = resolved_query
         self.healthy = healthy
-        self.health_profiles: list[GenerationProfile] = []
+        self.health_calls = 0
         self.contextualization_requests: list[ContextualizationRequest] = []
         self.generation_requests: list[GenerationRequest] = []
 
-    async def health(self, profile: GenerationProfile) -> bool:
-        self.health_profiles.append(profile)
-        return self.healthy
+    async def health(self) -> ProviderHealthResult:
+        self.health_calls += 1
+        return ProviderHealthResult(
+            ready=self.healthy,
+            observed_provider_model_id=("test/exact-model" if self.healthy else None),
+            execution=_execution_metadata(),
+        )
 
-    async def contextualize(self, request: ContextualizationRequest) -> str:
+    async def contextualize(
+        self, request: ContextualizationRequest
+    ) -> ProviderContextualizationResult:
         self.contextualization_requests.append(request)
-        return self.resolved_query
+        return ProviderContextualizationResult(
+            resolved_query=self.resolved_query,
+            execution=_execution_metadata(),
+        )
 
-    async def generate(self, request: GenerationRequest) -> StructuredGeneration:
+    async def generate(self, request: GenerationRequest) -> ProviderGenerationResult:
         self.generation_requests.append(request)
-        return StructuredGeneration(
-            schema_version=1,
-            claims=(
-                GeneratedClaim(
-                    text="위험 한도는 순자산의 7%입니다.",
-                    evidence_ids=(request.evidence[0].evidence_id,),
+        return ProviderGenerationResult(
+            generation=StructuredGeneration(
+                schema_version=1,
+                claims=(
+                    GeneratedClaim(
+                        text="위험 한도는 순자산의 7%입니다.",
+                        evidence_ids=(request.evidence[0].evidence_id,),
+                    ),
                 ),
             ),
+            execution=_execution_metadata(),
         )
+
+
+def _execution_metadata() -> ProviderExecutionMetadata:
+    deployment = _generation_deployment()
+    return ProviderExecutionMetadata(
+        provider=deployment.provider,
+        provider_model_id=deployment.provider_model_id,
+        deployment_version_id=deployment.id,
+        input_tokens=None,
+        output_tokens=None,
+        latency_ms=1,
+    )
 
 
 def test_resolved_configuration_rejects_a_non_fail_closed_v1_policy() -> None:
@@ -436,6 +505,7 @@ def _search_service(
                 if generative
                 else None
             ),
+            generation_runtime=(generation_runtime if generative else None),
         )
     )
     source_resolver = AuthoritativeSourceResolver(sources)
@@ -449,7 +519,6 @@ def _search_service(
         sparse_retriever=SparseRetriever(sparse_hits, sparse_failure),
         dense_retriever=DenseRetriever(),
         source_resolver=source_resolver,
-        generation_runtime=generation_runtime,
         turn_signer=ConversationTurnSigner(b"s" * 32),
     )
     return service, resolver, source_resolver, exact_embedding
@@ -611,9 +680,7 @@ def test_generative_search_requires_exact_model_health_before_retrieval() -> Non
 
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "llm_unavailable"
-    assert [profile.runtime_model for profile in runtime.health_profiles] == [
-        "test/exact-model"
-    ]
+    assert runtime.health_calls == 1
     assert source_resolver.calls == []
     assert runtime.contextualization_requests == []
     assert runtime.generation_requests == []
@@ -772,18 +839,23 @@ def test_invalid_generated_citation_never_exposes_draft() -> None:
     private_draft = "근거에 없는 비공개 생성 초안"
 
     class InvalidCitationRuntime(RecordingGenerationRuntime):
-        async def generate(self, request: GenerationRequest) -> StructuredGeneration:
+        async def generate(
+            self, request: GenerationRequest
+        ) -> ProviderGenerationResult:
             self.generation_requests.append(request)
-            return StructuredGeneration(
-                schema_version=1,
-                claims=(
-                    GeneratedClaim(
-                        text=private_draft,
-                        evidence_ids=(
-                            UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"),
+            return ProviderGenerationResult(
+                generation=StructuredGeneration(
+                    schema_version=1,
+                    claims=(
+                        GeneratedClaim(
+                            text=private_draft,
+                            evidence_ids=(
+                                UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"),
+                            ),
                         ),
                     ),
                 ),
+                execution=_execution_metadata(),
             )
 
     runtime = InvalidCitationRuntime()

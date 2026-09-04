@@ -1,4 +1,4 @@
-from typing import Self
+from typing import TYPE_CHECKING, Self
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -10,6 +10,9 @@ from ai_workshop.labs.rag.deployments.domain import (
     ProviderKind,
 )
 from ai_workshop.labs.rag.deployments.repository import DeploymentCatalogEntry
+
+if TYPE_CHECKING:
+    from ai_workshop.labs.rag.deployments.service import DeploymentHealthResult
 
 
 class DeploymentVersionCreate(BaseModel):
@@ -40,6 +43,26 @@ class DeploymentVersionCreate(BaseModel):
 class DeploymentReadinessResponse(BaseModel):
     ready: bool
     reason_codes: list[str]
+
+
+class DeploymentHealthResponse(BaseModel):
+    status: str
+    safe_error_code: str | None
+    provider: ProviderKind
+    provider_model_id: str
+    observed_provider_model_id: str | None
+    latency_ms: int
+
+    @classmethod
+    def from_result(cls, result: "DeploymentHealthResult") -> Self:
+        return cls(
+            status=result.status,
+            safe_error_code=result.safe_error_code,
+            provider=result.provider,
+            provider_model_id=result.provider_model_id,
+            observed_provider_model_id=result.observed_provider_model_id,
+            latency_ms=result.latency_ms,
+        )
 
 
 class DeploymentAdminResponse(BaseModel):

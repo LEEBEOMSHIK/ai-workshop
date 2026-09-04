@@ -3,6 +3,7 @@ from typing import Protocol
 from uuid import UUID
 
 from ai_workshop.labs.rag.embeddings.contracts import EmbeddingPort
+from ai_workshop.labs.rag.generation.contracts import GenerationRuntimePort
 from ai_workshop.labs.rag.generation.domain import GenerationProfile
 from ai_workshop.labs.rag.highlighting.domain import AnswerPolicy
 from ai_workshop.labs.rag.models.domain import Profile
@@ -24,6 +25,7 @@ class ResolvedSearchConfiguration:
     workspace_ids: tuple[UUID, ...] = ()
     experimental: bool = True
     generation_profile: GenerationProfile | None = None
+    generation_runtime: GenerationRuntimePort | None = None
 
     def __post_init__(self) -> None:
         if self.configuration_version < 1:
@@ -35,6 +37,10 @@ class ResolvedSearchConfiguration:
             and self.answer_policy.require_complete_provenance is not True
         ):
             raise ValueError("The extractive V1 policy requires complete provenance.")
+        if self.generation_profile is None and self.generation_runtime is not None:
+            raise ValueError(
+                "A resolved generation runtime requires its exact profile."
+            )
 
 
 class SearchConfigurationResolverPort(Protocol):

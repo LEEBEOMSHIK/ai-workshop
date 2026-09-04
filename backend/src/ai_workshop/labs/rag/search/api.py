@@ -9,7 +9,6 @@ from ai_workshop.config import Settings, get_settings
 from ai_workshop.infrastructure.object_store.local import LocalObjectStore
 from ai_workshop.infrastructure.search.elasticsearch import create_elasticsearch
 from ai_workshop.labs.rag.generation.integrity import ConversationTurnSigner
-from ai_workshop.labs.rag.generation.openai_compatible import LocalOpenAICompatibleRuntime
 from ai_workshop.labs.rag.retrieval.elasticsearch import (
     ElasticsearchDenseRetriever,
     ElasticsearchSparseRetriever,
@@ -62,16 +61,6 @@ async def get_search_service(
     ],
 ) -> AsyncIterator[SearchApplicationService]:
     client = create_elasticsearch(settings)
-    generation_runtime = None
-    if settings.generation_base_url is not None:
-        generation_runtime = LocalOpenAICompatibleRuntime(
-            base_url=settings.generation_base_url,
-            api_key=(
-                settings.generation_api_key.get_secret_value()
-                if settings.generation_api_key is not None
-                else None
-            ),
-        )
     try:
         yield SearchApplicationService(
             configuration_resolver=configuration_resolver,
@@ -79,7 +68,6 @@ async def get_search_service(
             sparse_retriever=ElasticsearchSparseRetriever(client),
             dense_retriever=ElasticsearchDenseRetriever(client),
             source_resolver=SqlAlchemySearchSourceResolver(session),
-            generation_runtime=generation_runtime,
             turn_signer=ConversationTurnSigner(
                 settings.secret_key.get_secret_value().encode("utf-8")
             ),

@@ -1,6 +1,6 @@
 # 전체 화면 AI 연구소 월드 설계
 
-- 상태: 검토 대기
+- 상태: 승인됨
 - 기준일: 2026-09-03
 - 범위: 공개 `/`, `/labs`, RAG 연구실 장면, 기술 관리자 캐릭터와 소개 대화상자
 - 관련 설계: `docs/superpowers/specs/2026-09-02-public-ai-lab-rag-service-design.md`

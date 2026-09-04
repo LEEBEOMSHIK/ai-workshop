@@ -21,6 +21,10 @@ export interface PublicLab {
   manager: PublicLabManager;
 }
 
+export type PublicLabCatalogResult =
+  | { status: "ready"; labs: readonly PublicLab[] }
+  | { status: "error"; labs: readonly [] };
+
 const labKeys = [
   "slug",
   "name",
@@ -120,6 +124,16 @@ export function parsePublicLabCatalog(input: unknown): readonly PublicLab[] {
   }
 
   return labs;
+}
+
+export function loadPublicLabCatalog(
+  input: unknown = publicLabsManifest,
+): PublicLabCatalogResult {
+  try {
+    return { status: "ready", labs: parsePublicLabCatalog(input) };
+  } catch {
+    return { status: "error", labs: [] };
+  }
 }
 
 export function listPublicLabs(): readonly PublicLab[] {

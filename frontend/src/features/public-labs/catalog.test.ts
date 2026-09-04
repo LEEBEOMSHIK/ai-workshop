@@ -1,4 +1,8 @@
-import { listPublicLabs, parsePublicLabCatalog } from "./catalog";
+import {
+  listPublicLabs,
+  loadPublicLabCatalog,
+  parsePublicLabCatalog,
+} from "./catalog";
 
 const validLab = {
   slug: "rag",
@@ -18,6 +22,14 @@ const validLab = {
 };
 
 describe("public Lab catalog", () => {
+  it("returns a typed ready or error result at the public catalog boundary", () => {
+    expect(loadPublicLabCatalog({ labs: [] })).toEqual({ status: "ready", labs: [] });
+    expect(loadPublicLabCatalog({ labs: [{ invalid: true }] })).toEqual({
+      status: "error",
+      labs: [],
+    });
+  });
+
   it("loads only the current RAG Lab without speculative empty Labs", () => {
     expect(listPublicLabs()).toEqual([
       expect.objectContaining({

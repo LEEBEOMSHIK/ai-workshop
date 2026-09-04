@@ -1,8 +1,12 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from typing import cast
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_workshop.labs.rag.deployments.domain import (
@@ -18,6 +22,13 @@ from ai_workshop.labs.rag.deployments.models import (
     ModelDeploymentVersionRecord,
     SecretReferenceRecord,
 )
+from ai_workshop.labs.rag.models.domain import (
+    JsonValue,
+    ModelDefinition,
+    ModelKind,
+    freeze_json,
+)
+from ai_workshop.labs.rag.models.models import ModelDefinitionRecord
 
 PROVIDER_SECRET_NAMESPACE = "provider_secret"
 
@@ -41,9 +52,94 @@ class DeploymentHealthCheck:
     created_at: datetime
 
 
+@dataclass(frozen=True, slots=True)
+class DeploymentCatalogEntry:
+    deployment: ModelDeploymentVersion
+    model_name: str
+    model_version: int
+
+
+class DeploymentRepositoryConflict(RuntimeError):
+    pass
+
+
 class SqlAlchemyDeploymentRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def get_model_definition(self, model_id: UUID) -> ModelDefinition | None:
+        record = await self._session.get(ModelDefinitionRecord, model_id)
+        if record is None:
+            return None
+        frozen_config = freeze_json(cast(dict[str, JsonValue], record.config))
+        if not isinstance(frozen_config, Mapping):
+            raise TypeError("Stored model configuration must be a mapping.")
+        return ModelDefinition(
+            id=record.id,
+            kind=ModelKind(record.kind),
+            name=record.name,
+            version=record.version,
+            config=frozen_config,
+        )
+
+    async def create_identity(
+        self,
+        deployment_id: UUID,
+        *,
+        created_by: UUID,
+        created_at: datetime,
+    ) -> None:
+        self._session.add(
+            ModelDeploymentRecord(
+                id=deployment_id,
+                created_by=created_by,
+                created_at=created_at,
+                updated_at=created_at,
+            )
+        )
+        try:
+            await self._session.flush()
+        except IntegrityError as exc:
+            raise DeploymentRepositoryConflict from exc
+
+    async def identity_exists(
+        self, deployment_id: UUID, *, for_update: bool
+    ) -> bool:
+        statement = select(ModelDeploymentRecord.id).where(
+            ModelDeploymentRecord.id == deployment_id
+        )
+        if for_update:
+            statement = statement.with_for_update()
+        return await self._session.scalar(statement) is not None
+
+    async def next_version(self, deployment_id: UUID) -> int:
+        latest = await self._session.scalar(
+            select(func.max(ModelDeploymentVersionRecord.version)).where(
+                ModelDeploymentVersionRecord.deployment_id == deployment_id
+            )
+        )
+        return (latest or 0) + 1
+
+    async def ensure_secret_reference(
+        self,
+        reference_name: str,
+        *,
+        created_by: UUID,
+        created_at: datetime,
+    ) -> None:
+        await self._session.execute(
+            pg_insert(SecretReferenceRecord)
+            .values(
+                namespace=PROVIDER_SECRET_NAMESPACE,
+                reference_name=reference_name,
+                created_by=created_by,
+                created_at=created_at,
+                updated_at=created_at,
+            )
+            .on_conflict_do_nothing(
+                index_elements=["namespace", "reference_name"]
+            )
+        )
 
     async def register_secret_reference(
         self, reference: SecretReference
@@ -76,8 +172,34 @@ class SqlAlchemyDeploymentRepository:
                 )
             )
         self._session.add(_version_record(deployment))
-        await self._session.flush()
+        try:
+            await self._session.flush()
+        except IntegrityError as exc:
+            raise DeploymentRepositoryConflict from exc
         return deployment
+
+    async def list_versions(self) -> list[DeploymentCatalogEntry]:
+        rows = await self._session.execute(
+            select(ModelDeploymentVersionRecord, ModelDefinitionRecord)
+            .join(
+                ModelDefinitionRecord,
+                ModelDefinitionRecord.id
+                == ModelDeploymentVersionRecord.model_definition_id,
+            )
+            .order_by(
+                ModelDeploymentVersionRecord.created_at,
+                ModelDeploymentVersionRecord.deployment_id,
+                ModelDeploymentVersionRecord.version,
+            )
+        )
+        return [
+            DeploymentCatalogEntry(
+                deployment=_version_domain(deployment),
+                model_name=model.name,
+                model_version=model.version,
+            )
+            for deployment, model in rows
+        ]
 
     async def get_version(self, version_id: UUID) -> ModelDeploymentVersion | None:
         record = await self._session.get(ModelDeploymentVersionRecord, version_id)

@@ -121,12 +121,13 @@ def health_result(
     *,
     ready: bool = True,
     observed_provider_model_id: str | None = "runtime/exact-model",
+    provider: ProviderKind = ProviderKind.LOCAL_OPENAI_COMPATIBLE,
 ) -> ProviderHealthResult:
     return ProviderHealthResult(
         ready=ready,
         observed_provider_model_id=observed_provider_model_id,
         execution=ProviderExecutionMetadata(
-            provider=ProviderKind.LOCAL_OPENAI_COMPATIBLE,
+            provider=provider,
             provider_model_id="runtime/exact-model",
             deployment_version_id=VERSION_ID,
             input_tokens=None,
@@ -204,20 +205,19 @@ async def test_health_safe_failure_appends_one_failed_result() -> None:
 
 
 @pytest.mark.asyncio
-async def test_openai_health_is_recorded_not_ready_without_runtime_resolution() -> None:
+async def test_openai_health_uses_registered_runtime_and_records_exact_model() -> None:
     repository = MemoryRepository(deployment(ProviderKind.OPENAI_RESPONSES))
     policy = PolicyResolver()
-    runtime = Runtime(AssertionError("network/runtime must not be reached"))
+    runtime = Runtime(health_result(provider=ProviderKind.OPENAI_RESPONSES))
     runtime_resolver = RuntimeResolver(runtime)
     service = DeploymentHealthService(repository, policy, runtime_resolver)
 
     result = await service.check(VERSION_ID, actor_id=ACTOR_ID)
 
-    assert result.status == "failed"
-    assert result.safe_error_code == "deployment_not_ready"
-    assert policy.calls == []
-    assert runtime_resolver.calls == []
-    assert runtime.calls == 0
+    assert result.status == "ready"
+    assert result.safe_error_code is None
+    assert result.observed_provider_model_id == "runtime/exact-model"
+    assert len(policy.calls) == len(runtime_resolver.calls) == runtime.calls == 1
     assert len(repository.health_checks) == 1
 
 

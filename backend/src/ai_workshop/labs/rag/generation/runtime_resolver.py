@@ -19,12 +19,38 @@ from ai_workshop.labs.rag.generation.execution import (
     GenerationProviderError,
     ResolvedGenerationRuntime,
 )
+from ai_workshop.labs.rag.generation.openai_compatible import (
+    LocalOpenAICompatibleRuntime,
+)
+from ai_workshop.labs.rag.generation.openai_responses import OpenAIResponsesRuntime
 from ai_workshop.labs.rag.policies.domain import PolicyDecision
 
 GenerationRuntimeFactory = Callable[
     [ModelDeploymentVersion, str, str | None],
     GenerationRuntimePort,
 ]
+
+
+def builtin_generation_runtime_factories() -> dict[
+    ProviderKind,
+    GenerationRuntimeFactory,
+]:
+    return {
+        ProviderKind.LOCAL_OPENAI_COMPATIBLE: (
+            lambda deployment, endpoint, secret: LocalOpenAICompatibleRuntime(
+                deployment=deployment,
+                endpoint=endpoint,
+                api_key=secret,
+            )
+        ),
+        ProviderKind.OPENAI_RESPONSES: (
+            lambda deployment, endpoint, secret: OpenAIResponsesRuntime(
+                deployment=deployment,
+                endpoint=endpoint,
+                api_key=secret or "",
+            )
+        ),
+    }
 
 
 class GenerationRuntimeResolver:

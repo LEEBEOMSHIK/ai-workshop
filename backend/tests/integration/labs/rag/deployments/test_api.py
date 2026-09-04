@@ -552,7 +552,9 @@ def test_postgresql_api_create_list_and_repository_paths(
         assert listed.json() == [created.json()]
         assert health.status_code == 200
         assert health.json()["status"] == "failed"
-        assert health.json()["safe_error_code"] == "deployment_not_ready"
+        assert health.json()["safe_error_code"] == (
+            "deployment_not_allowed_in_environment"
+        )
         deployment_id = UUID(created.json()["deployment_id"])
 
         async def verify_repository_paths() -> None:
@@ -593,7 +595,9 @@ def test_postgresql_api_create_list_and_repository_paths(
             assert connection.execute(
                 "SELECT status, safe_error_code "
                 "FROM rag_model_deployment_health_checks"
-            ).fetchall() == [("failed", "deployment_not_ready")]
+            ).fetchall() == [
+                ("failed", "deployment_not_allowed_in_environment")
+            ]
             assert connection.execute(
                 "SELECT namespace, reference_name FROM rag_secret_references"
             ).fetchall() == [("provider_secret", "openai-primary")]

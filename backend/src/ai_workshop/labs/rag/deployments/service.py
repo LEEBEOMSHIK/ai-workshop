@@ -31,11 +31,9 @@ from ai_workshop.labs.rag.generation.execution import (
     GenerationProviderError,
     ResolvedGenerationRuntime,
 )
-from ai_workshop.labs.rag.generation.openai_compatible import (
-    LocalOpenAICompatibleRuntime,
-)
 from ai_workshop.labs.rag.generation.runtime_resolver import (
     GenerationRuntimeResolver,
+    builtin_generation_runtime_factories,
 )
 from ai_workshop.labs.rag.models.domain import ModelDefinition, ModelKind
 from ai_workshop.labs.rag.policies.domain import PolicyDecision
@@ -129,10 +127,7 @@ class DeploymentHealthService:
         if deployment is None:
             raise AppError("not_found", "The requested resource was not found.", 404)
         started = monotonic()
-        if (
-            not deployment.healthcheck_enabled
-            or deployment.provider is ProviderKind.OPENAI_RESPONSES
-        ):
+        if not deployment.healthcheck_enabled:
             return await self._record_failure(
                 deployment,
                 actor_id=actor_id,
@@ -403,15 +398,7 @@ def get_deployment_health_service(
         environment=settings.environment,
         endpoint_refs=settings.provider_endpoint_refs,
         secret_refs=settings.provider_secret_refs,
-        factories={
-            ProviderKind.LOCAL_OPENAI_COMPATIBLE: (
-                lambda deployment, endpoint, secret: LocalOpenAICompatibleRuntime(
-                    deployment=deployment,
-                    endpoint=endpoint,
-                    api_key=secret,
-                )
-            )
-        },
+        factories=builtin_generation_runtime_factories(),
     )
     return DeploymentHealthService(
         repository,

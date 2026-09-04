@@ -2,15 +2,21 @@
 
 import Link from "next/link";
 import {
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
 import { createPortal } from "react-dom";
 
 import type { PublicLab } from "./catalog";
+import {
+  calculateDialogPlacement,
+  type DialogPlacement,
+} from "./dialog-position";
 import styles from "./PublicLabScene.module.css";
 
 interface AgentCharacterProps {
@@ -29,7 +35,9 @@ const focusableSelector = [
 
 export function AgentCharacter({ lab, variant }: AgentCharacterProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [placement, setPlacement] = useState<DialogPlacement | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
   const descriptionId = useId();
@@ -69,8 +77,6 @@ export function AgentCharacter({ lab, variant }: AgentCharacterProps) {
       return;
     }
 
-    closeRef.current?.focus();
-
     function handleEscape(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setIsOpen(false);
@@ -82,8 +88,70 @@ export function AgentCharacter({ lab, variant }: AgentCharacterProps) {
     return () => document.removeEventListener("keydown", handleEscape);
   }, [isOpen]);
 
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    let frameId: number | null = null;
+
+    document.body.style.overflow = "hidden";
+    closeRef.current?.focus();
+
+    function updatePlacement() {
+      if (frameId !== null) {
+        cancelAnimationFrame(frameId);
+      }
+
+      frameId = requestAnimationFrame(() => {
+        frameId = null;
+        const anchor = triggerRef.current?.getBoundingClientRect();
+        const dialog = dialogRef.current?.getBoundingClientRect();
+
+        if (!anchor || !dialog || dialog.width === 0 || dialog.height === 0) {
+          setPlacement(null);
+          return;
+        }
+
+        setPlacement(
+          calculateDialogPlacement(anchor, dialog, {
+            width: window.innerWidth,
+            height: window.innerHeight,
+          }),
+        );
+      });
+    }
+
+    updatePlacement();
+    window.addEventListener("resize", updatePlacement);
+    window.addEventListener("orientationchange", updatePlacement);
+    window.addEventListener("scroll", updatePlacement, true);
+
+    return () => {
+      if (frameId !== null) {
+        cancelAnimationFrame(frameId);
+      }
+      window.removeEventListener("resize", updatePlacement);
+      window.removeEventListener("orientationchange", updatePlacement);
+      window.removeEventListener("scroll", updatePlacement, true);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isOpen]);
+
+  const dialogStyle: CSSProperties & Record<`--dialog-${string}`, string> = placement
+    ? {
+        "--dialog-left": `${placement.left}px`,
+        "--dialog-top": `${placement.top}px`,
+        "--dialog-tail-offset": `${placement.tailOffset}px`,
+        left: "var(--dialog-left)",
+        position: "fixed",
+        top: "var(--dialog-top)",
+      }
+    : {};
+
   return (
-    <article className={`${styles.character} ${styles[variant]}`}>
+    <article className={styles.character}>
       <button
         ref={triggerRef}
         className={styles.characterButton}
@@ -91,23 +159,28 @@ export function AgentCharacter({ lab, variant }: AgentCharacterProps) {
         aria-label={`${lab.manager.name}에게 말 걸기`}
         aria-haspopup="dialog"
         aria-expanded={isOpen}
-        onClick={() => setIsOpen(true)}
+        onClick={() => {
+          setPlacement(null);
+          setIsOpen(true);
+        }}
       >
-        <span className={styles.avatar} aria-hidden="true">
-          <span className={styles.antenna} />
-          <span className={styles.head}>
-            <span className={styles.faceLight} />
-            <span className={styles.faceLight} />
+        <span className={styles[variant]} style={{ display: "grid", placeItems: "center" }}>
+          <span className={styles.avatar} aria-hidden="true">
+            <span className={styles.antenna} />
+            <span className={styles.head}>
+              <span className={styles.faceLight} />
+              <span className={styles.faceLight} />
+            </span>
+            <span className={styles.body}>
+              <span className={styles.statusLight} />
+            </span>
+            <span className={styles.tool} />
           </span>
-          <span className={styles.body}>
-            <span className={styles.statusLight} />
+          <span className={styles.identity}>
+            <span className={styles.role}>{lab.manager.role}</span>
+            <strong>{lab.manager.name}</strong>
+            <span>{lab.statusLabel}</span>
           </span>
-          <span className={styles.tool} />
-        </span>
-        <span className={styles.identity}>
-          <span className={styles.role}>{lab.manager.role}</span>
-          <strong>{lab.manager.name}</strong>
-          <span>{lab.statusLabel}</span>
         </span>
       </button>
 
@@ -115,12 +188,15 @@ export function AgentCharacter({ lab, variant }: AgentCharacterProps) {
         ? createPortal(
             <div className={styles.dialogLayer}>
               <div
+                ref={dialogRef}
                 className={styles.dialog}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby={titleId}
                 aria-describedby={descriptionId}
                 onKeyDown={trapDialogFocus}
+                data-placement={placement?.side}
+                style={dialogStyle}
               >
                 <button
                   ref={closeRef}

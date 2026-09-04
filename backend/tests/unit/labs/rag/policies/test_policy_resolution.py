@@ -9,6 +9,8 @@ from ai_workshop.labs.rag.policies.domain import (
     DataPolicyValidationError,
     InstallationDataPolicyVersion,
     OutboundMode,
+    PolicyDecision,
+    PolicyReasonCode,
     WorkspaceDataPolicyVersion,
     WorkspaceOutboundMode,
     resolve_external_transfer_policy,
@@ -77,7 +79,7 @@ def test_workspace_policy_cannot_widen_installation_policy() -> None:
         (
             installation_policy(mode=OutboundMode.DENY),
             (),
-            "installation_external_transfer_denied",
+            "provider_not_allowed",
         ),
         (
             installation_policy(
@@ -106,11 +108,11 @@ def test_workspace_policy_cannot_widen_installation_policy() -> None:
                     providers=frozenset({ProviderKind.LOCAL_OPENAI_COMPATIBLE}),
                 ),
             ),
-            "workspace_provider_not_allowed",
+            "workspace_external_transfer_denied",
         ),
     ],
 )
-def test_external_policy_denials_have_distinct_reason_codes(
+def test_external_policy_denials_use_approved_scope_reason_codes(
     installation: InstallationDataPolicyVersion,
     workspaces: tuple[WorkspaceDataPolicyVersion, ...],
     reason_code: str,
@@ -154,6 +156,29 @@ def test_local_provider_is_not_blocked_by_outbound_policy() -> None:
 
     assert decision.allowed is True
     assert decision.reason_code is None
+
+
+def test_policy_reason_codes_are_typed_and_string_compatible() -> None:
+    installation = installation_policy(mode=OutboundMode.DENY)
+
+    decision = resolve_external_transfer_policy(
+        provider=ProviderKind.OPENAI_RESPONSES,
+        installation=installation,
+        workspaces=(),
+    )
+
+    assert decision.reason_code is PolicyReasonCode.PROVIDER_NOT_ALLOWED
+    assert decision.reason_code == "provider_not_allowed"
+
+
+def test_policy_decision_rejects_an_arbitrary_reason_code() -> None:
+    with pytest.raises(DataPolicyValidationError, match="reason code"):
+        PolicyDecision(
+            allowed=False,
+            reason_code="arbitrary_public_code",
+            installation_policy_version_id=uuid4(),
+            workspace_policy_version_ids=(),
+        )
 
 
 @pytest.mark.parametrize(

@@ -18,6 +18,11 @@ class WorkspaceOutboundMode(StrEnum):
     APPROVED_PROVIDERS = "approved_providers"
 
 
+class PolicyReasonCode(StrEnum):
+    PROVIDER_NOT_ALLOWED = "provider_not_allowed"
+    WORKSPACE_EXTERNAL_TRANSFER_DENIED = "workspace_external_transfer_denied"
+
+
 class DataPolicyValidationError(ValueError):
     pass
 
@@ -118,9 +123,17 @@ class WorkspaceDataPolicyVersion:
 @dataclass(frozen=True, slots=True)
 class PolicyDecision:
     allowed: bool
-    reason_code: str | None
+    reason_code: PolicyReasonCode | None
     installation_policy_version_id: UUID
     workspace_policy_version_ids: tuple[UUID, ...]
+
+    def __post_init__(self) -> None:
+        if self.reason_code is not None and not isinstance(
+            self.reason_code, PolicyReasonCode
+        ):
+            raise DataPolicyValidationError(
+                "A policy decision requires an approved reason code."
+            )
 
 
 def resolve_external_transfer_policy(
@@ -138,18 +151,23 @@ def resolve_external_transfer_policy(
     if installation.mode is OutboundMode.DENY:
         return PolicyDecision(
             False,
-            "installation_external_transfer_denied",
+            PolicyReasonCode.PROVIDER_NOT_ALLOWED,
             installation.id,
             version_ids,
         )
     if provider not in installation.approved_providers:
-        return PolicyDecision(False, "provider_not_allowed", installation.id, version_ids)
+        return PolicyDecision(
+            False,
+            PolicyReasonCode.PROVIDER_NOT_ALLOWED,
+            installation.id,
+            version_ids,
+        )
 
     for policy in workspace_policies:
         if policy.mode is WorkspaceOutboundMode.DENY:
             return PolicyDecision(
                 False,
-                "workspace_external_transfer_denied",
+                PolicyReasonCode.WORKSPACE_EXTERNAL_TRANSFER_DENIED,
                 installation.id,
                 version_ids,
             )
@@ -159,7 +177,7 @@ def resolve_external_transfer_policy(
         ):
             return PolicyDecision(
                 False,
-                "workspace_provider_not_allowed",
+                PolicyReasonCode.WORKSPACE_EXTERNAL_TRANSFER_DENIED,
                 installation.id,
                 version_ids,
             )

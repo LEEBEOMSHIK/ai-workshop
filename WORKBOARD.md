@@ -1,16 +1,29 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-04
-- 현재 단계: 공개 RAG 담당 에이전트 작업실 구현 완료
-- 전체 상태: `/`의 RAG 총괄 직접 진입과 `/labs/rag`의 총괄·여섯 기술 담당자 작업 장면을 구현하고 자동·실제 브라우저·독립 검토를 완료했다.
+- 현재 단계: 실제 RAG 기준선 smoke 완료 후 발견 문제 정리
+- 전체 상태: 합성 문서로 Asset 검증·E5 색인·BM25 검색·근거·정확 하이라이트·원문 추적을 검증했다. Hybrid·의미 하이라이트·LLM 답변과 발견된 UX·문서 버전·캐시 문제는 후속 구현이 필요하다.
 
 ## 현재 작업
 
 ### 목표
 
-공개 입구의 RAG 총괄이 `/labs/rag`로 직접 안내하고, RAG 연구실에서 현재 구현된 여섯 기술 담당 에이전트가 각 작업과 인계 흐름을 설명하도록 구현한다.
+기존 owner 세션으로 `/workshop/rag/search`와 `/admin/rag/configurations`의 실제 데이터 화면을 검증한다.
 
 ### 진행 상태
+
+- 2026-09-04 실제 데이터 smoke에서 합성 Markdown Asset과 RAG Projection이 `ready`, 활성 Build가 4/4 chunk·768차원으로 생성됐다. 질의의 정답 근거 `순자산의 7%`와 정확 키워드 하이라이트, 불변 원문 위치 추적을 실제 Chrome에서 확인했다.
+- 최초 Projection은 빈 고정 모델 캐시 때문에 `chunk_tokenizer_unavailable`로 실패했다. 고정 E5 revision을 호스트 캐시에 준비한 뒤 `local_files_only` 토크나이저·임베딩을 검증하고 새 정상 업로드 흐름으로 복구했다.
+- 현재 BM25 기준선은 LLM과 dense retrieval이 꺼져 있어 LLM 답변·의미 하이라이트는 검증하지 못했다. 검색 결과 UUID 노출, 동일 파일 재업로드 시 별도 `버전 1` 문서 생성, 빈 색인 사전 안내 부족과 Windows 전체 snapshot 캐시 5.32GB를 후속 문제로 기록했다.
+- 상세 증거와 선별 실패 기록은 `docs/worklogs/2026-09-04-owner-rag-live-smoke.md`를 따른다.
+
+- 2026-09-04 사용자가 로컬 전사 지식 공간에 비민감 합성 자산운용 문서 1건을 업로드해 실제 검색 결과까지 검증하는 범위를 승인했다. 실제 회사·고객·개인정보는 사용하지 않으며 검증용 고유 문장과 수치만 포함한다.
+
+- 2026-09-04 비로그인 상태에서 `/workshop/rag/search`가 `/login?next=%2Fworkshop%2Frag%2Fsearch`로, `/admin/rag/configurations`가 `/login?next=%2Fadmin%2Frag%2Fconfigurations`로 이동해 원래 목적지를 보존하는 것을 실제 Chrome에서 확인했다.
+- owner 로그인 후 `/admin/rag/configurations`에 저장 구성 1개, 색인 패키지 2개와 개인·전사 지식 공간 2개가 실제 데이터로 렌더됐다. 기본 화면에는 UUID가 노출되지 않았다.
+- `/workshop/rag/search`에도 두 지식 공간과 `BM25 기준선 v1 · 실험` 구성이 로드됐고, 평가 전 구성 사용 동의 없이는 검색 버튼이 비활성화되는 안전장치가 동작했다.
+- 전사·개인 문서 라이브러리는 모두 0개이며 선택된 indexing profile의 index build도 0개다. 일반 질의 실행은 이 일관된 초기 상태에서 409를 반환했다.
+- 빈 문서·색인 상태를 제출 전에 설명하지 않고 실행 후 포괄적인 구성 오류만 표시하는 UX 문제를 후속 개선 후보로 기록한다.
 
 - 2026-09-04 사용자가 RAG 총괄 직접 진입과 RAG 연구실 내부 담당 에이전트 작업 장면 설계를 승인했다.
 - 작업 등급은 공개 사용자 흐름·콘텐츠 registry·접근성 상호작용을 바꾸는 중간 위험 프론트 변경이다.
@@ -166,28 +179,29 @@
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. 공개 RAG 작업실에 총괄과 여섯 기술 담당자, 역할별 dialog와 연결 흐름을 구현했다. frontend 168개 테스트·정적 검사·빌드, desktop/tablet/mobile 실제 브라우저와 독립 재검토가 통과했다 (`docs/worklogs/2026-09-04-rag-lab-agent-workroom-verification.md`).
-2. 공개 `/`의 연구소 입구와 `/labs`의 작업 현장을 분리했다. 전체 frontend 145개 테스트, 8개 브라우저 조건과 독립 재리뷰가 통과했다 (`docs/worklogs/2026-09-04-public-lab-route-separation-verification.md`).
-3. 전체 화면 AI 연구소 월드를 구현했다. 6개 화면·200% 확대·동작 감소 브라우저 검증, frontend 142개 테스트·정적 검사·빌드와 독립 리뷰가 통과했다 (`docs/worklogs/2026-09-04-full-screen-ai-lab-world-verification.md`).
-4. 전체 화면 AI 연구소 월드 설계와 ADR 초안을 작성하고 6개 검토 지적을 보완해 독립 검토 `Ready`를 받았다.
-5. 공개 캐릭터 dialog를 body portal로 분리하고 모바일 안전 영역을 추가했으며, 누락된 workshop 오류 경계·개인정보 fixture·WORKBOARD 계약 모순을 전체 계획 리뷰에서 수정했다. 프론트 122개·backend unit 423개·정적 검사·빌드와 desktop/mobile 실제 브라우저를 검증했다.
+1. 비민감 합성 문서로 Asset 검증·E5 색인·BM25 검색·근거·정확 하이라이트·원문 추적을 실제 owner Chrome에서 검증했다. 최초 고정 모델 캐시 실패와 복구, 남은 Hybrid·LLM·UX·버전·캐시 문제를 공식 기록했다 (`docs/worklogs/2026-09-04-owner-rag-live-smoke.md`).
+2. 공개 RAG 작업실에 총괄과 여섯 기술 담당자, 역할별 dialog와 연결 흐름을 구현했다. frontend 168개 테스트·정적 검사·빌드, desktop/tablet/mobile 실제 브라우저와 독립 재검토가 통과했다 (`docs/worklogs/2026-09-04-rag-lab-agent-workroom-verification.md`).
+3. 공개 `/`의 연구소 입구와 `/labs`의 작업 현장을 분리했다. 전체 frontend 145개 테스트, 8개 브라우저 조건과 독립 재리뷰가 통과했다 (`docs/worklogs/2026-09-04-public-lab-route-separation-verification.md`).
+4. 전체 화면 AI 연구소 월드를 구현했다. 6개 화면·200% 확대·동작 감소 브라우저 검증, frontend 142개 테스트·정적 검사·빌드와 독립 리뷰가 통과했다 (`docs/worklogs/2026-09-04-full-screen-ai-lab-world-verification.md`).
+5. 전체 화면 AI 연구소 월드 설계와 ADR 초안을 작성하고 6개 검토 지적을 보완해 독립 검토 `Ready`를 받았다.
 
 ## 다음 작업
 
-1. 기존 owner 세션으로 `/workshop/rag/search`와 `/admin/rag/configurations`의 실제 데이터 화면 smoke를 수행하거나 미검증 위험을 명시적으로 수용
-2. 2단계 `다중 도메인과 공개 릴리스 기반` 상세 설계
-3. 승인된 2단계 설계에 따라 공개 RAG 대화형 검색과 불변 공개 릴리스 구현 범위를 계획
+1. 실제 smoke에서 발견한 사용자 화면 UUID 노출, 동일 파일 버전 업로드 UI와 빈 색인 사전 안내 문제를 테스트 우선으로 수정
+2. Hybrid 검색·의미 하이라이트·LLM 답변을 검증할 저장 구성과 로컬 모델 런타임 계약을 설계·구현
+3. Windows 호스트 모델 캐시의 최소 snapshot 초기화와 5.32GB 기존 캐시 정리안을 `CACHE_POLICY.md` 절차로 조사·승인·재검증
+4. 2단계 `다중 도메인과 공개 릴리스 기반` 상세 설계
 
 ## 결정이 필요한 항목
 
-- owner 인증 smoke를 위해 사용자가 현재 로그인 화면에서 기존 계정으로 로그인할지, 자동 검증 없이 남은 위험을 수용할지 결정해야 한다. 비밀번호를 문서·명령·대화에 전달하지 않는다.
+- Windows 호스트 E5 캐시에서 런타임에 불필요한 모델 형식만 선별 제거할 수 있도록 정확한 파일 의존성과 회수 가능 용량을 조사한 뒤 사용자 승인을 받아야 한다.
 
 ## 차단 요소
 
 - `backend/.pytest-nextjs-final-contract`는 untracked지만 Windows 관리자 ACL 때문에 현재 비관리자 환경에서 삭제할 수 없다.
 - `backend/.pytest-tmp`는 Git ignored 경로이며 같은 ACL 문제로 내부 확인과 삭제가 거부된다. 2026-09-03 기본 unit 실행도 이 경로 정리 단계에서 실패했고 fresh `%TEMP%` basetemp로 우회 검증했다. 두 경로 모두 애플리케이션 소스와 실행 데이터에는 영향을 주지 않으며, 대화형 Windows 관리자 세션에서 소유권과 내용을 확인한 뒤 정확 경로만 삭제해야 한다.
 - 이번 backend unit 검증에서 만든 `.local-data/pytest-unit-current`도 정확 경로 삭제를 시도했으나 접근이 거부됐다. 애플리케이션 데이터에는 포함되지 않는 테스트 임시물이며 관리자 세션에서 해당 경로만 제거해야 한다.
-- 현재 브라우저에는 owner 세션이 없고 비밀번호를 조회·재설정하지 않았으므로 `/workshop/rag/search`와 `/admin/rag/configurations`의 인증 후 실제 데이터 렌더링 smoke가 남아 있다.
+- 실제 BM25 기준선 검색은 더 이상 차단되지 않는다. Hybrid·LLM 검증은 해당 검색·생성 프로파일과 로컬 생성 모델 런타임이 아직 준비되지 않아 완료할 수 없다.
 
 ## 작업 인계 메모
 

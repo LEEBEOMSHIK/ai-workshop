@@ -42,6 +42,11 @@ class RagConfigurationRepository(Protocol):
 
     async def list_visible(self, actor_id: UUID) -> list[SavedRagConfiguration]: ...
 
+    async def ready_indexing_profile_ids(
+        self,
+        indexing_profile_ids: tuple[UUID, ...],
+    ) -> frozenset[UUID]: ...
+
     async def find_visible(
         self,
         configuration_id: UUID,
@@ -193,6 +198,17 @@ class RagConfigurationService:
 
     async def list(self, actor_id: UUID) -> list[SavedRagConfiguration]:
         return await self.repository.list_visible(actor_id)
+
+    async def search_readiness(
+        self,
+        configurations: tuple[SavedRagConfiguration, ...],
+    ) -> dict[UUID, bool]:
+        profile_ids = tuple(dict.fromkeys(item.indexing_profile_id for item in configurations))
+        ready_profile_ids = await self.repository.ready_indexing_profile_ids(profile_ids)
+        return {
+            item.version_id: item.indexing_profile_id in ready_profile_ids
+            for item in configurations
+        }
 
     async def detail(
         self,

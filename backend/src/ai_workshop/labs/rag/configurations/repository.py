@@ -275,6 +275,35 @@ class SqlAlchemyRagConfigurationRepository:
         )
         return [await self._latest(record) for record in records]
 
+    async def ready_indexing_profile_ids(
+        self,
+        indexing_profile_ids: tuple[UUID, ...],
+    ) -> frozenset[UUID]:
+        if not indexing_profile_ids:
+            return frozenset()
+        rows = (
+            await self.session.execute(
+                select(
+                    RagIndexBuildRecord.indexing_profile_id,
+                    RagIndexBuildRecord.vector_dimension,
+                )
+                .where(
+                    RagIndexBuildRecord.indexing_profile_id.in_(indexing_profile_ids),
+                    RagIndexBuildRecord.status == "ready",
+                    RagIndexBuildRecord.is_active.is_(True),
+                )
+                .order_by(RagIndexBuildRecord.indexing_profile_id, RagIndexBuildRecord.id)
+            )
+        ).all()
+        dimensions_by_profile: dict[UUID, set[int | None]] = {}
+        for profile_id, dimension in rows:
+            dimensions_by_profile.setdefault(profile_id, set()).add(dimension)
+        return frozenset(
+            profile_id
+            for profile_id, dimensions in dimensions_by_profile.items()
+            if None not in dimensions and len(dimensions) == 1
+        )
+
     async def find_visible(
         self,
         configuration_id: UUID,

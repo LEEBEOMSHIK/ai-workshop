@@ -446,6 +446,7 @@ function savedConfiguration(overrides: Partial<SavedConfiguration> = {}): SavedC
     is_system: false,
     is_default: false,
     experimental: true,
+    search_ready: true,
     ...overrides,
   };
 }

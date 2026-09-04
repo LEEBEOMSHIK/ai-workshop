@@ -1259,6 +1259,8 @@ export interface components {
              * Format: uuid
              */
             retrieval_profile_id: string;
+            /** Search Ready */
+            search_ready: boolean;
             /** Version */
             version: number;
             /**

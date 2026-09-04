@@ -1,7 +1,7 @@
 from typing import Protocol
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_workshop.platform.assets.domain import AssetVersion, Document, Folder
@@ -12,6 +12,7 @@ from ai_workshop.platform.workspaces.repository import workspace_is_active
 
 class AssetRepository(Protocol):
     async def has_workspace_access(self, user_id: UUID, workspace_id: UUID) -> bool: ...
+    async def workspace_contains_sha256(self, workspace_id: UUID, sha256: str) -> bool: ...
     async def save(self, document: Document) -> Document: ...
     async def list_documents(self, user_id: UUID, workspace_id: UUID) -> list[Document]: ...
     async def list_folders(self, user_id: UUID, workspace_id: UUID) -> list[Folder]: ...
@@ -40,6 +41,22 @@ class SqlAlchemyAssetRepository:
                 WorkspaceMembershipRecord.user_id == user_id,
                 WorkspaceMembershipRecord.workspace_id == workspace_id,
                 workspace_is_active(),
+            )
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
+    async def workspace_contains_sha256(self, workspace_id: UUID, sha256: str) -> bool:
+        lock_scope = f"asset-content:{workspace_id}:{sha256}"
+        await self.session.execute(
+            select(func.pg_advisory_xact_lock(func.hashtextextended(lock_scope, 0)))
+        )
+        result = await self.session.execute(
+            select(AssetVersionRecord.id)
+            .join(DocumentRecord, DocumentRecord.id == AssetVersionRecord.document_id)
+            .where(
+                DocumentRecord.workspace_id == workspace_id,
+                AssetVersionRecord.sha256 == sha256,
             )
             .limit(1)
         )

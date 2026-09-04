@@ -61,13 +61,19 @@ class AssetService:
                 yield chunk
 
         stored = await self.object_store.put(object_key, bounded_content())
-        document.new_version(
-            object_key=stored.key,
-            sha256=stored.sha256,
-            media_type=media_type or "application/octet-stream",
-            size=stored.size,
-        )
         try:
+            if await self.repository.workspace_contains_sha256(workspace_id, stored.sha256):
+                raise AppError(
+                    "duplicate_document_content",
+                    "A document with the same content already exists in this workspace.",
+                    409,
+                )
+            document.new_version(
+                object_key=stored.key,
+                sha256=stored.sha256,
+                media_type=media_type or "application/octet-stream",
+                size=stored.size,
+            )
             return await self.repository.save(document)
         except Exception:
             await self.object_store.delete(stored.key)
@@ -134,13 +140,22 @@ class AssetService:
                 yield chunk
 
         stored = await self.object_store.put(object_key, bounded_content())
-        version = document.new_version(
-            object_key=stored.key,
-            sha256=stored.sha256,
-            media_type=media_type or "application/octet-stream",
-            size=stored.size,
-        )
         try:
+            if await self.repository.workspace_contains_sha256(
+                document.workspace_id,
+                stored.sha256,
+            ):
+                raise AppError(
+                    "duplicate_document_content",
+                    "A document with the same content already exists in this workspace.",
+                    409,
+                )
+            version = document.new_version(
+                object_key=stored.key,
+                sha256=stored.sha256,
+                media_type=media_type or "application/octet-stream",
+                size=stored.size,
+            )
             return await self.repository.save_version(document, version)
         except Exception:
             await self.object_store.delete(stored.key)

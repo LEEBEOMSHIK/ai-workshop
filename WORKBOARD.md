@@ -1,16 +1,21 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-04
-- 현재 단계: 실제 RAG 기준선 smoke 완료 후 발견 문제 정리
-- 전체 상태: 합성 문서로 Asset 검증·E5 색인·BM25 검색·근거·정확 하이라이트·원문 추적을 검증했다. Hybrid·의미 하이라이트·LLM 답변과 발견된 UX·문서 버전·캐시 문제는 후속 구현이 필요하다.
+- 현재 단계: 실제 RAG 기준선 smoke 후속 UX·문서 중복/버전 계약 완료
+- 전체 상태: 사용자 화면 UUID 숨김, 검색 색인 준비 상태 사전 안내, 명시적 문서 새 버전 업로드와 같은 지식공간 내 SHA-256 완전 중복 차단을 구현·검증했다.
 
 ## 현재 작업
 
 ### 목표
 
-기존 owner 세션으로 `/workshop/rag/search`와 `/admin/rag/configurations`의 실제 데이터 화면을 검증한다.
+Hybrid 검색·의미 하이라이트·LLM 답변을 검증할 저장 구성과 로컬 모델 런타임 계약을 설계·구현한다.
 
 ### 진행 상태
+
+- 2026-09-04 중복 판정은 같은 지식공간 안에서 원본 바이트 SHA-256이 완전히 같은 신규 문서만 차단한다. 같은 파일명의 다른 내용은 허용하고, 기존 문서 계보에는 사용자가 해당 문서의 `새 버전 올리기`를 선택한 경우에만 추가하기로 확정했다.
+- 파싱 후 정규화 본문 해시는 원본 중복 판정과 목적·시점이 다르므로 이번 동기 업로드 계약에 섞지 않고 후속 ingestion 설계로 분리한다.
+- SHA-256 완전 중복은 신규 문서와 새 버전 모두 같은 지식 공간 범위에서 차단한다. 파일명 unique 제약은 제거하고 같은 이름·다른 내용은 허용했다.
+- 문서 행의 명시적 새 버전 업로드, 저장 구성 `search_ready`, 준비 전 제출 차단과 결과 설명의 UUID 제거를 구현했다. 상세 결과는 `docs/worklogs/2026-09-04-rag-upload-identity-and-search-readiness.md`를 따른다.
 
 - 2026-09-04 실제 데이터 smoke에서 합성 Markdown Asset과 RAG Projection이 `ready`, 활성 Build가 4/4 chunk·768차원으로 생성됐다. 질의의 정답 근거 `순자산의 7%`와 정확 키워드 하이라이트, 불변 원문 위치 추적을 실제 Chrome에서 확인했다.
 - 최초 Projection은 빈 고정 모델 캐시 때문에 `chunk_tokenizer_unavailable`로 실패했다. 고정 E5 revision을 호스트 캐시에 준비한 뒤 `local_files_only` 토크나이저·임베딩을 검증하고 새 정상 업로드 흐름으로 복구했다.
@@ -169,28 +174,27 @@
 
 ### 완료 기준
 
-- `/`의 전체 보기 링크는 `/labs`, RAG 총괄 CTA는 `/labs/rag`로 직접 연결된다.
-- `/labs/rag`는 총괄과 현재 구현된 여섯 기술 담당자를 파이프라인 순서로 표시한다.
-- 각 담당자 dialog는 현재 작업, 입력·결과와 다음 인계를 설명하고 focus·Escape·viewport 접근성 계약을 지킨다.
-- desktop·tablet·mobile 배치와 무-overflow를 실제 브라우저에서 검증했다.
-- 설계·ADR·검증 기록이 코드와 일치하고 독립 리뷰 `Ready: Yes`를 받았다.
+- 파일명이 아닌 원본 SHA-256으로 같은 지식 공간의 완전 중복을 판정한다.
+- 같은 이름·다른 내용과 다른 지식 공간의 같은 내용은 허용한다.
+- 기존 문서의 새 버전은 해당 문서 행에서만 명시적으로 올린다.
+- 준비되지 않은 검색 구성은 요청 전에 안내하고 제출을 막는다.
+- 일반 검색 결과 설명에 내부 구성·범위 UUID를 표시하지 않는다.
 
 ## 최근 완료 작업
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. 비민감 합성 문서로 Asset 검증·E5 색인·BM25 검색·근거·정확 하이라이트·원문 추적을 실제 owner Chrome에서 검증했다. 최초 고정 모델 캐시 실패와 복구, 남은 Hybrid·LLM·UX·버전·캐시 문제를 공식 기록했다 (`docs/worklogs/2026-09-04-owner-rag-live-smoke.md`).
-2. 공개 RAG 작업실에 총괄과 여섯 기술 담당자, 역할별 dialog와 연결 흐름을 구현했다. frontend 168개 테스트·정적 검사·빌드, desktop/tablet/mobile 실제 브라우저와 독립 재검토가 통과했다 (`docs/worklogs/2026-09-04-rag-lab-agent-workroom-verification.md`).
-3. 공개 `/`의 연구소 입구와 `/labs`의 작업 현장을 분리했다. 전체 frontend 145개 테스트, 8개 브라우저 조건과 독립 재리뷰가 통과했다 (`docs/worklogs/2026-09-04-public-lab-route-separation-verification.md`).
-4. 전체 화면 AI 연구소 월드를 구현했다. 6개 화면·200% 확대·동작 감소 브라우저 검증, frontend 142개 테스트·정적 검사·빌드와 독립 리뷰가 통과했다 (`docs/worklogs/2026-09-04-full-screen-ai-lab-world-verification.md`).
-5. 전체 화면 AI 연구소 월드 설계와 ADR 초안을 작성하고 6개 검토 지적을 보완해 독립 검토 `Ready`를 받았다.
+1. 파일명과 분리된 지식 공간 범위 SHA-256 중복 판정, 명시적 새 버전 업로드, 검색 준비 상태 안내와 결과 UUID 비노출을 구현·검증했다 (`docs/worklogs/2026-09-04-rag-upload-identity-and-search-readiness.md`).
+2. 비민감 합성 문서로 Asset 검증·E5 색인·BM25 검색·근거·정확 하이라이트·원문 추적을 실제 owner Chrome에서 검증했다. 최초 고정 모델 캐시 실패와 복구, 남은 Hybrid·LLM·UX·버전·캐시 문제를 공식 기록했다 (`docs/worklogs/2026-09-04-owner-rag-live-smoke.md`).
+3. 공개 RAG 작업실에 총괄과 여섯 기술 담당자, 역할별 dialog와 연결 흐름을 구현했다. frontend 168개 테스트·정적 검사·빌드, desktop/tablet/mobile 실제 브라우저와 독립 재검토가 통과했다 (`docs/worklogs/2026-09-04-rag-lab-agent-workroom-verification.md`).
+4. 공개 `/`의 연구소 입구와 `/labs`의 작업 현장을 분리했다. 전체 frontend 145개 테스트, 8개 브라우저 조건과 독립 재리뷰가 통과했다 (`docs/worklogs/2026-09-04-public-lab-route-separation-verification.md`).
+5. 전체 화면 AI 연구소 월드를 구현했다. 6개 화면·200% 확대·동작 감소 브라우저 검증, frontend 142개 테스트·정적 검사·빌드와 독립 리뷰가 통과했다 (`docs/worklogs/2026-09-04-full-screen-ai-lab-world-verification.md`).
 
 ## 다음 작업
 
-1. 실제 smoke에서 발견한 사용자 화면 UUID 노출, 동일 파일 버전 업로드 UI와 빈 색인 사전 안내 문제를 테스트 우선으로 수정
-2. Hybrid 검색·의미 하이라이트·LLM 답변을 검증할 저장 구성과 로컬 모델 런타임 계약을 설계·구현
-3. Windows 호스트 모델 캐시의 최소 snapshot 초기화와 5.32GB 기존 캐시 정리안을 `CACHE_POLICY.md` 절차로 조사·승인·재검증
-4. 2단계 `다중 도메인과 공개 릴리스 기반` 상세 설계
+1. Hybrid 검색·의미 하이라이트·LLM 답변을 검증할 저장 구성과 로컬 모델 런타임 계약을 설계·구현
+2. Windows 호스트 모델 캐시의 최소 snapshot 초기화와 5.32GB 기존 캐시 정리안을 `CACHE_POLICY.md` 절차로 조사·승인·재검증
+3. 2단계 `다중 도메인과 공개 릴리스 기반` 상세 설계
 
 ## 결정이 필요한 항목
 

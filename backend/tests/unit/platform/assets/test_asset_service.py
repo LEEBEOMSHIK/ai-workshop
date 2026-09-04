@@ -26,6 +26,13 @@ class MemoryAssetRepository(AssetRepository):
         self.saved = document
         return document
 
+    async def workspace_contains_sha256(self, workspace_id: UUID, sha256: str) -> bool:
+        return bool(
+            self.saved
+            and self.saved.workspace_id == workspace_id
+            and any(version.sha256 == sha256 for version in self.saved.versions)
+        )
+
     async def find_document_for_user(self, user_id: UUID, document_id: UUID) -> Document | None:
         if self.allowed and self.saved and self.saved.id == document_id:
             return self.saved
@@ -93,6 +100,10 @@ async def content() -> AsyncIterator[bytes]:
     yield b"quarterly report"
 
 
+async def changed_content() -> AsyncIterator[bytes]:
+    yield b"changed quarterly report"
+
+
 @pytest.mark.asyncio
 async def test_upload_stores_allowed_document_and_creates_version(tmp_path) -> None:
     repository = MemoryAssetRepository()
@@ -137,6 +148,91 @@ async def test_upload_hides_workspace_without_membership(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_upload_rejects_exact_content_duplicate_in_same_workspace(tmp_path) -> None:
+    repository = MemoryAssetRepository()
+    service = AssetService(repository, LocalObjectStore(tmp_path), max_upload_bytes=1024)
+    user = owner()
+    workspace_id = uuid4()
+    await service.upload(
+        user=user,
+        workspace_id=workspace_id,
+        folder_id=None,
+        filename="quarterly-report.pdf",
+        media_type="application/pdf",
+        content=content(),
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        await service.upload(
+            user=user,
+            workspace_id=workspace_id,
+            folder_id=None,
+            filename="renamed-copy.pdf",
+            media_type="application/pdf",
+            content=content(),
+        )
+
+    assert exc_info.value.code == "duplicate_document_content"
+    assert exc_info.value.status_code == 409
+    assert len(list(tmp_path.rglob("*.pdf"))) == 1
+
+
+@pytest.mark.asyncio
+async def test_upload_allows_same_filename_when_content_differs(tmp_path) -> None:
+    repository = MemoryAssetRepository()
+    service = AssetService(repository, LocalObjectStore(tmp_path), max_upload_bytes=1024)
+    user = owner()
+    workspace_id = uuid4()
+    first = await service.upload(
+        user=user,
+        workspace_id=workspace_id,
+        folder_id=None,
+        filename="quarterly-report.pdf",
+        media_type="application/pdf",
+        content=content(),
+    )
+
+    second = await service.upload(
+        user=user,
+        workspace_id=workspace_id,
+        folder_id=None,
+        filename="quarterly-report.pdf",
+        media_type="application/pdf",
+        content=changed_content(),
+    )
+
+    assert first.id != second.id
+    assert first.versions[0].sha256 != second.versions[0].sha256
+
+
+@pytest.mark.asyncio
+async def test_upload_allows_exact_content_in_a_different_workspace(tmp_path) -> None:
+    repository = MemoryAssetRepository()
+    service = AssetService(repository, LocalObjectStore(tmp_path), max_upload_bytes=1024)
+    user = owner()
+    first = await service.upload(
+        user=user,
+        workspace_id=uuid4(),
+        folder_id=None,
+        filename="quarterly-report.pdf",
+        media_type="application/pdf",
+        content=content(),
+    )
+
+    second = await service.upload(
+        user=user,
+        workspace_id=uuid4(),
+        folder_id=None,
+        filename="quarterly-report.pdf",
+        media_type="application/pdf",
+        content=content(),
+    )
+
+    assert first.workspace_id != second.workspace_id
+    assert first.versions[0].sha256 == second.versions[0].sha256
+
+
+@pytest.mark.asyncio
 async def test_upload_version_increments_existing_document(tmp_path) -> None:
     repository = MemoryAssetRepository()
     service = AssetService(repository, LocalObjectStore(tmp_path), max_upload_bytes=1024)
@@ -155,10 +251,38 @@ async def test_upload_version_increments_existing_document(tmp_path) -> None:
         document_id=document.id,
         filename="quarterly-report.pdf",
         media_type="application/pdf",
-        content=content(),
+        content=changed_content(),
     )
 
     assert [version.number for version in updated.versions] == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_upload_version_rejects_unchanged_exact_content(tmp_path) -> None:
+    repository = MemoryAssetRepository()
+    service = AssetService(repository, LocalObjectStore(tmp_path), max_upload_bytes=1024)
+    user = owner()
+    document = await service.upload(
+        user=user,
+        workspace_id=uuid4(),
+        folder_id=None,
+        filename="quarterly-report.pdf",
+        media_type="application/pdf",
+        content=content(),
+    )
+
+    with pytest.raises(AppError) as exc_info:
+        await service.upload_version(
+            user=user,
+            document_id=document.id,
+            filename="quarterly-report.pdf",
+            media_type="application/pdf",
+            content=content(),
+        )
+
+    assert exc_info.value.code == "duplicate_document_content"
+    assert [version.number for version in document.versions] == [1]
+    assert len(list(tmp_path.rglob("*.pdf"))) == 1
 
 
 @pytest.mark.asyncio

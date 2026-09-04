@@ -91,6 +91,11 @@ PENDING -> PARSING -> CHUNKING -> EMBEDDING -> INDEXING -> READY
 RAG Projection `READY`는 Platform Asset `READY`와 별개다. 필요한 파싱과 색인이 모두
 완성되고 개수, provenance와 alias를 검증한 뒤에만 검색 projection을 활성화한다. 이전
 projection은 감사와 실험 재현을 위해 보존 정책에 따라 유지한다.
+
+원본 SHA-256은 업로드 직후의 정확한 바이트 동일성 판정과 무결성 검증에 사용한다. 파싱 후
+공백·개행·메타데이터 등을 정규화한 본문 해시는 형식이 달라도 같은 의미 본문인지 분석하기
+위한 별도 ingestion 산출물이며, 원본 중복 차단이나 동기 업로드 성공 조건으로 대신 사용하지
+않는다.
 RAG ingestion worker도 late ack와 worker-loss rejection을 사용한다. redelivery는 같은
 영속 job을 재개하며 broker 전달 실패에는 allowlist된 예외 class만 저장하고 예외 본문,
 URL 또는 credential을 남기지 않는다.
@@ -228,6 +233,12 @@ LLM 변경은 검색 색인을 다시 만들지 않는다. 검색 실험과 생�
 ## 9. 일반 검색과 실험 검색
 
 일반 검색은 평가를 통과해 승인된 기본 RAG 구성을 사용한다. 실험 검색은 소유자가 저장한 RAG 구성을 선택해 동일한 질의와 문서 스냅샷에서 비교한다.
+
+저장 구성 조회는 호환되는 활성 `READY` 색인 빌드가 있는지를 `search_ready`로 함께 제공한다.
+활성 빌드가 없거나 벡터 차원이 비어 있거나 서로 다르면 준비되지 않은 것으로 처리하고,
+사용자 화면은 검색 요청 전에 상태와 문서 처리 확인 방법을 안내하며 제출을 막는다. 구성,
+구성 버전, 지식 공간과 폴더 UUID는 API·감사·원문 링크 내부 식별자로 유지하되 일반 사용자
+화면의 설명 텍스트에는 직접 노출하지 않는다.
 
 실험에는 다음을 기록한다.
 

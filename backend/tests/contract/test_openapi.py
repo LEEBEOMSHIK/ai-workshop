@@ -184,6 +184,7 @@ def test_saved_rag_configuration_contract_is_versioned_and_experimental() -> Non
         "evaluation_state",
         "is_default",
         "experimental",
+        "search_ready",
     } <= set(response["required"])
     assert "experimental" in components["SearchResponse"]["required"]
 

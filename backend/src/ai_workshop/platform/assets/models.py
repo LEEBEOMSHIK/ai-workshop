@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import BigInteger, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import BigInteger, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ai_workshop.platform.assets.domain import VersionStatus
@@ -18,7 +18,7 @@ class FolderRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 class DocumentRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "documents"
-    __table_args__ = (UniqueConstraint("workspace_id", "folder_id", "name"),)
+    __table_args__ = (Index("ix_documents_workspace_id", "workspace_id"),)
 
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"))
     folder_id: Mapped[UUID | None] = mapped_column(ForeignKey("folders.id", ondelete="SET NULL"))
@@ -28,7 +28,10 @@ class DocumentRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 class AssetVersionRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "asset_versions"
-    __table_args__ = (UniqueConstraint("document_id", "number"),)
+    __table_args__ = (
+        UniqueConstraint("document_id", "number"),
+        Index("ix_asset_versions_sha256", "sha256"),
+    )
 
     document_id: Mapped[UUID] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"))
     number: Mapped[int] = mapped_column(Integer, nullable=False)

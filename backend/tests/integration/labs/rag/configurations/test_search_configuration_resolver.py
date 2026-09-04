@@ -268,6 +268,8 @@ async def test_postgres_versions_visibility_jobs_subscriptions_and_exact_resolve
             own_visible = next(item for item in visible if item.id == first.configuration.id)
             assert own_visible.version == 2
             assert own_visible.is_default is False
+            readiness_before_build = await service.search_readiness(tuple(visible))
+            assert readiness_before_build[own_visible.version_id] is False
 
             subscriptions = await repository.subscriptions_for_asset(asset_version_id)
             assert subscriptions == (
@@ -452,6 +454,9 @@ async def test_postgres_versions_visibility_jobs_subscriptions_and_exact_resolve
             session.add(second_active_build)
             await session.flush()
 
+            readiness_after_build = await service.search_readiness((own_visible,))
+            assert readiness_after_build[own_visible.version_id] is True
+
             resolver = SqlAlchemySearchConfigurationResolver(session, settings)
             resolved = await resolver.resolve(first.configuration.id, owner_id)
             exact_first = await resolver.resolve_version(
@@ -478,6 +483,8 @@ async def test_postgres_versions_visibility_jobs_subscriptions_and_exact_resolve
 
             second_active_build.vector_dimension = 1024
             await session.flush()
+            readiness_with_mismatched_dimensions = await service.search_readiness((own_visible,))
+            assert readiness_with_mismatched_dimensions[own_visible.version_id] is False
             with pytest.raises(AppError) as incompatible_active_builds:
                 await resolver.resolve(first.configuration.id, owner_id)
             assert incompatible_active_builds.value.status_code == 409

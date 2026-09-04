@@ -85,6 +85,7 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
     (configuration) => configuration.id === configurationId,
   );
   const requiresExperimentalConsent = selectedConfiguration?.experimental === true;
+  const selectedConfigurationReady = selectedConfiguration?.search_ready !== false;
 
   async function toggleWorkspace(workspaceId: string, selected: boolean) {
     if (selected) {
@@ -108,6 +109,7 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
       !selectedConfiguration ||
       workspaceIds.length === 0 ||
       query.trim().length < 2 ||
+      !selectedConfigurationReady ||
       (requiresExperimentalConsent && !experimentalConsent)
     ) {
       return;
@@ -260,6 +262,12 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
           {options.configurations.length === 0 ? (
             <p role="status">사용할 수 있는 저장 구성이 없습니다.</p>
           ) : null}
+          {selectedConfiguration && !selectedConfigurationReady ? (
+            <p role="status" aria-label="검색 색인 준비 상태">
+              선택한 구성의 검색 색인이 아직 준비되지 않았습니다. 문서 처리 상태를 확인해
+              주세요.
+            </p>
+          ) : null}
           {requiresExperimentalConsent ? (
             <aside className="experimental-consent" aria-label="실험 구성 안내">
               <p><span className="experimental-badge">실험</span> 평가가 끝나지 않은 구성입니다.</p>
@@ -289,6 +297,7 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
               searching ||
               workspaceIds.length === 0 ||
               !configurationId ||
+              !selectedConfigurationReady ||
               query.trim().length < 2 ||
               (requiresExperimentalConsent && !experimentalConsent)
             }
@@ -319,6 +328,7 @@ function ConfigurationOption({ configuration }: { configuration: SavedConfigurat
     <option value={configuration.id}>
       {configuration.name} v{configuration.version}
       {configuration.experimental ? " · 실험" : ""}
+      {!configuration.search_ready ? " · 색인 준비 전" : ""}
     </option>
   );
 }

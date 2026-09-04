@@ -372,21 +372,17 @@ describe("SearchPage", () => {
     const results = await screen.findByTestId("submitted-search-result");
     expect(within(results).getByText("두 번째 질문")).toBeVisible();
     expect(within(results).getAllByText(/구성 B/).length).toBeGreaterThan(0);
-    expect(within(results).getAllByText(/configuration-b/).length).toBeGreaterThan(0);
-    expect(
-      within(results).getAllByText(/응답 버전 ID configuration-version-b/).length,
-    ).toBeGreaterThan(0);
-    expect(
-      within(results).getAllByText(/선택 버전 ID selected-configuration-version-b/).length,
-    ).toBeGreaterThan(0);
+    expect(within(results).queryByText(/configuration-b/)).not.toBeInTheDocument();
+    expect(within(results).queryByText(/configuration-version-b/)).not.toBeInTheDocument();
+    expect(within(results).queryByText(/selected-configuration-version-b/)).not.toBeInTheDocument();
+    expect(within(results).queryByText(/personal-1/)).not.toBeInTheDocument();
+    expect(within(results).queryByText(/folder-b/)).not.toBeInTheDocument();
     expect(within(results).getAllByText("개인").length).toBeGreaterThan(0);
     expect(within(results).getAllByText(/개인 리서치/).length).toBeGreaterThan(0);
     expect(within(results).getAllByText(/개인 폴더/).length).toBeGreaterThan(0);
     expect(within(results).getAllByText(/실험 실행/).length).toBeGreaterThan(0);
     const related = within(results).getByRole("region", { name: "관련 문서" });
-    expect(within(related).getByLabelText("사용한 저장 RAG 구성")).toHaveTextContent(
-      "configuration-version-b",
-    );
+    expect(within(related).getByLabelText("사용한 저장 RAG 구성")).toHaveTextContent("구성 B");
 
     firstSearch.resolve(
       jsonResponse({
@@ -481,6 +477,43 @@ describe("SearchPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("로그인이 필요합니다.");
     expect(screen.queryByText("검색할 수 있는 지식 공간이 없습니다.")).not.toBeInTheDocument();
     expect(screen.queryByText("사용할 수 있는 저장 구성이 없습니다.")).not.toBeInTheDocument();
+  });
+
+  it("explains an unready index before submit and keeps search disabled", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (input === "/api/v1/workspaces") {
+          return jsonResponse([
+            { id: "company-1", name: "전사 규정", kind: "company", expires_at: null },
+          ]);
+        }
+        if (input === "/api/v1/rag/configurations") {
+          return jsonResponse([savedConfiguration({ search_ready: false })]);
+        }
+        if (input === "/api/v1/workspaces/company-1/folders") return jsonResponse([]);
+        throw new Error(`Unexpected request: ${String(input)}`);
+      }),
+    );
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter>
+        <SearchPage />
+      </MemoryRouter>,
+    );
+
+    await user.click(await screen.findByRole("checkbox", { name: /전사 규정/ }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "저장된 RAG 구성" }),
+      "configuration-1",
+    );
+    await user.type(screen.getByRole("searchbox", { name: "검색 질문" }), "환매 규정");
+
+    expect(screen.getByRole("status", { name: "검색 색인 준비 상태" })).toHaveTextContent(
+      "선택한 구성의 검색 색인이 아직 준비되지 않았습니다",
+    );
+    expect(screen.getByRole("button", { name: "근거 검색" })).toBeDisabled();
   });
 
   it("announces empty authorized scopes and saved configurations", async () => {
@@ -593,6 +626,7 @@ function savedConfiguration(overrides: Record<string, unknown> = {}) {
     is_default: true,
     is_system: false,
     experimental: false,
+    search_ready: true,
     ...overrides,
   };
 }

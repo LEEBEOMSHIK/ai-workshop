@@ -39,9 +39,14 @@ async def list_configurations(
     user: Annotated[User, Depends(get_current_user)],
     service: Annotated[RagConfigurationService, Depends(get_rag_configuration_service)],
 ) -> list[SavedRagConfigurationResponse]:
+    configurations = await service.list(user.id)
+    readiness = await service.search_readiness(tuple(configurations))
     return [
-        SavedRagConfigurationResponse.from_domain(item)
-        for item in await service.list(user.id)
+        SavedRagConfigurationResponse.from_domain(
+            item,
+            search_ready=readiness[item.version_id],
+        )
+        for item in configurations
     ]
 
 
@@ -64,7 +69,11 @@ async def create_configuration(
         conflict_mode=policy.conflict_mode,
         workspace_ids=tuple(request.workspace_ids),
     )
-    return SavedRagConfigurationResponse.from_domain(result.configuration)
+    readiness = await service.search_readiness((result.configuration,))
+    return SavedRagConfigurationResponse.from_domain(
+        result.configuration,
+        search_ready=readiness[result.configuration.version_id],
+    )
 
 
 @router.get("/{configuration_id}", response_model=SavedRagConfigurationResponse)
@@ -73,8 +82,11 @@ async def configuration_detail(
     user: Annotated[User, Depends(get_current_user)],
     service: Annotated[RagConfigurationService, Depends(get_rag_configuration_service)],
 ) -> SavedRagConfigurationResponse:
+    configuration = await service.detail(configuration_id, user.id)
+    readiness = await service.search_readiness((configuration,))
     return SavedRagConfigurationResponse.from_domain(
-        await service.detail(configuration_id, user.id)
+        configuration,
+        search_ready=readiness[configuration.version_id],
     )
 
 
@@ -84,6 +96,9 @@ async def promote_configuration_default(
     user: Annotated[User, Depends(require_owner)],
     service: Annotated[RagConfigurationService, Depends(get_rag_configuration_service)],
 ) -> SavedRagConfigurationResponse:
+    configuration = await service.promote_default(configuration_id, user.id)
+    readiness = await service.search_readiness((configuration,))
     return SavedRagConfigurationResponse.from_domain(
-        await service.promote_default(configuration_id, user.id)
+        configuration,
+        search_ready=readiness[configuration.version_id],
     )

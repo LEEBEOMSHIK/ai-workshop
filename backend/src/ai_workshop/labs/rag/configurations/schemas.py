@@ -63,9 +63,15 @@ class SavedRagConfigurationResponse(BaseModel):
     is_system: bool
     is_default: bool
     experimental: bool
+    search_ready: bool
 
     @classmethod
-    def from_domain(cls, configuration: SavedRagConfiguration) -> Self:
+    def from_domain(
+        cls,
+        configuration: SavedRagConfiguration,
+        *,
+        search_ready: bool,
+    ) -> Self:
         return cls(
             id=configuration.id,
             version_id=configuration.version_id,
@@ -83,4 +89,5 @@ class SavedRagConfigurationResponse(BaseModel):
             is_system=configuration.is_system,
             is_default=configuration.is_default,
             experimental=configuration.experimental,
+            search_ready=search_ready,
         )

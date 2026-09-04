@@ -38,14 +38,15 @@ describe("EvidenceAnswer", () => {
     expect(screen.getByText("환매 규정.txt")).toBeVisible();
     expect(screen.getByText("버전 4")).toBeVisible();
     expect(screen.getByText("전사")).toBeVisible();
-    expect(screen.getByText(/전사 규정/)).toHaveTextContent("company-1");
+    expect(screen.getByText("전사 규정")).toBeVisible();
+    expect(screen.queryByText(/company-1/)).not.toBeInTheDocument();
     expect(screen.getByText("제3조 › 환매")).toBeVisible();
     const configuration = screen.getByLabelText("사용한 저장 RAG 구성");
     expect(configuration).toHaveTextContent("승인된 하이브리드");
-    expect(configuration).toHaveTextContent("configuration-1");
-    expect(configuration).toHaveTextContent("configuration-version-1");
     expect(configuration).toHaveTextContent("버전 3");
     expect(configuration).toHaveTextContent("일반 실행");
+    expect(configuration).not.toHaveTextContent("configuration-1");
+    expect(configuration).not.toHaveTextContent("configuration-version-1");
     expect(screen.getByText("정확·키워드 일치")).toBeVisible();
     expect(screen.getByText("의미 일치")).toBeVisible();
     const sourceLink = screen.getByRole("link", { name: "원문에서 확인" });
@@ -127,7 +128,7 @@ describe("EvidenceAnswer", () => {
 
     const conflictSection = screen.getByRole("region", { name: "충돌하는 근거" });
     expect(within(conflictSection).getByLabelText("사용한 저장 RAG 구성")).toHaveTextContent(
-      "configuration-version-1",
+      "승인된 하이브리드",
     );
     const cards = within(conflictSection).getAllByRole("article");
     expect(cards).toHaveLength(2);
@@ -138,7 +139,7 @@ describe("EvidenceAnswer", () => {
     expect(screen.queryByText(/종합하면|따라서/)).not.toBeInTheDocument();
   });
 
-  it("shows the authorized folder identity and exact ids without inventing missing labels", () => {
+  it("shows authorized scope names and safe fallbacks without exposing exact ids", () => {
     const withFolder = evidence({
       source: {
         ...evidence().source,
@@ -174,12 +175,12 @@ describe("EvidenceAnswer", () => {
       }),
     );
 
-    expect(screen.getAllByText(/상품 규정/)[0]).toHaveTextContent("folder-1");
-    expect(screen.getByText(/workspace-unknown/)).toBeVisible();
-    expect(screen.getByText(/folder-unknown/)).toBeVisible();
+    expect(screen.getAllByText("폴더 상품 규정")[0]).toBeVisible();
+    expect(screen.getByText("지식 공간 정보 없음")).toBeVisible();
+    expect(screen.getByText("폴더 폴더 정보 없음")).toBeVisible();
     expect(screen.getByText("임시")).toBeVisible();
-    expect(screen.getByText(/임시 검토/)).toHaveTextContent("temporary-1");
-    expect(screen.queryByText("알 수 없는 지식 공간")).not.toBeInTheDocument();
+    expect(screen.getByText("임시 검토")).toBeVisible();
+    expect(screen.queryByText(/workspace-unknown|folder-unknown|temporary-1/)).not.toBeInTheDocument();
   });
 });
 

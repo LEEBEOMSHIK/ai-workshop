@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { JobStatus } from "../jobs/JobStatus";
-import { type DocumentSummary, uploadDocument } from "./api";
+import { type DocumentSummary, uploadDocument, uploadDocumentVersion } from "./api";
 import { UploadDialog } from "./UploadDialog";
 
 interface DocumentBrowserProps {
@@ -32,6 +32,13 @@ export function DocumentBrowser({
     setDocuments((current) => [...current, document]);
   }
 
+  async function handleVersionUpload(documentId: string, file: File) {
+    const updated = await uploadDocumentVersion(documentId, file);
+    setDocuments((current) =>
+      current.map((document) => (document.id === updated.id ? updated : document)),
+    );
+  }
+
   return (
     <main className="document-shell">
       <header className="document-header">
@@ -55,9 +62,16 @@ export function DocumentBrowser({
             <span className={`document-state ${document.status}`}>
               {statusLabels[document.status]}
             </span>
-            {document.job_id ? (
-              <JobStatus jobId={document.job_id} initialStatus="queued" />
-            ) : null}
+            <div className="document-actions">
+              {document.job_id ? (
+                <JobStatus jobId={document.job_id} initialStatus="queued" />
+              ) : null}
+              <UploadDialog
+                buttonLabel="새 버전 올리기"
+                inputLabel={`${document.name} 새 버전 파일`}
+                onUpload={(file) => handleVersionUpload(document.id, file)}
+              />
+            </div>
           </article>
         ))}
       </section>

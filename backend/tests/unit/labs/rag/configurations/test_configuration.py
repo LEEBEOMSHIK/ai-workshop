@@ -252,10 +252,12 @@ class MemoryConfigurationRepository:
         profiles: tuple[Profile, ...],
         accessible_workspace_ids: tuple[UUID, ...],
         active_asset_version_ids: tuple[UUID, ...] = (),
+        ready_indexing_profile_ids: frozenset[UUID] = frozenset(),
     ) -> None:
         self.profiles = {profile.id: profile for profile in profiles}
         self.accessible = accessible_workspace_ids
         self.active_assets = active_asset_version_ids
+        self.ready_profiles = ready_indexing_profile_ids
         self.identities: dict[tuple[UUID, str], UUID] = {}
         self.saved: list[SavedRagConfiguration] = []
         self.events: list[str] = []
@@ -289,6 +291,11 @@ class MemoryConfigurationRepository:
     async def list_visible(self, actor_id: UUID) -> list[SavedRagConfiguration]:
         return [item for item in self.saved if item.owner_id in {None, actor_id}]
 
+    async def ready_indexing_profile_ids(
+        self, indexing_profile_ids: tuple[UUID, ...]
+    ) -> frozenset[UUID]:
+        return frozenset(self.ready_profiles.intersection(indexing_profile_ids))
+
     async def find_visible(
         self, configuration_id: UUID, actor_id: UUID
     ) -> SavedRagConfiguration | None:
@@ -312,6 +319,22 @@ class RecordingIngestionJobs:
         job_id = uuid4()
         self.job_ids.append(job_id)
         return job_id
+
+
+@pytest.mark.asyncio
+async def test_search_readiness_is_mapped_by_immutable_configuration_version() -> None:
+    ready = _configuration()
+    pending = _configuration()
+    repository = MemoryConfigurationRepository(
+        profiles=(),
+        accessible_workspace_ids=(),
+        ready_indexing_profile_ids=frozenset({ready.indexing_profile_id}),
+    )
+    service = RagConfigurationService(repository, RecordingIngestionJobs(repository.events))
+
+    result = await service.search_readiness((ready, pending))
+
+    assert result == {ready.version_id: True, pending.version_id: False}
 
 
 def _technical_profiles() -> tuple[Profile, Profile]:

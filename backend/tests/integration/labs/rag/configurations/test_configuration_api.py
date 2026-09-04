@@ -90,6 +90,11 @@ class FakeConfigurationService:
         assert actor_id == self.actor_id
         return self.configurations
 
+    async def search_readiness(
+        self, configurations: tuple[SavedRagConfiguration, ...]
+    ) -> dict[UUID, bool]:
+        return {configuration.version_id: True for configuration in configurations}
+
     async def create(self, **values: object) -> ConfigurationSaveResult:
         assert values["owner_id"] == self.actor_id
         self.created = values
@@ -145,6 +150,7 @@ def test_list_exposes_only_the_supplied_system_baseline_and_actor_configurations
     assert payload[0]["is_default"] is False
     assert payload[0]["experimental"] is True
     assert payload[0]["generation_profile_id"] is None
+    assert payload[0]["search_ready"] is True
 
 
 def test_create_accepts_extractive_policy_and_leaves_dispatch_to_the_outbox() -> None:

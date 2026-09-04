@@ -18,3 +18,15 @@ export async function uploadDocument(
     body,
   });
 }
+
+export async function uploadDocumentVersion(
+  documentId: string,
+  file: File,
+): Promise<DocumentSummary> {
+  const body = new FormData();
+  body.append("file", file);
+  return apiRequest<DocumentSummary>(`/api/v1/documents/${documentId}/versions`, {
+    method: "POST",
+    body,
+  });
+}

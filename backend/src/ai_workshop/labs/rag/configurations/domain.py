@@ -8,6 +8,9 @@ from ai_workshop.labs.rag.evaluation.domain import (
     PromotionEvidence,
     PromotionGate,
 )
+from ai_workshop.labs.rag.generation.domain import (
+    EXTERNAL_GENERATION_DISCLOSURE_VERSION,
+)
 from ai_workshop.labs.rag.highlighting.domain import AnswerPolicy
 from ai_workshop.labs.rag.models.domain import (
     EvaluationState,
@@ -27,7 +30,6 @@ BM25_BASELINE_CONFIGURATION_VERSION_ID = UUID(
     "00000000-0000-0000-0000-000000000503"
 )
 BM25_BASELINE_NAME = "BM25 기준선"
-EXTERNAL_GENERATION_DISCLOSURE_VERSION = "external-generation-v1"
 
 
 class ConfigurationValidationError(ValueError):

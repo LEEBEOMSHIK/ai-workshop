@@ -6,6 +6,7 @@ export type EvaluationCandidate = components["schemas"]["EvaluationCandidateResp
 export type EvaluationMetrics = components["schemas"]["EvaluationMetricsResponse"];
 export type EvaluationRun = components["schemas"]["EvaluationRunResponse"];
 export type EvaluationRunCreate = components["schemas"]["EvaluationRunCreate"];
+export type DeploymentOption = components["schemas"]["DeploymentOptionResponse"];
 export type ModelDefinition = components["schemas"]["ModelResponse"];
 export type Profile = components["schemas"]["ProfileResponse"];
 export type SavedConfiguration = components["schemas"]["SavedRagConfigurationResponse"];
@@ -38,6 +39,10 @@ export async function loadConfigurationStudio(): Promise<ConfigurationStudioData
 
 export function loadConfigurations(signal?: AbortSignal): Promise<SavedConfiguration[]> {
   return apiRequest<SavedConfiguration[]>("/api/v1/rag/configurations", { signal });
+}
+
+export function loadDeploymentOptions(signal?: AbortSignal): Promise<DeploymentOption[]> {
+  return apiRequest<DeploymentOption[]>("/api/v1/rag/deployments/options", { signal });
 }
 
 export function saveConfiguration(

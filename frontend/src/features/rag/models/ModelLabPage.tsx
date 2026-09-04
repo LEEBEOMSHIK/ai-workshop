@@ -3,14 +3,18 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import {
+  type ModelAdministrationData,
   type JsonValue,
   type ModelDefinitionSummary,
   type ModelKind,
   type ProfileKind,
   type ProfileSummary,
+  loadModelAdministration,
   registerModelVersion,
   registerYamlProfile,
 } from "./api";
+import { DataPolicyPanel } from "./DataPolicyPanel";
+import { DeploymentRegistry } from "./DeploymentRegistry";
 
 interface ModelLabPageProps {
   initialModels?: ModelDefinitionSummary[];
@@ -46,6 +50,9 @@ export function ModelLabPage({
   const [profileError, setProfileError] = useState("");
   const [modelSaving, setModelSaving] = useState(false);
   const [profileSaving, setProfileSaving] = useState(false);
+  const [administration, setAdministration] = useState<ModelAdministrationData | null>(null);
+  const [administrationLoading, setAdministrationLoading] = useState(!embedded);
+  const [administrationError, setAdministrationError] = useState("");
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -54,6 +61,24 @@ export function ModelLabPage({
       mounted.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (embedded) return;
+    let active = true;
+    void loadModelAdministration()
+      .then((loaded) => {
+        if (active) setAdministration(loaded);
+      })
+      .catch(() => {
+        if (active) setAdministrationError("실행 배포와 정책을 불러오지 못했습니다.");
+      })
+      .finally(() => {
+        if (active) setAdministrationLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [embedded]);
 
   async function handleModelSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -149,6 +174,23 @@ export function ModelLabPage({
           ))}
         </div>
       </section>
+
+      {!embedded ? (
+        <section className="model-administration" aria-label="모델 실행 및 데이터 정책">
+          {administrationLoading ? <p role="status">실행 배포와 정책을 불러오는 중…</p> : null}
+          {administrationError ? <p className="form-error" role="alert">{administrationError}</p> : null}
+          {administration ? (
+            <>
+              <DeploymentRegistry deployments={administration.deployments} />
+              <DataPolicyPanel
+                installationPolicy={administration.installationPolicy}
+                workspaces={administration.workspaces}
+                workspacePolicies={administration.workspacePolicies}
+              />
+            </>
+          ) : null}
+        </section>
+      ) : null}
 
       {!embedded ? <section className="version-forms" aria-label="새 버전 등록">
         <form className="version-form" onSubmit={handleModelSubmit}>

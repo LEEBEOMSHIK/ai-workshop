@@ -50,6 +50,9 @@ function profile(
     version: 1,
     config,
     bindings,
+    deployment_version_id: null,
+    legacy: false,
+    readiness: { ready: false, reason_codes: [] },
     evaluation_state: "draft",
     is_default: false,
   };

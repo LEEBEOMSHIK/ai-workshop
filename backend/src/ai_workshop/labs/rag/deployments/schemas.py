@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING, Self
+from datetime import datetime
+from typing import TYPE_CHECKING, Literal, Self, cast
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -10,6 +11,12 @@ from ai_workshop.labs.rag.deployments.domain import (
     ProviderKind,
 )
 from ai_workshop.labs.rag.deployments.repository import DeploymentCatalogEntry
+from ai_workshop.labs.rag.generation.domain import (
+    EXTERNAL_GENERATION_DISCLOSURE_VERSION,
+    ExternalGenerationDisclosureVersion,
+    NonExternalGenerationDisclosureVersion,
+    generation_disclosure,
+)
 
 if TYPE_CHECKING:
     from ai_workshop.labs.rag.deployments.service import DeploymentHealthResult
@@ -52,6 +59,7 @@ class DeploymentHealthResponse(BaseModel):
     provider_model_id: str
     observed_provider_model_id: str | None
     latency_ms: int
+    checked_at: datetime
 
     @classmethod
     def from_result(cls, result: "DeploymentHealthResult") -> Self:
@@ -62,7 +70,30 @@ class DeploymentHealthResponse(BaseModel):
             provider_model_id=result.provider_model_id,
             observed_provider_model_id=result.observed_provider_model_id,
             latency_ms=result.latency_ms,
+            checked_at=result.checked_at,
         )
+
+
+class DeploymentLatestHealthResponse(BaseModel):
+    status: str
+    safe_error_code: str | None
+    observed_provider_model_id: str | None
+    latency_ms: int | None
+    checked_at: datetime
+
+
+class DeploymentApprovalResponse(BaseModel):
+    required: Literal[True]
+    disclosure_version: ExternalGenerationDisclosureVersion
+    disclosure: str
+    transmitted_data_categories: list[str]
+
+
+class DeploymentNoApprovalResponse(BaseModel):
+    required: Literal[False]
+    disclosure_version: NonExternalGenerationDisclosureVersion
+    disclosure: str
+    transmitted_data_categories: list[str]
 
 
 class DeploymentAdminResponse(BaseModel):
@@ -81,6 +112,7 @@ class DeploymentAdminResponse(BaseModel):
     capabilities: list[DeploymentCapability]
     secret_configured: bool
     readiness: DeploymentReadinessResponse
+    latest_health: DeploymentLatestHealthResponse | None
 
     @classmethod
     def from_entry(
@@ -102,14 +134,13 @@ class DeploymentAdminResponse(BaseModel):
             allowed_environments=list(deployment.allowed_environments),
             capabilities=sorted(deployment.capabilities, key=lambda item: item.value),
             secret_configured=secret_configured,
-            readiness=DeploymentReadinessResponse(
-                ready=False,
-                reason_codes=["deployment_not_ready"],
-            ),
+            readiness=_readiness(entry),
+            latest_health=_latest_health(entry),
         )
 
 
 class DeploymentOptionResponse(BaseModel):
+    deployment_version_id: UUID
     display_name: str
     model_name: str
     model_version: int
@@ -120,11 +151,34 @@ class DeploymentOptionResponse(BaseModel):
     allowed_environments: list[DeploymentEnvironment]
     capabilities: list[DeploymentCapability]
     readiness: DeploymentReadinessResponse
+    approval: DeploymentApprovalResponse | DeploymentNoApprovalResponse
 
     @classmethod
     def from_entry(cls, entry: DeploymentCatalogEntry) -> Self:
         deployment = entry.deployment
+        disclosure = generation_disclosure(deployment)
+        approval: DeploymentApprovalResponse | DeploymentNoApprovalResponse
+        if disclosure.required:
+            approval = DeploymentApprovalResponse(
+                required=True,
+                disclosure_version=EXTERNAL_GENERATION_DISCLOSURE_VERSION,
+                disclosure=disclosure.text,
+                transmitted_data_categories=list(
+                    disclosure.transmitted_data_categories
+                ),
+            )
+        else:
+            approval = DeploymentNoApprovalResponse(
+                required=False,
+                disclosure_version=cast(
+                    NonExternalGenerationDisclosureVersion,
+                    disclosure.version,
+                ),
+                disclosure=disclosure.text,
+                transmitted_data_categories=[],
+            )
         return cls(
+            deployment_version_id=deployment.id,
             display_name=deployment.display_name,
             model_name=entry.model_name,
             model_version=entry.model_version,
@@ -134,8 +188,39 @@ class DeploymentOptionResponse(BaseModel):
             external_transfer=deployment.external_transfer,
             allowed_environments=list(deployment.allowed_environments),
             capabilities=sorted(deployment.capabilities, key=lambda item: item.value),
-            readiness=DeploymentReadinessResponse(
-                ready=False,
-                reason_codes=["deployment_not_ready"],
-            ),
+            readiness=_readiness(entry),
+            approval=approval,
         )
+
+
+def _latest_health(
+    entry: DeploymentCatalogEntry,
+) -> DeploymentLatestHealthResponse | None:
+    health = entry.latest_health
+    if health is None:
+        return None
+    return DeploymentLatestHealthResponse(
+        status=health.status,
+        safe_error_code=health.safe_error_code,
+        observed_provider_model_id=health.observed_provider_model_id,
+        latency_ms=health.latency_ms,
+        checked_at=health.created_at,
+    )
+
+
+def _readiness(entry: DeploymentCatalogEntry) -> DeploymentReadinessResponse:
+    health = entry.latest_health
+    ready = bool(
+        health is not None
+        and health.status == "ready"
+        and health.safe_error_code is None
+        and health.observed_provider_model_id == entry.deployment.provider_model_id
+    )
+    if ready:
+        return DeploymentReadinessResponse(ready=True, reason_codes=[])
+    reason = (
+        health.safe_error_code
+        if health is not None and health.safe_error_code is not None
+        else "deployment_not_ready"
+    )
+    return DeploymentReadinessResponse(ready=False, reason_codes=[reason])

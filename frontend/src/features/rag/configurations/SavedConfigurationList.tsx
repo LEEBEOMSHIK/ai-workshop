@@ -114,6 +114,14 @@ function readinessReasonLabel(reason: string): string {
     generation_runtime_not_configured: "로컬 LLM 실행 주소 미설정",
     generation_runtime_unavailable: "로컬 LLM 실행기 응답 없음",
     generation_runtime_model_mismatch: "실행 중인 LLM 버전 불일치",
+    deployment_not_allowed_in_environment: "현재 환경에서 실행 배포를 사용할 수 없음",
+    workspace_external_transfer_denied: "지식 공간 정책에서 외부 전송을 허용하지 않음",
+    provider_not_allowed: "회사 정책에서 외부 공급자를 허용하지 않음",
+    deployment_not_ready: "실행 배포 준비 확인 필요",
+    provider_authentication_failed: "공급자 인증 확인 필요",
+    provider_rate_limited: "공급자 요청 한도 초과",
+    provider_timeout: "공급자 응답 시간 초과",
+    provider_invalid_response: "공급자 응답 확인 필요",
   };
-  return labels[reason] ?? reason;
+  return labels[reason] ?? "답변 실행 준비 상태 확인 필요";
 }

@@ -8,6 +8,9 @@ from ai_workshop.labs.rag.configurations.domain import (
     ExternalTransferApprovalConfirmation,
     SavedRagConfiguration,
 )
+from ai_workshop.labs.rag.generation.domain import (
+    ExternalGenerationDisclosureVersion,
+)
 from ai_workshop.labs.rag.models.domain import EvaluationState
 
 
@@ -23,7 +26,7 @@ class ExternalTransferApprovalInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     confirmed: Literal[True]
-    disclosure_version: Literal["external-generation-v1"]
+    disclosure_version: ExternalGenerationDisclosureVersion
 
     def to_domain(self) -> ExternalTransferApprovalConfirmation:
         return ExternalTransferApprovalConfirmation(

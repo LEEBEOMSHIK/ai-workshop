@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import cast
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,6 +57,7 @@ class DeploymentCatalogEntry:
     deployment: ModelDeploymentVersion
     model_name: str
     model_version: int
+    latest_health: DeploymentHealthCheck | None = None
 
 
 class DeploymentRepositoryConflict(RuntimeError):
@@ -179,12 +180,46 @@ class SqlAlchemyDeploymentRepository:
         return deployment
 
     async def list_versions(self) -> list[DeploymentCatalogEntry]:
+        ranked_health = (
+            select(
+                DeploymentHealthCheckRecord.id.label("health_id"),
+                DeploymentHealthCheckRecord.deployment_version_id.label(
+                    "deployment_version_id"
+                ),
+                func.row_number()
+                .over(
+                    partition_by=DeploymentHealthCheckRecord.deployment_version_id,
+                    order_by=(
+                        DeploymentHealthCheckRecord.created_at.desc(),
+                        DeploymentHealthCheckRecord.id.desc(),
+                    ),
+                )
+                .label("health_rank"),
+            )
+            .subquery()
+        )
         rows = await self._session.execute(
-            select(ModelDeploymentVersionRecord, ModelDefinitionRecord)
+            select(
+                ModelDeploymentVersionRecord,
+                ModelDefinitionRecord,
+                DeploymentHealthCheckRecord,
+            )
             .join(
                 ModelDefinitionRecord,
                 ModelDefinitionRecord.id
                 == ModelDeploymentVersionRecord.model_definition_id,
+            )
+            .outerjoin(
+                ranked_health,
+                and_(
+                    ranked_health.c.deployment_version_id
+                    == ModelDeploymentVersionRecord.id,
+                    ranked_health.c.health_rank == 1,
+                ),
+            )
+            .outerjoin(
+                DeploymentHealthCheckRecord,
+                DeploymentHealthCheckRecord.id == ranked_health.c.health_id,
             )
             .order_by(
                 ModelDeploymentVersionRecord.created_at,
@@ -197,8 +232,11 @@ class SqlAlchemyDeploymentRepository:
                 deployment=_version_domain(deployment),
                 model_name=model.name,
                 model_version=model.version,
+                latest_health=(
+                    None if health is None else _health_domain(health)
+                ),
             )
-            for deployment, model in rows
+            for deployment, model, health in rows
         ]
 
     async def get_version(self, version_id: UUID) -> ModelDeploymentVersion | None:
@@ -240,16 +278,7 @@ class SqlAlchemyDeploymentRepository:
         )
         if record is None:
             return None
-        return DeploymentHealthCheck(
-            id=record.id,
-            deployment_version_id=record.deployment_version_id,
-            status=record.status,
-            safe_error_code=record.safe_error_code,
-            observed_provider_model_id=record.observed_provider_model_id,
-            latency_ms=record.latency_ms,
-            checked_by=record.checked_by,
-            created_at=record.created_at,
-        )
+        return _health_domain(record)
 
 
 def _version_record(deployment: ModelDeploymentVersion) -> ModelDeploymentVersionRecord:
@@ -312,5 +341,18 @@ def _version_domain(record: ModelDeploymentVersionRecord) -> ModelDeploymentVers
         healthcheck_enabled=record.healthcheck_enabled,
         development_only=record.development_only,
         created_by=record.created_by,
+        created_at=record.created_at,
+    )
+
+
+def _health_domain(record: DeploymentHealthCheckRecord) -> DeploymentHealthCheck:
+    return DeploymentHealthCheck(
+        id=record.id,
+        deployment_version_id=record.deployment_version_id,
+        status=record.status,
+        safe_error_code=record.safe_error_code,
+        observed_provider_model_id=record.observed_provider_model_id,
+        latency_ms=record.latency_ms,
+        checked_by=record.checked_by,
         created_at=record.created_at,
     )

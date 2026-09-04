@@ -4,6 +4,126 @@
  */
 
 export interface paths {
+    "/api/v1/admin/rag/data-policies/installation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Installation Policy */
+        get: operations["get_installation_policy_api_v1_admin_rag_data_policies_installation_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/rag/data-policies/installation/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Installation Policy Version */
+        post: operations["create_installation_policy_version_api_v1_admin_rag_data_policies_installation_versions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/rag/data-policies/workspaces/{workspace_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Workspace Policy */
+        get: operations["get_workspace_policy_api_v1_admin_rag_data_policies_workspaces__workspace_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/rag/data-policies/workspaces/{workspace_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Workspace Policy Version */
+        post: operations["create_workspace_policy_version_api_v1_admin_rag_data_policies_workspaces__workspace_id__versions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/rag/deployment-versions/{version_id}/health-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Check Deployment Health */
+        post: operations["check_deployment_health_api_v1_admin_rag_deployment_versions__version_id__health_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/rag/deployments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Admin Deployments */
+        get: operations["list_admin_deployments_api_v1_admin_rag_deployments_get"];
+        put?: never;
+        /** Create Deployment */
+        post: operations["create_deployment_api_v1_admin_rag_deployments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/rag/deployments/{deployment_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Deployment Version */
+        post: operations["create_deployment_version_api_v1_admin_rag_deployments__deployment_id__versions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/rag/models": {
         parameters: {
             query?: never;
@@ -221,6 +341,23 @@ export interface paths {
         put?: never;
         /** Promote Configuration Default */
         post: operations["promote_configuration_default_api_v1_rag_configurations__configuration_id__default_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/deployments/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Deployment Options */
+        get: operations["list_deployment_options_api_v1_rag_deployments_options_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -629,6 +766,191 @@ export interface components {
             /** Validation Token */
             validation_token?: string | null;
         };
+        /** DeploymentAdminResponse */
+        DeploymentAdminResponse: {
+            /** Allowed Environments */
+            allowed_environments: components["schemas"]["DeploymentEnvironment"][];
+            /** Capabilities */
+            capabilities: components["schemas"]["DeploymentCapability"][];
+            /**
+             * Deployment Id
+             * Format: uuid
+             */
+            deployment_id: string;
+            /** Description */
+            description: string;
+            /** Display Name */
+            display_name: string;
+            /** External Transfer */
+            external_transfer: boolean;
+            latest_health: components["schemas"]["DeploymentLatestHealthResponse"] | null;
+            location: components["schemas"]["ExecutionLocation"];
+            /** Model Name */
+            model_name: string;
+            /** Model Version */
+            model_version: number;
+            provider: components["schemas"]["ProviderKind"];
+            /** Provider Model Id */
+            provider_model_id: string;
+            readiness: components["schemas"]["DeploymentReadinessResponse"];
+            /** Secret Configured */
+            secret_configured: boolean;
+            /** Version */
+            version: number;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+        };
+        /** DeploymentApprovalResponse */
+        DeploymentApprovalResponse: {
+            /** Disclosure */
+            disclosure: string;
+            disclosure_version: components["schemas"]["ExternalGenerationDisclosureVersion"];
+            /**
+             * Required
+             * @constant
+             */
+            required: true;
+            /** Transmitted Data Categories */
+            transmitted_data_categories: string[];
+        };
+        /**
+         * DeploymentCapability
+         * @enum {string}
+         */
+        DeploymentCapability: "structured_output" | "contextualization" | "token_accounting";
+        /**
+         * DeploymentEnvironment
+         * @enum {string}
+         */
+        DeploymentEnvironment: "development" | "staging" | "production";
+        /** DeploymentHealthResponse */
+        DeploymentHealthResponse: {
+            /**
+             * Checked At
+             * Format: date-time
+             */
+            checked_at: string;
+            /** Latency Ms */
+            latency_ms: number;
+            /** Observed Provider Model Id */
+            observed_provider_model_id: string | null;
+            provider: components["schemas"]["ProviderKind"];
+            /** Provider Model Id */
+            provider_model_id: string;
+            /** Safe Error Code */
+            safe_error_code: string | null;
+            /** Status */
+            status: string;
+        };
+        /** DeploymentLatestHealthResponse */
+        DeploymentLatestHealthResponse: {
+            /**
+             * Checked At
+             * Format: date-time
+             */
+            checked_at: string;
+            /** Latency Ms */
+            latency_ms: number | null;
+            /** Observed Provider Model Id */
+            observed_provider_model_id: string | null;
+            /** Safe Error Code */
+            safe_error_code: string | null;
+            /** Status */
+            status: string;
+        };
+        /** DeploymentNoApprovalResponse */
+        DeploymentNoApprovalResponse: {
+            /** Disclosure */
+            disclosure: string;
+            disclosure_version: components["schemas"]["NonExternalGenerationDisclosureVersion"];
+            /**
+             * Required
+             * @constant
+             */
+            required: false;
+            /** Transmitted Data Categories */
+            transmitted_data_categories: string[];
+        };
+        /** DeploymentOptionResponse */
+        DeploymentOptionResponse: {
+            /** Allowed Environments */
+            allowed_environments: components["schemas"]["DeploymentEnvironment"][];
+            /** Approval */
+            approval: components["schemas"]["DeploymentApprovalResponse"] | components["schemas"]["DeploymentNoApprovalResponse"];
+            /** Capabilities */
+            capabilities: components["schemas"]["DeploymentCapability"][];
+            /**
+             * Deployment Version Id
+             * Format: uuid
+             */
+            deployment_version_id: string;
+            /** Display Name */
+            display_name: string;
+            /** External Transfer */
+            external_transfer: boolean;
+            location: components["schemas"]["ExecutionLocation"];
+            /** Model Name */
+            model_name: string;
+            /** Model Version */
+            model_version: number;
+            provider: components["schemas"]["ProviderKind"];
+            /** Provider Model Id */
+            provider_model_id: string;
+            readiness: components["schemas"]["DeploymentReadinessResponse"];
+        };
+        /** DeploymentReadinessResponse */
+        DeploymentReadinessResponse: {
+            /** Ready */
+            ready: boolean;
+            /** Reason Codes */
+            reason_codes: string[];
+        };
+        /** DeploymentVersionCreate */
+        DeploymentVersionCreate: {
+            /** Allowed Environments */
+            allowed_environments: components["schemas"]["DeploymentEnvironment"][];
+            /** Capabilities */
+            capabilities: components["schemas"]["DeploymentCapability"][];
+            /** Data Processing Notice Ref */
+            data_processing_notice_ref?: string | null;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Development Only */
+            development_only: boolean;
+            /** Display Name */
+            display_name: string;
+            /** Endpoint Ref */
+            endpoint_ref: string;
+            /** External Transfer */
+            external_transfer: boolean;
+            /** Healthcheck Enabled */
+            healthcheck_enabled: boolean;
+            location: components["schemas"]["ExecutionLocation"];
+            /** Max Retries */
+            max_retries: number;
+            /**
+             * Model Definition Id
+             * Format: uuid
+             */
+            model_definition_id: string;
+            provider: components["schemas"]["ProviderKind"];
+            /** Provider Model Id */
+            provider_model_id: string;
+            /** Retry Backoff Seconds */
+            retry_backoff_seconds: number;
+            /** Secret Ref */
+            secret_ref?: string | null;
+            /** Timeout Seconds */
+            timeout_seconds: number;
+            /** Transmitted Data Categories */
+            transmitted_data_categories?: string[];
+        };
         /** DocumentResponse */
         DocumentResponse: {
             /**
@@ -927,6 +1249,22 @@ export interface components {
             /** Warnings */
             warnings: string[];
         };
+        /**
+         * ExecutionLocation
+         * @enum {string}
+         */
+        ExecutionLocation: "local" | "on_premise" | "external";
+        /** @constant */
+        ExternalGenerationDisclosureVersion: "external-generation-v1";
+        /** ExternalTransferApprovalInput */
+        ExternalTransferApprovalInput: {
+            /**
+             * Confirmed
+             * @constant
+             */
+            confirmed: true;
+            disclosure_version: components["schemas"]["ExternalGenerationDisclosureVersion"];
+        };
         /** FolderCreate */
         FolderCreate: {
             /** Name */
@@ -953,10 +1291,26 @@ export interface components {
             /** Evidence Ids */
             evidence_ids: string[];
         };
+        /** GenerationExecutionResponse */
+        GenerationExecutionResponse: {
+            /** Deployment Name */
+            deployment_name: string;
+            /** Disclosure */
+            disclosure: string;
+            /** External Transfer */
+            external_transfer: boolean;
+            location: components["schemas"]["ExecutionLocation"];
+            /** Model Name */
+            model_name: string;
+            /** Model Version */
+            model_version: number;
+            provider: components["schemas"]["ProviderKind"];
+        };
         /** GenerationResponse */
         GenerationResponse: {
             /** Citations */
             citations: components["schemas"]["GeneratedCitationResponse"][];
+            execution: components["schemas"]["GenerationExecutionResponse"] | null;
             /** Reason Codes */
             reason_codes: string[];
             /**
@@ -1003,6 +1357,40 @@ export interface components {
             text: string;
             /** Warnings */
             warnings: string[];
+        };
+        /** InstallationDataPolicyCreate */
+        InstallationDataPolicyCreate: {
+            /** Approved Providers */
+            approved_providers?: components["schemas"]["ProviderKind"][];
+            mode: components["schemas"]["OutboundMode"];
+        };
+        /** InstallationDataPolicyResponse */
+        InstallationDataPolicyResponse: {
+            /** Approved Providers */
+            approved_providers: components["schemas"]["ProviderKind"][];
+            /**
+             * Changed By
+             * Format: uuid
+             */
+            changed_by: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            mode: components["schemas"]["OutboundMode"];
+            /**
+             * Policy Id
+             * Format: uuid
+             */
+            policy_id: string;
+            /** Version */
+            version: number;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
         };
         /** JobResponse */
         JobResponse: {
@@ -1087,6 +1475,8 @@ export interface components {
             /** Version */
             version: number;
         };
+        /** @enum {string} */
+        NonExternalGenerationDisclosureVersion: "local-generation-v1" | "on-premise-generation-v1";
         /** NormalizedElementResponse */
         NormalizedElementResponse: {
             /** Confidence */
@@ -1143,6 +1533,11 @@ export interface components {
              */
             workspace_id: string;
         };
+        /**
+         * OutboundMode
+         * @enum {string}
+         */
+        OutboundMode: "deny" | "approved_providers";
         /** OwnerSetupRequest */
         OwnerSetupRequest: {
             /** Display Name */
@@ -1169,11 +1564,13 @@ export interface components {
         /** ProfileCreate */
         ProfileCreate: {
             /** Bindings */
-            bindings: components["schemas"]["ProfileBindingCreate"][];
+            bindings?: components["schemas"]["ProfileBindingCreate"][];
             /** Config */
             config: {
                 [key: string]: components["schemas"]["JsonValue-Input"];
             };
+            /** Deployment Version Id */
+            deployment_version_id?: string | null;
             /** @default draft */
             evaluation_state: components["schemas"]["EvaluationState"];
             /** Name */
@@ -1186,6 +1583,13 @@ export interface components {
          * @enum {string}
          */
         ProfileKind: "indexing" | "retrieval" | "generation";
+        /** ProfileReadinessResponse */
+        ProfileReadinessResponse: {
+            /** Ready */
+            ready: boolean;
+            /** Reason Codes */
+            reason_codes: string[];
+        };
         /** ProfileResponse */
         ProfileResponse: {
             /** Bindings */
@@ -1194,6 +1598,8 @@ export interface components {
             config: {
                 [key: string]: components["schemas"]["JsonValue-Output"];
             };
+            /** Deployment Version Id */
+            deployment_version_id: string | null;
             evaluation_state: components["schemas"]["EvaluationState"];
             /**
              * Id
@@ -1203,8 +1609,11 @@ export interface components {
             /** Is Default */
             is_default: boolean;
             kind: components["schemas"]["ProfileKind"];
+            /** Legacy */
+            legacy: boolean;
             /** Name */
             name: string;
+            readiness: components["schemas"]["ProfileReadinessResponse"];
             /** Version */
             version: number;
         };
@@ -1213,6 +1622,11 @@ export interface components {
             /** Content */
             content: string;
         };
+        /**
+         * ProviderKind
+         * @enum {string}
+         */
+        ProviderKind: "local_openai_compatible" | "openai_responses";
         /** RelatedSourceResponse */
         RelatedSourceResponse: {
             /**
@@ -1256,6 +1670,7 @@ export interface components {
         /** SavedRagConfigurationCreate */
         SavedRagConfigurationCreate: {
             answer_policy: components["schemas"]["AnswerPolicyCreate"];
+            external_transfer_approval?: components["schemas"]["ExternalTransferApprovalInput"] | null;
             /** Generation Profile Id */
             generation_profile_id?: string | null;
             /**
@@ -1474,11 +1889,55 @@ export interface components {
             /** Name */
             name: string;
         };
+        /** WorkspaceDataPolicyCreate */
+        WorkspaceDataPolicyCreate: {
+            /** Approved Providers */
+            approved_providers?: components["schemas"]["ProviderKind"][];
+            mode: components["schemas"]["WorkspaceOutboundMode"];
+        };
+        /** WorkspaceDataPolicyResponse */
+        WorkspaceDataPolicyResponse: {
+            /** Approved Providers */
+            approved_providers: components["schemas"]["ProviderKind"][];
+            /**
+             * Changed By
+             * Format: uuid
+             */
+            changed_by: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            mode: components["schemas"]["WorkspaceOutboundMode"];
+            /**
+             * Policy Id
+             * Format: uuid
+             */
+            policy_id: string;
+            /** Version */
+            version: number;
+            /**
+             * Version Id
+             * Format: uuid
+             */
+            version_id: string;
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
+        };
         /**
          * WorkspaceKind
          * @enum {string}
          */
         WorkspaceKind: "company" | "team" | "personal" | "temporary";
+        /**
+         * WorkspaceOutboundMode
+         * @enum {string}
+         */
+        WorkspaceOutboundMode: "inherit" | "deny" | "approved_providers";
         /** WorkspaceResponse */
         WorkspaceResponse: {
             /** Expires At */
@@ -1501,6 +1960,550 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_installation_policy_api_v1_admin_rag_data_policies_installation_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstallationDataPolicyResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    create_installation_policy_version_api_v1_admin_rag_data_policies_installation_versions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstallationDataPolicyCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstallationDataPolicyResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_workspace_policy_api_v1_admin_rag_data_policies_workspaces__workspace_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceDataPolicyResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    create_workspace_policy_version_api_v1_admin_rag_data_policies_workspaces__workspace_id__versions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceDataPolicyCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceDataPolicyResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    check_deployment_health_api_v1_admin_rag_deployment_versions__version_id__health_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeploymentHealthResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    list_admin_deployments_api_v1_admin_rag_deployments_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeploymentAdminResponse"][];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    create_deployment_api_v1_admin_rag_deployments_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeploymentVersionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeploymentAdminResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    create_deployment_version_api_v1_admin_rag_deployments__deployment_id__versions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                deployment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeploymentVersionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeploymentAdminResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     register_model_api_v1_admin_rag_models_post: {
         parameters: {
             query?: never;
@@ -2467,6 +3470,71 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SavedRagConfigurationResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    list_deployment_options_api_v1_rag_deployments_options_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeploymentOptionResponse"][];
                 };
             };
             /** @description Authentication required. */

@@ -1,18 +1,19 @@
 import asyncio
 import json
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 from uuid import UUID, uuid4
 
 import psycopg
 import pytest
 from alembic.config import Config
-from fastapi import Depends
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
+from httpx import Response
 from psycopg import sql
 from pydantic import SecretStr
 from sqlalchemy import make_url
@@ -32,12 +33,23 @@ from ai_workshop.labs.rag.deployments.service import (
     get_deployment_health_service,
     get_deployment_registry_service,
 )
+from ai_workshop.labs.rag.generation.domain import (
+    ContextualizationRequest,
+    GenerationRequest,
+)
 from ai_workshop.labs.rag.generation.execution import (
+    ProviderContextualizationResult,
     ProviderExecutionMetadata,
+    ProviderGenerationResult,
     ProviderHealthResult,
     ResolvedGenerationRuntime,
 )
-from ai_workshop.labs.rag.models.domain import ModelDefinition, ModelKind, freeze_json
+from ai_workshop.labs.rag.models.domain import (
+    FrozenJsonValue,
+    ModelDefinition,
+    ModelKind,
+    freeze_json,
+)
 from ai_workshop.labs.rag.policies.domain import PolicyDecision
 from ai_workshop.main import create_app
 from ai_workshop.platform.identity.api import get_current_user
@@ -126,7 +138,7 @@ def llm_model() -> ModelDefinition:
         kind=ModelKind.LLM,
         name="Public model name",
         version=7,
-        config=freeze_json({}),
+        config=cast(Mapping[str, FrozenJsonValue], freeze_json({})),
     )
 
 
@@ -192,7 +204,7 @@ class ExactHealthRuntimeResolver:
         policy: PolicyDecision,
     ) -> ResolvedGenerationRuntime:
         del policy
-        return ResolvedGenerationRuntime(  # type: ignore[arg-type]
+        return ResolvedGenerationRuntime(
             deployment,
             ExactHealthRuntime(deployment, self),
         )
@@ -221,6 +233,16 @@ class ExactHealthRuntime:
                 latency_ms=self.resolver.calls,
             ),
         )
+
+    async def contextualize(
+        self, request: ContextualizationRequest
+    ) -> ProviderContextualizationResult:
+        del request
+        raise AssertionError("The health-only test runtime cannot contextualize.")
+
+    async def generate(self, request: GenerationRequest) -> ProviderGenerationResult:
+        del request
+        raise AssertionError("The health-only test runtime cannot generate.")
 
 
 def configured_service(repository: MemoryDeploymentRepository) -> DeploymentRegistryService:
@@ -319,7 +341,7 @@ def seed_owner_and_model(isolated_url: str) -> tuple[User, UUID]:
     return owner, model_id
 
 
-def actual_api_app(owner: User):
+def actual_api_app(owner: User) -> FastAPI:
     app = create_app()
     app.dependency_overrides[get_current_user] = lambda: owner
     return app
@@ -462,6 +484,7 @@ def test_authenticated_options_are_safe_and_not_ready_before_health_support() ->
     assert options.status_code == 200
     assert options.json() == [
         {
+            "deployment_version_id": str(repository.versions[0].deployment.id),
             "display_name": "OpenAI finance answers",
             "model_name": "Public model name",
             "model_version": 7,
@@ -475,10 +498,19 @@ def test_authenticated_options_are_safe_and_not_ready_before_health_support() ->
                 "ready": False,
                 "reason_codes": ["deployment_not_ready"],
             },
+            "approval": {
+                "required": True,
+                "disclosure_version": "external-generation-v1",
+                "disclosure": (
+                    "OpenAI 외부 API로 현재 질문, 제한된 이전 대화와 선별된 문서 근거가 "
+                    "전송됩니다."
+                ),
+                "transmitted_data_categories": ["question", "evidence"],
+            },
         }
     ]
     option_text = options.text
-    assert str(repository.versions[0].deployment.id) not in option_text
+    assert str(repository.versions[0].deployment.id) in option_text
     assert str(repository.versions[0].deployment.deployment_id) not in option_text
     assert "openai-primary" not in option_text
     assert "openai-responses\"" not in option_text
@@ -633,6 +665,7 @@ def test_postgresql_local_health_appends_two_immutable_rows_and_reads_latest(
             second = client.post(
                 f"/api/v1/admin/rag/deployment-versions/{version_id}/health-check"
             )
+            listed = client.get("/api/v1/admin/rag/deployments")
 
         assert created.status_code == 201
         assert first.status_code == second.status_code == 200
@@ -641,6 +674,15 @@ def test_postgresql_local_health_appends_two_immutable_rows_and_reads_latest(
         assert second.json()["observed_provider_model_id"] == "approved-model-version"
         assert first.json()["latency_ms"] == 1
         assert second.json()["latency_ms"] == 2
+        assert first.json()["checked_at"] <= second.json()["checked_at"]
+        assert listed.status_code == 200
+        assert listed.json()[0]["latest_health"] == {
+            "status": "ready",
+            "safe_error_code": None,
+            "observed_provider_model_id": "approved-model-version",
+            "latency_ms": 2,
+            "checked_at": second.json()["checked_at"],
+        }
 
         async def verify_latest() -> None:
             engine = create_engine(get_settings())
@@ -745,11 +787,14 @@ def test_postgresql_concurrent_versions_are_serialized_without_hanging(
             )
         deployment_id = created.json()["deployment_id"]
 
-        def create_version(display_name: str):
+        def create_version(display_name: str) -> Response:
             with TestClient(app) as concurrent_client:
-                return concurrent_client.post(
-                    f"/api/v1/admin/rag/deployments/{deployment_id}/versions",
-                    json={**payload(model_id), "display_name": display_name},
+                return cast(
+                    Response,
+                    concurrent_client.post(
+                        f"/api/v1/admin/rag/deployments/{deployment_id}/versions",
+                        json={**payload(model_id), "display_name": display_name},
+                    ),
                 )
 
         executor = ThreadPoolExecutor(max_workers=2)

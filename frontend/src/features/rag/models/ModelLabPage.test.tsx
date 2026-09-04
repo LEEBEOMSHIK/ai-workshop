@@ -11,6 +11,59 @@ afterEach(() => {
 });
 
 describe("ModelLabPage", () => {
+  it("loads owner-only Deployments and immutable data policies", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (input === "/api/v1/admin/rag/deployments") return jsonResponse([{
+        deployment_id: "deployment-1",
+        version_id: "deployment-version-1",
+        version: 1,
+        display_name: "사내 답변 모델",
+        description: "사내 실행",
+        model_name: "한국어 RAG LLM",
+        model_version: 1,
+        provider: "local_openai_compatible",
+        provider_model_id: "local/korean-rag-v1",
+        location: "on_premise",
+        external_transfer: false,
+        allowed_environments: ["development"],
+        capabilities: ["structured_output", "contextualization"],
+        secret_configured: false,
+        readiness: { ready: true, reason_codes: [] },
+        latest_health: null,
+      }]);
+      if (input === "/api/v1/admin/rag/data-policies/installation") return jsonResponse({
+        policy_id: "installation",
+        version_id: "installation-v1",
+        version: 1,
+        mode: "deny",
+        approved_providers: [],
+        changed_by: "owner",
+        created_at: "2026-09-05T00:00:00Z",
+      });
+      if (input === "/api/v1/workspaces") return jsonResponse([{
+        id: "workspace-1", name: "전사 지식", kind: "company", expires_at: null,
+      }]);
+      if (input === "/api/v1/admin/rag/data-policies/workspaces/workspace-1") return jsonResponse({
+        policy_id: "workspace-policy",
+        version_id: "workspace-policy-v1",
+        workspace_id: "workspace-1",
+        version: 1,
+        mode: "inherit",
+        approved_providers: [],
+        changed_by: "owner",
+        created_at: "2026-09-05T00:00:00Z",
+      });
+      throw new Error(`Unexpected request: ${String(input)}`);
+    }));
+
+    render(<ModelLabPage initialModels={[]} initialProfiles={[]} />);
+
+    expect(screen.getByRole("status")).toHaveTextContent("실행 배포와 정책을 불러오는 중");
+    expect(await screen.findByRole("heading", { name: "사내 답변 모델" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "외부 전송 정책" })).toBeVisible();
+    expect(screen.getByText("전사 지식")).toBeVisible();
+  });
+
   it("separates model and profile kinds without exposing execution controls", () => {
     render(
       <ModelLabPage
@@ -38,6 +91,9 @@ describe("ModelLabPage", () => {
             version: 1,
             config: { bm25: {}, dense: {}, rrf: {}, indexing_profile_id: "indexing-1" },
             bindings: [],
+            deployment_version_id: null,
+            legacy: false,
+            readiness: { ready: false, reason_codes: [] },
             evaluation_state: "passed",
             is_default: true,
           },
@@ -84,6 +140,9 @@ describe("ModelLabPage", () => {
             version: 2,
             config: { bm25: {}, dense: {}, rrf: {}, indexing_profile_id: "indexing-1" },
             bindings: [{ model_id: "embedding-1", role: "embedding" }],
+            deployment_version_id: null,
+            legacy: false,
+            readiness: { ready: false, reason_codes: [] },
             evaluation_state: "passed",
             is_default: true,
           },
@@ -133,6 +192,9 @@ describe("ModelLabPage", () => {
       version: 2,
       config: { indexing_profile_id: "indexing-1", bm25: {}, dense: {}, rrf: {} },
       bindings: [],
+      deployment_version_id: null,
+      legacy: false,
+      readiness: { ready: false, reason_codes: [] },
       evaluation_state: "draft" as const,
       is_default: false,
     };
@@ -177,7 +239,9 @@ describe("ModelLabPage", () => {
     });
     await user.click(within(profileForm!).getByRole("button", { name: "YAML 프로파일 등록" }));
     expect(await screen.findByText("registered-retrieval")).toBeVisible();
-    expect(requests.map(([input]) => input)).toEqual([
+    expect(requests.map(([input]) => input).filter((input) =>
+      String(input).includes("/admin/rag/models") || String(input).includes("/profiles/"),
+    )).toEqual([
       "/api/v1/admin/rag/models",
       "/api/v1/admin/rag/profiles/retrieval/yaml",
     ]);
@@ -226,6 +290,9 @@ describe("ModelLabPage", () => {
       version: 1,
       config: { indexing_profile_id: "indexing-1", bm25: {}, dense: {}, rrf: {} },
       bindings: [],
+      deployment_version_id: null,
+      legacy: false,
+      readiness: { ready: false, reason_codes: [] },
       evaluation_state: "draft",
       is_default: false,
     }, 201));

@@ -104,6 +104,7 @@ class DeploymentHealthResult:
     provider_model_id: str
     observed_provider_model_id: str | None
     latency_ms: int
+    checked_at: datetime
 
 
 class DeploymentHealthService:
@@ -185,6 +186,7 @@ class DeploymentHealthService:
             provider_model_id=deployment.provider_model_id,
             observed_provider_model_id=recorded.observed_provider_model_id,
             latency_ms=recorded.latency_ms or 0,
+            checked_at=recorded.created_at,
         )
 
     async def _record_failure(
@@ -213,6 +215,7 @@ class DeploymentHealthService:
             provider_model_id=deployment.provider_model_id,
             observed_provider_model_id=None,
             latency_ms=latency_ms,
+            checked_at=recorded.created_at,
         )
 
 

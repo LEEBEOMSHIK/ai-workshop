@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi.testclient import TestClient
@@ -12,6 +13,7 @@ from ai_workshop.platform.identity.api import get_current_user
 from ai_workshop.platform.identity.domain import User, UserRole
 
 VERSION_ID = UUID("10000000-0000-0000-0000-000000000001")
+CHECKED_AT = datetime(2026, 9, 5, 1, 2, 3, tzinfo=UTC)
 
 
 def user(role: UserRole) -> User:
@@ -36,6 +38,7 @@ class HealthService:
             provider_model_id="runtime/exact-model",
             observed_provider_model_id="runtime/exact-model",
             latency_ms=6,
+            checked_at=CHECKED_AT,
         )
 
     async def check(self, version_id: UUID, *, actor_id: UUID) -> DeploymentHealthResult:
@@ -63,6 +66,7 @@ def test_owner_health_check_returns_only_safe_fields() -> None:
         "provider_model_id": "runtime/exact-model",
         "observed_provider_model_id": "runtime/exact-model",
         "latency_ms": 6,
+        "checked_at": "2026-09-05T01:02:03Z",
     }
     assert service.calls == [(VERSION_ID, owner.id)]
     assert "endpoint" not in response.text
@@ -80,6 +84,7 @@ def test_owner_health_check_returns_safe_failed_model_mismatch() -> None:
             provider_model_id="runtime/exact-model",
             observed_provider_model_id=None,
             latency_ms=4,
+            checked_at=CHECKED_AT,
         )
     )
     app = create_app()
@@ -99,6 +104,7 @@ def test_owner_health_check_returns_safe_failed_model_mismatch() -> None:
         "provider_model_id": "runtime/exact-model",
         "observed_provider_model_id": None,
         "latency_ms": 4,
+        "checked_at": "2026-09-05T01:02:03Z",
     }
 
 

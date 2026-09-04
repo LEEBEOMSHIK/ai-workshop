@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from ai_workshop.labs.rag.deployments.domain import (
@@ -9,7 +10,19 @@ from ai_workshop.labs.rag.deployments.domain import (
     ProviderKind,
 )
 
-_DISCLOSURES: dict[ExecutionLocation, tuple[str, str]] = {
+type ExternalGenerationDisclosureVersion = Literal["external-generation-v1"]
+type NonExternalGenerationDisclosureVersion = Literal[
+    "local-generation-v1", "on-premise-generation-v1"
+]
+type GenerationDisclosureVersion = (
+    ExternalGenerationDisclosureVersion | NonExternalGenerationDisclosureVersion
+)
+
+EXTERNAL_GENERATION_DISCLOSURE_VERSION: ExternalGenerationDisclosureVersion = (
+    "external-generation-v1"
+)
+
+_DISCLOSURES: dict[ExecutionLocation, tuple[GenerationDisclosureVersion, str]] = {
     ExecutionLocation.LOCAL: (
         "local-generation-v1",
         "사내 로컬 모델에서 처리됩니다.",
@@ -19,10 +32,18 @@ _DISCLOSURES: dict[ExecutionLocation, tuple[str, str]] = {
         "사내 온프레미스 모델에서 처리됩니다.",
     ),
     ExecutionLocation.EXTERNAL: (
-        "external-generation-v1",
+        EXTERNAL_GENERATION_DISCLOSURE_VERSION,
         "OpenAI 외부 API로 현재 질문, 제한된 이전 대화와 선별된 문서 근거가 전송됩니다.",
     ),
 }
+
+
+@dataclass(frozen=True, slots=True)
+class GenerationDisclosure:
+    required: bool
+    version: GenerationDisclosureVersion
+    text: str
+    transmitted_data_categories: tuple[str, ...]
 
 
 class ConversationRole(StrEnum):
@@ -217,7 +238,7 @@ def generation_execution_snapshot(
     deployment = profile.deployment
     if deployment is None:
         raise ValueError("Generation execution requires an exact Deployment.")
-    disclosure_version, disclosure = _DISCLOSURES[deployment.location]
+    disclosure = generation_disclosure(deployment)
     return GenerationExecutionSnapshot(
         provider=deployment.provider,
         model_name=profile.model_name,
@@ -225,6 +246,22 @@ def generation_execution_snapshot(
         deployment_name=deployment.display_name,
         location=deployment.location,
         external_transfer=deployment.external_transfer,
-        disclosure=disclosure,
-        disclosure_version=disclosure_version,
+        disclosure=disclosure.text,
+        disclosure_version=disclosure.version,
+    )
+
+
+def generation_disclosure(
+    deployment: ModelDeploymentVersion,
+) -> GenerationDisclosure:
+    version, text = _DISCLOSURES[deployment.location]
+    return GenerationDisclosure(
+        required=deployment.external_transfer,
+        version=version,
+        text=text,
+        transmitted_data_categories=(
+            deployment.transmitted_data_categories
+            if deployment.external_transfer
+            else ()
+        ),
     )

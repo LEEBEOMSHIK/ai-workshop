@@ -25,8 +25,9 @@ describe("EvidenceAnswer", () => {
   it("renders a validated LLM answer with citations mapped to current evidence", () => {
     renderAnswer(
       searchResult({
-        generation: {
-          status: "answered",
+      generation: {
+        execution: null,
+        status: "answered",
           text: "환매 요청은 영업일 기준 3일 전에 접수해야 합니다.",
           citations: [{ claim_index: 0, evidence_ids: ["evidence-1"] }],
           reason_codes: [],
@@ -223,6 +224,7 @@ function searchResult(overrides: Partial<SearchResult> = {}): SearchResult {
     experimental: false,
     resolved_query: "환매 제한은 무엇인가요?",
     generation: {
+      execution: null,
       status: "not_requested",
       text: null,
       citations: [],

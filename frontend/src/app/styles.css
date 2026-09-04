@@ -601,7 +601,8 @@ h1 {
 
 .model-lab-header,
 .registry-group,
-.version-forms {
+.version-forms,
+.model-administration {
   width: min(100%, 78rem);
   margin-inline: auto;
 }
@@ -616,6 +617,12 @@ h1 {
 }
 
 .registry-group {
+  margin-top: 3rem;
+}
+
+.model-administration {
+  display: grid;
+  gap: 2rem;
   margin-top: 3rem;
 }
 
@@ -867,6 +874,133 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.deployment-registry,
+.data-policy-panel {
+  padding: clamp(1rem, 2.5vw, 1.8rem);
+  border: 1px solid #26313b;
+  border-radius: 1rem;
+  background: rgb(16 23 31 / 94%);
+}
+
+.deployment-grid,
+.workspace-policy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.deployment-card,
+.policy-card {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid #2d3945;
+  border-radius: 0.8rem;
+  background: #0c1218;
+}
+
+.deployment-kind,
+.deployment-health {
+  color: #8f9ba6;
+  font-size: 0.76rem;
+}
+
+.location-badge {
+  flex: none;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid #3c5a5b;
+  border-radius: 999px;
+  color: #8ee6dc;
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.location-external {
+  border-color: #7b6534;
+  color: #f5c86d;
+}
+
+.capability-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.capability-list span {
+  padding: 0.15rem 0.35rem;
+  border-radius: 0.35rem;
+  background: #19252d;
+}
+
+.data-policy-panel > .policy-card {
+  margin-top: 1.25rem;
+}
+
+.policy-card,
+.policy-card fieldset {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.policy-card fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.policy-card-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  align-items: center;
+}
+
+.policy-card-heading h3 {
+  margin: 0;
+}
+
+.policy-card-heading span {
+  color: #8ee6dc;
+  font-size: 0.76rem;
+}
+
+.policy-card label,
+.policy-card select {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.policy-card select {
+  padding: 0.7rem;
+  border: 1px solid #33414e;
+  border-radius: 0.55rem;
+  color: #eff4f7;
+  background: #0a1016;
+}
+
+.policy-card .inline-check,
+.external-approval .inline-check {
+  display: flex;
+  gap: 0.55rem;
+  align-items: start;
+}
+
+.policy-card button {
+  justify-self: start;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid #55d9c9;
+  border-radius: 0.6rem;
+  color: #07100f;
+  background: #55d9c9;
+  font-weight: 750;
+}
+
+.form-success {
+  color: #8ee6dc;
+}
+
 .technical-identifiers {
   margin-top: 0.9rem;
   padding-top: 0.8rem;
@@ -950,6 +1084,16 @@ h1 {
   color: #8f9ba6;
   font-size: 0.76rem;
   line-height: 1.5;
+}
+
+.external-approval {
+  border-color: #7b6534 !important;
+  background: #17140e;
+}
+
+.external-approval > p {
+  margin: 0;
+  line-height: 1.6;
 }
 
 .component-summary {

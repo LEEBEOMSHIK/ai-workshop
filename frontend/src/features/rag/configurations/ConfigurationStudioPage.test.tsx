@@ -12,17 +12,6 @@ afterEach(() => {
 describe("ConfigurationStudioPage", () => {
   it("saves a generative package with the selected versioned LLM profile", async () => {
     const data = studioData();
-    data.models.push({
-      id: "model-llm",
-      kind: "llm",
-      name: "local-korean-llm",
-      version: 2,
-      config: {
-        provider: "openai_compatible",
-        runtime_model: "runtime/exact-model",
-        data_policy: "local_only",
-      },
-    });
     data.profiles.push({
       id: "generation-local",
       kind: "generation",
@@ -40,7 +29,10 @@ describe("ConfigurationStudioPage", () => {
           response_schema_version: 1,
         },
       },
-      bindings: [{ role: "llm", model_id: "model-llm" }],
+      bindings: [],
+      deployment_version_id: "deployment-local",
+      legacy: false,
+      readiness: { ready: true, reason_codes: [] },
       evaluation_state: "draft",
       is_default: false,
     });
@@ -48,6 +40,17 @@ describe("ConfigurationStudioPage", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (input === "/api/v1/rag/deployments/options") return jsonResponse([deploymentOption({
+          deployment_version_id: "deployment-local",
+          display_name: "사내 생성 배포",
+          model_name: "local-korean-llm",
+          model_version: 2,
+          provider: "local_openai_compatible",
+          provider_model_id: "runtime/exact-model",
+          location: "on_premise",
+          external_transfer: false,
+          approval: localApproval(),
+        })]);
         if (input !== "/api/v1/rag/configurations") {
           throw new Error(`Unexpected request: ${String(input)}`);
         }
@@ -71,10 +74,10 @@ describe("ConfigurationStudioPage", () => {
       screen.getByRole("combobox", { name: "답변 방식" }),
       "generative",
     );
-    const generationSelect = screen.getByRole("combobox", { name: "Generation Profile" });
+    const generationSelect = await screen.findByRole("combobox", { name: "생성 구성" });
     expect(
       within(generationSelect).getByRole("option", {
-        name: "grounded-generation v1 · local-korean-llm v2",
+        name: "grounded-generation v1 · 사내 생성 배포 · local-korean-llm v2 · runtime/exact-model · 사내 온프레미스",
       }),
     ).toHaveValue("generation-local");
     const builder = screen.getByRole("region", { name: "새 RAG 패키지 구성" });
@@ -89,6 +92,193 @@ describe("ConfigurationStudioPage", () => {
       generation_profile_id: "generation-local",
       answer_policy: { mode: "generative" },
     });
+  });
+
+  it("keeps server-disabled Deployments unavailable and requires exact external approval", async () => {
+    const data = studioData();
+    data.profiles.push(
+      generationProfile("generation-disabled", "deployment-disabled", "정책 차단 생성"),
+      generationProfile("generation-external", "deployment-external", "외부 근거 생성"),
+    );
+    let requestBody: Record<string, unknown> | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (input === "/api/v1/rag/deployments/options") return jsonResponse([
+        deploymentOption({
+          deployment_version_id: "deployment-disabled",
+          display_name: "정책 차단 배포",
+          readiness: { ready: false, reason_codes: ["workspace_external_transfer_denied"] },
+        }),
+        deploymentOption(),
+      ]);
+      if (input === "/api/v1/rag/configurations") {
+        requestBody = JSON.parse(String(init?.body));
+        return jsonResponse(savedConfiguration({
+          name: "외부 생성 구성",
+          generation_profile_id: "generation-external",
+          answer_policy: { ...savedConfiguration().answer_policy, mode: "generative" },
+        }), 201);
+      }
+      throw new Error(`Unexpected request: ${String(input)}`);
+    }));
+    const user = userEvent.setup();
+    render(<ConfigurationStudioPage initialData={data} />);
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "답변 방식" }), "generative");
+    const generationSelect = await screen.findByRole("combobox", { name: "생성 구성" });
+    expect(within(generationSelect).getByRole("option", {
+      name: /정책 차단 배포.*지식 공간 정책에서 외부 전송을 허용하지 않음/,
+    })).toBeDisabled();
+    expect(within(generationSelect).getByRole("option", {
+      name: /OpenAI 금융 답변 · OpenAI GPT-5 mini v2 · gpt-5-mini-2025-08-07 · 외부 API/,
+    })).toHaveValue("generation-external");
+
+    await user.selectOptions(generationSelect, "generation-external");
+    await user.type(screen.getByRole("textbox", { name: "구성 이름" }), "외부 생성 구성");
+    await user.click(screen.getByRole("checkbox", { name: "전사 지식" }));
+    const saveButton = screen.getByRole("button", { name: "저장" });
+    expect(saveButton).toBeDisabled();
+    expect(screen.getByText("OpenAI 외부 API로 현재 질문과 선별 근거가 전송됩니다.")).toBeVisible();
+    const approval = screen.getByRole("checkbox", {
+      name: /OpenAI Responses API.*현재 질문.*제한된 이전 대화.*선별된 문서 근거.*전사 지식.*external-generation-v1/,
+    });
+    expect(approval).toHaveAccessibleDescription(
+      /OpenAI 외부 API로 현재 질문과 선별 근거가 전송됩니다.*전송 범위: 현재 질문, 제한된 이전 대화, 선별된 문서 근거.*고지 버전: external-generation-v1/,
+    );
+    expect(approval).not.toBeChecked();
+    await user.click(approval);
+    expect(saveButton).toBeEnabled();
+
+    await user.click(saveButton);
+    expect(requestBody).toMatchObject({
+      generation_profile_id: "generation-external",
+      workspace_ids: ["workspace-company"],
+      external_transfer_approval: {
+        confirmed: true,
+        disclosure_version: "external-generation-v1",
+      },
+    });
+  });
+
+  it("invalidates external acknowledgement when the Workspace set or Deployment changes", async () => {
+    const data = studioData();
+    data.workspaces.push({ id: "workspace-private", name: "내 문서", kind: "personal", expires_at: null });
+    data.profiles.push(generationProfile("generation-external", "deployment-external", "외부 근거 생성"));
+    data.profiles.push(generationProfile("generation-external-2", "deployment-external-2", "외부 근거 생성 2"));
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (input === "/api/v1/rag/deployments/options") return jsonResponse([
+        deploymentOption(),
+        deploymentOption({ deployment_version_id: "deployment-external-2", display_name: "OpenAI 금융 답변 2" }),
+      ]);
+      throw new Error(`Unexpected request: ${String(input)}`);
+    }));
+    const user = userEvent.setup();
+    render(<ConfigurationStudioPage initialData={data} />);
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "답변 방식" }), "generative");
+    await screen.findByRole("combobox", { name: "생성 구성" });
+    await user.type(screen.getByRole("textbox", { name: "구성 이름" }), "외부 생성 구성");
+    await user.click(screen.getByRole("checkbox", { name: "전사 지식" }));
+    const approval = screen.getByRole("checkbox", { name: /현재 질문.*전사 지식/ });
+    await user.click(approval);
+    expect(approval).toBeChecked();
+
+    await user.click(screen.getByRole("checkbox", { name: "내 문서" }));
+    const changedWorkspaceApproval = screen.getByRole("checkbox", { name: /현재 질문.*전사 지식.*내 문서/ });
+    expect(changedWorkspaceApproval).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "저장" })).toBeDisabled();
+    await user.click(changedWorkspaceApproval);
+    await user.selectOptions(screen.getByRole("combobox", { name: "생성 구성" }), "generation-external-2");
+    expect(screen.getByRole("checkbox", { name: /현재 질문.*전사 지식.*내 문서/ })).not.toBeChecked();
+  });
+
+  it("saves a ready on-premise Deployment without external acknowledgement", async () => {
+    const data = studioData();
+    data.profiles.push(generationProfile("generation-local", "deployment-local", "사내 근거 생성"));
+    let requestBody: Record<string, unknown> | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (input === "/api/v1/rag/deployments/options") return jsonResponse([deploymentOption({
+        deployment_version_id: "deployment-local",
+        display_name: "사내 생성 배포",
+        provider: "local_openai_compatible",
+        provider_model_id: "local/korean-rag-v1",
+        location: "on_premise",
+        external_transfer: false,
+        approval: localApproval(),
+      })]);
+      if (input === "/api/v1/rag/configurations") {
+        requestBody = JSON.parse(String(init?.body));
+        return jsonResponse(savedConfiguration({ generation_profile_id: "generation-local" }), 201);
+      }
+      throw new Error(`Unexpected request: ${String(input)}`);
+    }));
+    const user = userEvent.setup();
+    render(<ConfigurationStudioPage initialData={data} />);
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "답변 방식" }), "generative");
+    await screen.findByRole("combobox", { name: "생성 구성" });
+    await user.type(screen.getByRole("textbox", { name: "구성 이름" }), "사내 생성 구성");
+    await user.click(screen.getByRole("checkbox", { name: "전사 지식" }));
+    expect(screen.queryByRole("checkbox", { name: /외부.*전송/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "저장" }));
+
+    expect(requestBody).not.toHaveProperty("external_transfer_approval");
+  });
+
+  it("retries Deployment options after a safe loading failure", async () => {
+    const data = studioData();
+    data.profiles.push(generationProfile("generation-local", "deployment-local", "사내 근거 생성"));
+    let calls = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (input !== "/api/v1/rag/deployments/options") throw new Error("Unexpected request");
+      calls += 1;
+      if (calls === 1) return jsonResponse({ error: { code: "request_failed", message: "raw", correlation_id: "c" } }, 503);
+      return jsonResponse([deploymentOption({
+        deployment_version_id: "deployment-local",
+        provider: "local_openai_compatible",
+        location: "on_premise",
+        external_transfer: false,
+        approval: localApproval(),
+      })]);
+    }));
+    const user = userEvent.setup();
+    render(<ConfigurationStudioPage initialData={data} />);
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "답변 방식" }), "generative");
+    expect(await screen.findByRole("alert")).toHaveTextContent("생성 배포 정보를 불러오지 못했습니다");
+    await user.click(screen.getByRole("button", { name: "생성 배포 다시 불러오기" }));
+    expect(await screen.findByRole("option", { name: /OpenAI 금융 답변/ })).toBeEnabled();
+    expect(calls).toBe(2);
+  });
+
+  it("sends a changed server disclosure version without a client version constant", async () => {
+    const data = studioData();
+    data.profiles.push(generationProfile("generation-external", "deployment-external", "외부 근거 생성"));
+    const changedDisclosure = deploymentOption();
+    Reflect.set(changedDisclosure.approval, "disclosure_version", "external-generation-v2");
+    Reflect.set(changedDisclosure.approval, "disclosure", "변경된 서버 고지입니다.");
+    let requestBody: Record<string, unknown> | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (input === "/api/v1/rag/deployments/options") return jsonResponse([changedDisclosure]);
+      if (input === "/api/v1/rag/configurations") {
+        requestBody = JSON.parse(String(init?.body));
+        return jsonResponse(savedConfiguration(), 201);
+      }
+      throw new Error(`Unexpected request: ${String(input)}`);
+    }));
+    const user = userEvent.setup();
+    render(<ConfigurationStudioPage initialData={data} />);
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "답변 방식" }), "generative");
+    await screen.findByRole("combobox", { name: "생성 구성" });
+    await user.type(screen.getByRole("textbox", { name: "구성 이름" }), "새 고지 구성");
+    await user.click(screen.getByRole("checkbox", { name: "전사 지식" }));
+    await user.click(screen.getByRole("checkbox", { name: /external-generation-v2/ }));
+    await user.click(screen.getByRole("button", { name: "저장" }));
+
+    expect(requestBody).toHaveProperty(
+      "external_transfer_approval.disclosure_version",
+      "external-generation-v2",
+    );
   });
 
   it("shows only the automatic BM25 baseline before the user saves a configuration", () => {
@@ -172,6 +362,9 @@ describe("ConfigurationStudioPage", () => {
           },
         },
         bindings: [],
+        deployment_version_id: null,
+        legacy: false,
+        readiness: { ready: false, reason_codes: [] },
         evaluation_state: "draft",
         is_default: false,
       },
@@ -328,6 +521,18 @@ describe("ConfigurationStudioPage", () => {
     }
   });
 
+  it("translates saved Deployment readiness reasons without exposing internal codes", () => {
+    const data = studioData();
+    data.configurations = [savedConfiguration({
+      name: "외부 정책 확인 구성",
+      answer_reasons: ["provider_not_allowed"],
+    })];
+    render(<ConfigurationStudioPage initialData={data} />);
+
+    expect(screen.getByText(/회사 정책에서 외부 공급자를 허용하지 않음/)).toBeVisible();
+    expect(screen.queryByText(/provider_not_allowed/)).not.toBeInTheDocument();
+  });
+
   it("keeps the model registry read-only inside the user configuration studio", async () => {
     const user = userEvent.setup();
     render(<ConfigurationStudioPage initialData={studioData()} />);
@@ -410,6 +615,9 @@ function studioData(): ConfigurationStudioData {
           },
         },
         bindings: [{ model_id: "model-e5", role: "embedding" }],
+        deployment_version_id: null,
+        legacy: false,
+        readiness: { ready: false, reason_codes: [] },
         evaluation_state: "draft",
         is_default: false,
       },
@@ -428,6 +636,9 @@ function studioData(): ConfigurationStudioData {
           },
         },
         bindings: [{ model_id: "model-bge", role: "embedding" }],
+        deployment_version_id: null,
+        legacy: false,
+        readiness: { ready: false, reason_codes: [] },
         evaluation_state: "draft",
         is_default: false,
       },
@@ -438,6 +649,9 @@ function studioData(): ConfigurationStudioData {
         version: 1,
         config: { indexing_profile_id: "indexing-e5", bm25: {} },
         bindings: [],
+        deployment_version_id: null,
+        legacy: false,
+        readiness: { ready: false, reason_codes: [] },
         evaluation_state: "passed",
         is_default: true,
       },
@@ -454,6 +668,9 @@ function studioData(): ConfigurationStudioData {
           reranker: null,
         },
         bindings: [],
+        deployment_version_id: null,
+        legacy: false,
+        readiness: { ready: false, reason_codes: [] },
         evaluation_state: "draft",
         is_default: false,
       },
@@ -464,6 +681,9 @@ function studioData(): ConfigurationStudioData {
         version: 1,
         config: { indexing_profile_id: "indexing-bge", bm25: {}, dense: {}, rrf: { k: 60 } },
         bindings: [],
+        deployment_version_id: null,
+        legacy: false,
+        readiness: { ready: false, reason_codes: [] },
         evaluation_state: "draft",
         is_default: false,
       },
@@ -480,6 +700,9 @@ function studioData(): ConfigurationStudioData {
           reranker: { enabled: true },
         },
         bindings: [],
+        deployment_version_id: null,
+        legacy: false,
+        readiness: { ready: false, reason_codes: [] },
         evaluation_state: "draft",
         is_default: false,
       },
@@ -542,4 +765,56 @@ function jsonResponse(body: unknown, status = 200) {
     status,
     headers: { "content-type": "application/json" },
   });
+}
+
+function generationProfile(id: string, deploymentVersionId: string, name: string) {
+  return {
+    id,
+    kind: "generation" as const,
+    name,
+    version: 1,
+    config: {
+      prompt_ref: "rag-answer-v1",
+      context_prompt_ref: "rag-contextualize-v1",
+      citation_mode: "required",
+    },
+    bindings: [],
+    deployment_version_id: deploymentVersionId,
+    legacy: false,
+    readiness: { ready: true, reason_codes: [] },
+    evaluation_state: "passed" as const,
+    is_default: false,
+  };
+}
+
+function deploymentOption(overrides: Record<string, unknown> = {}) {
+  return {
+    deployment_version_id: "deployment-external",
+    display_name: "OpenAI 금융 답변",
+    model_name: "OpenAI GPT-5 mini",
+    model_version: 2,
+    provider: "openai_responses",
+    provider_model_id: "gpt-5-mini-2025-08-07",
+    location: "external",
+    external_transfer: true,
+    allowed_environments: ["production"],
+    capabilities: ["structured_output", "contextualization"],
+    readiness: { ready: true, reason_codes: [] },
+    approval: {
+      required: true,
+      disclosure_version: "external-generation-v1",
+      disclosure: "OpenAI 외부 API로 현재 질문과 선별 근거가 전송됩니다.",
+      transmitted_data_categories: ["question", "bounded_history", "evidence"],
+    },
+    ...overrides,
+  };
+}
+
+function localApproval() {
+  return {
+    required: false,
+    disclosure_version: "local-generation-v1",
+    disclosure: "사내 실행 환경에서 처리됩니다.",
+    transmitted_data_categories: [],
+  };
 }

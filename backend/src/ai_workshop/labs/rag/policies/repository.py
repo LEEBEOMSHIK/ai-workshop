@@ -2,7 +2,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_workshop.labs.rag.configurations.models import (
@@ -26,6 +27,11 @@ from ai_workshop.labs.rag.policies.models import (
     WorkspaceDataPolicyRecord,
     WorkspaceDataPolicyVersionRecord,
 )
+from ai_workshop.platform.workspaces.models import WorkspaceRecord
+
+
+class DataPolicyRepositoryConflict(Exception):
+    pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,15 +56,24 @@ class SqlAlchemyDataPolicyRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def installation_policy_id(self) -> UUID:
-        policy_id = await self._session.scalar(
-            select(InstallationDataPolicyRecord.id).where(
-                InstallationDataPolicyRecord.singleton_key.is_(True)
-            )
+    async def installation_policy_id(self, *, for_update: bool = False) -> UUID:
+        statement = select(InstallationDataPolicyRecord.id).where(
+            InstallationDataPolicyRecord.singleton_key.is_(True)
         )
+        if for_update:
+            statement = statement.with_for_update()
+        policy_id = await self._session.scalar(statement)
         if policy_id is None:
             raise RuntimeError("The Installation data policy is not initialized.")
         return policy_id
+
+    async def next_installation_version(self, policy_id: UUID) -> int:
+        latest = await self._session.scalar(
+            select(func.max(InstallationDataPolicyVersionRecord.version)).where(
+                InstallationDataPolicyVersionRecord.policy_id == policy_id
+            )
+        )
+        return (latest or 0) + 1
 
     async def add_installation_version(
         self, policy: InstallationDataPolicyVersion
@@ -77,7 +92,10 @@ class SqlAlchemyDataPolicyRepository:
                 updated_at=policy.created_at,
             )
         )
-        await self._session.flush()
+        try:
+            await self._session.flush()
+        except IntegrityError as exc:
+            raise DataPolicyRepositoryConflict from exc
         return policy
 
     async def get_installation_version(
@@ -103,7 +121,10 @@ class SqlAlchemyDataPolicyRepository:
     async def latest_installation_policy(self) -> InstallationDataPolicyVersion:
         version_id = await self._session.scalar(
             select(InstallationDataPolicyVersionRecord.id)
-            .order_by(InstallationDataPolicyVersionRecord.version.desc())
+            .order_by(
+                InstallationDataPolicyVersionRecord.version.desc(),
+                InstallationDataPolicyVersionRecord.id.desc(),
+            )
             .limit(1)
         )
         if version_id is None:
@@ -112,6 +133,52 @@ class SqlAlchemyDataPolicyRepository:
         if policy is None:
             raise RuntimeError("The Installation data policy is not initialized.")
         return policy
+
+    async def workspace_exists(
+        self, workspace_id: UUID, *, for_update: bool = False
+    ) -> bool:
+        statement = select(WorkspaceRecord.id).where(WorkspaceRecord.id == workspace_id)
+        if for_update:
+            statement = statement.with_for_update()
+        return await self._session.scalar(statement) is not None
+
+    async def workspace_policy_id(
+        self, workspace_id: UUID, *, for_update: bool = False
+    ) -> UUID | None:
+        statement = select(WorkspaceDataPolicyRecord.id).where(
+            WorkspaceDataPolicyRecord.workspace_id == workspace_id
+        )
+        if for_update:
+            statement = statement.with_for_update()
+        return await self._session.scalar(statement)
+
+    async def create_workspace_policy_identity(
+        self,
+        policy_id: UUID,
+        *,
+        workspace_id: UUID,
+        created_at: datetime,
+    ) -> None:
+        self._session.add(
+            WorkspaceDataPolicyRecord(
+                id=policy_id,
+                workspace_id=workspace_id,
+                created_at=created_at,
+                updated_at=created_at,
+            )
+        )
+        try:
+            await self._session.flush()
+        except IntegrityError as exc:
+            raise DataPolicyRepositoryConflict from exc
+
+    async def next_workspace_version(self, policy_id: UUID) -> int:
+        latest = await self._session.scalar(
+            select(func.max(WorkspaceDataPolicyVersionRecord.version)).where(
+                WorkspaceDataPolicyVersionRecord.policy_id == policy_id
+            )
+        )
+        return (latest or 0) + 1
 
     async def add_workspace_version(
         self, policy: WorkspaceDataPolicyVersion
@@ -141,7 +208,10 @@ class SqlAlchemyDataPolicyRepository:
                 updated_at=policy.created_at,
             )
         )
-        await self._session.flush()
+        try:
+            await self._session.flush()
+        except IntegrityError as exc:
+            raise DataPolicyRepositoryConflict from exc
         return policy
 
     async def get_workspace_version(

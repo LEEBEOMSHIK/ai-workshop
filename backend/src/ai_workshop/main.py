@@ -6,6 +6,7 @@ from ai_workshop.labs.rag.deployments.api import router as rag_deployment_router
 from ai_workshop.labs.rag.evaluation.api import router as rag_evaluation_router
 from ai_workshop.labs.rag.models.admin_api import router as rag_model_admin_router
 from ai_workshop.labs.rag.models.api import router as rag_model_router
+from ai_workshop.labs.rag.policies.api import router as rag_policy_router
 from ai_workshop.labs.rag.search.api import router as rag_search_router
 from ai_workshop.platform.assets.api import router as asset_router
 from ai_workshop.platform.identity.api import router as identity_router
@@ -41,6 +42,7 @@ def create_app() -> FastAPI:
     application.include_router(rag_evaluation_router)
     application.include_router(rag_model_router)
     application.include_router(rag_model_admin_router)
+    application.include_router(rag_policy_router)
     application.include_router(rag_search_router)
     application.include_router(setup_router)
     application.include_router(workspace_router)

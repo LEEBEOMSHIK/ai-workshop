@@ -8,8 +8,10 @@ from ai_workshop.labs.rag.configurations.domain import (
     ExternalTransferApprovalConfirmation,
     SavedRagConfiguration,
 )
+from ai_workshop.labs.rag.deployments.domain import ExecutionLocation, ProviderKind
 from ai_workshop.labs.rag.generation.domain import (
     ExternalGenerationDisclosureVersion,
+    GenerationExecutionSnapshot,
 )
 from ai_workshop.labs.rag.models.domain import EvaluationState
 
@@ -87,6 +89,7 @@ class SavedRagConfigurationResponse(BaseModel):
     service_ready: bool
     search_reasons: list[str]
     answer_reasons: list[str]
+    generation_execution_preview: "GenerationExecutionPreviewResponse | None"
 
     @classmethod
     def from_domain(
@@ -98,6 +101,7 @@ class SavedRagConfigurationResponse(BaseModel):
         service_ready: bool = False,
         search_reasons: tuple[str, ...] = (),
         answer_reasons: tuple[str, ...] = ("generation_not_configured",),
+        generation_execution_preview: GenerationExecutionSnapshot | None = None,
     ) -> Self:
         return cls(
             id=configuration.id,
@@ -121,4 +125,33 @@ class SavedRagConfigurationResponse(BaseModel):
             service_ready=service_ready,
             search_reasons=list(search_reasons),
             answer_reasons=list(answer_reasons),
+            generation_execution_preview=(
+                GenerationExecutionPreviewResponse.from_domain(
+                    generation_execution_preview
+                )
+                if generation_execution_preview is not None
+                else None
+            ),
+        )
+
+
+class GenerationExecutionPreviewResponse(BaseModel):
+    provider: ProviderKind
+    model_name: str
+    model_version: int
+    deployment_name: str
+    location: ExecutionLocation
+    external_transfer: bool
+    disclosure: str
+
+    @classmethod
+    def from_domain(cls, preview: GenerationExecutionSnapshot) -> Self:
+        return cls(
+            provider=preview.provider,
+            model_name=preview.model_name,
+            model_version=preview.model_version,
+            deployment_name=preview.deployment_name,
+            location=preview.location,
+            external_transfer=preview.external_transfer,
+            disclosure=preview.disclosure,
         )

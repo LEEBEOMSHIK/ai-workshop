@@ -4,7 +4,6 @@ import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiError } from "../../../shared/api/client";
 import {
-  type DeploymentOption,
   type FolderOption,
   type SavedConfiguration,
   type SearchOptions,
@@ -13,7 +12,6 @@ import {
   type SearchSubmissionContext,
   type WorkspaceOption,
   listSearchFolders,
-  loadGenerationProcessingOptions,
   loadSearchOptions,
   searchEvidence,
 } from "./api";
@@ -29,12 +27,16 @@ const workspaceKindLabels: Record<WorkspaceOption["kind"], string> = {
 
 const MAX_SEARCH_HISTORY_ITEMS = 20;
 
-const providerLabels: Record<DeploymentOption["provider"], string> = {
+type GenerationExecutionPreview = NonNullable<
+  SavedConfiguration["generation_execution_preview"]
+>;
+
+const providerLabels: Record<GenerationExecutionPreview["provider"], string> = {
   local_openai_compatible: "로컬 OpenAI 호환",
   openai_responses: "OpenAI Responses API",
 };
 
-const locationLabels: Record<DeploymentOption["location"], string> = {
+const locationLabels: Record<GenerationExecutionPreview["location"], string> = {
   local: "로컬",
   on_premise: "사내 온프레미스",
   external: "외부 API",
@@ -44,10 +46,6 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
   const [options, setOptions] = useState<SearchOptions>(
     initialOptions ?? { configurations: [], workspaces: [] },
   );
-  const [processingOptionsLoading, setProcessingOptionsLoading] = useState(
-    initialOptions?.generationProfiles === undefined || initialOptions?.deployments === undefined,
-  );
-  const [processingOptionsFailed, setProcessingOptionsFailed] = useState(false);
   const [processingDetailsOpen, setProcessingDetailsOpen] = useState(false);
   const [folderOptions, setFolderOptions] = useState<Record<string, FolderOption[]>>({});
   const [workspaceIds, setWorkspaceIds] = useState<string[]>([]);
@@ -94,31 +92,6 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
     };
   }, [initialOptions]);
 
-  useEffect(() => {
-    if (
-      initialOptions?.generationProfiles !== undefined && initialOptions.deployments !== undefined
-    ) return;
-    let active = true;
-    loadGenerationProcessingOptions({
-      generationProfiles: initialOptions?.generationProfiles,
-      deployments: initialOptions?.deployments,
-    })
-      .then((loaded) => {
-        if (!active) return;
-        setOptions((current) => ({ ...current, ...loaded }));
-        setProcessingOptionsFailed(false);
-      })
-      .catch(() => {
-        if (active) setProcessingOptionsFailed(true);
-      })
-      .finally(() => {
-        if (active) setProcessingOptionsLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [initialOptions]);
-
   useEffect(
     () => () => {
       requestGeneration.current += 1;
@@ -134,14 +107,9 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
   const selectedConfiguration = options.configurations.find(
     (configuration) => configuration.id === configurationId,
   );
-  const selectedGenerationProfile = options.generationProfiles?.find(
-    (profile) => profile.id === selectedConfiguration?.generation_profile_id,
-  );
-  const selectedDeployment = options.deployments?.find(
-    (deployment) => deployment.deployment_version_id === selectedGenerationProfile?.deployment_version_id,
-  );
   const generationRequested = selectedConfiguration?.answer_policy.mode === "generative";
-  const selectedProcessingKnown = !generationRequested || selectedDeployment !== undefined;
+  const selectedProcessingKnown =
+    !generationRequested || selectedConfiguration?.generation_execution_preview != null;
   const requiresExperimentalConsent = selectedConfiguration?.experimental === true;
   const selectedConfigurationReady =
     selectedConfiguration?.search_ready === true &&
@@ -364,9 +332,7 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
           {selectedConfiguration ? (
             <ProcessingDisclosure
               configuration={selectedConfiguration}
-              deployment={selectedDeployment}
-              loading={processingOptionsLoading}
-              failed={processingOptionsFailed}
+              preview={selectedConfiguration.generation_execution_preview}
               detailsOpen={processingDetailsOpen}
               onToggleDetails={() => setProcessingDetailsOpen((current) => !current)}
             />
@@ -449,16 +415,12 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
 
 function ProcessingDisclosure({
   configuration,
-  deployment,
-  loading,
-  failed,
+  preview,
   detailsOpen,
   onToggleDetails,
 }: {
   configuration: SavedConfiguration;
-  deployment: DeploymentOption | undefined;
-  loading: boolean;
-  failed: boolean;
+  preview: GenerationExecutionPreview | null;
   detailsOpen: boolean;
   onToggleDetails: () => void;
 }) {
@@ -471,10 +433,8 @@ function ProcessingDisclosure({
       </aside>
     );
   }
-  if (!deployment) {
-    const message = loading
-      ? "선택한 구성의 모델 및 처리 위치를 확인하는 중입니다."
-      : safeProcessingUnavailableMessage(configuration.answer_reasons, failed);
+  if (!preview) {
+    const message = safeProcessingUnavailableMessage(configuration.answer_reasons);
     return (
       <aside className="processing-disclosure" aria-label="선택한 구성 처리 안내">
         <p role="status" aria-label="선택한 구성 처리 안내">{message}</p>
@@ -483,7 +443,7 @@ function ProcessingDisclosure({
   }
   return (
     <aside className="processing-disclosure" aria-label="선택한 구성 처리 안내">
-      <p role="status" aria-label="선택한 구성 처리 안내">{deployment.approval.disclosure}</p>
+      <p role="status" aria-label="선택한 구성 처리 안내">{preview.disclosure}</p>
       <button
         type="button"
         className="processing-details-toggle"
@@ -496,12 +456,11 @@ function ProcessingDisclosure({
       {detailsOpen ? (
         <div id="selected-processing-details" role="region" aria-label="모델 및 처리 위치 상세">
           <dl className="identity-list">
-            <div><dt>실행 배포</dt><dd>{deployment.display_name}</dd></div>
-            <div><dt>Model Definition</dt><dd>{deployment.model_name} v{deployment.model_version}</dd></div>
-            <div><dt>공급자</dt><dd>{providerLabels[deployment.provider]}</dd></div>
-            <div><dt>Provider 모델 ID</dt><dd>{deployment.provider_model_id}</dd></div>
-            <div><dt>처리 위치</dt><dd>{locationLabels[deployment.location]}</dd></div>
-            <div><dt>외부 전송</dt><dd>{deployment.external_transfer ? "외부 전송 대상" : "외부 전송 없음"}</dd></div>
+            <div><dt>실행 배포</dt><dd>{preview.deployment_name}</dd></div>
+            <div><dt>Model Definition</dt><dd>{preview.model_name} v{preview.model_version}</dd></div>
+            <div><dt>공급자</dt><dd>{providerLabels[preview.provider]}</dd></div>
+            <div><dt>처리 위치</dt><dd>{locationLabels[preview.location]}</dd></div>
+            <div><dt>외부 전송</dt><dd>{preview.external_transfer ? "외부 전송 대상" : "외부 전송 없음"}</dd></div>
           </dl>
         </div>
       ) : null}
@@ -509,7 +468,7 @@ function ProcessingDisclosure({
   );
 }
 
-function safeProcessingUnavailableMessage(reasonCodes: string[], failed: boolean): string {
+function safeProcessingUnavailableMessage(reasonCodes: string[]): string {
   const messages: Record<string, string> = {
     deployment_not_allowed_in_environment: "현재 환경에서는 선택한 생성 실행을 사용할 수 없습니다.",
     workspace_external_transfer_denied: "지식 공간 정책에서 외부 전송을 허용하지 않습니다.",
@@ -522,9 +481,7 @@ function safeProcessingUnavailableMessage(reasonCodes: string[], failed: boolean
   };
   const known = reasonCodes.map((code) => messages[code]).find(Boolean);
   if (known) return known;
-  return failed
-    ? "선택한 구성의 모델 및 처리 위치를 불러오지 못했습니다."
-    : "선택한 구성의 모델 및 처리 위치를 확인할 수 없습니다.";
+  return "선택한 구성의 모델 및 처리 위치를 확인할 수 없습니다.";
 }
 
 function ConfigurationOption({ configuration }: { configuration: SavedConfiguration }) {

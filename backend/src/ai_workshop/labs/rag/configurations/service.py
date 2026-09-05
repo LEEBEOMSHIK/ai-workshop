@@ -19,11 +19,22 @@ from ai_workshop.labs.rag.deployments.domain import (
     ExecutionLocation,
     ModelDeploymentVersion,
 )
+from ai_workshop.labs.rag.generation.domain import (
+    GenerationExecutionSnapshot,
+    generation_execution_snapshot,
+)
+from ai_workshop.labs.rag.generation.profile import resolve_generation_profile
 from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand
-from ai_workshop.labs.rag.models.domain import EvaluationState, Profile, ProfileKind
+from ai_workshop.labs.rag.models.domain import (
+    EvaluationState,
+    ModelDefinition,
+    Profile,
+    ProfileKind,
+)
 from ai_workshop.labs.rag.policies.domain import (
     InstallationDataPolicyVersion,
     WorkspaceDataPolicyVersion,
+    exact_external_approval_is_current,
 )
 from ai_workshop.labs.rag.policies.repository import (
     ApprovedWorkspacePolicySnapshot,
@@ -57,6 +68,10 @@ class RagConfigurationRepository(Protocol):
         self, deployment_version_id: UUID
     ) -> ModelDeploymentVersion | None: ...
 
+    async def get_model_definition(
+        self, model_definition_id: UUID
+    ) -> ModelDefinition | None: ...
+
     async def lock_external_execution_policy(self) -> None: ...
 
     async def latest_installation_policy(self) -> InstallationDataPolicyVersion: ...
@@ -68,6 +83,10 @@ class RagConfigurationRepository(Protocol):
     async def add_external_approval(
         self, approval: ExternalConfigurationApproval
     ) -> ExternalConfigurationApproval: ...
+
+    async def get_external_approval_for_configuration(
+        self, configuration_version_id: UUID
+    ) -> ExternalConfigurationApproval | None: ...
 
     async def active_asset_version_ids(
         self,
@@ -119,6 +138,13 @@ class ConfigurationReadiness:
     service_ready: bool
     search_reasons: tuple[str, ...] = ()
     answer_reasons: tuple[str, ...] = ()
+    generation_execution_preview: GenerationExecutionSnapshot | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ResolvedGenerationExecution:
+    deployment: ModelDeploymentVersion
+    snapshot: GenerationExecutionSnapshot
 
 
 class RagConfigurationService:
@@ -388,18 +414,112 @@ class RagConfigurationService:
             search_ready = search[item.version_id]
             answer_ready = False
             answer_reasons: tuple[str, ...]
+            resolved_execution = await self._resolve_generation_execution(item)
             if item.generation_profile_id is None:
-                answer_reasons = ("generation_not_configured",)
-            else:
+                answer_ready = True
+                answer_reasons = ()
+            elif (
+                resolved_execution is None
+                or self.generation_readiness is None
+                or not await self.generation_readiness.is_ready(
+                    item.generation_profile_id
+                )
+            ):
                 answer_reasons = ("deployment_not_ready",)
+            elif resolved_execution.deployment.location is not ExecutionLocation.EXTERNAL:
+                answer_ready = True
+                answer_reasons = ()
+            else:
+                policy = await self.policy_resolver.resolve(
+                    deployment=resolved_execution.deployment,
+                    workspace_ids=item.workspace_ids,
+                )
+                if not policy.allowed:
+                    answer_reasons = (
+                        policy.reason_code.value
+                        if policy.reason_code is not None
+                        else "provider_not_allowed",
+                    )
+                else:
+                    approval = (
+                        await self.repository.get_external_approval_for_configuration(
+                            item.version_id
+                        )
+                    )
+                    answer_ready = approval is not None and (
+                        exact_external_approval_is_current(
+                            approval_configuration_version_id=(
+                                approval.configuration_version_id
+                            ),
+                            approval_deployment_version_id=(
+                                approval.deployment_version_id
+                            ),
+                            approval_installation_policy_version_id=(
+                                approval.installation_policy_version_id
+                            ),
+                            approval_disclosure_version=approval.disclosure_version,
+                            approval_workspace_policy_snapshots=tuple(
+                                (snapshot.workspace_id, snapshot.policy_version_id)
+                                for snapshot in approval.workspace_policies
+                            ),
+                            configuration_version_id=item.version_id,
+                            deployment_version_id=resolved_execution.deployment.id,
+                            workspace_ids=item.workspace_ids,
+                            policy=policy,
+                            disclosure_version=(
+                                resolved_execution.snapshot.disclosure_version
+                            ),
+                        )
+                    )
+                    answer_reasons = (() if answer_ready else ("deployment_not_ready",))
             result[item.version_id] = ConfigurationReadiness(
                 search_ready=search_ready,
                 answer_ready=answer_ready,
                 service_ready=search_ready and answer_ready,
                 search_reasons=(() if search_ready else ("active_index_unavailable",)),
                 answer_reasons=answer_reasons,
+                generation_execution_preview=(
+                    resolved_execution.snapshot
+                    if resolved_execution is not None
+                    else None
+                ),
             )
         return result
+
+    async def _resolve_generation_execution(
+        self,
+        configuration: SavedRagConfiguration,
+    ) -> _ResolvedGenerationExecution | None:
+        if configuration.generation_profile_id is None:
+            return None
+        profile = await self.repository.find_profile(
+            configuration.generation_profile_id
+        )
+        if (
+            profile is None
+            or profile.kind is not ProfileKind.GENERATION
+            or profile.deployment_version_id is None
+            or profile.bindings
+        ):
+            return None
+        deployment = await self.repository.get_deployment_version(
+            profile.deployment_version_id
+        )
+        if deployment is None:
+            return None
+        model = await self.repository.get_model_definition(
+            deployment.model_definition_id
+        )
+        if model is None:
+            return None
+        try:
+            resolved = resolve_generation_profile(profile, deployment, model)
+            return _ResolvedGenerationExecution(
+                deployment=deployment,
+                snapshot=generation_execution_snapshot(resolved),
+            )
+        except (TypeError, ValueError):
+            return None
 
     async def detail(
         self,

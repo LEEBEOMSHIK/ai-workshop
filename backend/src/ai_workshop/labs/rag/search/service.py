@@ -49,7 +49,10 @@ from ai_workshop.labs.rag.highlighting.domain import (
     EvidenceSource,
 )
 from ai_workshop.labs.rag.highlighting.service import EvidenceSelector
-from ai_workshop.labs.rag.policies.domain import PolicyDecision
+from ai_workshop.labs.rag.policies.domain import (
+    PolicyDecision,
+    exact_external_approval_is_current,
+)
 from ai_workshop.labs.rag.retrieval.domain import FusedHit, ResolvedSearchScope
 from ai_workshop.labs.rag.retrieval.service import (
     DenseRetrieverPort,
@@ -58,7 +61,6 @@ from ai_workshop.labs.rag.retrieval.service import (
     SparseRetrieverPort,
 )
 from ai_workshop.labs.rag.search.configuration_port import (
-    ResolvedExternalApproval,
     ResolvedSearchConfiguration,
     SearchConfigurationResolverPort,
 )
@@ -525,12 +527,28 @@ class SearchApplicationService:
             raise _safe_generation_error(code)
 
         execution = generation_execution_snapshot(profile)
-        if deployment.location is ExecutionLocation.EXTERNAL and not _approval_is_current(
-            approval=configuration.external_approval,
-            configuration=configuration,
-            deployment=deployment,
-            policy=policy,
-            disclosure_version=execution.disclosure_version,
+        approval = configuration.external_approval
+        if deployment.location is ExecutionLocation.EXTERNAL and (
+            approval is None
+            or not exact_external_approval_is_current(
+                approval_configuration_version_id=(
+                    approval.configuration_version_id
+                ),
+                approval_deployment_version_id=approval.deployment_version_id,
+                approval_installation_policy_version_id=(
+                    approval.installation_policy_version_id
+                ),
+                approval_disclosure_version=approval.disclosure_version,
+                approval_workspace_policy_snapshots=tuple(
+                    (snapshot.workspace_id, snapshot.policy_version_id)
+                    for snapshot in approval.workspace_policies
+                ),
+                configuration_version_id=configuration.configuration_version_id,
+                deployment_version_id=deployment.id,
+                workspace_ids=configuration.workspace_ids,
+                policy=policy,
+                disclosure_version=execution.disclosure_version,
+            )
         ):
             await self._record_audit(
                 actor_id=actor_id,
@@ -832,37 +850,6 @@ class _ResolvedScopeResolver:
         ):
             raise ValueError("The authorized search scope changed unexpectedly.")
         return self._scope
-
-
-def _approval_is_current(
-    *,
-    approval: ResolvedExternalApproval | None,
-    configuration: ResolvedSearchConfiguration,
-    deployment: ModelDeploymentVersion,
-    policy: PolicyDecision,
-    disclosure_version: str,
-) -> bool:
-    if approval is None:
-        return False
-    expected_workspace_ids = tuple(dict.fromkeys(configuration.workspace_ids))
-    current_snapshots = policy.workspace_policy_snapshots
-    approval_snapshots = tuple(
-        (snapshot.workspace_id, snapshot.policy_version_id)
-        for snapshot in approval.workspace_policies
-    )
-    if len(dict(current_snapshots)) != len(current_snapshots):
-        return False
-    if len(dict(approval_snapshots)) != len(approval_snapshots):
-        return False
-    return (
-        approval.configuration_version_id == configuration.configuration_version_id
-        and approval.deployment_version_id == deployment.id
-        and approval.installation_policy_version_id
-        == policy.installation_policy_version_id
-        and approval.disclosure_version == disclosure_version
-        and dict(approval_snapshots) == dict(current_snapshots)
-        and set(dict(approval_snapshots)) == set(expected_workspace_ids)
-    )
 
 
 _SAFE_GENERATION_ERRORS: dict[str, tuple[str, int]] = {

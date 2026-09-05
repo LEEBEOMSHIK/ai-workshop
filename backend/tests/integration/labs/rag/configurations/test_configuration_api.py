@@ -743,6 +743,31 @@ def test_postgresql_external_save_is_atomic_and_preserves_legacy_bindings(
         assert saved.status_code == 201, saved.text
         assert saved.json()["answer_ready"] is False
         assert saved.json()["answer_reasons"] == ["deployment_not_ready"]
+        assert saved.json()["generation_execution_preview"] == {
+            "provider": "openai_responses",
+            "model_name": "Synthetic LLM",
+            "model_version": 1,
+            "deployment_name": "External generation",
+            "location": "external",
+            "external_transfer": True,
+            "disclosure": (
+                "OpenAI 외부 API로 현재 질문, 제한된 이전 대화와 선별된 문서 근거가 "
+                "전송됩니다."
+            ),
+        }
+        serialized_saved = json.dumps(
+            saved.json()["generation_execution_preview"], ensure_ascii=False
+        )
+        for internal_value in (
+            str(ids["deployment_version"]),
+            str(ids["llm_model"]),
+            created_profile.json()["id"],
+            "exact-provider-model",
+            "openai-responses",
+            "openai-primary",
+            "public-notice-v1",
+        ):
+            assert internal_value not in serialized_saved
         legacy = next(
             item
             for item in listed.json()

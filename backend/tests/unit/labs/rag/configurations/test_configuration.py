@@ -34,6 +34,7 @@ from ai_workshop.labs.rag.evaluation.domain import (
 from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand
 from ai_workshop.labs.rag.models.domain import (
     EvaluationState,
+    ModelDefinition,
     ModelKind,
     Profile,
     ProfileKind,
@@ -322,6 +323,7 @@ class MemoryConfigurationRepository:
         active_asset_version_ids: tuple[UUID, ...] = (),
         ready_indexing_profile_ids: frozenset[UUID] = frozenset(),
         deployments: tuple[ModelDeploymentVersion, ...] = (),
+        models: tuple[ModelDefinition, ...] = (),
         installation_policy: InstallationDataPolicyVersion | None = None,
         workspace_policies: tuple[WorkspaceDataPolicyVersion, ...] = (),
         reject_approval: bool = False,
@@ -334,6 +336,7 @@ class MemoryConfigurationRepository:
         self.saved: list[SavedRagConfiguration] = []
         self.events: list[str] = []
         self.deployments = {item.id: item for item in deployments}
+        self.models = {item.id: item for item in models}
         self.installation_policy = installation_policy
         self.workspace_policies = workspace_policies
         self.approvals: list[ExternalConfigurationApproval] = []
@@ -365,6 +368,11 @@ class MemoryConfigurationRepository:
     ) -> ModelDeploymentVersion | None:
         return self.deployments.get(deployment_version_id)
 
+    async def get_model_definition(
+        self, model_definition_id: UUID
+    ) -> ModelDefinition | None:
+        return self.models.get(model_definition_id)
+
     async def lock_external_execution_policy(self) -> None:
         self.external_execution_locks += 1
 
@@ -391,6 +399,18 @@ class MemoryConfigurationRepository:
         self.events.append("approval")
         self.approvals.append(approval)
         return approval
+
+    async def get_external_approval_for_configuration(
+        self, configuration_version_id: UUID
+    ) -> ExternalConfigurationApproval | None:
+        return next(
+            (
+                approval
+                for approval in self.approvals
+                if approval.configuration_version_id == configuration_version_id
+            ),
+            None,
+        )
 
     async def active_asset_version_ids(
         self, workspace_ids: tuple[UUID, ...]
@@ -434,8 +454,10 @@ class RecordingIngestionJobs:
 class GenerationReadiness:
     def __init__(self, ready_profile_ids: set[UUID]) -> None:
         self.ready_profile_ids = ready_profile_ids
+        self.checked_profile_ids: list[UUID] = []
 
     async def is_ready(self, profile_id: UUID) -> bool:
+        self.checked_profile_ids.append(profile_id)
         return profile_id in self.ready_profile_ids
 
 
@@ -456,11 +478,23 @@ async def test_search_readiness_is_mapped_by_immutable_configuration_version() -
 
 
 @pytest.mark.asyncio
-async def test_service_readiness_requires_generation_only_for_generative_mode() -> None:
+async def test_service_readiness_treats_ready_extractive_answer_as_ready() -> None:
     extractive = _configuration()
+    model = ModelDefinition(
+        id=uuid4(),
+        kind=ModelKind.LLM,
+        name="Local model",
+        version=1,
+        config={},
+    )
+    deployment = _deployment(
+        location=ExecutionLocation.LOCAL,
+        provider=ProviderKind.LOCAL_OPENAI_COMPATIBLE,
+        model_definition_id=model.id,
+    )
+    generation = _generation_profile(deployment.id)
     configuration_id = uuid4()
     indexing_profile_id = uuid4()
-    generation_profile_id = uuid4()
     generative = SavedRagConfiguration.create(
         configuration_id=configuration_id,
         configuration_version_id=uuid4(),
@@ -470,7 +504,7 @@ async def test_service_readiness_requires_generation_only_for_generative_mode() 
         indexing_profile_id=indexing_profile_id,
         retrieval_profile_id=uuid4(),
         retrieval_indexing_profile_id=indexing_profile_id,
-        generation_profile_id=generation_profile_id,
+        generation_profile_id=generation.id,
         answer_policy_version=_policy(
             configuration_id=configuration_id,
             mode="generative",
@@ -478,28 +512,94 @@ async def test_service_readiness_requires_generation_only_for_generative_mode() 
         workspace_ids=(uuid4(),),
     )
     repository = MemoryConfigurationRepository(
-        profiles=(),
+        profiles=(generation,),
         accessible_workspace_ids=(),
         ready_indexing_profile_ids=frozenset(
             {extractive.indexing_profile_id, generative.indexing_profile_id}
         ),
+        deployments=(deployment,),
+        models=(model,),
     )
+    generation_readiness = GenerationReadiness({generation.id})
     service = RagConfigurationService(
         repository,
         RecordingIngestionJobs(repository.events),
-        generation_readiness=GenerationReadiness({generation_profile_id}),
+        generation_readiness=generation_readiness,
     )
 
     readiness = await service.readiness((extractive, generative))
 
     assert readiness[extractive.version_id].search_ready is True
-    assert readiness[extractive.version_id].answer_ready is False
-    assert readiness[extractive.version_id].service_ready is False
-    assert readiness[extractive.version_id].answer_reasons == ("generation_not_configured",)
+    assert readiness[extractive.version_id].answer_ready is True
+    assert readiness[extractive.version_id].service_ready is True
+    assert readiness[extractive.version_id].answer_reasons == ()
+    assert readiness[extractive.version_id].generation_execution_preview is None
     assert readiness[generative.version_id].search_ready is True
-    assert readiness[generative.version_id].answer_ready is False
-    assert readiness[generative.version_id].service_ready is False
-    assert readiness[generative.version_id].answer_reasons == ("deployment_not_ready",)
+    assert readiness[generative.version_id].answer_ready is True
+    assert readiness[generative.version_id].service_ready is True
+    assert readiness[generative.version_id].answer_reasons == ()
+    assert generation_readiness.checked_profile_ids == [generation.id]
+
+
+@pytest.mark.asyncio
+async def test_readiness_builds_safe_preview_from_exact_generation_join() -> None:
+    indexing, _retrieval = _technical_profiles()
+    model = ModelDefinition(
+        id=uuid4(),
+        kind=ModelKind.LLM,
+        name="Public model name",
+        version=7,
+        config={},
+    )
+    deployment = _deployment(
+        location=ExecutionLocation.EXTERNAL,
+        provider=ProviderKind.OPENAI_RESPONSES,
+        model_definition_id=model.id,
+    )
+    generation = _generation_profile(deployment.id)
+    configuration_id = uuid4()
+    configuration = SavedRagConfiguration.create(
+        configuration_id=configuration_id,
+        configuration_version_id=uuid4(),
+        owner_id=uuid4(),
+        name="External generation",
+        version=1,
+        indexing_profile_id=indexing.id,
+        retrieval_profile_id=uuid4(),
+        retrieval_indexing_profile_id=indexing.id,
+        generation_profile_id=generation.id,
+        answer_policy_version=_policy(
+            configuration_id=configuration_id,
+            mode="generative",
+        ),
+        workspace_ids=(uuid4(),),
+    )
+    repository = MemoryConfigurationRepository(
+        profiles=(generation,),
+        accessible_workspace_ids=(),
+        ready_indexing_profile_ids=frozenset({indexing.id}),
+        deployments=(deployment,),
+        models=(model,),
+    )
+
+    result = await RagConfigurationService(
+        repository,
+        RecordingIngestionJobs(repository.events),
+    ).readiness((configuration,))
+
+    assert result[configuration.version_id].answer_ready is False
+    assert result[configuration.version_id].answer_reasons == ("deployment_not_ready",)
+    preview = result[configuration.version_id].generation_execution_preview
+    assert preview is not None
+    assert preview.provider is ProviderKind.OPENAI_RESPONSES
+    assert preview.model_name == "Public model name"
+    assert preview.model_version == 7
+    assert preview.deployment_name == "Synthetic generation deployment"
+    assert preview.location is ExecutionLocation.EXTERNAL
+    assert preview.external_transfer is True
+    assert preview.disclosure == (
+        "OpenAI 외부 API로 현재 질문, 제한된 이전 대화와 선별된 문서 근거가 전송됩니다."
+    )
 
 
 def _technical_profiles() -> tuple[Profile, Profile]:
@@ -624,6 +724,112 @@ def _approval() -> ExternalTransferApprovalConfirmation:
         confirmed=True,
         disclosure_version="external-generation-v1",
     )
+
+
+async def _saved_external_configuration_for_readiness() -> tuple[
+    SavedRagConfiguration,
+    MemoryConfigurationRepository,
+    RagConfigurationService,
+    GenerationReadiness,
+]:
+    indexing, retrieval = _technical_profiles()
+    model = ModelDefinition(
+        id=uuid4(),
+        kind=ModelKind.LLM,
+        name="External model",
+        version=1,
+        config={},
+    )
+    deployment = _deployment(
+        location=ExecutionLocation.EXTERNAL,
+        provider=ProviderKind.OPENAI_RESPONSES,
+        model_definition_id=model.id,
+    )
+    generation = _generation_profile(deployment.id)
+    workspace_id = uuid4()
+    repository = MemoryConfigurationRepository(
+        profiles=(indexing, retrieval, generation),
+        accessible_workspace_ids=(workspace_id,),
+        ready_indexing_profile_ids=frozenset({indexing.id}),
+        deployments=(deployment,),
+        models=(model,),
+        installation_policy=_installation_policy(),
+        workspace_policies=(_workspace_policy(workspace_id),),
+    )
+    generation_readiness = GenerationReadiness({generation.id})
+    service = RagConfigurationService(
+        repository,
+        RecordingIngestionJobs(repository.events),
+        generation_readiness=generation_readiness,
+    )
+    result = await service.create(
+        owner_id=uuid4(),
+        name="External ready configuration",
+        indexing_profile_id=indexing.id,
+        retrieval_profile_id=retrieval.id,
+        generation_profile_id=generation.id,
+        answer_mode="generative",
+        min_semantic_score=0.8,
+        min_keyword_coverage=0.7,
+        require_complete_provenance=True,
+        conflict_mode="separate_sources",
+        workspace_ids=(workspace_id,),
+        external_transfer_approval=_approval(),
+    )
+    return result.configuration, repository, service, generation_readiness
+
+
+@pytest.mark.asyncio
+async def test_external_readiness_requires_exact_current_saved_approval() -> None:
+    configuration, _repository, service, generation_readiness = (
+        await _saved_external_configuration_for_readiness()
+    )
+
+    readiness = (await service.readiness((configuration,)))[configuration.version_id]
+
+    assert readiness.answer_ready is True
+    assert readiness.service_ready is True
+    assert readiness.answer_reasons == ()
+    assert generation_readiness.checked_profile_ids == [configuration.generation_profile_id]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("policy_change", "expected_reason"),
+    [
+        ("stale", "deployment_not_ready"),
+        ("deny", "provider_not_allowed"),
+        ("workspace_deny", "workspace_external_transfer_denied"),
+    ],
+)
+async def test_external_readiness_fails_closed_for_stale_or_denied_policy(
+    policy_change: str,
+    expected_reason: str,
+) -> None:
+    configuration, repository, service, _generation_readiness = (
+        await _saved_external_configuration_for_readiness()
+    )
+    repository.installation_policy = _installation_policy(
+        mode=(OutboundMode.DENY if policy_change == "deny" else OutboundMode.APPROVED_PROVIDERS)
+    )
+    if policy_change == "workspace_deny":
+        workspace_id = configuration.workspace_ids[0]
+        repository.workspace_policies = (
+            WorkspaceDataPolicyVersion.create(
+                policy_id=uuid4(),
+                workspace_id=workspace_id,
+                version=4,
+                mode=WorkspaceOutboundMode.DENY,
+                approved_providers=(),
+                changed_by=uuid4(),
+            ),
+        )
+
+    readiness = (await service.readiness((configuration,)))[configuration.version_id]
+
+    assert readiness.answer_ready is False
+    assert readiness.service_ready is False
+    assert readiness.answer_reasons == (expected_reason,)
 
 
 @pytest.mark.asyncio

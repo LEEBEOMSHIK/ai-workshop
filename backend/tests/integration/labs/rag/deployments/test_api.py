@@ -399,9 +399,12 @@ def test_member_cannot_create_or_list_admin_deployments() -> None:
             "/api/v1/admin/rag/deployments", json=payload(model.id)
         )
         listed = client.get("/api/v1/admin/rag/deployments")
+        options = client.get("/api/v1/rag/deployments/options")
 
     assert created.status_code == 403
     assert listed.status_code == 403
+    assert options.status_code == 403
+    assert options.json()["error"]["code"] == "owner_required"
     assert repository.identities == {}
 
 

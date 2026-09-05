@@ -15,7 +15,7 @@ from ai_workshop.labs.rag.deployments.service import (
     get_deployment_health_service,
     get_deployment_registry_service,
 )
-from ai_workshop.platform.identity.api import get_current_user, require_owner
+from ai_workshop.platform.identity.api import require_owner
 from ai_workshop.platform.identity.domain import User
 
 router = APIRouter(tags=["rag-deployments"])
@@ -95,7 +95,7 @@ async def list_admin_deployments(
     response_model=list[DeploymentOptionResponse],
 )
 async def list_deployment_options(
-    _user: Annotated[User, Depends(get_current_user)],
+    _user: Annotated[User, Depends(require_owner)],
     service: Annotated[DeploymentRegistryService, Depends(get_deployment_registry_service)],
 ) -> list[DeploymentOptionResponse]:
     return [

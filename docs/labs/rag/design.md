@@ -1,18 +1,19 @@
 # 자산운용 문서 RAG AI 검색 설계
 
 - 상태: 승인됨
-- 기준일: 2026-08-30
+- 기준일: 2026-09-05
 - 상세 설계: [2026-08-30 AI 검색 상세 설계](designs/2026-08-30-ai-search-detailed-design.md)
 
 ## 1. 목적
 
 첫 번째 RAG는 자산운용 전문 문서에서 관련 근거를 찾고, 사용자가 그 위치를 직접 확인할 수 있게 하는 AI 검색이다. 초기에는 자동 투자 판단, 투자 추천과 자동매매를 수행하지 않는다.
 
-검색 품질과 근거 추적 기반선은 유지한다. 다음 완료 경계는 근거 제한 LLM 답변과 인용
-검증이며 리랭커는 선택 단계로 둔다. 상세 계약은
+검색 품질과 근거 추적 기반선 위에 근거 제한 LLM 답변과 인용 검증을 연결했다. 리랭커는
+선택 단계로 두며, 설정하지 않은 구성이 정상 동작한다. 상세 계약은
 `docs/superpowers/specs/2026-09-04-conversational-generative-rag-v2-design.md`와
-`docs/decisions/0008-required-generation-optional-reranker.md`를 따른다. 에이전트 리서치는
-그 이후 별도 단계로 추가한다.
+`docs/decisions/0008-required-generation-optional-reranker.md`를 따른다. 실행 위치와 외부
+전송 정책은 `docs/superpowers/specs/2026-09-05-multi-environment-llm-deployment-design.md`를
+따르며, 에이전트 리서치는 별도 단계로 추가한다.
 
 ## 2. 검색 범위
 
@@ -217,12 +218,42 @@ BM25 + Bi-encoder A + RRF + Reranker X
 
 ### 생성 프로파일
 
-- LLM과 정확한 버전
-- 실행 위치와 데이터 반출 정책
+- LLM Model Definition과 불변 Deployment Version
 - 시스템 지침과 답변 템플릿 버전
 - 컨텍스트 예산과 근거 정책
+- 생성 timeout, 최대 출력 토큰, temperature와 구조화 출력 버전
 
-LLM 변경은 검색 색인을 다시 만들지 않는다. 검색 실험과 생성 실험을 별도로 기록한다.
+Deployment Version은 Provider, Provider 모델 식별자, 실행 위치, 허용 환경, 기능, 전송
+데이터 범주와 런타임 참조를 고정한다. endpoint와 secret의 실제 값은 환경변수 또는 승인된
+Secret Manager에서 해석하며 DB에는 안전한 reference만 저장한다. Generation Profile은
+정확한 Deployment Version 하나에 연결한다. LLM이나 Deployment 변경은 새 Generation
+Profile version을 만들지만 검색 색인을 다시 만들지 않는다. 검색 실험과 생성 실험을
+별도로 기록한다.
+
+현재 adapter는 로컬 OpenAI-compatible과 OpenAI Responses API를 지원한다. 실행 전에 현재
+환경, 정확한 모델 identity, 필수 기능, 최신 health, Installation 정책, 모든 선택 Workspace
+정책과 저장 구성의 외부 전송 승인을 다시 확인한다. 하나라도 금지되거나 승인 snapshot이
+현재 정책 version과 다르면 Provider runtime을 만들거나 호출하지 않는다. 정책 조회는 정책
+version을 쓰는 트랜잭션과 직렬화되며, 과거 승인에 grandfathering을 적용하지 않는다.
+
+정책이 허용하고 근거가 충분한 경우에만 구조화 생성을 실행한다. 응답은 허용된 Evidence ID의
+문장별 인용을 통과해야 하며 실패한 초안은 노출하지 않는다. 구성한 Provider가 실패해도 다른
+Provider나 추출 답변으로 조용히 전환하지 않는다. 공개 생성 실행 정보에는 Provider, 사용자용
+모델명·버전, Deployment 표시명, 실행 위치, 외부 전송 여부와 고지만 포함한다. endpoint/secret
+reference, Deployment 내부 ID와 Provider 원시 모델 ID는 공개 실행 응답에서 제외한다.
+
+일반 사용자에게 허용된 저장 구성 응답은 서버가 그 구성의 정확한
+`configuration → Generation Profile → Deployment Version → Model Definition` 연결을 해석해
+만든 안전 실행 미리보기만 제공한다. 미리보기 필드는 Provider, 사용자용 모델명·버전,
+Deployment 표시명, 실행 위치, 외부 전송 여부와 고지로 제한한다. 기술 Deployment/Profile
+카탈로그와 원시 Provider 모델 ID, 내부 UUID, endpoint·secret reference, health 원시 identity는
+owner 전용이며 일반 검색 화면은 이를 조회하거나 클라이언트에서 조합하지 않는다. 연결
+메타데이터가 없거나 유효하지 않으면 생성형 제출은 안전하게 막되 추출형 검색은 계속 사용할
+수 있다.
+
+감사 기록은 actor·구성·Generation Profile·Deployment·정책·prompt version, Evidence ID,
+토큰 수, 지연 시간, 안전 오류 코드와 correlation ID 같은 메타데이터만 저장한다. 질문, 이전
+대화, 문서 본문, 생성 초안, Provider request/response, endpoint와 secret은 저장하지 않는다.
 
 ### 저장된 RAG 구성
 
@@ -385,6 +416,19 @@ transaction per profile. A failure in an early page is accumulated but cannot st
 later pages. A profile-scoped recovery call bypasses pagination and processes exactly
 that requested profile once.
 
+### 생성 준비 상태
+
+저장 구성의 생성 준비 상태는 실제 Provider를 호출하지 않고 서버에서 계산한다. 정확한
+Generation Profile과 Deployment·Model 연결, 현재 환경과 최신 health가 모두 준비된 로컬 또는
+온프레미스 구성은 `answer_ready=true`가 된다. 외부 구성은 여기에 현재 Installation 정책과
+모든 구독 Workspace 정책의 허용, 저장된 구성·Deployment·정책·disclosure exact 승인 snapshot
+일치가 추가로 필요하다. 검색과 준비 상태는 동일한 exact 승인 비교 계약을 사용한다.
+
+정책 version이 강화되거나 승인 snapshot이 오래되면 `answer_ready=false`로 즉시 바뀐다.
+정책 거절은 `provider_not_allowed` 또는 `workspace_external_transfer_denied`, 오래되거나 누락된
+승인은 `deployment_not_ready`로 안전하게 설명한다. `service_ready`는 `search_ready`와
+`answer_ready`가 모두 참일 때만 참이며, 이 계산 중 Provider runtime을 만들거나 호출하지 않는다.
+
 ## 12. 첫 AI 검색 완료 기준
 
 - 모든 정상 검색 결과가 권한이 허용된 원문 위치로 이동한다.
@@ -396,11 +440,13 @@ that requested profile once.
 - 실패와 부분 처리 문서를 정상 문서처럼 표시하지 않는다.
 - 새 첨부 문서와 기존 문서를 함께 검색할 수 있다.
 - 비공개 원문이 외부 모델 API로 전송되지 않는다.
-- 현재 V1 답변은 LLM 생성문이 아니라 원문 근거 발췌를 사용하며 검색·회귀 기준선으로
-  유지한다.
-- 다음 V2 완료 기준은 리랭커 없이도 동작하는 Hybrid 검색, 근거 제한 LLM 답변과 인용
-  검증이다. 리랭커를 명시적으로 구성한 경우에만 실행하며 구성된 모델 실패를 조용히
-  건너뛰지 않는다.
+- V1 추출 답변은 검색·회귀 기준선으로 유지한다.
+- V2는 리랭커 없이도 Hybrid 검색, 근거 제한 LLM 답변과 인용 검증이 동작한다. 리랭커를
+  명시적으로 구성한 경우에만 실행하며 구성된 모델 실패를 조용히 건너뛰지 않는다.
+- 외부 생성은 회사 기본 정책과 모든 선택 Workspace 정책이 허용하고 관리자의 현재 exact
+  승인 snapshot이 일치할 때만 실행한다. 정책이 강화되면 기존 승인은 즉시 효력을 잃는다.
+- 사용자는 질문 전 고지와 답변의 실제 실행 snapshot에서 Provider, 모델·버전, 실행 위치와
+  외부 전송 여부를 확인할 수 있다. 내부 endpoint·secret reference는 확인할 수 없다.
 - 후속질문은 versioned context policy가 선택한 bounded 이전 turn으로 실제 검색 질의를
   확정하며, 원 질문과 확정 질의를 구분해 반환한다. assistant turn은 actor·구성 버전·본문에
   묶인 서버 서명을 검증하고, 매 turn 권한과 근거 범위를 다시 검사한다.

@@ -137,6 +137,39 @@ class PolicyDecision:
             )
 
 
+def exact_external_approval_is_current(
+    *,
+    approval_configuration_version_id: UUID,
+    approval_deployment_version_id: UUID,
+    approval_installation_policy_version_id: UUID,
+    approval_disclosure_version: str,
+    approval_workspace_policy_snapshots: Collection[tuple[UUID, UUID]],
+    configuration_version_id: UUID,
+    deployment_version_id: UUID,
+    workspace_ids: Collection[UUID],
+    policy: PolicyDecision,
+    disclosure_version: str,
+) -> bool:
+    expected_workspace_ids = tuple(dict.fromkeys(workspace_ids))
+    current_snapshots = tuple(policy.workspace_policy_snapshots)
+    approval_snapshots = tuple(approval_workspace_policy_snapshots)
+    current_snapshot_map = dict(current_snapshots)
+    approval_snapshot_map = dict(approval_snapshots)
+    if len(current_snapshot_map) != len(current_snapshots):
+        return False
+    if len(approval_snapshot_map) != len(approval_snapshots):
+        return False
+    return (
+        approval_configuration_version_id == configuration_version_id
+        and approval_deployment_version_id == deployment_version_id
+        and approval_installation_policy_version_id
+        == policy.installation_policy_version_id
+        and approval_disclosure_version == disclosure_version
+        and approval_snapshot_map == current_snapshot_map
+        and set(approval_snapshot_map) == set(expected_workspace_ids)
+    )
+
+
 def resolve_external_transfer_policy(
     *,
     provider: ProviderKind,

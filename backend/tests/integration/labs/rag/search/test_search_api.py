@@ -950,7 +950,7 @@ class ExactExternalRuntimeResolver:
         return ResolvedGenerationRuntime(deployment, self.runtime)
 
 
-def test_postgresql_current_approval_policy_strengthening_and_audit_hygiene(
+def verify_postgresql_current_approval_policy_strengthening_and_audit_hygiene(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     with _isolated_task8_database(monkeypatch) as isolated_url:

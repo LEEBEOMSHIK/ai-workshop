@@ -55,6 +55,9 @@ async def list_configurations(
             service_ready=readiness[item.version_id].service_ready,
             search_reasons=readiness[item.version_id].search_reasons,
             answer_reasons=readiness[item.version_id].answer_reasons,
+            generation_execution_preview=(
+                readiness[item.version_id].generation_execution_preview
+            ),
         )
         for item in configurations
     ]
@@ -94,6 +97,7 @@ async def create_configuration(
         service_ready=current.service_ready,
         search_reasons=current.search_reasons,
         answer_reasons=current.answer_reasons,
+        generation_execution_preview=current.generation_execution_preview,
     )
 
 
@@ -113,6 +117,7 @@ async def configuration_detail(
         service_ready=current.service_ready,
         search_reasons=current.search_reasons,
         answer_reasons=current.answer_reasons,
+        generation_execution_preview=current.generation_execution_preview,
     )
 
 
@@ -132,4 +137,5 @@ async def promote_configuration_default(
         service_ready=current.service_ready,
         search_reasons=current.search_reasons,
         answer_reasons=current.answer_reasons,
+        generation_execution_preview=current.generation_execution_preview,
     )

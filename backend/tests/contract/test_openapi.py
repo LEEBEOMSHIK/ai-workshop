@@ -8,6 +8,13 @@ from ai_workshop.main import create_app
 
 HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 EXPECTED_PATHS = {
+    "/api/v1/admin/rag/data-policies/installation",
+    "/api/v1/admin/rag/data-policies/installation/versions",
+    "/api/v1/admin/rag/data-policies/workspaces/{workspace_id}",
+    "/api/v1/admin/rag/data-policies/workspaces/{workspace_id}/versions",
+    "/api/v1/admin/rag/deployment-versions/{version_id}/health-check",
+    "/api/v1/admin/rag/deployments",
+    "/api/v1/admin/rag/deployments/{deployment_id}/versions",
     "/api/v1/admin/rag/models",
     "/api/v1/admin/rag/profiles/{kind}",
     "/api/v1/admin/rag/profiles/{kind}/yaml",
@@ -24,6 +31,7 @@ EXPECTED_PATHS = {
     "/api/v1/rag/configurations",
     "/api/v1/rag/configurations/{configuration_id}",
     "/api/v1/rag/configurations/{configuration_id}/default",
+    "/api/v1/rag/deployments/options",
     "/api/v1/rag/evaluation-policies",
     "/api/v1/rag/evaluation-runs",
     "/api/v1/rag/evaluation-runs/{run_id}",
@@ -173,7 +181,10 @@ def test_saved_rag_configuration_contract_is_versioned_and_experimental() -> Non
     assert policy["properties"]["require_complete_provenance"]["const"] is True
     assert policy["properties"]["conflict_mode"]["const"] == "separate_sources"
     policy_version = components["AnswerPolicyVersionResponse"]
-    assert policy_version["properties"]["mode"]["const"] == "extractive"
+    assert policy_version["properties"]["mode"]["enum"] == [
+        "extractive",
+        "generative",
+    ]
     assert policy_version["properties"]["require_complete_provenance"]["const"] is True
     assert policy_version["properties"]["conflict_mode"]["const"] == "separate_sources"
 
@@ -185,8 +196,54 @@ def test_saved_rag_configuration_contract_is_versioned_and_experimental() -> Non
         "is_default",
         "experimental",
         "search_ready",
+        "generation_execution_preview",
     } <= set(response["required"])
+    preview = components["GenerationExecutionPreviewResponse"]
+    safe_preview_fields = {
+        "provider",
+        "model_name",
+        "model_version",
+        "deployment_name",
+        "location",
+        "external_transfer",
+        "disclosure",
+    }
+    assert set(preview["properties"]) == safe_preview_fields
+    assert set(preview["required"]) == safe_preview_fields
+    assert not {
+        "deployment_version_id",
+        "model_definition_id",
+        "generation_profile_id",
+        "provider_model_id",
+        "endpoint_ref",
+        "secret_ref",
+        "observed_provider_model_id",
+        "internal_reference",
+    }.intersection(preview["properties"])
     assert "experimental" in components["SearchResponse"]["required"]
+
+
+def test_public_generation_execution_schema_excludes_internal_references() -> None:
+    schema = create_app().openapi()
+    execution = schema["components"]["schemas"]["GenerationExecutionResponse"]
+    public_fields = {
+        "provider",
+        "model_name",
+        "model_version",
+        "deployment_name",
+        "location",
+        "external_transfer",
+        "disclosure",
+    }
+
+    assert set(execution["properties"]) == public_fields
+    assert set(execution["required"]) == public_fields
+    assert not {
+        "endpoint_ref",
+        "secret_ref",
+        "deployment_version_id",
+        "provider_model_id",
+    }.intersection(execution["properties"])
 
 
 def test_evaluation_contract_requires_exact_security_and_reproducibility_thresholds() -> None:

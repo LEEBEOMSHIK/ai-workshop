@@ -148,6 +148,12 @@ class SqlAlchemyRagConfigurationRepository:
             deployment_version_id
         )
 
+    async def get_model_definition(
+        self, model_definition_id: UUID
+    ) -> ModelDefinition | None:
+        record = await self.session.get(ModelDefinitionRecord, model_definition_id)
+        return _model_to_domain(record) if record is not None else None
+
     async def lock_external_execution_policy(self) -> None:
         await SqlAlchemyDataPolicyRepository(
             self.session
@@ -171,6 +177,13 @@ class SqlAlchemyRagConfigurationRepository:
         return await SqlAlchemyDataPolicyRepository(
             self.session
         ).add_external_approval(approval)
+
+    async def get_external_approval_for_configuration(
+        self, configuration_version_id: UUID
+    ) -> ExternalConfigurationApproval | None:
+        return await SqlAlchemyDataPolicyRepository(
+            self.session
+        ).get_external_approval_for_configuration(configuration_version_id)
 
     async def authorized_workspace_ids(
         self,

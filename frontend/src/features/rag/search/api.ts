@@ -2,9 +2,7 @@ import { ApiError, apiRequest } from "../../../shared/api/client";
 import type { components } from "../../../shared/api/schema";
 
 export type EvidenceAnswerData = components["schemas"]["EvidenceAnswerResponse"];
-export type DeploymentOption = components["schemas"]["DeploymentOptionResponse"];
 export type FolderOption = components["schemas"]["FolderResponse"];
-export type GenerationProfile = components["schemas"]["ProfileResponse"];
 export type HighlightSpan = components["schemas"]["HighlightSpanResponse"];
 export type NormalizedTextData = components["schemas"]["NormalizedTextResponse"];
 export type RelatedSourceData = components["schemas"]["RelatedSourceResponse"];
@@ -16,13 +14,6 @@ export type WorkspaceOption = components["schemas"]["WorkspaceResponse"];
 export interface SearchOptions {
   configurations: SavedConfiguration[];
   workspaces: WorkspaceOption[];
-  generationProfiles?: GenerationProfile[];
-  deployments?: DeploymentOption[];
-}
-
-export interface GenerationProcessingOptions {
-  generationProfiles: GenerationProfile[];
-  deployments: DeploymentOption[];
 }
 
 export interface SearchSubmissionContext {
@@ -53,20 +44,6 @@ export async function loadSearchOptions(): Promise<SearchOptions> {
     apiRequest<SavedConfiguration[]>("/api/v1/rag/configurations"),
   ]);
   return { configurations, workspaces };
-}
-
-export async function loadGenerationProcessingOptions(
-  supplied: Partial<GenerationProcessingOptions> = {},
-): Promise<GenerationProcessingOptions> {
-  const [generationProfiles, deployments] = await Promise.all([
-    supplied.generationProfiles !== undefined
-      ? Promise.resolve(supplied.generationProfiles)
-      : apiRequest<GenerationProfile[]>("/api/v1/rag/profiles/generation"),
-    supplied.deployments !== undefined
-      ? Promise.resolve(supplied.deployments)
-      : apiRequest<DeploymentOption[]>("/api/v1/rag/deployments/options"),
-  ]);
-  return { generationProfiles, deployments };
 }
 
 export function searchEvidence(request: SearchRequest, signal?: AbortSignal): Promise<SearchResult> {

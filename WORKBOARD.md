@@ -1,9 +1,9 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-05
-- 현재 단계: 다중 환경 LLM Deployment와 OpenAI Responses 첫 구현 계획
-- 전체 상태: 승인된 Deployment·데이터 정책 설계를 기존 로컬 런타임과 OpenAI Responses
-  API의 첫 실행 수직 슬라이스로 나누어 구현할 준비를 마쳤다.
+- 현재 단계: 다중 환경 LLM Deployment와 OpenAI Responses 첫 구현 완료
+- 전체 상태: Deployment·데이터 정책·OpenAI Responses 실행·관리자 설정·사용자 고지와
+  전체 계약·privacy·migration·frontend/backend 검증을 완료했다.
 
 ## 현재 작업
 
@@ -28,6 +28,28 @@ Hybrid 검색 결과에 근거 제한 LLM 답변과 인용 검증을 연결한�
 - 사용자가 설계 전체를 승인했다. 첫 구현은 Provider를 동시에 늘리지 않고 기존 로컬
   OpenAI-compatible 유지와 OpenAI Responses API 완성까지 진행한다. 세부 TDD 순서와 파일
   경계는 `docs/superpowers/plans/2026-09-05-rag-llm-deployments-openai.md`를 따른다.
+- 2026-09-05 Task 1~11 구현과 전체 OpenAPI·privacy·migration·frontend/backend 회귀 검증,
+  독립 리뷰 수정과 운영 인계를 완료했다.
+- OpenAPI 공개 생성 실행 스키마와 전체 경로 계약을 현재 구현에 맞췄다. 격리 PostgreSQL의
+  exact approval·정책 강화·metadata-only 감사 흐름, migration 0016과 backend contract를
+  통과했으며 전체 backend/frontend gate는 최종 통합 검증에서 다시 실행한다.
+- privacy 재검토에서 일반 회원에게 노출되던 기술 Deployment 옵션을 owner-only로 제한하고,
+  저장 구성에 서버 exact join으로 계산한 7개 필드 안전 실행 미리보기를 추가했다. 일반 검색은
+  기술 Profile/Deployment 카탈로그를 더 이상 조회하지 않으며 focused backend 44건,
+  PostgreSQL preview 1건, frontend 53건과 정적 검사를 통과했다.
+- 구성 준비 상태가 주입된 기술 readiness를 사용하지 않던 결함을 수정했다. 로컬 준비 완료와
+  외부 현재 exact 승인만 `answer_ready=true`가 되며, stale 승인과 Installation/Workspace 정책
+  거절은 검색 실행과 동일한 계약과 안전 사유로 차단된다. focused backend 39건과 SearchPage
+  19건, Ruff·mypy·TypeScript·ESLint·OpenAPI 검사를 통과했다.
+- 독립 리뷰에서 검색 준비가 끝난 추출형 구성도 생성 모델 부재로 차단되던 계약을 수정했다.
+  실제 추출형 응답은 `answer_ready=true`, `service_ready=true`, 빈 생성 사유와 `null` preview를
+  반환하며 backend RED `1 failed, 28 passed` 뒤 focused backend 39건과 frontend 19건이 통과했다.
+- 최종 검증은 backend unit 636건, contract·RAG integration·E2E 175건, migration 0016
+  16건, frontend 43개 파일 198건과 Ruff·mypy·TypeScript·ESLint·Next.js build·OpenAPI
+  동기화가 통과했다. 독립 리뷰가 찾은 추출형 readiness 차단도 회귀 테스트와 함께 수정했다.
+- 실제 또는 과금 가능한 OpenAI API는 호출하지 않았다. owner의 외부 전송 승인, 안전한
+  credential 구성과 비민감 합성 자료가 준비된 경우에만 별도 smoke를 수행한다. 집중 검증
+  증거는 `docs/worklogs/2026-09-05-rag-openai-deployment-verification.md`에 기록했다.
 
 - 2026-09-04 사용자는 LLM 답변이 없는 현재 상태를 완성된 RAG로 판단하지 않고, 다음
   작업을 대화형 생성 RAG로 우선하기로 확정했다.
@@ -223,25 +245,26 @@ Hybrid 검색 결과에 근거 제한 LLM 답변과 인용 검증을 연결한�
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. 대화형 생성 RAG V2의 저장 구성·준비 상태·로컬 LLM adapter·문맥 기반 후속질문·구조화 답변·인용 검증과 관리자/사용자 UI를 구현하고 자동 검증했다 (`docs/worklogs/2026-09-04-conversational-generative-rag-v2.md`).
-2. 파일명과 분리된 지식 공간 범위 SHA-256 중복 판정, 명시적 새 버전 업로드, 검색 준비 상태 안내와 결과 UUID 비노출을 구현·검증했다 (`docs/worklogs/2026-09-04-rag-upload-identity-and-search-readiness.md`).
-3. 비민감 합성 문서로 Asset 검증·E5 색인·BM25 검색·근거·정확 하이라이트·원문 추적을 실제 owner Chrome에서 검증했다. 최초 고정 모델 캐시 실패와 복구, 남은 Hybrid·LLM·UX·버전·캐시 문제를 공식 기록했다 (`docs/worklogs/2026-09-04-owner-rag-live-smoke.md`).
-4. 공개 RAG 작업실에 총괄과 여섯 기술 담당자, 역할별 dialog와 연결 흐름을 구현했다. frontend 168개 테스트·정적 검사·빌드, desktop/tablet/mobile 실제 브라우저와 독립 재검토가 통과했다 (`docs/worklogs/2026-09-04-rag-lab-agent-workroom-verification.md`).
-5. 공개 `/`의 연구소 입구와 `/labs`의 작업 현장을 분리했다. 전체 frontend 145개 테스트, 8개 브라우저 조건과 독립 재리뷰가 통과했다 (`docs/worklogs/2026-09-04-public-lab-route-separation-verification.md`).
+1. 다중 환경 LLM Deployment·데이터 정책·OpenAI Responses adapter·관리자 설정·사용자 고지를 구현하고 전체 backend/frontend·OpenAPI·정책 흐름·migration·privacy 독립 검증을 완료했다. 실제 외부 API smoke는 명시된 승인 조건으로 분리했다 (`docs/worklogs/2026-09-05-rag-openai-deployment-verification.md`).
+2. 대화형 생성 RAG V2의 저장 구성·준비 상태·로컬 LLM adapter·문맥 기반 후속질문·구조화 답변·인용 검증과 관리자/사용자 UI를 구현하고 자동 검증했다 (`docs/worklogs/2026-09-04-conversational-generative-rag-v2.md`).
+3. 파일명과 분리된 지식 공간 범위 SHA-256 중복 판정, 명시적 새 버전 업로드, 검색 준비 상태 안내와 결과 UUID 비노출을 구현·검증했다 (`docs/worklogs/2026-09-04-rag-upload-identity-and-search-readiness.md`).
+4. 비민감 합성 문서로 Asset 검증·E5 색인·BM25 검색·근거·정확 하이라이트·원문 추적을 실제 owner Chrome에서 검증했다. 최초 고정 모델 캐시 실패와 복구, 남은 Hybrid·LLM·UX·버전·캐시 문제를 공식 기록했다 (`docs/worklogs/2026-09-04-owner-rag-live-smoke.md`).
+5. 공개 RAG 작업실에 총괄과 여섯 기술 담당자, 역할별 dialog와 연결 흐름을 구현했다. frontend 168개 테스트·정적 검사·빌드, desktop/tablet/mobile 실제 브라우저와 독립 재검토가 통과했다 (`docs/worklogs/2026-09-04-rag-lab-agent-workroom-verification.md`).
 
 ## 다음 작업
 
-1. 대화형 생성 RAG V2의 자동 검증을 재확인하고 관련 변경만 독립 기준 커밋으로 고정
-2. 불변 Deployment Version·Installation/Workspace Data Policy·외부 승인·감사 migration과
-   관리자 API를 TDD로 구현
-3. 기존 로컬 adapter를 Deployment resolver로 이전하고 OpenAI Responses API, 검색 전 정책
-   gate, 관리자/사용자 고지 UI와 비민감 실제 smoke를 순서대로 구현
+1. 개발 전용 Codex SDK adapter의 sandbox·도구 비활성·비대화형 승인·구조화 출력 계약을
+   별도 설계하고 기존 Deployment resolver에 TDD로 추가
+2. owner가 외부 전송과 비용을 명시 승인하고 안전한 credential·비민감 합성 자료를 준비하면
+   OpenAI Responses 실제 smoke를 운영 절차대로 수행
+3. DOCX parser·통합 뷰어 지원을 설계하고 스캔 PDF OCR을 다음 형식 확장으로 진행
+4. 저장 구성 목록의 generation exact join·readiness 조회를 batch/prefetch해 N+1을 줄이는
+   성능 개선을 별도 측정과 회귀 테스트로 진행. 현재 Task 11 완료 차단 요소는 아니다.
 
 ## 결정이 필요한 항목
 
-- 첫 adapter는 로컬 OpenAI-compatible HTTP 경계로 확정했다. 초기 모델 후보는 PC 자원,
-  라이선스, 한국어·금융 질의 품질과 구조화 출력 지원을 측정한 뒤 versioned
-  registry/profile로 선택해야 한다.
+- 개발 전용 Codex SDK adapter가 실제 생성 runtime으로 적합한지 sandbox, 세션 격리,
+  도구 비활성, 비용·지연과 구조화 출력 안정성을 먼저 검증해야 한다.
 - Windows 호스트 E5 캐시에서 런타임에 불필요한 모델 형식만 선별 제거할 수 있도록 정확한 파일 의존성과 회수 가능 용량을 조사한 뒤 사용자 승인을 받아야 한다.
 
 ## 차단 요소
@@ -250,8 +273,11 @@ Hybrid 검색 결과에 근거 제한 LLM 답변과 인용 검증을 연결한�
 - `backend/.pytest-tmp`는 Git ignored 경로이며 같은 ACL 문제로 내부 확인과 삭제가 거부된다. 2026-09-03 기본 unit 실행도 이 경로 정리 단계에서 실패했고 fresh `%TEMP%` basetemp로 우회 검증했다. 두 경로 모두 애플리케이션 소스와 실행 데이터에는 영향을 주지 않으며, 대화형 Windows 관리자 세션에서 소유권과 내용을 확인한 뒤 정확 경로만 삭제해야 한다.
 - 이번 backend unit 검증에서 만든 `.local-data/pytest-unit-current`도 정확 경로 삭제를 시도했으나 접근이 거부됐다. 애플리케이션 데이터에는 포함되지 않는 테스트 임시물이며 관리자 세션에서 해당 경로만 제거해야 한다.
 - 실제 BM25 기준선 검색과 생성형 V2 애플리케이션 구현은 더 이상 차단되지 않는다. 실제
-  생성 답변 smoke는 승인된 로컬 LLM 모델·실행기와 DB에 등록된 정확한 Generation Profile이
-  아직 없어 완료할 수 없다.
+  외부 생성 답변 smoke는 owner의 명시적 외부 전송·비용 승인과 안전한 credential,
+  DB에 등록된 exact Deployment·Generation Profile·구성 승인이 없어 수행하지 않았다.
+- Task 11의 첫 OpenAPI RED 실행이 만든 `.pytest-task11-openapi-red/`에는 생성 OpenAPI JSON
+  1개, 195,267 bytes가 있다. 애플리케이션 데이터가 아닌 삭제 후보지만 사용자 명시 승인 전
+  제거하지 않는다.
 
 ## 작업 인계 메모
 

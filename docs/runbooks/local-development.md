@@ -240,6 +240,72 @@ endpoint는 loopback 주소만 허용한다. 준비 상태 확인은 `/v1/models
 구조화 출력은 다른 모델이나 추출식 답변으로 전환하지 않는다. 리랭커를 구성하지 않은
 상태는 정상이며 Hybrid RRF 결과가 곧바로 근거 선별 단계로 전달된다.
 
+### Deployment Registry와 OpenAI Responses 운영
+
+새 Deployment는 endpoint와 인증정보의 실제 값을 DB에 저장하지 않는다. 루트 `.env` 또는
+승인된 Secret Manager에서 안전한 reference 이름을 실제 값으로 해석하고, 관리자 화면에는
+reference의 존재 여부만 표시한다. JSON은 한 줄 객체여야 하며 실제 credential이 포함된
+`.env`를 출력·공유·커밋하지 않는다.
+
+```dotenv
+AI_WORKSHOP_PROVIDER_ENDPOINT_REFS={"provider-endpoint":"https://api.openai.com/v1"}
+AI_WORKSHOP_PROVIDER_SECRET_REFS={"provider-credential":"<approved-secret-value>"}
+```
+
+로컬 OpenAI-compatible 실행기도 같은 reference map을 사용해 loopback endpoint를 등록할 수
+있다. 이전 `AI_WORKSHOP_GENERATION_BASE_URL`과 `AI_WORKSHOP_GENERATION_API_KEY`는 legacy
+model-bound Generation Profile을 읽기 위한 호환 경로이며 새 Deployment에는 사용하지 않는다.
+reference map을 바꾼 뒤에는 API 프로세스를 재시작한다.
+
+owner는 `/admin/rag/configurations`에서 다음 순서로 설정한다.
+
+`/api/v1/rag/deployments/options`와 Generation Profile 기술 카탈로그는 owner 설정 화면만
+사용한다. 일반 사용자 `/workshop/rag/search`는 `/api/v1/rag/configurations`에 포함된 서버 계산
+안전 실행 미리보기만 읽으며, Deployment/Profile UUID, 원시 Provider 모델 ID, endpoint·secret
+reference를 조회하거나 브라우저에서 조합하지 않는다. 생성형 구성의 미리보기가 없으면 제출을
+막고 관리자에게 구성 상태 확인을 안내한다. 추출형 구성은 미리보기가 없어도 정상이다.
+
+저장 구성의 `answer_ready`는 단순히 Generation Profile 존재 여부가 아니다. 로컬·온프레미스는
+정확한 Deployment health와 환경 호환성이 준비돼야 하고, 외부 실행은 최신 Installation 및 모든
+Workspace 정책과 저장된 exact 승인 snapshot까지 일치해야 한다. 정책 강화 또는 승인 불일치는
+다음 구성 조회부터 fail-closed로 반영되며 이 확인 과정에서는 Provider를 호출하지 않는다.
+`service_ready`가 거짓이면 `answer_reasons`의 안전 코드부터 확인한다.
+
+1. Model Definition을 선택하고 Provider, 실행 위치, 정확한 Provider 모델 ID, 허용 환경,
+   기능, timeout·retry와 reference 이름을 가진 새 불변 Deployment Version을 등록한다.
+2. Installation Data Policy의 새 version에서 외부 전송 모드와 허용 Provider를 확정한다.
+3. 사용할 각 Workspace 정책을 회사 기본과 같거나 더 강하게 설정한다. 회사 기본보다
+   완화하는 version은 저장되지 않는다.
+4. Deployment health check를 실행해 설정한 정확한 모델 identity와 readiness를 확인한다.
+5. 정확한 Deployment Version에 연결된 새 Generation Profile을 만들고 Saved RAG
+   Configuration의 새 version을 저장한다. 외부 Deployment이면 화면의 Provider, 전송 데이터
+   범주, 대상 Workspace와 disclosure version을 확인하고 명시 승인한다.
+6. `/workshop/rag/search`에서 제출 전 처리 위치 고지를 확인하고, 답변 뒤 실제 Provider,
+   모델·버전, 실행 위치와 외부 전송 여부가 표시되는지 확인한다.
+
+정책을 되돌릴 때 기존 행을 수정하거나 삭제하지 않는다. Installation 또는 Workspace에
+`deny`인 새 policy version을 추가하면 과거 구성도 다음 실행부터 즉시 차단된다. 필요한 경우
+Secret Manager에서 credential을 폐기하고 reference map을 제거한 뒤 API를 재시작한다. 과거
+Deployment·Generation Profile·구성 version과 metadata-only 감사 기록은 재현을 위해 남긴다.
+
+외부 OpenAI smoke는 owner가 외부 전송을 명시 승인하고 비민감 합성 질문·문서만 준비한 경우에
+별도로 수행한다. 질문, 문서 근거, prompt, Provider request/response와 API key를 캡처하거나
+로그에 남기지 않는다. 자동 테스트는 mock transport만 사용하며 실제 또는 과금 가능한 API를
+호출하지 않는다. 확인 항목은 exact Deployment 1회 실행, 구조화 출력, 문장별 인용, 원문 이동,
+응답 execution snapshot과 metadata-only audit이다.
+
+- `workspace_external_transfer_denied` 또는 `provider_not_allowed`: 현재 Installation과 모든
+  선택 Workspace의 최신 정책 version을 확인한다. 일부 문서만 제외해 우회하지 않는다.
+- `deployment_not_ready`: 현재 환경, reference 구성, 필수 capability, 최신 health, exact 승인
+  snapshot과 Generation Profile binding을 확인한다.
+- `provider_authentication_failed`: 화면이나 로그에 credential을 출력하지 말고 Secret Manager의
+  활성 상태와 reference 연결을 확인한다.
+- `provider_rate_limited`, `provider_timeout`: 같은 Deployment의 명시된 retry만 적용된다. 다른
+  모델이나 Provider로 자동 전환하지 않는다.
+- `provider_invalid_response`, `structured_output_invalid`, `citation_validation_failed`: 원문 응답을
+  보존하거나 사용자에게 노출하지 말고 안전 오류 코드, correlation ID와 해당 불변 구성
+  version으로 재현한다.
+
 ```powershell
 docker compose -f infrastructure/compose/compose.yaml ps
 docker compose -f infrastructure/compose/compose.yaml logs api worker beat postgres redis elasticsearch

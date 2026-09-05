@@ -1291,6 +1291,21 @@ export interface components {
             /** Evidence Ids */
             evidence_ids: string[];
         };
+        /** GenerationExecutionPreviewResponse */
+        GenerationExecutionPreviewResponse: {
+            /** Deployment Name */
+            deployment_name: string;
+            /** Disclosure */
+            disclosure: string;
+            /** External Transfer */
+            external_transfer: boolean;
+            location: components["schemas"]["ExecutionLocation"];
+            /** Model Name */
+            model_name: string;
+            /** Model Version */
+            model_version: number;
+            provider: components["schemas"]["ProviderKind"];
+        };
         /** GenerationExecutionResponse */
         GenerationExecutionResponse: {
             /** Deployment Name */
@@ -1698,6 +1713,7 @@ export interface components {
             evaluation_state: components["schemas"]["EvaluationState"];
             /** Experimental */
             experimental: boolean;
+            generation_execution_preview: components["schemas"]["GenerationExecutionPreviewResponse"] | null;
             /** Generation Profile Id */
             generation_profile_id: string | null;
             /**

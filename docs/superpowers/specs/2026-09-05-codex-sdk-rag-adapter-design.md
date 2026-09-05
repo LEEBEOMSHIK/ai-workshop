@@ -260,6 +260,24 @@ SDK가 응답 모델 ID를 제공하지 않는 버전에서는 제공되지 않�
 지정을 실행 계약으로 삼고, 감사에는 실제 Provider 응답값이 아니라 선택된 Deployment 계약을
 기록한다.
 
+### 생성 파라미터 호환성
+
+Codex SDK의 현재 공개 Python turn API는 `temperature`와 `max_output_tokens` 요청 인자를
+제공하지 않는다. 기존 Generation Profile 값을 조용히 무시하거나 지원되는 것처럼 표시하지
+않는다.
+
+- generation 설정에 `sampling_mode`를 추가한다.
+- 기존 HTTP Provider는 `sampling_mode="explicit"`와 숫자 `temperature`를 요구한다.
+- Codex SDK는 `sampling_mode="provider_default"`와 `temperature=null`만 허용한다.
+- Codex의 `max_output_tokens`는 Provider 요청 한도가 아니라 응답 수락 한도다. SDK가 반환한
+  output token usage가 한도를 넘거나 usage를 안전하게 확인할 수 없으면 결과를 폐기하고
+  `codex_output_limit_unverified`를 반환한다.
+- 관리자 화면은 Codex의 샘플링이 Provider에 의해 관리되고 출력 한도가 사후 검증된다는 점을
+  표시한다.
+
+이 계약은 Provider별 파라미터 지원 차이를 명시적으로 모델링한다. 기존 HTTP Provider의
+temperature·요청 출력 한도 동작과 저장된 Profile은 변경하지 않는다.
+
 ## 11. 오류와 재시도
 
 Codex 전용 안전 오류 코드는 다음과 같다.
@@ -272,6 +290,7 @@ Codex 전용 안전 오류 코드는 다음과 같다.
 - `codex_overloaded`
 - `codex_response_missing`
 - `codex_invalid_structured_output`
+- `codex_output_limit_unverified`
 - `codex_citation_validation_failed`
 
 공통 API에서는 기존 `GenerationProviderError` 계약으로 변환한다. SDK가 명시적으로
@@ -355,6 +374,7 @@ production에서는 목록 조회, Deployment 생성, 저장 구성 선택과 �
 - shell·web·MCP·plugin·apps·skill·multi-agent 비활성 설정
 - 구조화 출력 schema 전달과 final response parsing
 - token usage와 duration 정규화
+- provider-managed sampling과 응답 출력 한도 초과·usage 부재 fail-closed
 - context manager, interrupt와 임시 디렉터리 정리
 - 재시도마다 새 thread와 새 작업 디렉터리 사용
 - 다른 Provider fallback 미호출
@@ -409,6 +429,8 @@ SDK 버전과 config key의 실제 호환성은 pinned dependency를 대상으�
 11. 일반 자동 테스트는 외부 네트워크·개인 인증 없이 실행된다.
 12. 감사와 로그에 질문·근거 본문·내부 추론·인증값·로컬 경로가 남지 않는다.
 13. Claude 등 미래 Provider의 enum, UI 선택지와 fake adapter는 생성하지 않는다.
+14. 지원하지 않는 temperature·출력 한도를 조용히 무시하지 않고 Codex 전용 파라미터 계약과
+    UI 안내로 구분한다.
 
 ## 17. 구현 영향과 순서
 

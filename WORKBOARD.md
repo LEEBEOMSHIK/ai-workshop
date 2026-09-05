@@ -1,9 +1,9 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-05
-- 현재 단계: 개발 전용 Codex SDK RAG adapter 설계 승인·정본화
-- 전체 상태: OpenAI Responses 첫 구현은 완료됐고, Codex SDK의 호출 단계별 격리,
-  외부 전송·도구 금지·구조화 출력·개발 환경 제한 설계를 승인받아 정본화하고 있다.
+- 현재 단계: 개발 전용 Codex SDK RAG adapter TDD 구현 계획 승인 대기
+- 전체 상태: OpenAI Responses 첫 구현은 완료됐고, 승인된 Codex SDK 설계를 실제 코드 경계와
+  SDK 공개 인터페이스에 맞춰 9개 Task의 TDD 구현 계획으로 구체화했다.
 
 ## 현재 작업
 
@@ -13,6 +13,15 @@ Hybrid 검색 결과에 근거 제한 LLM 답변과 인용 검증을 연결한�
 동작하는 선택 단계로 두고, 구성한 모델의 실패는 조용히 우회하지 않는다.
 
 ### 진행 상태
+
+- 2026-09-05 승인된 Codex SDK 설계를 실행 가능한 TDD 계획으로 구체화했다. 계획은
+  `docs/superpowers/plans/2026-09-05-codex-sdk-rag-adapter.md`를 따른다. dependency와 pinned
+  runtime의 격리 가능성을 첫 fail-closed gate로 검증하고, Provider registry·migration·SDK
+  gateway·생성 runtime·정책 통합·owner API/UI·전체 회귀 순서로 진행한다.
+- SDK 공개 Python turn API에 기존 Generation Profile의 `temperature`와 요청형
+  `max_output_tokens`가 없음을 확인했다. 이를 조용히 무시하지 않고 Codex Profile은
+  provider-managed sampling을 명시하며 output usage를 응답 수락 한도로 검증하는 계약을 상세
+  설계와 계획에 추가했다. 다음 단계는 계획 실행 방식 선택과 Task 1 RED 테스트다.
 
 - 2026-09-05 사용자는 Codex SDK의 `contextualize`와 `generate`를 각각 새 ephemeral
   thread, 빈 read-only 작업 공간과 전면 승인 거부로 실행하는 1번 방식을 승인했다. SDK

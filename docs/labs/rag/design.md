@@ -236,6 +236,15 @@ Profile version을 만들지만 검색 색인을 다시 만들지 않는다. 검
 현재 정책 version과 다르면 Provider runtime을 만들거나 호출하지 않는다. 정책 조회는 정책
 version을 쓰는 트랜잭션과 직렬화되며, 과거 승인에 grandfathering을 적용하지 않는다.
 
+개발 전용 Codex SDK Provider는 `openai-codex==0.147.0`과 bundled
+`openai-codex-cli-bin==0.147.0`까지 검증했지만 아직 지원 Provider가 아니다. 이 stable 공개
+Python API는 ephemeral thread, read-only sandbox와 deny-all approval을 제공하나 shell,
+web search, MCP, plugin, app, connector, skill과 sub-agent의 호출별 effective tool inventory를
+확인하는 계약을 제공하지 않는다. 빈 `cwd`나 선언한 sandbox만으로 격리를 성공 처리하지 않으며,
+이 inventory를 공개 API로 증명할 수 있을 때까지 `codex_isolation_not_enforced`로 fail closed한다.
+따라서 Codex SDK adapter, readiness, Deployment 등록·선택·실행 경로는 현재 구현하지 않는다.
+상세 결정과 재개 조건은 `docs/decisions/0010-development-codex-sdk-provider.md`를 따른다.
+
 정책이 허용하고 근거가 충분한 경우에만 구조화 생성을 실행한다. 응답은 허용된 Evidence ID의
 문장별 인용을 통과해야 하며 실패한 초안은 노출하지 않는다. 구성한 Provider가 실패해도 다른
 Provider나 추출 답변으로 조용히 전환하지 않는다. 공개 생성 실행 정보에는 Provider, 사용자용

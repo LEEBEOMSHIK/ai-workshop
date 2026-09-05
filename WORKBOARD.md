@@ -1,9 +1,10 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-05
-- 현재 단계: 개발 전용 Codex SDK RAG adapter TDD 구현 진행
-- 전체 상태: 사용자가 온디맨드 프로젝트 에이전트 실행 방식을 선택했다. Task 1의 pinned
-  SDK/runtime 격리 가능성 fail-closed gate부터 순서대로 구현·독립 검토한다.
+- 현재 단계: 개발 전용 Codex SDK RAG adapter 격리 gate 차단
+- 전체 상태: `openai-codex==0.147.0`의 공개 Python API로 호출별 effective tool inventory를
+  증명할 수 없어 `codex_isolation_not_enforced`에서 fail closed했다. 후속 Provider·DB·UI
+  구현은 시작하지 않았다.
 
 ## 현재 작업
 
@@ -13,6 +14,16 @@ Hybrid 검색 결과에 근거 제한 LLM 답변과 인용 검증을 연결한�
 동작하는 선택 단계로 두고, 구성한 모델의 실패는 조용히 우회하지 않는다.
 
 ### 진행 상태
+
+- 2026-09-06 Task 1에서 stable `openai-codex==0.147.0`과 bundled
+  `openai-codex-cli-bin==0.147.0`을 실제 설치해 공개 API를 검증했다. ephemeral thread,
+  read-only sandbox, deny-all approval과 구조화 출력은 확인했지만 shell·web·MCP·plugin·app·
+  skill·sub-agent의 실제 활성 목록을 다시 읽는 공개 계약은 없었다. 승인된 안전 기준을
+  완화하지 않고 `codex_isolation_not_enforced`로 중단했으며 상세 결정은 ADR-0010을 따른다.
+- 지원되지 않는 약 121.7MiB bundled runtime dependency와 정상 suite를 깨뜨리는 영구 RED
+  테스트는 저장소에서 제거했다. 설치 과정에서 생긴 `.venv`·사용자 uv cache는 Git 변경이
+  아니며 `CACHE_POLICY.md` 승인 없이 삭제하지 않았다. 다음 단계는 차단 유지 또는 별도
+  App Server/관리형 permission contract 재설계 여부를 사용자가 결정하는 것이다.
 
 - 2026-09-06 사용자는 온디맨드 프로젝트 에이전트 방식의 구현을 승인했다. 고위험 교차 모듈
   변경으로 분류하고 구현과 보안·privacy·통합·코드 리뷰 책임을 분리한다. 사용자가 이전에

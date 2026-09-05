@@ -1,9 +1,9 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-05
-- 현재 단계: 개발 전용 Codex SDK RAG adapter TDD 구현 계획 승인 대기
-- 전체 상태: OpenAI Responses 첫 구현은 완료됐고, 승인된 Codex SDK 설계를 실제 코드 경계와
-  SDK 공개 인터페이스에 맞춰 9개 Task의 TDD 구현 계획으로 구체화했다.
+- 현재 단계: 개발 전용 Codex SDK RAG adapter TDD 구현 진행
+- 전체 상태: 사용자가 온디맨드 프로젝트 에이전트 실행 방식을 선택했다. Task 1의 pinned
+  SDK/runtime 격리 가능성 fail-closed gate부터 순서대로 구현·독립 검토한다.
 
 ## 현재 작업
 
@@ -13,6 +13,10 @@ Hybrid 검색 결과에 근거 제한 LLM 답변과 인용 검증을 연결한�
 동작하는 선택 단계로 두고, 구성한 모델의 실패는 조용히 우회하지 않는다.
 
 ### 진행 상태
+
+- 2026-09-06 사용자는 온디맨드 프로젝트 에이전트 방식의 구현을 승인했다. 고위험 교차 모듈
+  변경으로 분류하고 구현과 보안·privacy·통합·코드 리뷰 책임을 분리한다. 사용자가 이전에
+  지정한 `main` 단일 작업 경계를 유지하며, 계획별 SDD ledger로 Task 완료와 ruling을 기록한다.
 
 - 2026-09-05 승인된 Codex SDK 설계를 실행 가능한 TDD 계획으로 구체화했다. 계획은
   `docs/superpowers/plans/2026-09-05-codex-sdk-rag-adapter.md`를 따른다. dependency와 pinned

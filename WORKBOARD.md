@@ -1,10 +1,10 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-06
-- 현재 단계: 개발 전용 Codex SDK RAG adapter 격리 gate 차단
-- 전체 상태: `openai-codex==0.147.0`의 공개 Python API로 호출별 effective tool inventory를
-  증명할 수 없어 `codex_isolation_not_enforced`에서 fail closed했다. 후속 Provider·DB·UI
-  구현은 시작하지 않았다.
+- 현재 단계: 개발 전용 Codex App Server 격리 feasibility gate 실행 대기
+- 전체 상태: Python SDK 경로의 격리 gate 차단은 유지한다. 사용자가 프로젝트 전용
+  `CODEX_HOME`, 별도 Codex 로그인, App Server 상태 증명과 이중 진단 기록을 사용하는 후속
+  설계를 승인했다. 아직 Provider·DB·UI 구현은 시작하지 않았다.
 
 ## 현재 작업
 
@@ -14,6 +14,22 @@ Hybrid 검색 결과에 근거 제한 LLM 답변과 인용 검증을 연결한�
 동작하는 선택 단계로 두고, 구성한 모델의 실패는 조용히 우회하지 않는다.
 
 ### 진행 상태
+
+- 2026-09-06 사용자는 폐기된 Codex 답변도 원인 분석과 회귀 테스트가 가능해야 한다고
+  확정했다. 정상 답변에는 노출하지 않되 본문 없는 trace·단계·규칙·버전·attestation·event
+  metadata를 항상 저장하고, 전체 protocol·폐기 본문은 합성 데이터 전용 owner 진단 모드에서만
+  Gitignored 로컬 저장소에 임시 보존한다.
+- Python SDK의 차단 증거는 ADR-0010에 유지하고, 고정 버전 App Server stdio, 프로젝트 전용
+  `CODEX_HOME`, 관리형 requirements와 실행 전 effective 상태 검증을 사용하는 후속 결정을
+  ADR-0011과 `2026-09-06-codex-app-server-rag-adapter-design.md`에 승인 상태로 기록했다.
+- 다음 단계는 승인 설계를 실행 가능한 TDD 계획으로 분해하고, 실제 설치나 Provider 등록 전에
+  App Server가 요구한 effective 상태를 증명하는 첫 fail-closed feasibility gate를 정의하는
+  것이다.
+- feasibility gate 실행 계획은
+  `docs/superpowers/plans/2026-09-06-codex-app-server-isolation-gate.md`에 작성했다. 현재 설치된
+  `codex-cli 0.151.0`을 정확 버전 기준으로 삼고, 기능 플래그와 별도로 대상 thread의 effective
+  built-in tool inventory까지 증명하지 못하면 실패하도록 했다. 구현·DB·UI는 아직 변경하지
+  않았다.
 
 - 2026-09-06 Task 1에서 stable `openai-codex==0.147.0`과 bundled
   `openai-codex-cli-bin==0.147.0`을 실제 설치해 공개 API를 검증했다. ephemeral thread,

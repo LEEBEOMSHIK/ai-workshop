@@ -245,6 +245,16 @@ web search, MCP, plugin, app, connector, skill과 sub-agent의 호출별 effecti
 따라서 Codex SDK adapter, readiness, Deployment 등록·선택·실행 경로는 현재 구현하지 않는다.
 상세 결정과 재개 조건은 `docs/decisions/0010-development-codex-sdk-provider.md`를 따른다.
 
+후속 개발용 Codex 통합은 Python SDK의 차단 기준을 완화하지 않고 Codex App Server 경계로
+재설계한다. 프로젝트 전용 `CODEX_HOME`, 별도 Codex 로그인, 관리형 requirements와 App
+Server 상태 조회로 effective 격리를 질문 전 증명한다. 실행 중 금지 도구 이벤트는 답변 폐기와
+process quarantine을 발생시킨다. 폐기된 답변은 사용자나 정상 대화에 저장하지 않지만,
+본문 없는 trace·실패 단계·위반 규칙·버전·attestation·event metadata는 원인 분석을 위해
+보존한다. 전체 protocol과 폐기 본문은 합성 데이터 전용 owner 진단 모드에서만 Gitignored
+로컬 저장소에 임시 보존한다. 상세 계약은
+`docs/superpowers/specs/2026-09-06-codex-app-server-rag-adapter-design.md`와
+`docs/decisions/0011-development-codex-app-server-provider.md`를 따른다.
+
 정책이 허용하고 근거가 충분한 경우에만 구조화 생성을 실행한다. 응답은 허용된 Evidence ID의
 문장별 인용을 통과해야 하며 실패한 초안은 노출하지 않는다. 구성한 Provider가 실패해도 다른
 Provider나 추출 답변으로 조용히 전환하지 않는다. 공개 생성 실행 정보에는 Provider, 사용자용

@@ -2,6 +2,7 @@
 
 - 상태: 차단
 - 결정일: 2026-09-06
+- 후속 결정: `0011-development-codex-app-server-provider.md`
 
 ## 배경
 
@@ -42,6 +43,10 @@ gateway adapter, readiness, 모델 등록·실행 경로는 구현하거나 등�
 요구사항을 완화하지 않는다. Task 1 feasibility RED 증거는 SDD report에 보존하고 정상
 suite에는 실패 테스트를 남기지 않는다. 후속 구현은 pinned stable SDK가 호출별 effective
 tool inventory와 모든 금지 범주의 비활성 상태를 공개 API로 증명할 때만 재개한다.
+
+이 차단은 Python high-level SDK 경로에 적용된다. 같은 안전 기준을 유지한 별도 Codex App
+Server 경계는 ADR-0011에서 후속 설계하며, 이 문서의 실패 증거를 삭제하거나 성공으로
+재해석하지 않는다.
 
 ## 재개 시 유지할 안전 계약
 

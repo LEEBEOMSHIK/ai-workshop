@@ -1,9 +1,9 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-05
-- 현재 단계: 다중 환경 LLM Deployment와 OpenAI Responses 첫 구현 완료
-- 전체 상태: Deployment·데이터 정책·OpenAI Responses 실행·관리자 설정·사용자 고지와
-  전체 계약·privacy·migration·frontend/backend 검증을 완료했다.
+- 현재 단계: 개발 전용 Codex SDK RAG adapter 설계 승인·정본화
+- 전체 상태: OpenAI Responses 첫 구현은 완료됐고, Codex SDK의 호출 단계별 격리,
+  외부 전송·도구 금지·구조화 출력·개발 환경 제한 설계를 승인받아 정본화하고 있다.
 
 ## 현재 작업
 
@@ -13,6 +13,22 @@ Hybrid 검색 결과에 근거 제한 LLM 답변과 인용 검증을 연결한�
 동작하는 선택 단계로 두고, 구성한 모델의 실패는 조용히 우회하지 않는다.
 
 ### 진행 상태
+
+- 2026-09-05 사용자는 Codex SDK의 `contextualize`와 `generate`를 각각 새 ephemeral
+  thread, 빈 read-only 작업 공간과 전면 승인 거부로 실행하는 1번 방식을 승인했다. SDK
+  도구 비활성 contract를 증명하지 못하면 fail closed하고, endpoint·secret이 없는 실제
+  `codex_sdk` Provider만 추가하며 Claude 등 미래 Provider는 미리 노출하지 않는다.
+- 승인된 상세 설계는
+  `docs/superpowers/specs/2026-09-05-codex-sdk-rag-adapter-design.md`다. 다음 단계는 사용자
+  문서 확인 후 TDD 구현 계획을 작성하는 것이다.
+- 2026-09-05 다음 작업으로 개발 전용 Python Codex SDK adapter 설계를 시작했다. 공식
+  OpenAI Docs에서 Python SDK가 Python 3.10+와 pinned Codex runtime을 지원하고 read-only
+  sandbox를 제공함을 확인했다. 로컬 프로세스와 원격 모델 추론 위치를 구분하며, 기본 Codex
+  모델은 외부 전송으로 판정하고 실제 실행·dependency 설치는 설계 승인 전 수행하지 않는다.
+- 개발 Codex SDK 인증은 현재 로그인된 Codex CLI 계정을 재사용한다. 인증 파일·token은
+  애플리케이션 DB·로그·Git에 복사하지 않고 readiness는 인증 가능 여부만 안전 코드로
+  반환한다. 운영은 OpenAI Responses를 시작으로 Provider별 외부 API adapter를 추가하며
+  자동 fallback 없이 저장 구성의 exact Deployment Version 하나만 실행한다.
 
 - 2026-09-05 사용자는 모델과 실행 위치를 분리한 Deployment Registry, 회사 기본 정책보다
   지식 공간이 강화만 가능한 외부 전송 정책, 관리자 1회 명시 승인과 사용자 상시 안내를

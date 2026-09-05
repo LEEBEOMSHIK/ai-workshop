@@ -86,6 +86,10 @@ Codex와 타사 Provider는 enum, API 선택지 또는 빈 adapter로 미리 만
 
 ### 후속: Codex SDK
 
+Codex SDK의 승인된 상세 계약은
+`2026-09-05-codex-sdk-rag-adapter-design.md`가 정본이다. 아래 요약과 충돌하면 상세 설계를
+우선한다.
+
 - `development_only=true`인 개발 전용 Deployment다.
 - Python Codex SDK의 pinned local runtime을 사용하고, 매 요청마다 `codex exec` 프로세스를
   직접 조립하는 방식을 사용하지 않는다.

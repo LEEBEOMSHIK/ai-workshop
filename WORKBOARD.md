@@ -1,6 +1,6 @@
 # Workboard
 
-- 마지막 갱신일: 2026-09-05
+- 마지막 갱신일: 2026-09-06
 - 현재 단계: 개발 전용 Codex SDK RAG adapter 격리 gate 차단
 - 전체 상태: `openai-codex==0.147.0`의 공개 Python API로 호출별 effective tool inventory를
   증명할 수 없어 `codex_isolation_not_enforced`에서 fail closed했다. 후속 Provider·DB·UI
@@ -293,8 +293,9 @@ Hybrid 검색 결과에 근거 제한 LLM 답변과 인용 검증을 연결한�
 
 ## 다음 작업
 
-1. 개발 전용 Codex SDK adapter의 sandbox·도구 비활성·비대화형 승인·구조화 출력 계약을
-   별도 설계하고 기존 Deployment resolver에 TDD로 추가
+1. 개발 전용 Codex SDK Provider의 fail-closed 차단을 유지하면서, effective tool inventory를
+   검증할 수 있는 App Server 또는 관리형 permission contract를 재설계할지 결정한다. adapter
+   구현과 기존 Deployment resolver의 TDD 통합은 격리 차단을 해소한 뒤에만 시작한다.
 2. owner가 외부 전송과 비용을 명시 승인하고 안전한 credential·비민감 합성 자료를 준비하면
    OpenAI Responses 실제 smoke를 운영 절차대로 수행
 3. DOCX parser·통합 뷰어 지원을 설계하고 스캔 PDF OCR을 다음 형식 확장으로 진행
@@ -303,8 +304,9 @@ Hybrid 검색 결과에 근거 제한 LLM 답변과 인용 검증을 연결한�
 
 ## 결정이 필요한 항목
 
-- 개발 전용 Codex SDK adapter가 실제 생성 runtime으로 적합한지 sandbox, 세션 격리,
-  도구 비활성, 비용·지연과 구조화 출력 안정성을 먼저 검증해야 한다.
+- 개발 전용 Codex 연동을 재개하려면 호출별 effective tool inventory와 모든 금지 도구의
+  비활성 상태를 공개·지원 계약으로 증명할 수 있어야 한다. 현재 Python SDK의 sandbox와 승인
+  거부만으로는 이 조건을 충족하지 않는다.
 - Windows 호스트 E5 캐시에서 런타임에 불필요한 모델 형식만 선별 제거할 수 있도록 정확한 파일 의존성과 회수 가능 용량을 조사한 뒤 사용자 승인을 받아야 한다.
 
 ## 차단 요소

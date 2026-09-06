@@ -10,7 +10,19 @@ param(
 
     [Parameter(Mandatory = $false)]
     [ValidateSet("absent", "cpu")]
-    [string]$ExpectedOcrRuntime = "absent"
+    [string]$ExpectedOcrRuntime = "absent",
+
+    [Parameter(Mandatory = $false)]
+    [ValidateSet("absent", "cpu")]
+    [string]$ExpectedEmbeddingRuntime = "absent",
+
+    [Parameter(Mandatory = $false)]
+    [ValidateSet("absent", "present")]
+    [string]$ExpectedDevelopmentRuntime = "absent",
+
+    [Parameter(Mandatory = $false)]
+    [ValidateSet("absent", "present")]
+    [string]$ExpectedTestSources = "absent"
 )
 
 $ErrorActionPreference = "Stop"
@@ -61,6 +73,36 @@ if ($LASTEXITCODE -ne 0) {
 }
 $ocrCheckValue = if ($null -eq $ocrCheck) { "" } else { $ocrCheck.Trim() }
 
+if ($ExpectedEmbeddingRuntime -eq "absent") {
+    $embeddingScript = "import importlib.util; names=('sentence_transformers', 'torch', 'triton', 'nvidia'); assert all(importlib.util.find_spec(name) is None for name in names); print('embedding-absent')"
+} else {
+    $embeddingScript = "from importlib.metadata import distributions, version; import torch; names={dist.metadata['Name'].lower() for dist in distributions() if dist.metadata['Name']}; assert version('torch').endswith('+cpu'); assert torch.version.cuda is None; assert 'triton' not in names; assert not any(name.startswith('nvidia-') for name in names); print('embedding-cpu-ok')"
+}
+$embeddingCheck = docker run --rm --entrypoint python $Image -c $embeddingScript
+if ($LASTEXITCODE -ne 0) {
+    $failures.Add("embedding runtime boundary does not match $ExpectedEmbeddingRuntime")
+}
+$embeddingCheckValue = if ($null -eq $embeddingCheck) { "" } else { $embeddingCheck.Trim() }
+
+$developmentExpectation = if ($ExpectedDevelopmentRuntime -eq "present") { "True" } else { "False" }
+$developmentScript = "from importlib.metadata import distributions; names={dist.metadata['Name'].lower() for dist in distributions() if dist.metadata['Name']}; expected=$developmentExpectation; assert ({'mypy', 'pytest', 'ruff'} <= names) is expected; print('development-' + ('present' if expected else 'absent'))"
+$developmentCheck = docker run --rm --entrypoint python $Image -c $developmentScript
+if ($LASTEXITCODE -ne 0) {
+    $failures.Add("development runtime boundary does not match $ExpectedDevelopmentRuntime")
+}
+$developmentCheckValue = if ($null -eq $developmentCheck) { "" } else { $developmentCheck.Trim() }
+
+$testSourceCommand = if ($ExpectedTestSources -eq "present") {
+    "test -d /app/tests && echo tests-present"
+} else {
+    "test ! -e /app/tests && echo tests-absent"
+}
+$testSourceCheck = docker run --rm --entrypoint /bin/sh $Image -c $testSourceCommand
+if ($LASTEXITCODE -ne 0) {
+    $failures.Add("test source boundary does not match $ExpectedTestSources")
+}
+$testSourceCheckValue = if ($null -eq $testSourceCheck) { "" } else { $testSourceCheck.Trim() }
+
 [pscustomobject]@{
     Image = $Image
     ImageBytes = $imageSize
@@ -68,6 +110,9 @@ $ocrCheckValue = if ($null -eq $ocrCheck) { "" } else { $ocrCheck.Trim() }
     RuntimeImport = $runtimeOutput.Trim()
     DataOwner = $dataOwner
     OcrRuntime = $ocrCheckValue
+    EmbeddingRuntime = $embeddingCheckValue
+    DevelopmentRuntime = $developmentCheckValue
+    TestSources = $testSourceCheckValue
 } | Format-List
 
 if ($failures.Count -gt 0) {

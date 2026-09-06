@@ -10,6 +10,11 @@ node_modules/
 /.tmp-review-*/
 /.tmp-t10-*/
 /.t7fix*/
+/\.pt-*/
+/\.ptn-*/
+/\.ptu-*/
+/\.pytest-*/
+/backend/\.pytest-*/
 /pytest-task*/
 frontend/.next/
 frontend/dist/

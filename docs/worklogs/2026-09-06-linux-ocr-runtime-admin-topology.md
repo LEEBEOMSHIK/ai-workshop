@@ -6,8 +6,9 @@
 
 ## 구현 결과
 
-- backend image를 `runtime-core`와 `runtime-ocr-cpu` target으로 분리했다.
-- API·beat·도구는 core, OCR worker와 smoke만 CPU OCR target을 사용한다.
+- backend image를 core, CPU embedding, CPU embedding+OCR와 test 전용 target으로 분리했다.
+- API는 CPU embedding, worker는 CPU embedding+OCR, beat·migration·model tool은 ML 없는 core,
+  E2E와 OCR smoke만 test target을 사용한다.
 - PaddlePaddle 공식 지원 경계에 맞춰 OCR build와 실행을 `linux/amd64`로 고정했다.
 - `paddlepaddle==3.2.2`, `paddleocr==3.7.0`, `paddlex[ocr]==3.7.2`와
   `libgl1`, `libglib2.0-0`, `libgomp1`을 OCR image에만 설치한다.
@@ -38,7 +39,7 @@
 ## 검증 증거
 
 - 집중 backend: `28 passed, 3 skipped`
-- 전체 backend unit: `674 passed`
+- 전체 backend unit: 격리된 Linux test image에서 `675 passed`
 - 전체 backend API·contract: `22 passed`
 - Ruff: 전체 backend 통과
 - mypy: `177 source files` 통과
@@ -46,8 +47,12 @@
 - frontend 전체: `45 files, 204 tests` 통과
 - TypeScript, ESLint, OpenAPI 생성 일치, Next.js production build 통과
 - Compose config와 Dockerfile build check 통과
-- core image: ARM64, `5,976,864,274` bytes, OCR package 없음, uv cache `0`, 비루트 계약 통과
-- OCR image: AMD64, `7,098,486,735` bytes, CPU OCR package/import, uv cache `0`, 비루트 계약 통과
+- 최초 core image `5,976,864,274` bytes에서 CUDA·NVIDIA·Triton과 개발 의존성 혼입을 발견했다.
+- 최적화 core image: ARM64, `398,102,683` bytes, ML·개발 package와 test source 없음
+- embedding API image: AMD64, `1,638,227,522` bytes, `torch==2.13.0+cpu`, CUDA·Triton 없음
+- OCR worker image: AMD64, `3,005,623,081` bytes, CPU embedding·OCR, 개발 package와 test source 없음
+- test image: `1,731,529,786` bytes, OCR test image: `3,098,925,345` bytes이며 profile 전용이다.
+- 모든 image는 uv cache `0`, 비루트/data ownership 계약을 통과했다.
 - 모델 10개 전체가 manifest 크기·SHA-256 검증을 통과해 named volume에 설치됨
 
 ## 실제 Linux 추론 판정

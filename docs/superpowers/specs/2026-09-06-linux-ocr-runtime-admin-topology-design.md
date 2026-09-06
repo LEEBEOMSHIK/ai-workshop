@@ -15,8 +15,9 @@ OCR dependency를 모든 backend process에 설치하면 API와 beat까지 불�
 
 이 설계는 다음을 목표로 한다.
 
-- API·beat의 core image와 OCR worker image를 같은 Dockerfile의 명시적 target으로 분리한다.
-- PaddlePaddle 공식 지원 범위에 맞춰 OCR worker와 smoke만 `linux/amd64`로 고정한다.
+- core, CPU embedding API, CPU embedding+OCR worker와 test image를 같은 Dockerfile의 명시적
+  target으로 분리한다.
+- 공식 CPU package 범위에 맞춰 API, OCR worker와 test target을 `linux/amd64`로 고정한다.
 - Windows에서 검증한 정확한 10개 모델 매니페스트를 Linux CPU에서도 네트워크 없이 검증한다.
 - 같은 모델 artifact를 쓰는 Linux GPU 경계를 정의하되, GPU engine과 실제 하드웨어를 검증하지
   않은 상태를 성공으로 표시하지 않는다.
@@ -30,8 +31,10 @@ OCR dependency를 모든 backend process에 설치하면 API와 beat까지 불�
 
 하나의 `backend/Dockerfile`에서 공통 application layer를 공유하고 최종 target을 분리한다.
 
-- `runtime-core`: API, beat, migration, model registry와 일반 test 도구
-- `runtime-ocr-cpu`: core 기능과 고정 CPU OCR dependency를 포함하는 Celery worker·smoke
+- `runtime-core`: embedding·OCR·개발 도구가 없는 beat, migration, model registry
+- `runtime-embedding-cpu`: CPU-only torch와 sentence-transformers를 포함하는 API
+- `runtime-ocr-cpu`: CPU embedding과 고정 CPU OCR dependency를 포함하는 Celery worker
+- `runtime-test`, `runtime-ocr-test`: profile 전용 개발 도구와 테스트 소스
 
 Docker Compose는 실제 배포 선언의 정본이다. 관리자 API는 Compose 원문을 읽지 않고 backend
 package에 포함된 버전형 안전 토폴로지 매니페스트를 읽는다. 계약 테스트가 두 선언의 서비스,
@@ -59,37 +62,36 @@ Next.js 배포 경로와 저장소 구조에 결합되고 owner 권한·응답 a
 
 ```text
 backend/Dockerfile
-└─ application-base
+└─ application-base (production dependencies only)
    ├─ runtime-core
-   │  ├─ FastAPI API
-   │  ├─ Celery beat
-   │  ├─ migrate / model-tools
-   │  └─ core tests
-   └─ runtime-ocr-cpu
-      ├─ all runtime-core application code
-      ├─ paddleocr 3.7.0
-      ├─ paddlex[ocr] 3.7.2
-      └─ paddlepaddle 3.2.2 CPU engine
+   └─ embedding-base (explicit PyTorch CPU index)
+      ├─ runtime-embedding-cpu
+      ├─ runtime-test
+      └─ ocr-base
+         ├─ runtime-ocr-cpu
+         └─ runtime-ocr-test
 ```
 
-두 target은 같은 Python 3.13 application source와 core lock을 사용한다. OCR dependency는
-`pyproject.toml`의 `ocr-cpu` extra로 이름을 명확히 바꾸며 `runtime-ocr-cpu`에서만 설치한다.
-기존 모호한 `ocr` extra를 병행 유지하지 않는다.
+모든 target은 같은 Python 3.13 application source와 lock을 사용한다. embedding은
+`embedding-cpu`, OCR은 `ocr-cpu` extra로 분리한다. torch는 explicit PyTorch CPU index에
+고정하고 CUDA·NVIDIA·Triton package를 운영 image에서 금지한다. 기존 모호한 `ocr` extra를
+병행 유지하지 않는다.
 
 Dockerfile의 마지막 stage는 `runtime-core`로 두어 target을 생략한 기존 build가 무거운 OCR
 image로 바뀌지 않게 한다. Compose의 각 build에는 target을 명시해 암묵적 stage 선택에
 의존하지 않는다.
 
-core image에는 `paddle`, `paddleocr`와 `paddlex`가 import되지 않아야 하고 OCR CPU image에는
-세 package의 정확한 버전과 CPU engine이 존재해야 한다. 이 경계를 image contract test로
-검증한다.
+core image에는 sentence-transformers, torch, Paddle와 개발 도구가 없어야 한다. Embedding
+CPU image는 `torch==2.13.0+cpu`를 사용하고 NVIDIA package와 Triton이 없어야 하며, OCR CPU
+image에는 세 Paddle package의 정확한 버전과 CPU engine이 존재해야 한다. 운영 image에는
+`/app/tests`를 복사하지 않는다. 이 경계를 image contract test로 검증한다.
 
 ## 4. Compose 서비스와 저장소 구성
 
 기본 Compose 구성은 다음처럼 표시하고 실행한다.
 
 ```text
-api [runtime-core]
+api [runtime-embedding-cpu]
 ├─ postgres
 ├─ redis
 ├─ elasticsearch
@@ -131,7 +133,7 @@ Windows CPU, Linux CPU와 Linux GPU의 검증 상태는 Compose service node와 
 
 ## 5. Linux CPU 실제 smoke
 
-Linux CPU smoke는 `runtime-ocr-cpu` image를 사용한 명시적 Compose profile로 실행한다.
+Linux CPU smoke는 `runtime-ocr-test` image를 사용한 명시적 Compose profile로 실행한다.
 일반 `docker compose up`에는 포함하지 않고 exact service를 지정하거나 `ocr-smoke` profile을
 선택했을 때만 실행한다.
 
@@ -268,8 +270,9 @@ runtime은 여러 Labs가 공유할 Platform 운영 정보이기 때문이다.
 
 먼저 실패하는 테스트로 다음을 고정한다.
 
-- `runtime-core`에는 Paddle package가 없고 `runtime-ocr-cpu`에는 고정 세 package가 있다.
-- Compose `worker`만 `runtime-ocr-cpu`를 사용하고 API·beat는 `runtime-core`를 사용한다.
+- `runtime-core`에는 embedding·Paddle·개발 package와 테스트 소스가 없다.
+- API는 CPU-only `runtime-embedding-cpu`, worker는 `runtime-ocr-cpu`, beat는 core를 사용한다.
+- 운영 embedding target에는 CUDA·NVIDIA·Triton package가 없다.
 - image의 uv cache가 비어 있고 non-root/data ownership 기존 계약이 유지된다.
 - 안전 매니페스트와 Compose의 service·target·dependency·volume/profile이 일치한다.
 
@@ -302,9 +305,9 @@ image가 없으면 `미검증`이 정상 결과다.
 
 ## 11. Docker 캐시와 용량 정책
 
-두 image는 application-base layer를 공유하고 uv cache mount를 image layer에 복사하지 않는다.
-core image의 기존 7 GB 상한은 유지한다. OCR image는 첫 build의 실제 크기와 가장 큰 layer를
-기록한 뒤 근거 없이 상한을 정하지 않는다.
+운영 image는 application layer를 공유하고 uv cache mount를 image layer에 복사하지 않는다.
+검증 상한은 실제 측정에 근거해 core 512 MiB, embedding 2 GiB, OCR 4 GiB로 둔다. profile 전용
+test image는 운영 배포 대상이 아니며 검증 종료 뒤 정확한 참조 상태를 확인해 정리할 수 있다.
 
 build가 새 image와 cache를 만들더라도 자동 prune하지 않는다. 작업 전후 `docker system df -v`,
 project image ID와 BuildKit record를 조사하고 `CACHE_POLICY.md`의 정확 대상·승인·사후 검증
@@ -315,8 +318,9 @@ Docker 자산을 조회하지 않는다.
 
 ## 12. 수용 기준
 
-1. 기본 Compose의 API와 beat는 `runtime-core`, worker는 `runtime-ocr-cpu`를 사용한다.
-2. core image에는 OCR engine이 없고 OCR worker image에는 정확한 CPU package 버전이 있다.
+1. 기본 Compose의 API는 `runtime-embedding-cpu`, beat는 `runtime-core`, worker는
+   `runtime-ocr-cpu`를 사용한다.
+2. core image에는 ML engine이 없고 embedding·OCR 운영 image에는 CPU package만 있다.
 3. Windows와 Linux CPU가 같은 10개 model revision·SHA-256 매니페스트를 사용한다.
 4. Linux CPU actual smoke가 network-off/read-only model 조건에서 text·table·bbox를 통과한다.
 5. model 누락·해시 불일치는 자동 다운로드 없이 명시적으로 실패한다.
@@ -333,7 +337,7 @@ Docker 자산을 조회하지 않는다.
 ## 13. 구현 순서
 
 1. 안전 토폴로지 domain/schema와 Compose drift contract
-2. Dockerfile `runtime-core`·`runtime-ocr-cpu` target과 dependency 경계
+2. Dockerfile core·embedding CPU·OCR CPU·test target과 dependency 경계
 3. Compose worker target, Linux CPU smoke profile와 image 검증
 4. owner 전용 Platform runtime topology API와 OpenAPI 계약
 5. `/admin/system/runtime` 화면과 navigation

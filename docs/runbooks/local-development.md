@@ -18,7 +18,7 @@
 Copy-Item .env.example .env
 pnpm --dir frontend install --frozen-lockfile
 cd backend
-uv sync --all-groups
+uv sync --all-groups --extra embedding-cpu --extra ocr-cpu
 cd ..
 ```
 
@@ -259,14 +259,20 @@ pnpm build
 pnpm api:check
 ```
 
-백엔드 이미지를 변경했으면 build check와 실제 image footprint 회귀 검사를 함께 실행한다. 기본 검사는 image 7 GiB 이하, 내장 `/root/.cache/uv` 1 MiB 이하, 비권한 runtime import와 `/data/objects`의 `10001:10001` 소유권을 요구한다.
+백엔드 이미지를 변경했으면 build check와 실제 image footprint 회귀 검사를 함께 실행한다.
+Core는 512 MiB, embedding API는 2 GiB, OCR worker는 4 GiB 이하를 요구한다. 세 운영 target은
+내장 uv cache, 개발 도구와 테스트 소스가 없어야 하며 embedding target에는 CPU-only torch만,
+OCR target에는 CPU-only torch와 고정 Paddle package만 있어야 한다.
 
 ```powershell
 docker buildx build --check -f backend/Dockerfile backend
-docker build -f backend/Dockerfile -t ai-workshop-backend:local backend
-.\scripts\verify-backend-image-footprint.ps1 -Image ai-workshop-backend:local
-docker compose -f infrastructure\compose\compose.yaml build ocr-linux-cpu-smoke
-.\scripts\verify-backend-image-footprint.ps1 -Image ai-workshop-backend-ocr-cpu:local -ExpectedOcrRuntime cpu -MaximumImageBytes 21474836480
+docker compose -f infrastructure\compose\compose.yaml build object-store-init api worker
+.\scripts\verify-backend-image-footprint.ps1 -Image ai-workshop-backend:local -MaximumImageBytes 536870912 -ExpectedEmbeddingRuntime absent
+.\scripts\verify-backend-image-footprint.ps1 -Image ai-workshop-backend-embedding-cpu:local -MaximumImageBytes 2147483648 -ExpectedEmbeddingRuntime cpu
+.\scripts\verify-backend-image-footprint.ps1 -Image ai-workshop-backend-ocr-cpu:local -MaximumImageBytes 4294967296 -ExpectedEmbeddingRuntime cpu -ExpectedOcrRuntime cpu
+docker compose -f infrastructure\compose\compose.yaml build e2e ocr-linux-cpu-smoke
+.\scripts\verify-backend-image-footprint.ps1 -Image ai-workshop-backend-test:local -MaximumImageBytes 2362232012 -ExpectedEmbeddingRuntime cpu -ExpectedDevelopmentRuntime present -ExpectedTestSources present
+.\scripts\verify-backend-image-footprint.ps1 -Image ai-workshop-backend-ocr-test:local -MaximumImageBytes 3758096384 -ExpectedEmbeddingRuntime cpu -ExpectedOcrRuntime cpu -ExpectedDevelopmentRuntime present -ExpectedTestSources present
 ```
 
 Windows에서 `pnpm api:check`가 현재 worktree의 `backend/.venv/Scripts/python.exe`가 없거나 잘못된 실행 파일이라 실패하면 그 명령을 성공으로 기록하지 않는다. 현재 worktree backend image로 OpenAPI를 내보낸 뒤 같은 `openapi-typescript --check` 계약을 직접 실행한다. 다음은 2026-09-01에 실제로 재실행해 통과한 fallback이다.

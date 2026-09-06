@@ -7,6 +7,12 @@
 
 ## 현재 작업
 
+- 2026-09-06 Docker backend image의 비정상적인 CUDA·개발 의존성 포함 원인을 확인하고
+  CPU-only embedding과 운영·테스트 image 경계를 분리했다. core `398MB`, embedding
+  `1.64GB`, OCR `3.01GB`이며 5개 image 경계 검사와 backend unit 675건, Ruff, mypy가
+  통과했다. 완료된 pytest 임시 디렉터리 73개, 교체 image 18개, private BuildKit 2개는
+  `docs/worklogs/2026-09-06-test-artifact-cleanup-audit.md`의 정확 대상에 대한 삭제 승인 대기다.
+
 - 2026-09-06 Linux CPU OCR worker를 core backend image와 분리하고, 10모델 무결성 검증,
   network-off smoke와 owner 전용 Docker 구성도를 구현했다. ARM64 Paddle SIGSEGV를 근거로
   OCR build·실행을 공식 지원 `linux/amd64`로 고정했고 image·package·artifact 검증은 통과했다.
@@ -355,12 +361,14 @@ RAG 구성에 고정하고, 관리자가 PP-StructureV3 pipeline과 하위 OCR �
 
 ## 다음 작업
 
-1. native Linux x86_64에서 고정 AMD64 OCR image·10모델의 text·table·bbox actual smoke와
+1. 사용자가 정확한 감사 목록의 삭제를 승인하면 pytest 임시 디렉터리 73개, 교체 image
+   18개와 private BuildKit 2개를 재검증 후 제거하고 보존 대상·회수량을 확인
+2. native Linux x86_64에서 고정 AMD64 OCR image·10모델의 text·table·bbox actual smoke와
    처리 시간을 검증. Linux GPU는 이후 별도 engine·CUDA·NVIDIA hardware 환경에서 검증
-2. 검증된 OCR adapter 앞에 PDF 페이지 rasterizer를 연결해 스캔 PDF OCR을 다음 형식으로 확장
-3. owner가 외부 전송과 비용을 명시 승인하고 안전한 credential·비민감 합성 자료를 준비하면
+3. 검증된 OCR adapter 앞에 PDF 페이지 rasterizer를 연결해 스캔 PDF OCR을 다음 형식으로 확장
+4. owner가 외부 전송과 비용을 명시 승인하고 안전한 credential·비민감 합성 자료를 준비하면
    OpenAI Responses 실제 smoke를 운영 절차대로 수행
-4. 저장 구성 목록의 generation exact join·readiness 조회를 batch/prefetch해 N+1을 줄이는
+5. 저장 구성 목록의 generation exact join·readiness 조회를 batch/prefetch해 N+1을 줄이는
    성능 개선을 별도 측정과 회귀 테스트로 진행. 현재 Task 11 완료 차단 요소는 아니다.
 
 ## 결정이 필요한 항목
@@ -378,30 +386,12 @@ RAG 구성에 고정하고, 관리자가 PP-StructureV3 pipeline과 하위 OCR �
 - 개발 전용 Codex App Server 후보는 stable effective per-thread built-in tool inventory 계약이
   없어 `codex_isolation_not_enforced`로 차단됐다. 이는 다음 활성 제품 작업이 아니라 위 재개
   조건을 충족할 때만 다시 검토할 차단 기록이다.
-- Task 3 검증이 만든 untracked pytest 임시 폴더
-  `backend/.pytest-task3-cont-characterization-green`,
-  `backend/.pytest-task3-cont-combined-green`, `backend/.pytest-task3-cont-focused-green`,
-  `backend/.pytest-task3-cont-focused-skips`, `backend/.pytest-task3-cont-green-new`,
-  `backend/.pytest-task3-cont-mutation-red-partial`,
-  `backend/.pytest-task3-cont-mutation-red-posix-remove`,
-  `backend/.pytest-task3-cont-mutation-red-report`,
-  `backend/.pytest-task3-cont-mutation-red-report-2`,
-  `backend/.pytest-task3-cont-mutation-red-windows-remove`,
-  `backend/.pytest-task3-cont-pre-fix-2`는 현재 접근이 거부된다. 제품 소스에는 포함되지 않으며
-  `CACHE_POLICY.md`의 정확 경로 조사·승인·재검증 없이는 삭제하지 않는다.
-- Task 2 검증이 만든 접근 거부 untracked pytest 임시 폴더 21개는
-  `.pytest-task2-round4-*` 이름으로 남아 있다. 정확한 경로 목록은
-  `docs/worklogs/2026-09-06-codex-app-server-isolation-gate.md`를 따르며 같은 cache-policy 절차
-  없이는 삭제하지 않는다.
-- `backend/.pytest-nextjs-final-contract`는 untracked지만 Windows 관리자 ACL 때문에 현재 비관리자 환경에서 삭제할 수 없다.
-- `backend/.pytest-tmp`는 Git ignored 경로이며 같은 ACL 문제로 내부 확인과 삭제가 거부된다. 2026-09-03 기본 unit 실행도 이 경로 정리 단계에서 실패했고 fresh `%TEMP%` basetemp로 우회 검증했다. 두 경로 모두 애플리케이션 소스와 실행 데이터에는 영향을 주지 않으며, 대화형 Windows 관리자 세션에서 소유권과 내용을 확인한 뒤 정확 경로만 삭제해야 한다.
-- 이번 backend unit 검증에서 만든 `.local-data/pytest-unit-current`도 정확 경로 삭제를 시도했으나 접근이 거부됐다. 애플리케이션 데이터에는 포함되지 않는 테스트 임시물이며 관리자 세션에서 해당 경로만 제거해야 한다.
+- 완료된 pytest 임시 디렉터리 73개의 정확 경로와 상태는
+  `docs/worklogs/2026-09-06-test-artifact-cleanup-audit.md`로 통합했다. 이 중 47개는 Windows
+  ACL로 접근이 거부되므로 관리자 권한 재검증 없이 제거하지 않는다.
 - 실제 BM25 기준선 검색과 생성형 V2 애플리케이션 구현은 더 이상 차단되지 않는다. 실제
   외부 생성 답변 smoke는 owner의 명시적 외부 전송·비용 승인과 안전한 credential,
   DB에 등록된 exact Deployment·Generation Profile·구성 승인이 없어 수행하지 않았다.
-- Task 11의 첫 OpenAPI RED 실행이 만든 `.pytest-task11-openapi-red/`에는 생성 OpenAPI JSON
-  1개, 195,267 bytes가 있다. 애플리케이션 데이터가 아닌 삭제 후보지만 사용자 명시 승인 전
-  제거하지 않는다.
 
 ## 작업 인계 메모
 

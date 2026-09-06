@@ -15,11 +15,11 @@ nodes:
   - id: api
     display_name: FastAPI 애플리케이션
     kind: process
-    runtime_target: runtime-core
+    runtime_target: runtime-embedding-cpu
     process_role: http-api
     dependencies: [object-store-init, postgres, redis, elasticsearch]
     storages: [object-data, model-cache]
-    capabilities: [http-api, authentication, rag-orchestration]
+    capabilities: [http-api, authentication, rag-orchestration, cpu-embeddings, linux-amd64]
     activation: default
     healthcheck_declared: true
   - id: worker
@@ -85,7 +85,7 @@ nodes:
   - id: e2e
     display_name: 통합 검증 도구
     kind: tool
-    runtime_target: runtime-core
+    runtime_target: runtime-test
     process_role: pytest-e2e
     dependencies: []
     storages: [object-data, model-cache]
@@ -105,7 +105,7 @@ nodes:
   - id: ocr-linux-cpu-smoke
     display_name: Linux CPU OCR 검증 도구
     kind: tool
-    runtime_target: runtime-ocr-cpu
+    runtime_target: runtime-ocr-test
     process_role: pp-structure-v3-smoke
     dependencies: []
     storages: [model-cache]

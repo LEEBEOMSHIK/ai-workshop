@@ -29,6 +29,34 @@ x-backend-ocr-cpu: &backend-ocr-cpu
     target: runtime-ocr-cpu
     platforms: [linux/amd64]
 
+x-backend-embedding-cpu: &backend-embedding-cpu
+  <<: *backend
+  image: ai-workshop-backend-embedding-cpu:local
+  platform: linux/amd64
+  build:
+    context: ../../backend
+    dockerfile: Dockerfile
+    target: runtime-embedding-cpu
+    platforms: [linux/amd64]
+
+x-backend-test: &backend-test
+  <<: *backend-embedding-cpu
+  image: ai-workshop-backend-test:local
+  build:
+    context: ../../backend
+    dockerfile: Dockerfile
+    target: runtime-test
+    platforms: [linux/amd64]
+
+x-backend-ocr-test: &backend-ocr-test
+  <<: *backend-ocr-cpu
+  image: ai-workshop-backend-ocr-test:local
+  build:
+    context: ../../backend
+    dockerfile: Dockerfile
+    target: runtime-ocr-test
+    platforms: [linux/amd64]
+
 services:
   object-store-init:
     <<: *backend
@@ -39,7 +67,7 @@ services:
     restart: "no"
 
   api:
-    <<: *backend
+    <<: *backend-embedding-cpu
     command: ["uvicorn", "ai_workshop.main:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "${API_PORT:-8000}:8000"
@@ -131,7 +159,7 @@ services:
         condition: service_healthy
 
   e2e:
-    <<: *backend
+    <<: *backend-test
     command: ["pytest", "-p", "no:cacheprovider", "tests/e2e", "-q"]
     profiles: ["test"]
     environment:
@@ -150,7 +178,7 @@ services:
       AI_WORKSHOP_MODEL_CACHE_ROOT: /models
 
   ocr-linux-cpu-smoke:
-    <<: *backend-ocr-cpu
+    <<: *backend-ocr-test
     profiles: ["ocr-smoke"]
     user: "10001:10001"
     command:

@@ -110,6 +110,10 @@ ai-workshop/
 
 작은 기능에 모든 계층을 기계적으로 만들지 않는다. 모듈이 복잡해질 때 `domain`, `application`, `adapters`, `api` 같은 내부 계층을 도입하되 의존 방향은 유지한다.
 
+`backend/Dockerfile`의 운영 target은 ML 없는 `runtime-core`, CPU embedding용
+`runtime-embedding-cpu`, embedding+OCR용 `runtime-ocr-cpu`로 나눈다. `runtime-test`와
+`runtime-ocr-test`만 `backend/tests`와 개발 dependency를 포함하며 운영 target에 복사하지 않는다.
+
 ## 의존 방향
 
 ```text

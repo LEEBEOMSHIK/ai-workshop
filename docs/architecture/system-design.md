@@ -140,7 +140,10 @@ service·target·dependency·volume·profile drift는 자동 계약 테스트로
 
 비공개 작업소는 첫 버전에서 한 대의 개발 PC에 실행한다. 로컬 개발의 PostgreSQL, Redis와
 Elasticsearch는 Docker Compose로, Next.js·FastAPI·Celery는 호스트에서 실행한다. 배포용
-Compose의 OCR worker는 core image와 분리한 `linux/amd64` CPU image를 사용한다. 문서 원본,
+Compose backend는 ML·개발 도구가 없는 `runtime-core`, CPU-only PyTorch 질의 임베딩용
+`runtime-embedding-cpu`, embedding과 PP-StructureV3를 함께 쓰는 `runtime-ocr-cpu`, profile
+전용 test target으로 분리한다. API와 OCR worker는 공식 CPU wheel을 위해 `linux/amd64`를
+사용하고 운영 target에는 테스트 소스와 개발 도구를 포함하지 않는다. 문서 원본,
 파싱 결과와 임베딩은 로컬 또는 승인된 사내 환경에만 저장한다.
 
 공개 전시실은 별도 데이터베이스와 저장소를 사용하는 별도 배포다. 두 환경을 런타임 네트워크로 연결하지 않는다. 공개 콘텐츠는 검토, 비식별화, 승인 상태를 포함하는 내보내기 패키지를 통해서만 이동한다.

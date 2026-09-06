@@ -62,29 +62,53 @@ def test_compose_matches_safe_topology_execution_contract() -> None:
         assert ("healthcheck" in service) is node.healthcheck_declared
 
 
-def test_worker_alone_uses_cpu_ocr_target() -> None:
+def test_services_use_the_smallest_runtime_target_that_matches_their_work() -> None:
     services = load_compose()["services"]
 
     assert services["worker"]["build"]["target"] == "runtime-ocr-cpu"
     assert services["worker"]["build"]["platforms"] == ["linux/amd64"]
     assert services["worker"]["platform"] == "linux/amd64"
-    assert services["api"]["build"]["target"] == "runtime-core"
+    assert services["api"]["build"]["target"] == "runtime-embedding-cpu"
+    assert services["api"]["build"]["platforms"] == ["linux/amd64"]
+    assert services["api"]["platform"] == "linux/amd64"
     assert services["beat"]["build"]["target"] == "runtime-core"
     assert services["object-store-init"]["build"]["target"] == "runtime-core"
-    assert services["ocr-linux-cpu-smoke"]["build"]["target"] == "runtime-ocr-cpu"
+    assert services["migrate"]["build"]["target"] == "runtime-core"
+    assert services["model-tools"]["build"]["target"] == "runtime-core"
+    assert services["e2e"]["build"]["target"] == "runtime-test"
+    assert services["e2e"]["build"]["platforms"] == ["linux/amd64"]
+    assert services["e2e"]["platform"] == "linux/amd64"
+    assert services["ocr-linux-cpu-smoke"]["build"]["target"] == "runtime-ocr-test"
     assert services["ocr-linux-cpu-smoke"]["build"]["platforms"] == ["linux/amd64"]
     assert services["ocr-linux-cpu-smoke"]["platform"] == "linux/amd64"
 
 
 def test_cpu_ocr_extra_is_explicit_and_the_ambiguous_extra_is_absent() -> None:
     pyproject = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))
+    dependencies = pyproject["project"]["dependencies"]
     extras = pyproject["project"]["optional-dependencies"]
 
+    assert all(not dependency.startswith("sentence-transformers") for dependency in dependencies)
+    assert extras["embedding-cpu"] == [
+        "sentence-transformers>=6.0,<7.0",
+        "torch==2.13.0",
+    ]
     assert "ocr" not in extras
     assert extras["ocr-cpu"] == [
         "paddleocr==3.7.0",
         "paddlepaddle==3.2.2",
         "paddlex[ocr]==3.7.2",
+    ]
+    assert pyproject["tool"]["uv"]["sources"]["torch"] == {
+        "index": "pytorch-cpu",
+        "extra": "embedding-cpu",
+    }
+    assert pyproject["tool"]["uv"]["index"] == [
+        {
+            "name": "pytorch-cpu",
+            "url": "https://download.pytorch.org/whl/cpu",
+            "explicit": True,
+        }
     ]
 
 
@@ -99,3 +123,10 @@ def test_linux_cpu_smoke_is_offline_non_root_and_uses_read_only_artifacts() -> N
     assert service["environment"]["AI_WORKSHOP_MODEL_CACHE_ROOT"] == "/models"
     assert "model-cache:/models:ro" in service["volumes"]
     assert "../../model-profiles:/app/model-profiles:ro" in service["volumes"]
+
+
+def test_pytest_does_not_force_repository_local_temporary_output() -> None:
+    pyproject = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))
+
+    addopts = pyproject["tool"]["pytest"]["ini_options"]["addopts"]
+    assert all(not option.startswith("--basetemp") for option in addopts)

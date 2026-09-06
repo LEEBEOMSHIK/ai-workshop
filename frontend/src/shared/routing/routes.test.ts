@@ -15,6 +15,7 @@ describe("canonical frontend routes", () => {
       workshopRagSearch: "/workshop/rag/search",
       adminRagConfigurations: "/admin/rag/configurations",
       adminRagModels: "/admin/rag/models",
+      adminSystemRuntime: "/admin/system/runtime",
     });
   });
 

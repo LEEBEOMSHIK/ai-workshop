@@ -1,6 +1,6 @@
 # ADR 0013: OCR 런타임 image와 안전 관리자 토폴로지를 분리한다
 
-- 상태: 제안됨
+- 상태: 승인됨
 - 기준일: 2026-09-06
 
 ## 맥락
@@ -17,6 +17,10 @@ CPU와 GPU는 같은 OCR model artifact를 재사용할 수 있어도 PaddlePadd
 같은 Dockerfile의 `runtime-core`와 `runtime-ocr-cpu` target을 사용한다. API와 beat는 core,
 OCR worker는 CPU OCR target을 사용한다. Linux GPU는 별도 `runtime-ocr-gpu` image와 actual
 hardware evaluation이 승인될 때까지 구현됐거나 검증됐다고 표시하지 않는다.
+
+PaddlePaddle 공식 설치 경계에 맞춰 OCR worker와 Linux CPU smoke는 `linux/amd64`로
+고정한다. ARM64 wheel의 설치 성공만으로 지원을 간주하지 않으며 실제 모델 초기화와 추론을
+통과해야 검증됨으로 표시한다. 나머지 core service는 호스트의 native architecture를 유지한다.
 
 Docker Compose를 실행 구성 정본으로 유지하고, backend Platform package에 owner API용 안전
 토폴로지 매니페스트를 둔다. 자동 계약 테스트가 service, image target, dependency, named

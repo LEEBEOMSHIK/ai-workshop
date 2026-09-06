@@ -8,6 +8,7 @@ export const routes = {
   workshopRagSearch: "/workshop/rag/search",
   adminRagConfigurations: "/admin/rag/configurations",
   adminRagModels: "/admin/rag/models",
+  adminSystemRuntime: "/admin/system/runtime",
 } as const;
 
 export function workspaceDocumentPath(workspaceId: string): string {

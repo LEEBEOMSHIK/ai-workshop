@@ -37,3 +37,33 @@ def test_root_cli_registers_rag_models_from_explicit_catalog(monkeypatch, tmp_pa
     cli.main(["register-rag-models", "--catalog-dir", str(tmp_path)])
 
     assert called == [tmp_path]
+
+
+def test_root_cli_provisions_pinned_rag_ocr_models(monkeypatch, tmp_path: Path) -> None:
+    manifest = tmp_path / "manifest.json"
+    source_root = tmp_path / "source"
+    cache_root = tmp_path / "cache"
+    installed = cache_root / "ocr" / "model" / ("a" * 64)
+    called: list[tuple[Path, Path, Path]] = []
+
+    def fake_provision_artifacts(
+        *, manifest_path: Path, source_root: Path, cache_root: Path
+    ) -> tuple[Path, ...]:
+        called.append((manifest_path, source_root, cache_root))
+        return (installed,)
+
+    monkeypatch.setattr(cli, "provision_artifacts", fake_provision_artifacts, raising=False)
+
+    cli.main(
+        [
+            "provision-rag-ocr-models",
+            "--manifest",
+            str(manifest),
+            "--source-root",
+            str(source_root),
+            "--cache-root",
+            str(cache_root),
+        ]
+    )
+
+    assert called == [(manifest, source_root, cache_root)]

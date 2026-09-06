@@ -1,6 +1,6 @@
 # Linux OCR 런타임·관리자 Docker 구성도 설계
 
-- 상태: 사용자 검토 대기
+- 상태: 승인됨
 - 기준일: 2026-09-06
 - 범위: PP-StructureV3 Linux CPU 런타임, CPU/GPU 호환성 경계, owner 전용 Docker 구성도
 - 관련 설계: `docs/superpowers/specs/2026-09-06-rag-document-processing-ocr-profile-design.md`
@@ -16,6 +16,7 @@ OCR dependency를 모든 backend process에 설치하면 API와 beat까지 불�
 이 설계는 다음을 목표로 한다.
 
 - API·beat의 core image와 OCR worker image를 같은 Dockerfile의 명시적 target으로 분리한다.
+- PaddlePaddle 공식 지원 범위에 맞춰 OCR worker와 smoke만 `linux/amd64`로 고정한다.
 - Windows에서 검증한 정확한 10개 모델 매니페스트를 Linux CPU에서도 네트워크 없이 검증한다.
 - 같은 모델 artifact를 쓰는 Linux GPU 경계를 정의하되, GPU engine과 실제 하드웨어를 검증하지
   않은 상태를 성공으로 표시하지 않는다.
@@ -143,10 +144,11 @@ smoke 입력은 공개·합성 fixture로 제한한다. Windows의 한국어 fon
 - 정규화 bbox가 원본 image 범위 안에 있다.
 - 실행 snapshot의 OS는 Linux, device는 CPU, package version은 고정값이다.
 
-model cache와 model profile은 read-only bind mount로 제공한다. container는
-`network_mode: none`, non-root user와 read-only model mount로 실행하고 결과·pytest 임시물은
+model cache는 worker와 공유하는 named volume을, model profile은 bind mount를 각각 read-only로
+제공한다. container는 `network_mode: none`, non-root user와 read-only model mount로 실행하고 결과·pytest 임시물은
 container의 임시 쓰기 영역만 사용한다. 모델이 누락되거나 해시가 다르면 다운로드로 복구하지
-않고 smoke를 실패시킨다.
+않고 smoke를 실패시킨다. Windows bind mount가 POSIX mode를 잘못 보존할 수 있으므로 승인된
+초기화 단계는 `model-tools`를 통해 내용·해시를 검증한 뒤 named volume에 표준 권한으로 설치한다.
 
 Windows 한국어 smoke와 Linux CPU smoke는 서로 다른 보완 증거다. Linux 합성 fixture 통과가
 Windows 한국어 품질 검증을 대체하지 않는다.

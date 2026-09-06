@@ -35,7 +35,7 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-ocr = [
+ocr-cpu = [
     { name = "paddleocr" },
     { name = "paddlepaddle" },
     { name = "paddlex", extra = ["ocr"] },
@@ -58,9 +58,9 @@ requires-dist = [
     { name = "email-validator", specifier = ">=2.3,<3.0" },
     { name = "fastapi", specifier = ">=0.116,<1.0" },
     { name = "httpx", specifier = ">=0.28,<1.0" },
-    { name = "paddleocr", marker = "extra == 'ocr'", specifier = "==3.7.0" },
-    { name = "paddlepaddle", marker = "extra == 'ocr'", specifier = "==3.2.2" },
-    { name = "paddlex", extras = ["ocr"], marker = "extra == 'ocr'", specifier = "==3.7.2" },
+    { name = "paddleocr", marker = "extra == 'ocr-cpu'", specifier = "==3.7.0" },
+    { name = "paddlepaddle", marker = "extra == 'ocr-cpu'", specifier = "==3.2.2" },
+    { name = "paddlex", extras = ["ocr"], marker = "extra == 'ocr-cpu'", specifier = "==3.7.2" },
     { name = "psycopg", extras = ["pool"], specifier = ">=3.2,<4.0" },
     { name = "psycopg-binary", marker = "platform_machine != 'ARM64' or sys_platform != 'win32'", specifier = ">=3.2,<4.0" },
     { name = "pwdlib", extras = ["argon2"], specifier = ">=0.3,<1.0" },
@@ -74,7 +74,7 @@ requires-dist = [
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0,<3.0" },
     { name = "uvicorn", specifier = ">=0.35,<1.0" },
 ]
-provides-extras = ["ocr"]
+provides-extras = ["ocr-cpu"]
 
 [package.metadata.requires-dev]
 dev = [

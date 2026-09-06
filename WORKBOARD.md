@@ -1,18 +1,18 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-06
-- 현재 단계: PP-StructureV3 Linux CPU 런타임·관리자 Docker 구성도 설계 검토
+- 현재 단계: PP-StructureV3 Linux CPU native x86_64 actual smoke 대기
 - 전체 상태: 불변 Document Processing Profile, 10개 고정 PP-StructureV3 모델,
   DOCX 내장 이미지 OCR·provenance·검색 원문 뷰어와 관리자 전체 구성이 구현됐다.
 
 ## 현재 작업
 
-- 2026-09-06 Linux CPU OCR worker를 core backend image와 분리하고, 같은 10모델 매니페스트의
-  network-off actual smoke와 owner 전용 Docker 구성도를 추가하는 설계를 작성해 사용자 검토를
-  기다린다. GPU는
-  같은 model artifact를 재사용하지만 별도 engine/CUDA/hardware gate 전에는 미검증으로 둔다.
-  설계 정본은
-  `docs/superpowers/specs/2026-09-06-linux-ocr-runtime-admin-topology-design.md`다.
+- 2026-09-06 Linux CPU OCR worker를 core backend image와 분리하고, 10모델 무결성 검증,
+  network-off smoke와 owner 전용 Docker 구성도를 구현했다. ARM64 Paddle SIGSEGV를 근거로
+  OCR build·실행을 공식 지원 `linux/amd64`로 고정했고 image·package·artifact 검증은 통과했다.
+  ARM64 호스트의 AMD64 actual smoke는 40분 동안 완료되지 않아 Linux CPU는 미검증으로
+  유지한다. 다음 게이트는 native Linux x86_64 actual 추론이며 상세 기록은
+  `docs/worklogs/2026-09-06-linux-ocr-runtime-admin-topology.md`다.
 
 - 2026-09-06 PP-StructureV3 3.7.0의 실제 10개 모델 의존 그래프, 정확한 revision·파일
   SHA-256 매니페스트와 원자적 프로비저닝을 구현했다. Windows CPU에서 한국어 텍스트·표·bbox
@@ -342,17 +342,21 @@ RAG 구성에 고정하고, 관리자가 PP-StructureV3 pipeline과 하위 OCR �
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. PP-StructureV3의 실제 10개 모델을 정확한 revision·SHA-256으로 고정하고 원자적 프로비저닝,
+1. core/OCR Docker image를 분리하고 OCR을 공식 지원 `linux/amd64`로 고정했으며, 안전 토폴로지
+   owner API와 `/admin/system/runtime`, Compose drift·이미지·모델 무결성 검증을 구현했다.
+   native x86_64 actual smoke는 다음 게이트다
+   (`docs/worklogs/2026-09-06-linux-ocr-runtime-admin-topology.md`).
+2. PP-StructureV3의 실제 10개 모델을 정확한 revision·SHA-256으로 고정하고 원자적 프로비저닝,
    불변 프로파일 v2, Windows CPU 한국어 텍스트·표·bbox 실제 추론까지 검증했다
    (`docs/worklogs/2026-09-06-pp-structure-v3-windows-smoke.md`).
-2. 개발 전용 Codex App Server 후보를 `codex-cli 0.151.0` no-content gate로 측정해 stable effective per-thread built-in tool inventory 계약 부재를 확인했고 fail-closed 차단 결과와 재개 조건을 기록했다 (`docs/worklogs/2026-09-06-codex-app-server-isolation-gate.md`).
-3. 다중 환경 LLM Deployment·데이터 정책·OpenAI Responses adapter·관리자 설정·사용자 고지를 구현하고 전체 backend/frontend·OpenAPI·정책 흐름·migration·privacy 독립 검증을 완료했다. 실제 외부 API smoke는 명시된 승인 조건으로 분리했다 (`docs/worklogs/2026-09-05-rag-openai-deployment-verification.md`).
-4. 대화형 생성 RAG V2의 저장 구성·준비 상태·로컬 LLM adapter·문맥 기반 후속질문·구조화 답변·인용 검증과 관리자/사용자 UI를 구현하고 자동 검증했다 (`docs/worklogs/2026-09-04-conversational-generative-rag-v2.md`).
-5. 파일명과 분리된 지식 공간 범위 SHA-256 중복 판정, 명시적 새 버전 업로드, 검색 준비 상태 안내와 결과 UUID 비노출을 구현·검증했다 (`docs/worklogs/2026-09-04-rag-upload-identity-and-search-readiness.md`).
+3. 개발 전용 Codex App Server 후보를 `codex-cli 0.151.0` no-content gate로 측정해 stable effective per-thread built-in tool inventory 계약 부재를 확인했고 fail-closed 차단 결과와 재개 조건을 기록했다 (`docs/worklogs/2026-09-06-codex-app-server-isolation-gate.md`).
+4. 다중 환경 LLM Deployment·데이터 정책·OpenAI Responses adapter·관리자 설정·사용자 고지를 구현하고 전체 backend/frontend·OpenAPI·정책 흐름·migration·privacy 독립 검증을 완료했다. 실제 외부 API smoke는 명시된 승인 조건으로 분리했다 (`docs/worklogs/2026-09-05-rag-openai-deployment-verification.md`).
+5. 대화형 생성 RAG V2의 저장 구성·준비 상태·로컬 LLM adapter·문맥 기반 후속질문·구조화 답변·인용 검증과 관리자/사용자 UI를 구현하고 자동 검증했다 (`docs/worklogs/2026-09-04-conversational-generative-rag-v2.md`).
 
 ## 다음 작업
 
-1. 같은 PP-StructureV3 매니페스트의 Linux CPU/GPU 설치·추론 호환성을 별도 환경에서 검증
+1. native Linux x86_64에서 고정 AMD64 OCR image·10모델의 text·table·bbox actual smoke와
+   처리 시간을 검증. Linux GPU는 이후 별도 engine·CUDA·NVIDIA hardware 환경에서 검증
 2. 검증된 OCR adapter 앞에 PDF 페이지 rasterizer를 연결해 스캔 PDF OCR을 다음 형식으로 확장
 3. owner가 외부 전송과 비용을 명시 승인하고 안전한 credential·비민감 합성 자료를 준비하면
    OpenAI Responses 실제 smoke를 운영 절차대로 수행

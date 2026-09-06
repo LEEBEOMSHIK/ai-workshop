@@ -8,6 +8,7 @@ from ai_workshop.main import create_app
 
 HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 EXPECTED_PATHS = {
+    "/api/v1/admin/system/runtime-topology",
     "/api/v1/admin/rag/data-policies/installation",
     "/api/v1/admin/rag/data-policies/installation/versions",
     "/api/v1/admin/rag/data-policies/workspaces/{workspace_id}",

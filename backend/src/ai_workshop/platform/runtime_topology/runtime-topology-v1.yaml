@@ -1,0 +1,154 @@
+schema_version: 1
+topology_version: local-compose-v1
+environment_kind: local-compose
+nodes:
+  - id: object-store-init
+    display_name: 객체 저장소 초기화
+    kind: job
+    runtime_target: runtime-core
+    process_role: object-store-permission-init
+    dependencies: []
+    storages: [object-data]
+    capabilities: [storage-initialization]
+    activation: default
+    healthcheck_declared: false
+  - id: api
+    display_name: FastAPI 애플리케이션
+    kind: process
+    runtime_target: runtime-core
+    process_role: http-api
+    dependencies: [object-store-init, postgres, redis, elasticsearch]
+    storages: [object-data, model-cache]
+    capabilities: [http-api, authentication, rag-orchestration]
+    activation: default
+    healthcheck_declared: true
+  - id: worker
+    display_name: OCR 작업자
+    kind: process
+    runtime_target: runtime-ocr-cpu
+    process_role: celery-worker
+    dependencies: [object-store-init, postgres, redis, elasticsearch]
+    storages: [object-data, model-cache]
+    capabilities: [background-jobs, embeddings, pp-structure-v3, linux-amd64]
+    activation: default
+    healthcheck_declared: true
+  - id: beat
+    display_name: 작업 스케줄러
+    kind: process
+    runtime_target: runtime-core
+    process_role: celery-beat
+    dependencies: [object-store-init, postgres, redis, elasticsearch]
+    storages: [object-data, model-cache]
+    capabilities: [scheduled-recovery]
+    activation: default
+    healthcheck_declared: false
+  - id: postgres
+    display_name: PostgreSQL
+    kind: service
+    runtime_target: postgres:17-alpine
+    process_role: relational-database
+    dependencies: []
+    storages: [postgres-data]
+    capabilities: [metadata, identity, job-state]
+    activation: default
+    healthcheck_declared: true
+  - id: redis
+    display_name: Redis
+    kind: service
+    runtime_target: redis:8-alpine
+    process_role: task-broker
+    dependencies: []
+    storages: [redis-data]
+    capabilities: [celery-broker, result-state]
+    activation: default
+    healthcheck_declared: true
+  - id: elasticsearch
+    display_name: Elasticsearch
+    kind: service
+    runtime_target: docker.elastic.co/elasticsearch/elasticsearch:9.5.2
+    process_role: hybrid-search-engine
+    dependencies: []
+    storages: [elasticsearch-data]
+    capabilities: [bm25, dense-vector, metadata-filter]
+    activation: default
+    healthcheck_declared: true
+  - id: migrate
+    display_name: 데이터베이스 마이그레이션
+    kind: tool
+    runtime_target: runtime-core
+    process_role: alembic-migration
+    dependencies: [object-store-init, postgres]
+    storages: [object-data, model-cache]
+    capabilities: [schema-migration]
+    activation: tools
+    healthcheck_declared: false
+  - id: e2e
+    display_name: 통합 검증 도구
+    kind: tool
+    runtime_target: runtime-core
+    process_role: pytest-e2e
+    dependencies: []
+    storages: [object-data, model-cache]
+    capabilities: [end-to-end-verification]
+    activation: test
+    healthcheck_declared: false
+  - id: model-tools
+    display_name: 모델 등록 도구
+    kind: tool
+    runtime_target: runtime-core
+    process_role: model-registry-cli
+    dependencies: [postgres]
+    storages: [model-cache]
+    capabilities: [model-registration, artifact-provisioning]
+    activation: model-tools
+    healthcheck_declared: false
+  - id: ocr-linux-cpu-smoke
+    display_name: Linux CPU OCR 검증 도구
+    kind: tool
+    runtime_target: runtime-ocr-cpu
+    process_role: pp-structure-v3-smoke
+    dependencies: []
+    storages: [model-cache]
+    capabilities: [offline-model-integrity, actual-ocr-inference, linux-amd64]
+    activation: ocr-smoke
+    healthcheck_declared: false
+storages:
+  - id: object-data
+    display_name: 문서 객체 저장 볼륨
+    purpose: 별도 컨테이너가 아닌 영속 볼륨
+    persistence: persistent
+  - id: model-cache
+    display_name: 모델 캐시 볼륨
+    purpose: 검증된 로컬 모델 artifact
+    persistence: persistent
+  - id: postgres-data
+    display_name: PostgreSQL 데이터
+    purpose: 업무 메타데이터와 실행 상태
+    persistence: persistent
+  - id: redis-data
+    display_name: Redis 데이터
+    purpose: 작업 큐와 결과 상태
+    persistence: persistent
+  - id: elasticsearch-data
+    display_name: Elasticsearch 데이터
+    purpose: BM25와 dense 검색 색인
+    persistence: persistent
+compatibility:
+  - id: windows-cpu
+    display_name: Windows CPU
+    device: cpu
+    runtime_target: local-python-ocr-cpu
+    verification_state: verified
+    verification_note: 한국어 텍스트, 표와 bbox 실제 추론 통과
+  - id: linux-cpu
+    display_name: Linux CPU
+    device: cpu
+    runtime_target: runtime-ocr-cpu
+    verification_state: unverified
+    verification_note: image·package·artifact 검증 완료, native linux/amd64 actual smoke 필요
+  - id: linux-gpu
+    display_name: Linux GPU
+    device: gpu
+    runtime_target: runtime-ocr-gpu
+    verification_state: unverified
+    verification_note: 별도 GPU engine, CUDA channel과 실제 NVIDIA 환경 필요

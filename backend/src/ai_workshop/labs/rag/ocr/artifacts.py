@@ -28,6 +28,16 @@ class _Model:
     files: tuple[_File, ...]
 
 
+def verify_artifacts(*, manifest_path: Path, cache_root: Path) -> tuple[Path, ...]:
+    verified: list[Path] = []
+    for model in _load_manifest(manifest_path):
+        target = cache_root / "ocr" / model.model_kind / model.artifact_sha256
+        for item in model.files:
+            _verify_file(target / item.path, item)
+        verified.append(target)
+    return tuple(verified)
+
+
 def provision_artifacts(
     *,
     manifest_path: Path,
@@ -51,11 +61,14 @@ def provision_artifacts(
         target.parent.mkdir(parents=True, exist_ok=True)
         staging = Path(tempfile.mkdtemp(prefix=".provision-", dir=target.parent))
         try:
+            staging.chmod(0o755)
             source = source_root / model.runtime_role
             for item in model.files:
                 destination = staging / item.path
                 destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source / item.path, destination)
+                destination.parent.chmod(0o755)
+                shutil.copyfile(source / item.path, destination)
+                destination.chmod(0o644)
                 _verify_file(destination, item)
             os.replace(staging, target)
         except Exception:
@@ -135,12 +148,15 @@ def _load_manifest(path: Path) -> tuple[_Model, ...]:
 
 
 def _verify_file(path: Path, expected: _File) -> None:
-    if not path.is_file() or path.stat().st_size != expected.size:
-        raise ArtifactIntegrityError("An OCR artifact file size does not match.")
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(block)
+    try:
+        if not path.is_file() or path.stat().st_size != expected.size:
+            raise ArtifactIntegrityError("An OCR artifact file size does not match.")
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for block in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(block)
+    except OSError as exc:
+        raise ArtifactIntegrityError("An OCR artifact file is unavailable.") from exc
     if digest.hexdigest() != expected.sha256:
         raise ArtifactIntegrityError("An OCR artifact file SHA-256 does not match.")
 

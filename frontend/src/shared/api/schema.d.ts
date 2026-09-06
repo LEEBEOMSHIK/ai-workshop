@@ -192,6 +192,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/system/runtime-topology": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Runtime Topology */
+        get: operations["get_runtime_topology_api_v1_admin_system_runtime_topology_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/login": {
         parameters: {
             query?: never;
@@ -749,6 +766,21 @@ export interface components {
          * @enum {string}
          */
         CandidateStatus: "pending" | "running" | "completed" | "failed";
+        /** CompatibilityLaneResponse */
+        CompatibilityLaneResponse: {
+            /** Device */
+            device: string;
+            /** Display Name */
+            display_name: string;
+            /** Id */
+            id: string;
+            /** Runtime Target */
+            runtime_target: string;
+            /** Verification Note */
+            verification_note: string;
+            /** Verification State */
+            verification_state: string;
+        };
         /** ConfigurationVersionResponse */
         ConfigurationVersionResponse: {
             /**
@@ -1702,6 +1734,57 @@ export interface components {
              * Format: uuid
              */
             workspace_id: string;
+        };
+        /** RuntimeNodeResponse */
+        RuntimeNodeResponse: {
+            /** Activation */
+            activation: string;
+            /** Capabilities */
+            capabilities: string[];
+            /** Dependencies */
+            dependencies: string[];
+            /** Display Name */
+            display_name: string;
+            /** Healthcheck Declared */
+            healthcheck_declared: boolean;
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Observation */
+            observation: string;
+            /** Process Role */
+            process_role: string;
+            /** Runtime Target */
+            runtime_target: string;
+            /** Storages */
+            storages: string[];
+        };
+        /** RuntimeStorageResponse */
+        RuntimeStorageResponse: {
+            /** Display Name */
+            display_name: string;
+            /** Id */
+            id: string;
+            /** Persistence */
+            persistence: string;
+            /** Purpose */
+            purpose: string;
+        };
+        /** RuntimeTopologyResponse */
+        RuntimeTopologyResponse: {
+            /** Compatibility */
+            compatibility: components["schemas"]["CompatibilityLaneResponse"][];
+            /** Environment Kind */
+            environment_kind: string;
+            /** Nodes */
+            nodes: components["schemas"]["RuntimeNodeResponse"][];
+            /** Schema Version */
+            schema_version: number;
+            /** Storages */
+            storages: components["schemas"]["RuntimeStorageResponse"][];
+            /** Topology Version */
+            topology_version: string;
         };
         /** SavedRagConfigurationCreate */
         SavedRagConfigurationCreate: {
@@ -2795,6 +2878,71 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProfileResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_runtime_topology_api_v1_admin_system_runtime_topology_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeTopologyResponse"];
                 };
             };
             /** @description Authentication required. */

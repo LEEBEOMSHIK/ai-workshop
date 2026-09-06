@@ -24,6 +24,10 @@ describe("AdminNavigation", () => {
       "href",
       routes.adminRagModels,
     );
+    expect(screen.getByRole("link", { name: "시스템 런타임" })).toHaveAttribute(
+      "href",
+      routes.adminSystemRuntime,
+    );
     expect(screen.getByRole("link", { name: "비공개 작업소" })).toHaveAttribute(
       "href",
       routes.workshopHome,

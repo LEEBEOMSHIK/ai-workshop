@@ -25,7 +25,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-ocr = [
+ocr-cpu = [
   "paddleocr==3.7.0",
   "paddlepaddle==3.2.2",
   "paddlex[ocr]==3.7.2",

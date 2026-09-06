@@ -5,6 +5,7 @@ x-backend: &backend
   build:
     context: ../../backend
     dockerfile: Dockerfile
+    target: runtime-core
   environment: &backend-environment
     AI_WORKSHOP_ENVIRONMENT: ${AI_WORKSHOP_ENVIRONMENT:-local}
     AI_WORKSHOP_SECRET_KEY: ${AI_WORKSHOP_SECRET_KEY:-local-development-secret-change-before-sharing}
@@ -18,11 +19,23 @@ x-backend: &backend
     - object-data:/data/objects
     - model-cache:/models
 
+x-backend-ocr-cpu: &backend-ocr-cpu
+  <<: *backend
+  image: ai-workshop-backend-ocr-cpu:local
+  platform: linux/amd64
+  build:
+    context: ../../backend
+    dockerfile: Dockerfile
+    target: runtime-ocr-cpu
+    platforms: [linux/amd64]
+
 services:
   object-store-init:
     <<: *backend
     user: "0:0"
     command: ["chown", "-R", "10001:10001", "/data/objects"]
+    volumes:
+      - object-data:/data/objects
     restart: "no"
 
   api:
@@ -52,7 +65,7 @@ services:
       retries: 12
 
   worker:
-    <<: *backend
+    <<: *backend-ocr-cpu
     environment:
       <<: *backend-environment
       AI_WORKSHOP_MODEL_CACHE_ROOT: /models
@@ -136,6 +149,30 @@ services:
       AI_WORKSHOP_ELASTICSEARCH_INDEX_PREFIX: ${AI_WORKSHOP_ELASTICSEARCH_INDEX_PREFIX:-ai-workshop-rag}
       AI_WORKSHOP_MODEL_CACHE_ROOT: /models
 
+  ocr-linux-cpu-smoke:
+    <<: *backend-ocr-cpu
+    profiles: ["ocr-smoke"]
+    user: "10001:10001"
+    command:
+      [
+        "pytest",
+        "-p",
+        "no:cacheprovider",
+        "--basetemp=/tmp/pytest-ocr-smoke",
+        "tests/integration/labs/rag/ocr/test_paddle_structure_smoke.py",
+        "-q",
+      ]
+    environment:
+      AI_WORKSHOP_ENVIRONMENT: test
+      AI_WORKSHOP_OCR_ACTUAL_SMOKE: "1"
+      AI_WORKSHOP_OCR_SMOKE_DEVICE: cpu
+      AI_WORKSHOP_OCR_SMOKE_MANIFEST_PATH: /app/model-profiles/rag/ocr/pp-structure-v3-v1.json
+      AI_WORKSHOP_MODEL_CACHE_ROOT: /models
+    volumes:
+      - model-cache:/models:ro
+      - ../../model-profiles:/app/model-profiles:ro
+    network_mode: none
+
   postgres:
     image: postgres:17-alpine
     environment:
@@ -170,6 +207,7 @@ services:
     build:
       context: ../../backend
       dockerfile: Dockerfile
+      target: runtime-core
     profiles: ["model-tools"]
     command:
       [

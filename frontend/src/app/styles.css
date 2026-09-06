@@ -19,6 +19,180 @@ body {
   min-height: 100vh;
 }
 
+.runtime-topology-shell {
+  min-height: 100vh;
+  padding: clamp(2rem, 5vw, 5rem);
+  background:
+    radial-gradient(circle at 92% 2%, rgb(123 214 255 / 14%), transparent 30rem),
+    #0a0e13;
+}
+
+.runtime-topology-header,
+.runtime-section,
+.runtime-security {
+  width: min(100%, 96rem);
+  margin-inline: auto;
+}
+
+.runtime-topology-header > p:not(.eyebrow),
+.runtime-section-heading p,
+.runtime-muted {
+  color: #8f9ba6;
+  line-height: 1.65;
+}
+
+.runtime-topology-header h1 {
+  margin: 0.5rem 0 1rem;
+  font-size: clamp(2.7rem, 7vw, 5.8rem);
+}
+
+.runtime-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin-top: 2rem;
+}
+
+.runtime-summary > div,
+.runtime-security {
+  padding: 1rem;
+  border: 1px solid #2b3944;
+  border-radius: 0.85rem;
+  background: #10171f;
+}
+
+.runtime-summary dt,
+.runtime-detail-list dt {
+  color: #778692;
+  font-size: 0.75rem;
+}
+
+.runtime-summary dd,
+.runtime-detail-list dd {
+  margin: 0.25rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.runtime-section {
+  margin-top: 3rem;
+}
+
+.runtime-section-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 1.5rem;
+  align-items: end;
+}
+
+.runtime-section-heading h2,
+.runtime-section-heading p {
+  margin-bottom: 0;
+}
+
+.runtime-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 25rem), 1fr));
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.runtime-card-grid.compact {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+}
+
+.runtime-card {
+  min-width: 0;
+  padding: 1.15rem;
+  border: 1px solid #2b3944;
+  border-radius: 0.9rem;
+  background: #10171f;
+}
+
+.runtime-card h3,
+.runtime-card p {
+  margin-top: 0;
+}
+
+.runtime-card-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  align-items: start;
+}
+
+.runtime-card-heading p {
+  margin-bottom: 0.25rem;
+  color: #778692;
+  font-size: 0.72rem;
+}
+
+.runtime-state {
+  flex: none;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid #485966;
+  border-radius: 999px;
+  color: #b7c4cc;
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.runtime-state-responding,
+.runtime-verification-verified {
+  border-color: #3c7b74;
+  color: #8ee6dc;
+}
+
+.runtime-verification-unverified {
+  border-color: #7b6534;
+  color: #f5c86d;
+}
+
+.runtime-detail-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.runtime-detail-list > div {
+  display: grid;
+  grid-template-columns: 6rem minmax(0, 1fr);
+  gap: 0.55rem;
+}
+
+.runtime-capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 1rem;
+}
+
+.runtime-capabilities span {
+  padding: 0.2rem 0.4rem;
+  border-radius: 0.35rem;
+  color: #a9cbd8;
+  background: #19252d;
+  font-size: 0.7rem;
+}
+
+.runtime-security {
+  margin-top: 3rem;
+}
+
+@media (max-width: 680px) {
+  .runtime-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .runtime-section-heading,
+  .runtime-card-heading {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .runtime-detail-list > div {
+    grid-template-columns: 1fr;
+  }
+}
+
 button,
 input,
 select {

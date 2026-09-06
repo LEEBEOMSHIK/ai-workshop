@@ -119,6 +119,23 @@ OCR 최상위 방향 모듈을 구분한 비기본 `pp-structure-v3-docx v2`다.
 backend\.venv\Scripts\python.exe -m pytest backend\tests\integration\labs\rag\ocr\test_paddle_structure_smoke.py -q -m integration
 ```
 
+Linux CPU 배포 검증은 PaddlePaddle 공식 지원 아키텍처에 맞춘 `linux/amd64` OCR image를
+사용한다. 호스트 staging 원본은 승인된 준비 단계에서만 읽고, 크기와 SHA-256을 검증해 worker와
+공유하는 `model-cache` named volume에 설치한다. 실제 smoke는 해당 volume과 profile을 읽기
+전용으로 연결하고 네트워크를 차단한다.
+
+```powershell
+docker compose -f infrastructure\compose\compose.yaml build model-tools
+docker compose -f infrastructure\compose\compose.yaml --profile model-tools run --rm --no-deps --user 0:0 --volume "${PWD}\.local-data\models\p:/source:ro" model-tools ai-workshop provision-rag-ocr-models --manifest /app/model-profiles/rag/ocr/pp-structure-v3-v1.json --source-root /source --cache-root /models
+docker compose -f infrastructure\compose\compose.yaml build ocr-linux-cpu-smoke
+docker compose -f infrastructure\compose\compose.yaml run --rm ocr-linux-cpu-smoke
+```
+
+ARM64 Docker 엔진은 이미지를 AMD64로 에뮬레이션하므로 전체 추론 smoke가 매우 느릴 수 있다.
+이미지·package·artifact 검증만으로 Linux CPU를 검증 완료로 승격하지 않는다. native Linux
+x86_64에서 text·table·bbox 실제 추론과 처리 시간을 통과해야 하며, 그 전에는 관리자 화면에
+`미구현/미검증`으로 표시한다. Linux GPU는 별도 engine·CUDA·NVIDIA hardware gate다.
+
 ## 3. 호스트 애플리케이션 실행
 
 각각 별도 터미널에서 위 `.env` 로드 블록을 먼저 실행한다. Windows Celery worker는 `--pool=solo`를 사용하며 애플리케이션 진입 시 psycopg와 호환되는 Selector 정책을 설정한다.
@@ -152,6 +169,7 @@ Next.js는 루트 `.env`의 `API_PORT`를 읽어 `/api` rewrite 대상을 구성
 - 근거 검색: `http://127.0.0.1:5173/workshop/rag/search`
 - RAG 구성·평가 스튜디오: `http://127.0.0.1:5173/admin/rag/configurations`
 - 관리자 모델 레지스트리: `http://127.0.0.1:5173/admin/rag/models`
+- 관리자 시스템 런타임: `http://127.0.0.1:5173/admin/system/runtime`
 
 `/app/*`는 이전 북마크를 canonical `/workshop/*` 또는 `/admin/*`로 보내는 compatibility-only
 영구 리다이렉트다. 새 문서, 링크와 smoke는 `/app/*`를 진입 주소로 사용하지 않는다.
@@ -247,6 +265,8 @@ pnpm api:check
 docker buildx build --check -f backend/Dockerfile backend
 docker build -f backend/Dockerfile -t ai-workshop-backend:local backend
 .\scripts\verify-backend-image-footprint.ps1 -Image ai-workshop-backend:local
+docker compose -f infrastructure\compose\compose.yaml build ocr-linux-cpu-smoke
+.\scripts\verify-backend-image-footprint.ps1 -Image ai-workshop-backend-ocr-cpu:local -ExpectedOcrRuntime cpu -MaximumImageBytes 21474836480
 ```
 
 Windows에서 `pnpm api:check`가 현재 worktree의 `backend/.venv/Scripts/python.exe`가 없거나 잘못된 실행 파일이라 실패하면 그 명령을 성공으로 기록하지 않는다. 현재 worktree backend image로 OpenAPI를 내보낸 뒤 같은 `openapi-typescript --check` 계약을 직접 실행한다. 다음은 2026-09-01에 실제로 재실행해 통과한 fallback이다.

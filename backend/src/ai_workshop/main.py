@@ -11,6 +11,7 @@ from ai_workshop.labs.rag.search.api import router as rag_search_router
 from ai_workshop.platform.assets.api import router as asset_router
 from ai_workshop.platform.identity.api import router as identity_router
 from ai_workshop.platform.jobs.api import router as job_router
+from ai_workshop.platform.runtime_topology.api import router as runtime_topology_router
 from ai_workshop.platform.setup.api import router as setup_router
 from ai_workshop.platform.workspaces.api import router as workspace_router
 from ai_workshop.shared.errors import COMMON_ERROR_RESPONSES, register_error_handlers
@@ -37,6 +38,7 @@ def create_app() -> FastAPI:
     application.include_router(asset_router)
     application.include_router(identity_router)
     application.include_router(job_router)
+    application.include_router(runtime_topology_router)
     application.include_router(rag_configuration_router)
     application.include_router(rag_deployment_router)
     application.include_router(rag_evaluation_router)

@@ -53,7 +53,8 @@ AI Workshop
 │  ├─ Agents
 │  ├─ Learning
 │  ├─ Publishing
-│  └─ Evaluation
+│  ├─ Evaluation
+│  └─ Runtime Topology
 └─ Labs
    └─ RAG
       ├─ Documents
@@ -120,6 +121,13 @@ RAG는 자산운용에 종속된 기능이 아니라 여러 전문 도메인이 
 
 공개 후보, 검토 상태, 비식별화 확인과 공개 패키지 내보내기를 관리한다.
 
+### Runtime Topology
+
+owner 전용 시스템 화면에 Docker Compose의 논리 service, runtime image target, 의존 관계,
+영속 저장소와 검증 상태를 안전한 allowlist metadata로 제공한다. Docker socket, raw Compose,
+secret, endpoint와 host path는 읽거나 노출하지 않는다. 실행 Compose와 안전 매니페스트의
+service·target·dependency·volume·profile drift는 자동 계약 테스트로 차단한다.
+
 ## 5. 저장소 역할
 
 - PostgreSQL: 사용자, 권한, 지식 공간, 폴더, 문서 메타데이터, 버전, 작업 상태, 에이전트 정의, 학습·실험·공개 기록
@@ -130,7 +138,10 @@ RAG는 자산운용에 종속된 기능이 아니라 여러 전문 도메인이 
 
 ## 6. 배포와 데이터 경계
 
-비공개 작업소는 첫 버전에서 한 대의 개발 PC에 Docker Compose로 실행한다. 문서 원본, 파싱 결과와 임베딩은 로컬 또는 승인된 사내 환경에만 저장한다.
+비공개 작업소는 첫 버전에서 한 대의 개발 PC에 실행한다. 로컬 개발의 PostgreSQL, Redis와
+Elasticsearch는 Docker Compose로, Next.js·FastAPI·Celery는 호스트에서 실행한다. 배포용
+Compose의 OCR worker는 core image와 분리한 `linux/amd64` CPU image를 사용한다. 문서 원본,
+파싱 결과와 임베딩은 로컬 또는 승인된 사내 환경에만 저장한다.
 
 공개 전시실은 별도 데이터베이스와 저장소를 사용하는 별도 배포다. 두 환경을 런타임 네트워크로 연결하지 않는다. 공개 콘텐츠는 검토, 비식별화, 승인 상태를 포함하는 내보내기 패키지를 통해서만 이동한다.
 

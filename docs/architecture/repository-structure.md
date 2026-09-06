@@ -23,14 +23,16 @@ ai-workshop/
 │  │  │  │     ├─ search/
 │  │  │  │     └─ sources/
 │  │  │  └─ (administration)/admin/
-│  │  │     └─ rag/
-│  │  │        ├─ configurations/
-│  │  │        └─ models/
+│  │  │     ├─ rag/
+│  │  │     │  ├─ configurations/
+│  │  │     │  └─ models/
+│  │  │     └─ system/runtime/
 │  │  ├─ features/
 │  │  │  ├─ identity/
 │  │  │  ├─ workspaces/
 │  │  │  ├─ assets/
 │  │  │  ├─ navigation/
+│  │  │  ├─ runtime-topology/
 │  │  │  └─ rag/
 │  │  │     ├─ search/
 │  │  │     ├─ configurations/
@@ -49,7 +51,8 @@ ai-workshop/
 │  │     │  ├─ agents/
 │  │     │  ├─ learning/
 │  │     │  ├─ publishing/
-│  │     │  └─ evaluation/
+│  │     │  ├─ evaluation/
+│  │     │  └─ runtime_topology/
 │  │     ├─ labs/
 │  │     │  └─ rag/
 │  │     │     ├─ documents/
@@ -75,7 +78,8 @@ ai-workshop/
 │  └─ rag/
 │     ├─ indexing/
 │     ├─ retrieval/
-│     └─ generation/
+│     ├─ generation/
+│     └─ ocr/
 │
 ├─ infrastructure/
 │  ├─ compose/

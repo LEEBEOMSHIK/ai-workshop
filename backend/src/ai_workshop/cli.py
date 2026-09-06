@@ -11,6 +11,10 @@ from ai_workshop.labs.rag.models.catalog import (
     load_model_catalog,
 )
 from ai_workshop.labs.rag.models.repository import SqlAlchemyModelRegistryRepository
+from ai_workshop.labs.rag.ocr.artifacts import (
+    ArtifactIntegrityError,
+    provision_artifacts,
+)
 from ai_workshop.platform.identity import cli as identity_cli
 from ai_workshop.shared.db import create_engine, create_session_factory
 
@@ -47,10 +51,26 @@ def main(argv: Sequence[str] | None = None) -> None:
         type=Path,
         default=_default_catalog_dir(),
     )
+    provision = subparsers.add_parser("provision-rag-ocr-models")
+    provision.add_argument("--manifest", type=Path, required=True)
+    provision.add_argument("--source-root", type=Path, required=True)
+    provision.add_argument("--cache-root", type=Path, required=True)
     args = parser.parse_args(argv)
 
     if args.command == "bootstrap-owner":
         asyncio.run(identity_cli.bootstrap_owner(args.name, args.email))
+        return
+    if args.command == "provision-rag-ocr-models":
+        try:
+            installed = provision_artifacts(
+                manifest_path=args.manifest,
+                source_root=args.source_root,
+                cache_root=args.cache_root,
+            )
+        except ArtifactIntegrityError as exc:
+            raise SystemExit(str(exc)) from exc
+        for path in installed:
+            print(path)
         return
     try:
         result = asyncio.run(register_rag_models(args.catalog_dir))

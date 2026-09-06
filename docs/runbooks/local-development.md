@@ -65,17 +65,33 @@ docker compose -f infrastructure/compose/compose.yaml --profile model-tools run 
 ### DOCX 내장 이미지 OCR 준비
 
 DOCX 이미지 OCR은 API 컨테이너가 아니라 호스트 Celery worker에서 실행한다. 런타임은
-`paddlepaddle==3.2.2`, `paddleocr==3.7.0`과 저장된 Document Processing Profile의 정확한
+`paddlepaddle==3.2.2`, `paddleocr==3.7.0`, `paddlex[ocr]==3.7.2`와 저장된
+Document Processing Profile의 정확한
 모델 조합을 사용한다. 운영에서도 같은 profile·모델 revision·산출물 SHA-256 계약을 사용하며,
 실행 장치만 CPU 또는 승인된 GPU 환경으로 달라질 수 있다.
 
-모델 산출물은 실행 중 내려받지 않는다. 등록 모델의 `artifact_sha256` 값을 `<sha256>`라 할 때
-`AI_WORKSHOP_MODEL_CACHE_ROOT` 아래에 다음 세 디렉터리를 미리 준비한다.
+모델 산출물은 실행 중 내려받지 않는다. 정본 manifest는
+`model-profiles/rag/ocr/pp-structure-v3-v1.json`이며 공식 저장소, revision, 파일 크기와
+파일별 SHA-256을 고정한다. 승인된 준비 단계에서 manifest의 `runtime_role` 이름으로 구성한
+staging 디렉터리를 검증·설치한다.
+
+```powershell
+backend\.venv\Scripts\python.exe scripts\provision_rag_ocr_models.py --manifest model-profiles\rag\ocr\pp-structure-v3-v1.json --source-root .local-data\models\p --cache-root .local-data\models
+```
+
+프로비저너는 전체 source를 먼저 검증하고 다음 불변 경로에 필요한 runtime 파일만 설치한다.
 
 ```text
+<model-cache>/ocr/ocr_layout_detection/<sha256>
 <model-cache>/ocr/ocr_text_detection/<sha256>
 <model-cache>/ocr/ocr_text_recognition/<sha256>
+<model-cache>/ocr/ocr_textline_orientation/<sha256>
+<model-cache>/ocr/ocr_table_classification/<sha256>
+<model-cache>/ocr/ocr_table_structure_wired/<sha256>
 <model-cache>/ocr/ocr_table_structure/<sha256>
+<model-cache>/ocr/ocr_table_cells_wired/<sha256>
+<model-cache>/ocr/ocr_table_cells_wireless/<sha256>
+<model-cache>/ocr/ocr_table_orientation/<sha256>
 ```
 
 각 디렉터리는 관리자가 승인한 source·revision과 SHA-256 manifest로 프로비저닝한다. 하나라도
@@ -85,9 +101,23 @@ DOCX 이미지 OCR은 API 컨테이너가 아니라 호스트 Celery worker에�
 SHA-256으로 OCR 실행을 한 번만 수행하되, 원문 위치별 요소는 각각 유지한다.
 
 관리자는 `/admin/rag/configurations`의 `문서 처리 구성`에서 parser route, PP-StructureV3
-pipeline, detector·한국어 recognizer·table 모델, 언어, confidence, 실행 위치와 산출물 등록
+pipeline, layout·detector·한국어 recognizer·표 분류·유선/무선 구조·셀 검출·방향 모델,
+언어, confidence, 실행 위치와 산출물 등록
 정보를 확인한다. 문서 처리 profile을 바꾸면 새 Projection·색인이 필요하며 LLM만 바꾸는 경우는
 재색인하지 않는다.
+
+프로파일 v1은 표 하위 text-line orientation 모델을 전역 비활성으로 표현한 이력 때문에
+`failed`로 보존한다. 관리·평가 대상은 같은 10개 모델을 사용하면서 표 하위 방향 모듈과 일반
+OCR 최상위 방향 모듈을 구분한 비기본 `pp-structure-v3-docx v2`다. 마이그레이션 `0020`은
+기존 v1을 수정하지 않고 v2를 새 불변 버전으로 추가한다.
+
+실제 Windows CPU 검증은 준비된 불변 모델 경로만 사용하며 다음 명령으로 실행한다. 모델 경로가
+없으면 실제 추론 테스트는 명시적으로 건너뛰므로, 앞의 프로비저닝 명령과 출력 경로 10개를 먼저
+확인한다.
+
+```powershell
+backend\.venv\Scripts\python.exe -m pytest backend\tests\integration\labs\rag\ocr\test_paddle_structure_smoke.py -q -m integration
+```
 
 ## 3. 호스트 애플리케이션 실행
 

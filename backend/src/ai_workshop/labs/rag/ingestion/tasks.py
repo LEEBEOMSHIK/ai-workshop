@@ -546,30 +546,31 @@ def _profile_parser(
     if spec.ocr is None:
         return DocxStructureParser()
     ocr = spec.ocr
-    detection = ocr.models[ModelKind.OCR_TEXT_DETECTION]
-    recognition = ocr.models[ModelKind.OCR_TEXT_RECOGNITION]
-    table = ocr.models[ModelKind.OCR_TABLE_STRUCTURE]
+    runtime_roles = {
+        "layout": ModelKind.OCR_LAYOUT_DETECTION,
+        "detection": ModelKind.OCR_TEXT_DETECTION,
+        "recognition": ModelKind.OCR_TEXT_RECOGNITION,
+        "textline_orientation": ModelKind.OCR_TEXTLINE_ORIENTATION,
+        "table_classification": ModelKind.OCR_TABLE_CLASSIFICATION,
+        "wired_table_structure": ModelKind.OCR_TABLE_STRUCTURE_WIRED,
+        "wireless_table_structure": ModelKind.OCR_TABLE_STRUCTURE,
+        "wired_table_cells": ModelKind.OCR_TABLE_CELLS_WIRED,
+        "wireless_table_cells": ModelKind.OCR_TABLE_CELLS_WIRELESS,
+        "table_orientation": ModelKind.OCR_TABLE_ORIENTATION,
+    }
+    models = {role: ocr.models[kind] for role, kind in runtime_roles.items()}
     profile = OcrProfileSpec.create(
         pipeline_name=ocr.pipeline_name,
         pipeline_version=ocr.pipeline_version,
-        detection_model_name=detection.name,
-        recognition_model_name=recognition.name,
-        table_model_name=table.name,
+        model_names={role: model.name for role, model in models.items()},
         languages=ocr.languages,
         confidence_threshold=ocr.confidence_threshold,
         artifact_directories={
-            "detection": settings.model_cache_root
+            role: settings.model_cache_root
             / "ocr"
-            / detection.kind.value
-            / detection.artifact_sha256,
-            "recognition": settings.model_cache_root
-            / "ocr"
-            / recognition.kind.value
-            / recognition.artifact_sha256,
-            "table": settings.model_cache_root
-            / "ocr"
-            / table.kind.value
-            / table.artifact_sha256,
+            / model.kind.value
+            / model.artifact_sha256
+            for role, model in models.items()
         },
     )
     return DocxStructureParser(

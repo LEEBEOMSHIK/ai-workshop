@@ -12,6 +12,7 @@ from ai_workshop.labs.rag.chunking.service import StructuralChunker
 from ai_workshop.labs.rag.documents.domain import SourceKind
 from ai_workshop.labs.rag.ingestion.serialization import serialize_parsed_document
 from ai_workshop.labs.rag.ocr.contracts import (
+    PP_STRUCTURE_V3_RUNTIME_ROLES,
     OcrProfileSpec,
     OcrRequest,
     OcrResult,
@@ -79,15 +80,17 @@ class _MemoryObjectStore:
 
 
 def _profile(tmp_path: Path) -> OcrProfileSpec:
-    directories = {role: tmp_path / role for role in ("detection", "recognition", "table")}
+    directories = {
+        role: tmp_path / role for role in PP_STRUCTURE_V3_RUNTIME_ROLES
+    }
     for directory in directories.values():
         directory.mkdir()
     return OcrProfileSpec.create(
         pipeline_name="PP-StructureV3",
         pipeline_version="3.7.0",
-        detection_model_name="PP-OCRv5_server_det",
-        recognition_model_name="korean_PP-OCRv5_mobile_rec",
-        table_model_name="SLANet_plus",
+        model_names={
+            role: f"model-{role}" for role in PP_STRUCTURE_V3_RUNTIME_ROLES
+        },
         languages=("ko", "en"),
         confidence_threshold=0.8,
         artifact_directories=directories,

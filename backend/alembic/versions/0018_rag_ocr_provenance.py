@@ -38,7 +38,12 @@ def upgrade() -> None:
                     server_default=sa.true(),
                 ),
             )
-            op.add_column(table_name, sa.Column("warnings", sa.JSON(), nullable=False, server_default="[]"))
+            op.add_column(
+                table_name,
+                sa.Column(
+                    "warnings", sa.JSON(), nullable=False, server_default="[]"
+                ),
+            )
         op.execute(
             f"UPDATE {table_name} SET source_kind = 'pdf_page' WHERE page IS NOT NULL"
         )

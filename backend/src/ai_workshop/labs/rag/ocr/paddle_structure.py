@@ -27,6 +27,7 @@ RuntimeFactory = Callable[[OcrProfileSpec], _PaddleRuntime]
 class PaddleStructureV3Adapter:
     def __init__(self, runtime_factory: RuntimeFactory | None = None) -> None:
         self._runtime_factory = runtime_factory or _create_runtime
+        self._runtime: _PaddleRuntime | None = None
 
     def recognize(self, request: OcrRequest, profile: OcrProfileSpec) -> OcrResult:
         missing = [
@@ -42,9 +43,9 @@ class PaddleStructureV3Adapter:
         if not request.image_path.is_file():
             raise OcrRuntimeError("embedded_image_corrupt", "The OCR input image is unavailable.")
         try:
-            predictions = tuple(
-                self._runtime_factory(profile).predict(input=str(request.image_path))
-            )
+            if self._runtime is None:
+                self._runtime = self._runtime_factory(profile)
+            predictions = tuple(self._runtime.predict(input=str(request.image_path)))
         except OcrRuntimeError:
             raise
         except Exception as exc:
@@ -92,7 +93,9 @@ def _normalize_result(
         )
 
     table_cells: list[OcrTableCell] = []
-    for table_value in _sequence(result.get("table_res_list")):
+    raw_tables = result.get("table_res_list")
+    table_values = () if raw_tables is None else _sequence(raw_tables)
+    for table_value in table_values:
         table = _mapping(table_value)
         table_ocr = _mapping(table.get("table_ocr_pred"))
         cell_texts = _sequence(table_ocr.get("rec_texts"))
@@ -163,19 +166,54 @@ def _create_runtime(profile: OcrProfileSpec) -> _PaddleRuntime:
             Callable[..., _PaddleRuntime],
             vars(import_module("paddleocr"))["PPStructureV3"],
         )
+        names = profile.model_names
+        directories = profile.artifact_directories
         runtime = runtime_type(
+            device=profile.device,
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
             use_textline_orientation=False,
             use_formula_recognition=False,
             use_seal_recognition=False,
             use_chart_recognition=False,
-            text_detection_model_name=profile.detection_model_name,
-            text_detection_model_dir=str(profile.artifact_directories["detection"]),
-            text_recognition_model_name=profile.recognition_model_name,
-            text_recognition_model_dir=str(profile.artifact_directories["recognition"]),
-            table_structure_recognition_model_name=profile.table_model_name,
-            table_structure_recognition_model_dir=str(profile.artifact_directories["table"]),
+            use_region_detection=False,
+            use_table_recognition=True,
+            layout_detection_model_name=names["layout"],
+            layout_detection_model_dir=str(directories["layout"]),
+            text_detection_model_name=names["detection"],
+            text_detection_model_dir=str(directories["detection"]),
+            text_recognition_model_name=names["recognition"],
+            text_recognition_model_dir=str(directories["recognition"]),
+            textline_orientation_model_name=names["textline_orientation"],
+            textline_orientation_model_dir=str(directories["textline_orientation"]),
+            table_classification_model_name=names["table_classification"],
+            table_classification_model_dir=str(directories["table_classification"]),
+            wired_table_structure_recognition_model_name=names[
+                "wired_table_structure"
+            ],
+            wired_table_structure_recognition_model_dir=str(
+                directories["wired_table_structure"]
+            ),
+            wireless_table_structure_recognition_model_name=names[
+                "wireless_table_structure"
+            ],
+            wireless_table_structure_recognition_model_dir=str(
+                directories["wireless_table_structure"]
+            ),
+            wired_table_cells_detection_model_name=names["wired_table_cells"],
+            wired_table_cells_detection_model_dir=str(
+                directories["wired_table_cells"]
+            ),
+            wireless_table_cells_detection_model_name=names[
+                "wireless_table_cells"
+            ],
+            wireless_table_cells_detection_model_dir=str(
+                directories["wireless_table_cells"]
+            ),
+            table_orientation_classify_model_name=names["table_orientation"],
+            table_orientation_classify_model_dir=str(
+                directories["table_orientation"]
+            ),
         )
     except Exception as exc:
         raise OcrRuntimeError(

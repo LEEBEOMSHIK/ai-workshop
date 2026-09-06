@@ -583,9 +583,16 @@ describe("ConfigurationStudioPage", () => {
   it("shows the selected document processing and full OCR configuration without UUID labels", async () => {
     const data = studioData();
     data.models.push(
+      { id: "ocr-layout", kind: "ocr_layout_detection", name: "PP-DocLayout_plus-L", version: 1, config: { source: "PaddleOCR", revision: "v1", artifact_sha256: "1".repeat(64), license: "Apache-2.0" } },
       { id: "ocr-det", kind: "ocr_text_detection", name: "PP-OCRv5_server_det", version: 1, config: { source: "PaddleOCR", revision: "v5", artifact_sha256: "a".repeat(64), license: "Apache-2.0" } },
       { id: "ocr-rec", kind: "ocr_text_recognition", name: "korean_PP-OCRv5_mobile_rec", version: 1, config: { source: "PaddleOCR", revision: "v5", artifact_sha256: "b".repeat(64), license: "Apache-2.0" } },
+      { id: "ocr-textline", kind: "ocr_textline_orientation", name: "PP-LCNet_x1_0_textline_ori", version: 1, config: { source: "PaddleOCR", revision: "v1", artifact_sha256: "7".repeat(64), license: "Apache-2.0" } },
+      { id: "ocr-table-cls", kind: "ocr_table_classification", name: "PP-LCNet_x1_0_table_cls", version: 1, config: { source: "PaddleOCR", revision: "v1", artifact_sha256: "2".repeat(64), license: "Apache-2.0" } },
+      { id: "ocr-table-wired", kind: "ocr_table_structure_wired", name: "SLANeXt_wired", version: 1, config: { source: "PaddleOCR", revision: "v1", artifact_sha256: "3".repeat(64), license: "Apache-2.0" } },
       { id: "ocr-table", kind: "ocr_table_structure", name: "SLANet_plus", version: 1, config: { source: "PaddleOCR", revision: "v1", artifact_sha256: "c".repeat(64), license: "Apache-2.0" } },
+      { id: "ocr-cells-wired", kind: "ocr_table_cells_wired", name: "RT-DETR-L_wired_table_cell_det", version: 1, config: { source: "PaddleOCR", revision: "v1", artifact_sha256: "4".repeat(64), license: "Apache-2.0" } },
+      { id: "ocr-cells-wireless", kind: "ocr_table_cells_wireless", name: "RT-DETR-L_wireless_table_cell_det", version: 1, config: { source: "PaddleOCR", revision: "v1", artifact_sha256: "5".repeat(64), license: "Apache-2.0" } },
+      { id: "ocr-orientation", kind: "ocr_table_orientation", name: "PP-LCNet_x1_0_doc_ori", version: 1, config: { source: "PaddleOCR", revision: "v1", artifact_sha256: "6".repeat(64), license: "Apache-2.0" } },
     );
     data.profiles.unshift({
       id: "00000000-0000-0000-0000-000000000207",
@@ -597,9 +604,16 @@ describe("ConfigurationStudioPage", () => {
         ocr: { enabled: true, pipeline_name: "PP-StructureV3", pipeline_version: "3.7.0", languages: ["ko", "en"], confidence_threshold: 0.8, data_policy: "local_only" },
       },
       bindings: [
+        { role: "ocr_layout_detection", model_id: "ocr-layout" },
         { role: "ocr_text_detection", model_id: "ocr-det" },
         { role: "ocr_text_recognition", model_id: "ocr-rec" },
+        { role: "ocr_textline_orientation", model_id: "ocr-textline" },
+        { role: "ocr_table_classification", model_id: "ocr-table-cls" },
+        { role: "ocr_table_structure_wired", model_id: "ocr-table-wired" },
         { role: "ocr_table_structure", model_id: "ocr-table" },
+        { role: "ocr_table_cells_wired", model_id: "ocr-cells-wired" },
+        { role: "ocr_table_cells_wireless", model_id: "ocr-cells-wireless" },
+        { role: "ocr_table_orientation", model_id: "ocr-orientation" },
       ],
       deployment_version_id: null,
       legacy: false,
@@ -618,7 +632,11 @@ describe("ConfigurationStudioPage", () => {
     const details = detailsSummary.closest("details");
     expect(details).not.toBeNull();
     expect(within(details!).getByText("PP-StructureV3 3.7.0")).toBeVisible();
+    expect(within(details!).getByText(/PP-DocLayout_plus-L v1/)).toBeVisible();
     expect(within(details!).getByText(/korean_PP-OCRv5_mobile_rec v1/)).toBeVisible();
+    expect(within(details!).getByText(/PP-LCNet_x1_0_textline_ori v1/)).toBeVisible();
+    expect(within(details!).getByText(/SLANeXt_wired v1/)).toBeVisible();
+    expect(within(details!).getByText(/RT-DETR-L_wireless_table_cell_det v1/)).toBeVisible();
     expect(screen.queryByText("document-processing-pp-structure", { exact: true })).not.toBeInTheDocument();
   });
 

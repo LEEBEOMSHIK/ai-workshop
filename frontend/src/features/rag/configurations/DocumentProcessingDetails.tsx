@@ -11,9 +11,16 @@ export function DocumentProcessingDetails({
   const ocr = objectValue(profile.config.ocr);
   const enabled = ocr?.enabled === true;
   const roles = [
+    ["레이아웃 감지", "ocr_layout_detection"],
     ["텍스트 감지", "ocr_text_detection"],
     ["텍스트 인식", "ocr_text_recognition"],
-    ["표 구조", "ocr_table_structure"],
+    ["표 내부 텍스트 줄 방향", "ocr_textline_orientation"],
+    ["표 분류", "ocr_table_classification"],
+    ["유선 표 구조", "ocr_table_structure_wired"],
+    ["무선 표 구조", "ocr_table_structure"],
+    ["유선 표 셀 감지", "ocr_table_cells_wired"],
+    ["무선 표 셀 감지", "ocr_table_cells_wireless"],
+    ["표 방향 분류", "ocr_table_orientation"],
   ] as const;
   return (
     <details className="component-details">

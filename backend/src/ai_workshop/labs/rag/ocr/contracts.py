@@ -2,6 +2,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, Self
 
+PP_STRUCTURE_V3_RUNTIME_ROLES = frozenset(
+    {
+        "layout",
+        "detection",
+        "recognition",
+        "textline_orientation",
+        "table_classification",
+        "wired_table_structure",
+        "wireless_table_structure",
+        "wired_table_cells",
+        "wireless_table_cells",
+        "table_orientation",
+    }
+)
+
 
 class OcrConfigurationError(ValueError):
     pass
@@ -68,12 +83,11 @@ class OcrRequest:
 class OcrProfileSpec:
     pipeline_name: str
     pipeline_version: str
-    detection_model_name: str
-    recognition_model_name: str
-    table_model_name: str
+    model_names: dict[str, str]
     languages: tuple[str, ...]
     confidence_threshold: float
     artifact_directories: dict[str, Path]
+    device: str
 
     @classmethod
     def create(
@@ -81,14 +95,17 @@ class OcrProfileSpec:
         *,
         pipeline_name: str,
         pipeline_version: str,
-        detection_model_name: str,
-        recognition_model_name: str,
-        table_model_name: str,
+        model_names: dict[str, str],
         languages: tuple[str, ...],
         confidence_threshold: float,
         artifact_directories: dict[str, Path],
+        device: str = "cpu",
     ) -> Self:
-        if set(artifact_directories) != {"detection", "recognition", "table"}:
+        if (
+            set(model_names) != PP_STRUCTURE_V3_RUNTIME_ROLES
+            or set(artifact_directories) != PP_STRUCTURE_V3_RUNTIME_ROLES
+            or any(not value.strip() for value in model_names.values())
+        ):
             raise OcrConfigurationError(
                 "An OCR profile requires all required local model artifacts."
             )
@@ -99,12 +116,11 @@ class OcrProfileSpec:
         return cls(
             pipeline_name=pipeline_name,
             pipeline_version=pipeline_version,
-            detection_model_name=detection_model_name,
-            recognition_model_name=recognition_model_name,
-            table_model_name=table_model_name,
+            model_names=dict(model_names),
             languages=languages,
             confidence_threshold=confidence_threshold,
-            artifact_directories=artifact_directories,
+            artifact_directories=dict(artifact_directories),
+            device=device,
         )
 
 

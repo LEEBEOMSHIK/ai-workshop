@@ -64,12 +64,29 @@ def _profile(models: tuple[ModelDefinition, ...]) -> Profile:
     )
 
 
-def test_resolver_returns_typed_parser_and_ocr_model_details() -> None:
-    models = (
+def _models() -> tuple[ModelDefinition, ...]:
+    return (
+        _model(ModelKind.OCR_LAYOUT_DETECTION, "PP-DocLayout_plus-L"),
         _model(ModelKind.OCR_TEXT_DETECTION, "PP-OCRv5_server_det"),
         _model(ModelKind.OCR_TEXT_RECOGNITION, "korean_PP-OCRv5_mobile_rec"),
+        _model(ModelKind.OCR_TEXTLINE_ORIENTATION, "PP-LCNet_x1_0_textline_ori"),
+        _model(ModelKind.OCR_TABLE_CLASSIFICATION, "PP-LCNet_x1_0_table_cls"),
+        _model(ModelKind.OCR_TABLE_STRUCTURE_WIRED, "SLANeXt_wired"),
         _model(ModelKind.OCR_TABLE_STRUCTURE, "SLANet_plus"),
+        _model(
+            ModelKind.OCR_TABLE_CELLS_WIRED,
+            "RT-DETR-L_wired_table_cell_det",
+        ),
+        _model(
+            ModelKind.OCR_TABLE_CELLS_WIRELESS,
+            "RT-DETR-L_wireless_table_cell_det",
+        ),
+        _model(ModelKind.OCR_TABLE_ORIENTATION, "PP-LCNet_x1_0_doc_ori"),
     )
+
+
+def test_resolver_returns_typed_parser_and_ocr_model_details() -> None:
+    models = _models()
 
     resolved = resolve_document_processing_spec(_profile(models), models)
 
@@ -79,14 +96,16 @@ def test_resolver_returns_typed_parser_and_ocr_model_details() -> None:
     assert resolved.ocr.models[ModelKind.OCR_TEXT_RECOGNITION].name == (
         "korean_PP-OCRv5_mobile_rec"
     )
+    assert resolved.ocr.models[ModelKind.OCR_LAYOUT_DETECTION].name == (
+        "PP-DocLayout_plus-L"
+    )
+    assert resolved.ocr.models[ModelKind.OCR_TABLE_STRUCTURE_WIRED].name == (
+        "SLANeXt_wired"
+    )
 
 
 def test_resolver_rejects_an_unresolved_model_binding() -> None:
-    models = (
-        _model(ModelKind.OCR_TEXT_DETECTION, "PP-OCRv5_server_det"),
-        _model(ModelKind.OCR_TEXT_RECOGNITION, "korean_PP-OCRv5_mobile_rec"),
-        _model(ModelKind.OCR_TABLE_STRUCTURE, "SLANet_plus"),
-    )
+    models = _models()
     profile = _profile(models)
     broken = Profile(
         id=profile.id,

@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "pipeline": {
+    "name": "PP-StructureV3",
+    "package": "paddleocr",
+    "package_version": "3.7.0",
+    "runtime": "paddlepaddle",
+    "runtime_version": "3.2.2",
+    "data_policy": "local_only",
+    "enabled_modules": [
+      "layout_detection",
+      "general_ocr",
+      "table_recognition",
+      "table_ocr_textline_orientation"
+    ],
+    "disabled_modules": [
+      "document_orientation",
+      "document_unwarping",
+      "general_ocr_textline_orientation",
+      "formula_recognition",
+      "seal_recognition",
+      "chart_recognition",
+      "region_detection"
+    ]
+  },
+  "models": [
+    {
+      "runtime_role": "layout",
+      "model_kind": "ocr_layout_detection",
+      "name": "PP-DocLayout_plus-L",
+      "repository": "PaddlePaddle/PP-DocLayout_plus-L",
+      "revision": "aa52b8528c84f9b1a34ac3a88fe0e576edb9d11d",
+      "license": "Apache-2.0",
+      "artifact_sha256": "24ca3e2e442164505e250deef59f7ee9a54ea12dd32875c9cd6155d959dc97da",
+      "files": [
+        {"path": "inference.json", "size": 1081621, "sha256": "99bd09c0a1b9e88d35c65c305b91711d98055fc94b4a6eecd50da02e04729384"},
+        {"path": "inference.pdiparams", "size": 129307978, "sha256": "24ca3e2e442164505e250deef59f7ee9a54ea12dd32875c9cd6155d959dc97da"},
+        {"path": "inference.yml", "size": 1838, "sha256": "d60f782a16f96afb27e8280399899a94c3e9ffc694ffb2f913ea00af1c522f1e"}
+      ]
+    },
+    {
+      "runtime_role": "detection",
+      "model_kind": "ocr_text_detection",
+      "name": "PP-OCRv5_server_det",
+      "repository": "PaddlePaddle/PP-OCRv5_server_det",
+      "revision": "ca867c897ecbca8873081573a802ad70d499cb94",
+      "license": "Apache-2.0",
+      "artifact_sha256": "183146fe9d9910352f68482f623bcbbb9fa7b9e8fa1463b9ad288cef00524d2d",
+      "files": [
+        {"path": "inference.json", "size": 402480, "sha256": "af5876933d8806a1b50d895867e0781e135cd92ff37381992828fc8d1b842d28"},
+        {"path": "inference.pdiparams", "size": 87932887, "sha256": "183146fe9d9910352f68482f623bcbbb9fa7b9e8fa1463b9ad288cef00524d2d"},
+        {"path": "inference.yml", "size": 903, "sha256": "28fb721efc3634fc8aa677e474b9602cb815a91cf569ef357a7a553d7b3ce685"}
+      ]
+    },
+    {
+      "runtime_role": "recognition",
+      "model_kind": "ocr_text_recognition",
+      "name": "korean_PP-OCRv5_mobile_rec",
+      "repository": "PaddlePaddle/korean_PP-OCRv5_mobile_rec",
+      "revision": "c02ecaf1f22bfd1c618cce154fd19185b47e663a",
+      "license": "Apache-2.0",
+      "artifact_sha256": "cac3e5f12cf04aaa77f6a5bc704e4e736ef2908476551891d84b41b4e9090462",
+      "files": [
+        {"path": "inference.json", "size": 217724, "sha256": "562404e3c590c50c93778d5f0a94df21b47b5ab8f3ea6d47c7f8a7930c3bc844"},
+        {"path": "inference.pdiparams", "size": 13342671, "sha256": "cac3e5f12cf04aaa77f6a5bc704e4e736ef2908476551891d84b41b4e9090462"},
+        {"path": "inference.yml", "size": 96039, "sha256": "f757fa1c40e99edcf27e9cce879b93eb2a51fa46f5ef39095689b8c37dd75998"}
+      ]
+    },
+    {
+      "runtime_role": "textline_orientation",
+      "model_kind": "ocr_textline_orientation",
+      "name": "PP-LCNet_x1_0_textline_ori",
+      "repository": "PaddlePaddle/PP-LCNet_x1_0_textline_ori",
+      "revision": "cd237a44b0e359d4fe38310a416203cf7403faa5",
+      "license": "Apache-2.0",
+      "artifact_sha256": "0de2bcf996cf553e2b848dd7b1769dafffc6917b1ccdf55c1d8efe7909fbf743",
+      "files": [
+        {"path": "inference.json", "size": 104399, "sha256": "b81929eeaff8e52db0fafb49c9fbfc5bc0572f81641fe0179cc52096323fb4d4"},
+        {"path": "inference.pdiparams", "size": 6743918, "sha256": "0de2bcf996cf553e2b848dd7b1769dafffc6917b1ccdf55c1d8efe7909fbf743"},
+        {"path": "inference.yml", "size": 735, "sha256": "8d5120d0e1a30a9df7ed46aa9119da3796ed066777089d1c1d705f132d5e90f9"}
+      ]
+    },
+    {
+      "runtime_role": "table_classification",
+      "model_kind": "ocr_table_classification",
+      "name": "PP-LCNet_x1_0_table_cls",
+      "repository": "PaddlePaddle/PP-LCNet_x1_0_table_cls",
+      "revision": "2fa6323e7dab88fa883081db1460995f46af2922",
+      "license": "Apache-2.0",
+      "artifact_sha256": "d0224afd9cfddf22da17407c6c78491baaa1f25922fbb312c9b0d2037c802db0",
+      "files": [
+        {"path": "inference.json", "size": 104441, "sha256": "43401e76ed7b0e34787533016ea4ec9193d5b5964c3f948991fc5b531651ef33"},
+        {"path": "inference.pdiparams", "size": 6743918, "sha256": "d0224afd9cfddf22da17407c6c78491baaa1f25922fbb312c9b0d2037c802db0"},
+        {"path": "inference.yml", "size": 762, "sha256": "891b1f4b0ccddaf6aca0fce8c8a38e5ab5da9f62fb9adaa7c75e161ee03bb787"}
+      ]
+    },
+    {
+      "runtime_role": "wired_table_structure",
+      "model_kind": "ocr_table_structure_wired",
+      "name": "SLANeXt_wired",
+      "repository": "PaddlePaddle/SLANeXt_wired",
+      "revision": "763069fcda6a065f2171753205a32bf899a88d15",
+      "license": "Apache-2.0",
+      "artifact_sha256": "ff0362a30f707fa7d27d8453c4396b992fca287377a42d01515bca6eeb3908f5",
+      "files": [
+        {"path": "inference.json", "size": 959302, "sha256": "5b872f08e74f628ca1db8405db147e82e6e0c7cb358e101fd01cdafc946632d8"},
+        {"path": "inference.pdiparams", "size": 364771513, "sha256": "ff0362a30f707fa7d27d8453c4396b992fca287377a42d01515bca6eeb3908f5"},
+        {"path": "inference.yml", "size": 2066, "sha256": "abbbd1b4dc6b1a2e9cd34c035514da53a1a6b1ec267292b0b8802025650a33bf"}
+      ]
+    },
+    {
+      "runtime_role": "wireless_table_structure",
+      "model_kind": "ocr_table_structure",
+      "name": "SLANet_plus",
+      "repository": "PaddlePaddle/SLANet_plus",
+      "revision": "bae6e5f8c3c4e7da0c0b7639fdf3228fe76184e2",
+      "license": "Apache-2.0",
+      "artifact_sha256": "012986b0e2bfe90410618bfb4b7cf4fcb6c978caefd84c63c2934f8387b09ab8",
+      "files": [
+        {"path": "inference.json", "size": 315660, "sha256": "aba91cd956f4a1648b0f89df94c3cf8acaa066b47e2b689d109843b40d8545a2"},
+        {"path": "inference.pdiparams", "size": 7666515, "sha256": "012986b0e2bfe90410618bfb4b7cf4fcb6c978caefd84c63c2934f8387b09ab8"},
+        {"path": "inference.yml", "size": 2035, "sha256": "8a6372d3269a6f112fe13a2da7952a84da6e112c10a3146cbb43de5bd01d19fa"}
+      ]
+    },
+    {
+      "runtime_role": "wired_table_cells",
+      "model_kind": "ocr_table_cells_wired",
+      "name": "RT-DETR-L_wired_table_cell_det",
+      "repository": "PaddlePaddle/RT-DETR-L_wired_table_cell_det",
+      "revision": "e2bd53c06b3a815d86acbf5c6779dada58819cfe",
+      "license": "Apache-2.0",
+      "artifact_sha256": "357321c2845f0a035e8d118622649685a3cdb89d28b09a64e45a5a3df7a9fedc",
+      "files": [
+        {"path": "inference.json", "size": 1081363, "sha256": "abea237f1e53d3dc3bf7ea1321dfebe78552a6070e567dfc94028b622fd575e8"},
+        {"path": "inference.pdiparams", "size": 128841073, "sha256": "357321c2845f0a035e8d118622649685a3cdb89d28b09a64e45a5a3df7a9fedc"},
+        {"path": "inference.yml", "size": 1630, "sha256": "edf6d6180f2b9e3e666c744ee5ded38a72c6ef9056cd193250e3e55ba268acef"}
+      ]
+    },
+    {
+      "runtime_role": "wireless_table_cells",
+      "model_kind": "ocr_table_cells_wireless",
+      "name": "RT-DETR-L_wireless_table_cell_det",
+      "repository": "PaddlePaddle/RT-DETR-L_wireless_table_cell_det",
+      "revision": "25ca86356a601c877476bb0dcc5fd09153d9d64d",
+      "license": "Apache-2.0",
+      "artifact_sha256": "c0f8c9ea07be8916ece73a8acf807bd21aed3ef11969b319c2dccb2406774c34",
+      "files": [
+        {"path": "inference.json", "size": 1081363, "sha256": "abea237f1e53d3dc3bf7ea1321dfebe78552a6070e567dfc94028b622fd575e8"},
+        {"path": "inference.pdiparams", "size": 128841073, "sha256": "c0f8c9ea07be8916ece73a8acf807bd21aed3ef11969b319c2dccb2406774c34"},
+        {"path": "inference.yml", "size": 1633, "sha256": "f2d0f00ea42aacc162f72a35cf54330e392a7d669e9a1b43896d3bd77a512621"}
+      ]
+    },
+    {
+      "runtime_role": "table_orientation",
+      "model_kind": "ocr_table_orientation",
+      "name": "PP-LCNet_x1_0_doc_ori",
+      "repository": "PaddlePaddle/PP-LCNet_x1_0_doc_ori",
+      "revision": "d3b95a6dff5fe8a94f2748e12b61cb26818a0df8",
+      "license": "Apache-2.0",
+      "artifact_sha256": "e8d6e7c5d264507e40e58a655779059d616b20d7441ea22047d829eb3931989c",
+      "files": [
+        {"path": "inference.json", "size": 104441, "sha256": "3580978602f309c3554508dd85d4fe09b73a7e0d80d7f9e63258f5b72c390c69"},
+        {"path": "inference.pdiparams", "size": 6754166, "sha256": "e8d6e7c5d264507e40e58a655779059d616b20d7441ea22047d829eb3931989c"},
+        {"path": "inference.yml", "size": 766, "sha256": "9e195eb729a8173588cd0e8a852c8b373aa606e79e77b4ac7d8346f5426caf26"}
+      ]
+    }
+  ]
+}

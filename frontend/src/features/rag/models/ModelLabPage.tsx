@@ -26,9 +26,16 @@ const modelLabels: Record<ModelKind, string> = {
   embedding: "임베딩 모델",
   reranker: "리랭커 모델",
   llm: "LLM 모델",
+  ocr_layout_detection: "OCR 레이아웃 감지 모델",
   ocr_text_detection: "OCR 텍스트 감지 모델",
   ocr_text_recognition: "OCR 텍스트 인식 모델",
-  ocr_table_structure: "OCR 표 구조 모델",
+  ocr_textline_orientation: "OCR 표 내부 텍스트 줄 방향 모델",
+  ocr_table_classification: "OCR 표 분류 모델",
+  ocr_table_structure_wired: "OCR 유선 표 구조 모델",
+  ocr_table_structure: "OCR 무선 표 구조 모델",
+  ocr_table_cells_wired: "OCR 유선 표 셀 감지 모델",
+  ocr_table_cells_wireless: "OCR 무선 표 셀 감지 모델",
+  ocr_table_orientation: "OCR 표 방향 분류 모델",
 };
 const profileLabels: Record<ProfileKind, string> = {
   indexing: "색인 프로파일",
@@ -203,9 +210,16 @@ export function ModelLabPage({
             <label>종류<select name="kind" defaultValue="embedding">
               <option value="embedding">임베딩</option><option value="reranker">리랭커</option>
               <option value="llm">LLM</option>
+              <option value="ocr_layout_detection">OCR 레이아웃 감지</option>
               <option value="ocr_text_detection">OCR 텍스트 감지</option>
               <option value="ocr_text_recognition">OCR 텍스트 인식</option>
-              <option value="ocr_table_structure">OCR 표 구조</option>
+              <option value="ocr_textline_orientation">OCR 표 내부 텍스트 줄 방향</option>
+              <option value="ocr_table_classification">OCR 표 분류</option>
+              <option value="ocr_table_structure_wired">OCR 유선 표 구조</option>
+              <option value="ocr_table_structure">OCR 무선 표 구조</option>
+              <option value="ocr_table_cells_wired">OCR 유선 표 셀 감지</option>
+              <option value="ocr_table_cells_wireless">OCR 무선 표 셀 감지</option>
+              <option value="ocr_table_orientation">OCR 표 방향 분류</option>
             </select></label>
             <label>이름<input name="name" required /></label>
             <label>버전<input name="version" type="number" min="1" defaultValue="1" required /></label>
@@ -282,9 +296,16 @@ function isSupportedModel(model: ModelDefinitionSummary): boolean {
   return model.kind === "embedding"
     || model.kind === "reranker"
     || model.kind === "llm"
+    || model.kind === "ocr_layout_detection"
     || model.kind === "ocr_text_detection"
     || model.kind === "ocr_text_recognition"
-    || model.kind === "ocr_table_structure";
+    || model.kind === "ocr_textline_orientation"
+    || model.kind === "ocr_table_classification"
+    || model.kind === "ocr_table_structure_wired"
+    || model.kind === "ocr_table_structure"
+    || model.kind === "ocr_table_cells_wired"
+    || model.kind === "ocr_table_cells_wireless"
+    || model.kind === "ocr_table_orientation";
 }
 
 function modelDetails(model: ModelDefinitionSummary): string {

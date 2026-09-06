@@ -290,9 +290,16 @@ def test_only_passed_profile_can_become_default() -> None:
 
 def test_document_processing_profile_requires_all_ocr_model_roles() -> None:
     required_bindings = (
+        binding(ModelKind.OCR_LAYOUT_DETECTION),
         binding(ModelKind.OCR_TEXT_DETECTION),
         binding(ModelKind.OCR_TEXT_RECOGNITION),
+        binding(ModelKind.OCR_TEXTLINE_ORIENTATION),
+        binding(ModelKind.OCR_TABLE_CLASSIFICATION),
+        binding(ModelKind.OCR_TABLE_STRUCTURE_WIRED),
         binding(ModelKind.OCR_TABLE_STRUCTURE),
+        binding(ModelKind.OCR_TABLE_CELLS_WIRED),
+        binding(ModelKind.OCR_TABLE_CELLS_WIRELESS),
+        binding(ModelKind.OCR_TABLE_ORIENTATION),
     )
 
     profile = Profile.create(
@@ -338,3 +345,20 @@ def test_ocr_model_definition_requires_immutable_artifact_metadata() -> None:
     )
 
     assert model.kind is ModelKind.OCR_TEXT_RECOGNITION
+
+
+def test_model_kinds_cover_the_complete_enabled_pp_structure_v3_graph() -> None:
+    expected_roles = {
+        "ocr_layout_detection",
+        "ocr_text_detection",
+        "ocr_text_recognition",
+        "ocr_textline_orientation",
+        "ocr_table_classification",
+        "ocr_table_structure_wired",
+        "ocr_table_structure",
+        "ocr_table_cells_wired",
+        "ocr_table_cells_wireless",
+        "ocr_table_orientation",
+    }
+
+    assert {ModelKind(value).value for value in expected_roles} == expected_roles

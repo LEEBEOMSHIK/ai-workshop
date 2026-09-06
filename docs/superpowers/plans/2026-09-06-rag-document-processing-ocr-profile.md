@@ -20,6 +20,35 @@
 - Existing TXT, Markdown, and text-PDF configurations retain their behavior through a seeded legacy processing profile.
 - Unit tests run without real models or network; real Paddle execution is a separately marked smoke gate.
 - User-facing option labels do not expose UUIDs, object paths, endpoints, or secret references.
+- PP-StructureV3 3.7.0 is provisioned with its complete enabled dependency graph: layout,
+  general OCR, table OCR text-line orientation, table classification, wired/wireless structure
+  and cell detection, and table orientation. Disabled formula, seal, chart and region models are
+  absent; top-level text-line orientation remains disabled while the nested table OCR dependency
+  is locally pinned.
+
+### Task 11: Correct and provision the complete PP-StructureV3 runtime
+
+**Files:**
+- Create: `backend/alembic/versions/0019_seed_pp_structure_v3_profile.py`
+- Create: `backend/alembic/versions/0020_correct_pp_structure_v3_profile.py`
+- Modify: `backend/src/ai_workshop/labs/rag/models/domain.py`
+- Modify: `backend/src/ai_workshop/labs/rag/models/document_processing.py`
+- Modify: `backend/src/ai_workshop/labs/rag/ocr/contracts.py`
+- Modify: `backend/src/ai_workshop/labs/rag/ocr/paddle_structure.py`
+- Create: `model-profiles/rag/ocr/pp-structure-v3-v1.json`
+- Create: `scripts/provision_rag_ocr_models.py`
+- Create/Modify: focused model, migration, provisioner and real-runtime smoke tests
+
+- [ ] Add RED tests for all ten unique model roles and exact PPStructureV3 3.7.0 arguments.
+- [ ] Add RED tests for immutable manifest verification and fail-closed artifact provisioning.
+- [ ] Add RED migration test for draft, non-default seeded model/profile identities.
+- [ ] Seed the complete ten-model draft profile in forward-only migration 0019 without editing
+  0017/0018. Because the applied v1 module flags described the nested table orientation model as
+  globally disabled, retain that immutable history as failed and publish corrected draft v2 in 0020.
+- [ ] Download only exact-revision official artifacts during the approved provisioning step.
+- [ ] Verify every required file SHA-256 before installing the immutable cache directories.
+- [ ] Run a network-disabled Windows CPU smoke for Korean text, bbox and a synthetic table.
+- [ ] Update admin metadata tests, design/ADR, runbook and verification worklog.
 
 ---
 
@@ -145,7 +174,9 @@ class ProfileKind(StrEnum):
     GENERATION = "generation"
 ```
 
-Validation requires parser routes and, when OCR is enabled, exactly one binding for each of the three OCR roles, supported language order, thresholds in `[0, 1]`, a versioned output schema, and local/on-premises data policy.
+Validation requires parser routes and, when OCR is enabled, exactly one binding for each of the ten
+enabled PP-StructureV3 runtime roles, supported language order, thresholds in `[0, 1]`, a versioned
+output schema, and local/on-premises data policy.
 
 - [ ] **Step 4: Implement resolver and safe response metadata**
 
@@ -447,7 +478,9 @@ The normal select option is `프로파일 표시명 v버전 · DOCX/OCR · 평�
 
 - [ ] **Step 4: Add owner-only full details**
 
-The details component renders pipeline, three model roles, languages, thresholds, execution location/device/readiness, artifact source/revision/SHA-256/license state, and latest evaluation. It does not render UUID, local path, endpoint, secret reference, or raw JSON.
+The details component renders the pipeline, ten model roles, languages, thresholds, execution
+location/device/readiness, artifact source/revision/SHA-256/license state, and latest evaluation. It
+does not render UUID, local path, endpoint, secret reference, or raw JSON.
 
 - [ ] **Step 5: Regenerate OpenAPI TypeScript schema and run frontend gates**
 

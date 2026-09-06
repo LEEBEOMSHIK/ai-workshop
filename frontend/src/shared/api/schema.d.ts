@@ -1489,7 +1489,7 @@ export interface components {
          * ModelKind
          * @enum {string}
          */
-        ModelKind: "embedding" | "reranker" | "llm" | "ocr_text_detection" | "ocr_text_recognition" | "ocr_table_structure";
+        ModelKind: "embedding" | "reranker" | "llm" | "ocr_layout_detection" | "ocr_text_detection" | "ocr_text_recognition" | "ocr_textline_orientation" | "ocr_table_classification" | "ocr_table_structure_wired" | "ocr_table_structure" | "ocr_table_cells_wired" | "ocr_table_cells_wireless" | "ocr_table_orientation";
         /** ModelResponse */
         ModelResponse: {
             /** Config */

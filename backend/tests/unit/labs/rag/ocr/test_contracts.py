@@ -3,10 +3,15 @@ from pathlib import Path
 import pytest
 
 from ai_workshop.labs.rag.ocr.contracts import (
+    PP_STRUCTURE_V3_RUNTIME_ROLES,
     OcrConfigurationError,
     OcrProfileSpec,
     OcrTextUnit,
 )
+
+
+def _model_names() -> dict[str, str]:
+    return {role: f"model-{role}" for role in PP_STRUCTURE_V3_RUNTIME_ROLES}
 
 
 def test_ocr_profile_rejects_a_missing_required_local_artifact() -> None:
@@ -14,14 +19,13 @@ def test_ocr_profile_rejects_a_missing_required_local_artifact() -> None:
         OcrProfileSpec.create(
             pipeline_name="PP-StructureV3",
             pipeline_version="3.7.0",
-            detection_model_name="PP-OCRv5_server_det",
-            recognition_model_name="korean_PP-OCRv5_mobile_rec",
-            table_model_name="SLANet_plus",
+            model_names=_model_names(),
             languages=("ko", "en"),
             confidence_threshold=0.7,
             artifact_directories={
-                "detection": Path("models/detection"),
-                "recognition": Path("models/recognition"),
+                role: Path("models") / role
+                for role in PP_STRUCTURE_V3_RUNTIME_ROLES
+                if role != "layout"
             },
         )
 
@@ -34,15 +38,12 @@ def test_ocr_profile_rejects_confidence_threshold_outside_unit_interval(
         OcrProfileSpec.create(
             pipeline_name="PP-StructureV3",
             pipeline_version="3.7.0",
-            detection_model_name="PP-OCRv5_server_det",
-            recognition_model_name="korean_PP-OCRv5_mobile_rec",
-            table_model_name="SLANet_plus",
+            model_names=_model_names(),
             languages=("ko", "en"),
             confidence_threshold=threshold,
             artifact_directories={
-                "detection": Path("models/detection"),
-                "recognition": Path("models/recognition"),
-                "table": Path("models/table"),
+                role: Path("models") / role
+                for role in PP_STRUCTURE_V3_RUNTIME_ROLES
             },
         )
 

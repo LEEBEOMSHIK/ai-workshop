@@ -60,9 +60,15 @@ Saved RAG Configuration Version
 │  │  └─ DOCX Structure Parser
 │  └─ OCR Profile
 │     ├─ Pipeline: PP-StructureV3
+│     ├─ Layout Detection: PP-DocLayout_plus-L
 │     ├─ Text Detection: PP-OCRv5_server_det
 │     ├─ Text Recognition: korean_PP-OCRv5_mobile_rec
-│     ├─ Table Structure: SLANet_plus
+│     ├─ Table OCR Text-line Orientation: PP-LCNet_x1_0_textline_ori
+│     ├─ Table Classification: PP-LCNet_x1_0_table_cls
+│     ├─ Wired Table Structure: SLANeXt_wired
+│     ├─ Wireless Table Structure: SLANet_plus
+│     ├─ Wired/Wireless Table Cells: RT-DETR-L variants
+│     ├─ Table Orientation: PP-LCNet_x1_0_doc_ori
 │     ├─ Language, preprocessing and confidence policy
 │     └─ Runtime compatibility and artifact manifest
 ├─ Indexing Profile Version
@@ -97,20 +103,36 @@ PP-StructureV3는 단일 OCR 모델이 아니라 문서 분석 파이프라인�
 
 ### Model Definition
 
-모델 registry는 최소한 다음 OCR 역할을 구분한다.
+모델 registry는 PP-StructureV3가 실제 초기화하는 다음 OCR 역할을 구분한다.
 
+- `ocr_layout_detection`
 - `ocr_text_detection`
 - `ocr_text_recognition`
+- `ocr_textline_orientation`
+- `ocr_table_classification`
+- `ocr_table_structure_wired`
 - `ocr_table_structure`
+- `ocr_table_cells_wired`
+- `ocr_table_cells_wireless`
+- `ocr_table_orientation`
 
-향후 실제 요구가 생기면 문서 layout 모델 역할을 additive하게 추가할 수 있다. 현재 DOCX 내장
-이미지 처리에 사용하지 않는 수식, 인장과 차트 모델은 미리 등록하거나 화면에 노출하지 않는다.
+설치된 PaddleOCR 3.7.0에서 layout detection은 PP-StructureV3의 필수 단계이며 표 인식은
+분류·유선/무선 구조·셀 검출·방향 분류로 이루어진다. 이전의 세 모델 설계는 이 의존 그래프를
+충족하지 않아 실제 추론 전에 수정한다. 현재 DOCX 내장 이미지 처리에 사용하지 않는 수식,
+인장, 차트와 region detection 모델은 등록하거나 화면에 노출하지 않는다. 일반 OCR의 최상위
+text-line orientation은 비활성화하지만 표 하위 OCR의 전용 방향 모델은 필수 의존성으로
+등록하고 관리자 상세에 표시한다.
 
 ### 기존 구성 이관
 
 기존 저장 구성은 현재 TXT·Markdown·텍스트 PDF 동작을 표현하는 시스템 불변
 `legacy-text-document-processing-v1`로 이관한다. 이 프로파일은 OCR을 사용하지 않는다.
 마이그레이션은 기존 구성 의미나 기본값을 바꾸지 않고 새 참조를 채운다.
+
+PP-StructureV3 v1이 10개 모델을 모두 고정했지만 모듈 플래그에서 표 하위 text-line
+orientation을 전역 비활성으로 잘못 표현했으므로 v1은 평가 실패 이력으로 보존한다. 이를
+수정하는 v2는 같은 모델 바인딩을 재사용하되 표 하위 방향 모듈 활성과 일반 OCR 최상위 방향
+모듈 비활성을 구분한다. 어느 버전도 자동으로 기본값으로 승격하지 않는다.
 
 ## 5. 처리와 데이터 흐름
 
@@ -152,9 +174,16 @@ schema를 재사용한다. 텍스트 layer가 있는 PDF는 기존 PDF text pars
 
 - PaddleOCR/PaddlePaddle의 검증·고정 버전
 - PP-StructureV3 pipeline 설정
+- `PP-DocLayout_plus-L`
 - `PP-OCRv5_server_det`
 - `korean_PP-OCRv5_mobile_rec`
+- `PP-LCNet_x1_0_textline_ori`
+- `PP-LCNet_x1_0_table_cls`
+- `SLANeXt_wired`
 - `SLANet_plus`
+- `RT-DETR-L_wired_table_cell_det`
+- `RT-DETR-L_wireless_table_cell_det`
+- `PP-LCNet_x1_0_doc_ori`
 - 모델 artifact revision과 SHA-256
 - 전처리, 언어, confidence와 출력 schema
 
@@ -212,7 +241,7 @@ runtime·model·출력 schema 장애로 eligible 이미지 처리를 끝내지 �
 평가 상태를 먼저 보여준다. `전체 OCR 구성 보기`를 펼치면 다음을 계층적으로 표시한다.
 
 - pipeline 이름과 버전
-- 텍스트 검출, 텍스트 인식과 표 구조 모델 이름·버전
+- 레이아웃, 텍스트 검출·인식과 표 분류·구조·셀·방향 모델 이름·버전
 - 한국어·영어와 언어 순서
 - 전처리와 confidence 정책
 - 실행 위치, 장치와 readiness
@@ -285,7 +314,7 @@ fallback으로 사용하지 않는다. 평가되지 않은 OCR 프로파일은 �
 
 1. 관리자가 문서 처리 프로파일을 색인 프로파일과 독립적으로 선택한다.
 2. 저장 구성과 색인 Build가 정확한 Document Processing Profile Version을 재현한다.
-3. 관리자 화면이 PP-StructureV3와 세 하위 모델을 서로 다른 역할로 표시한다.
+3. 관리자 화면이 PP-StructureV3와 실제 초기화되는 열 개 하위 모델을 서로 다른 역할로 표시한다.
 4. DOCX 문단·표·내장 이미지의 원래 순서가 보존된다.
 5. 정상 OCR 근거가 실제 내장 이미지 좌표로 이동하고 하이라이트된다.
 6. OCR model/runtime 장애가 자동 fallback 없이 명시적으로 실패한다.

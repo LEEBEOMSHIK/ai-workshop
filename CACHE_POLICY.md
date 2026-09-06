@@ -27,7 +27,9 @@ destructive_approval: required
 | 영구 보존 | `.git` | 모든 정리에서 제외한다. |
 | 사용자 환경 | `.idea` | 사용자의 별도 요청 없이는 변경하거나 제거하지 않는다. |
 | 애플리케이션 데이터 | `.local-data/objects` | 업로드 원본과 파생 자산일 수 있으므로 보존한다. |
-| 모델 캐시 | `.local-data/models` | 재다운로드 가능성, 사용 중 프로세스와 승인된 모델 출처를 확인한 경우에만 후보로 보고한다. |
+| 실행 모델 자산 | `.local-data/models/ocr/<model-kind>/<artifact-sha256>` | 매니페스트로 검증·설치된 불변 OCR 실행 의존성이므로 캐시라는 이름만으로 제거하지 않는다. 참조 프로파일, 실행 중 worker와 재프로비저닝 가능성을 모두 확인해야 한다. |
+| 모델 준비 산출물 | `.local-data/models/p/<runtime-role>`, `.local-data/models/ocr/staging/<exact-id>` | 최종 불변 경로의 전 파일 크기·SHA-256 검증과 실제 smoke가 끝난 뒤에만 정확한 경로별 정리 후보로 보고한다. |
+| 기타 모델 캐시 | `.local-data/models`의 위 분류 외 경로 | 재다운로드 가능성, 사용 중 프로세스와 승인된 모델 출처를 확인한 경우에만 후보로 보고한다. |
 | 프론트 의존성 | `frontend/node_modules` | `frontend/pnpm-lock.yaml`로 복원 가능하고 개발 프로세스가 사용하지 않을 때만 후보로 보고한다. 루트 `node_modules`는 만들지 않는다. |
 | 프론트 패키지 캐시 | `frontend/.pnpm-store` | junction 경계와 복원 가능성을 확인한 경우에만 후보로 보고한다. |
 | 레거시 루트 의존성 | `node_modules` | 프론트 독립 구조 전환이 검증된 뒤에만 일회성 제거 후보로 보고한다. |

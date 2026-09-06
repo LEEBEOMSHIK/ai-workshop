@@ -14,9 +14,32 @@ class ModelKind(StrEnum):
     EMBEDDING = "embedding"
     RERANKER = "reranker"
     LLM = "llm"
+    OCR_LAYOUT_DETECTION = "ocr_layout_detection"
     OCR_TEXT_DETECTION = "ocr_text_detection"
     OCR_TEXT_RECOGNITION = "ocr_text_recognition"
+    OCR_TEXTLINE_ORIENTATION = "ocr_textline_orientation"
+    OCR_TABLE_CLASSIFICATION = "ocr_table_classification"
+    OCR_TABLE_STRUCTURE_WIRED = "ocr_table_structure_wired"
     OCR_TABLE_STRUCTURE = "ocr_table_structure"
+    OCR_TABLE_CELLS_WIRED = "ocr_table_cells_wired"
+    OCR_TABLE_CELLS_WIRELESS = "ocr_table_cells_wireless"
+    OCR_TABLE_ORIENTATION = "ocr_table_orientation"
+
+
+PP_STRUCTURE_V3_MODEL_KINDS = frozenset(
+    {
+        ModelKind.OCR_LAYOUT_DETECTION,
+        ModelKind.OCR_TEXT_DETECTION,
+        ModelKind.OCR_TEXT_RECOGNITION,
+        ModelKind.OCR_TEXTLINE_ORIENTATION,
+        ModelKind.OCR_TABLE_CLASSIFICATION,
+        ModelKind.OCR_TABLE_STRUCTURE_WIRED,
+        ModelKind.OCR_TABLE_STRUCTURE,
+        ModelKind.OCR_TABLE_CELLS_WIRED,
+        ModelKind.OCR_TABLE_CELLS_WIRELESS,
+        ModelKind.OCR_TABLE_ORIENTATION,
+    }
+)
 
 
 class ProfileKind(StrEnum):
@@ -217,12 +240,7 @@ def _validate_model_shape(kind: ModelKind, config: Mapping[str, JsonValue]) -> N
         raise ProfileValidationError(
             "An LLM model requires a local OpenAI-compatible runtime identity."
         )
-    ocr_kinds = {
-        ModelKind.OCR_TEXT_DETECTION,
-        ModelKind.OCR_TEXT_RECOGNITION,
-        ModelKind.OCR_TABLE_STRUCTURE,
-    }
-    if kind not in ocr_kinds:
+    if kind not in PP_STRUCTURE_V3_MODEL_KINDS:
         return
     required_strings = ("source", "revision", "artifact_sha256", "license")
     if (
@@ -262,11 +280,7 @@ def _validate_document_processing_profile(
         raise ProfileValidationError(
             "A document processing profile requires a typed OCR policy."
         )
-    required_roles = {
-        ModelKind.OCR_TEXT_DETECTION,
-        ModelKind.OCR_TEXT_RECOGNITION,
-        ModelKind.OCR_TABLE_STRUCTURE,
-    }
+    required_roles = PP_STRUCTURE_V3_MODEL_KINDS
     if ocr["enabled"] is False:
         if roles:
             raise ProfileValidationError(

@@ -22,8 +22,10 @@ RAG 구성에 고정하고, 관리자가 PP-StructureV3 pipeline과 하위 OCR �
   기준선으로만 둔다.
 - 승인 설계는
   `docs/superpowers/specs/2026-09-06-rag-document-processing-ocr-profile-design.md`, 결정은
-  `docs/decisions/0012-document-processing-and-ocr-profiles.md`에 기록했다. 다음 단계는 사용자
-  문서 검토 후 정확한 package/model artifact feasibility gate부터 시작하는 TDD 계획 작성이다.
+  `docs/decisions/0012-document-processing-and-ocr-profiles.md`에 기록했다. 사용자가 구현 진행을
+  승인했으며 실행 계획은
+  `docs/superpowers/plans/2026-09-06-rag-document-processing-ocr-profile.md`를 따른다. 첫 단계는
+  정확한 package/model artifact와 Windows Python 3.13 runtime의 fail-closed feasibility gate다.
 
 - 2026-09-06 정확히 시험한 `codex-cli 0.151.0`의 비실험 schema에는 config·requirements,
   MCP·skill·hook·app·plugin 목록과 thread·turn 상태 메서드가 있으나 effective per-thread

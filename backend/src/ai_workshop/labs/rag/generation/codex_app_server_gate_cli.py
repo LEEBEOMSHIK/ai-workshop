@@ -189,7 +189,13 @@ def main(
 
         run_directory = _create_run_directory(boundary)
         pinned_directories = _pin_directories(
-            root, boundary, codex_home, report_directory, run_parent, run_directory
+            root,
+            boundary,
+            codex_home,
+            report_directory,
+            run_parent,
+            run_directory,
+            delete_access_path=run_directory,
         )
 
         read_version = version_reader or _read_cli_version
@@ -606,15 +612,21 @@ def _reject_reparse_traversal(path: Path) -> None:
             raise _InvalidInvocation
 
 
-def _pin_directories(*directories: Path) -> list[_PinnedDirectory]:
+def _pin_directories(
+    *directories: Path, delete_access_path: Path | None = None
+) -> list[_PinnedDirectory]:
     if not directories:
         raise _InvalidInvocation
     root = directories[0]
     paths = _pin_paths_top_down(root, directories)
+    if delete_access_path is not None and delete_access_path not in paths:
+        raise _InvalidInvocation
     pinned: list[_PinnedDirectory] = []
     try:
         for path in paths:
-            pinned.append(_pin_directory(path))
+            pinned.append(
+                _pin_directory(path, delete_access=path == delete_access_path)
+            )
     except BaseException:
         for item in reversed(pinned):
             with suppress(OSError, _InvalidInvocation):
@@ -638,7 +650,9 @@ def _pin_paths_top_down(root: Path, directories: Sequence[Path]) -> tuple[Path, 
     return tuple(unique_paths)
 
 
-def _pin_directory(directory: Path) -> _PinnedDirectory:
+def _pin_directory(
+    directory: Path, *, delete_access: bool = False
+) -> _PinnedDirectory:
     _reject_reparse_traversal(directory)
     details = directory.stat(follow_symlinks=False)
     if not stat.S_ISDIR(details.st_mode) or details.st_ino == 0:
@@ -652,7 +666,7 @@ def _pin_directory(directory: Path) -> _PinnedDirectory:
             windows_handle=None,
             posix_fd=descriptor,
         )
-    handle = _open_windows_directory_handle(directory)
+    handle = _open_windows_directory_handle(directory, delete_access=delete_access)
     identity = _windows_identity(handle)
     if identity[1] != details.st_ino:
         _close_windows_handle(handle)
@@ -666,10 +680,13 @@ def _pin_directory(directory: Path) -> _PinnedDirectory:
     )
 
 
-def _open_windows_directory_handle(directory: Path) -> int:
+def _open_windows_directory_handle(
+    directory: Path, *, delete_access: bool = False
+) -> int:
+    desired_access = _FILE_READ_ATTRIBUTES | (_DELETE if delete_access else 0)
     handle = _windows_kernel32().CreateFileW(
         str(directory),
-        _FILE_READ_ATTRIBUTES | _DELETE,
+        desired_access,
         _FILE_SHARE_READ | _FILE_SHARE_WRITE,
         None,
         _OPEN_EXISTING,

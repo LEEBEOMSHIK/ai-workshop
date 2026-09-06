@@ -700,7 +700,8 @@ def test_partial_pin_acquisition_attempts_every_close_and_preserves_failure(
             if self.close_fails:
                 raise OSError("private close detail")
 
-    def fail_after_three(path: Path) -> object:
+    def fail_after_three(path: Path, *, delete_access: bool = False) -> object:
+        assert delete_access is False
         if len(acquired) == 3:
             raise OSError("private acquisition detail")
         pin = FakePin(path, close_fails=len(acquired) in {0, 1})
@@ -1147,6 +1148,140 @@ def test_non_empty_run_parent_is_rejected(repository_root: Path) -> None:
         )
         == 2
     )
+
+
+def test_top_down_pinning_requests_delete_access_only_for_exact_run_leaf(
+    monkeypatch: pytest.MonkeyPatch, repository_root: Path
+) -> None:
+    import ai_workshop.labs.rag.generation.codex_app_server_gate_cli as cli_module
+
+    boundary = repository_root / ".local-data" / "codex-app-server"
+    home = boundary / "home"
+    report = boundary / "report"
+    run_parent = boundary / "gate-runs"
+    run_directory = run_parent / "run"
+    calls: list[tuple[Path, bool]] = []
+
+    class FakePin:
+        def __init__(self, path: Path) -> None:
+            self.path = path
+
+        def close(self) -> None:
+            pass
+
+    def capture_pin(path: Path, *, delete_access: bool = False) -> FakePin:
+        calls.append((path, delete_access))
+        return FakePin(path)
+
+    monkeypatch.setattr(cli_module, "_pin_directory", capture_pin)
+
+    pinned = cli_module._pin_directories(
+        repository_root,
+        boundary,
+        home,
+        report,
+        run_parent,
+        run_directory,
+        delete_access_path=run_directory,
+    )
+
+    assert [item.path for item in pinned] == [path for path, _access in calls]
+    assert [path for path, delete_access in calls if delete_access] == [run_directory]
+    assert all(
+        not delete_access
+        for path, delete_access in calls
+        if path != run_directory
+    )
+
+
+def test_pinning_rejects_delete_access_path_outside_requested_set(
+    repository_root: Path,
+) -> None:
+    import ai_workshop.labs.rag.generation.codex_app_server_gate_cli as cli_module
+
+    boundary = repository_root / ".local-data" / "codex-app-server"
+
+    with pytest.raises(cli_module._InvalidInvocation):
+        cli_module._pin_directories(
+            repository_root,
+            boundary,
+            delete_access_path=boundary / "not-requested",
+        )
+
+
+def test_root_that_rejects_delete_still_pins_when_only_run_leaf_requests_it(
+    monkeypatch: pytest.MonkeyPatch, repository_root: Path
+) -> None:
+    import ai_workshop.labs.rag.generation.codex_app_server_gate_cli as cli_module
+
+    boundary = repository_root / ".local-data" / "codex-app-server"
+    run_directory = boundary / "gate-runs" / "run"
+    calls: list[tuple[Path, bool]] = []
+
+    class FakePin:
+        def __init__(self, path: Path) -> None:
+            self.path = path
+
+        def close(self) -> None:
+            pass
+
+    def reject_root_delete(path: Path, *, delete_access: bool = False) -> FakePin:
+        calls.append((path, delete_access))
+        if path == repository_root and delete_access:
+            raise PermissionError("root rejects DELETE")
+        return FakePin(path)
+
+    monkeypatch.setattr(cli_module, "_pin_directory", reject_root_delete)
+
+    pinned = cli_module._pin_directories(
+        repository_root,
+        boundary,
+        run_directory,
+        delete_access_path=run_directory,
+    )
+
+    assert pinned
+    assert (repository_root, False) in calls
+    assert (run_directory, True) in calls
+
+
+def test_windows_directory_handle_adds_delete_access_only_when_requested(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import ai_workshop.labs.rag.generation.codex_app_server_gate_cli as cli_module
+
+    access_calls: list[tuple[int, int]] = []
+
+    class FakeKernel32:
+        def CreateFileW(
+            self,
+            _path: str,
+            desired_access: int,
+            share_mode: int,
+            _security: object,
+            _creation: int,
+            _flags: int,
+            _template: object,
+        ) -> int:
+            access_calls.append((desired_access, share_mode))
+            return 123
+
+    monkeypatch.setattr(cli_module, "_windows_kernel32", lambda: FakeKernel32())
+
+    assert cli_module._open_windows_directory_handle(tmp_path) == 123
+    assert (
+        cli_module._open_windows_directory_handle(tmp_path, delete_access=True) == 123
+    )
+    assert access_calls == [
+        (
+            cli_module._FILE_READ_ATTRIBUTES,
+            cli_module._FILE_SHARE_READ | cli_module._FILE_SHARE_WRITE,
+        ),
+        (
+            cli_module._FILE_READ_ATTRIBUTES | cli_module._DELETE,
+            cli_module._FILE_SHARE_READ | cli_module._FILE_SHARE_WRITE,
+        ),
+    ]
 
 
 def test_pinning_includes_every_existing_ancestor(

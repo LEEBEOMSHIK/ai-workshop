@@ -95,13 +95,18 @@
 - `C:\projects\ai-workshop\.local-data\pytest-unit-final-review-20260903-0218`
 - `C:\projects\ai-workshop\.local-data\pytest-unit-final-review-20260903-0222`
 
-### 교체되거나 완료된 Docker image 18개
+### 교체되거나 완료된 Docker image 20개
 
-아래 이미지는 모두 untagged이고 현재 컨테이너 참조가 없다. 앞의 17개는
+아래 이미지는 모두 현재 컨테이너 참조가 없다. 현재 test image 두 개는 완료된 검증 전용이며
+필요할 때 Compose로 재빌드할 수 있다. 나머지는 untagged이고, 앞의 19개는
 `com.docker.compose.project=ai-workshop` 라벨로 소유권을 확인했다. 마지막 이미지는 라벨이
 없지만 `/app` 작업 디렉터리와 `ai_workshop.main:app` 실행 명령으로 이 저장소의 구형 API
 image임을 확인했다.
 
+- `sha256:b9eb5adafb7a9a546b2296fb451a28d693f736f8ff6818d9af6e2d2fffab4555`
+  (`1,731,529,786` bytes, 완료된 현재 E2E test, 재빌드 가능)
+- `sha256:7098ba38e90ecdcd19996029e8e2cf282e6f2b4988acc1c5b694f9be029445f0`
+  (`3,098,925,345` bytes, 완료된 현재 OCR test, 재빌드 가능)
 - `sha256:f97666866288c839fba36bc4375bc3ee1dc28e15942abe40be7ec39a1ea53598`
   (`3,098,923,889` bytes, 교체된 OCR test)
 - `sha256:420529a1c9980784a8162fc4394f489a785df3fe0dbdae2f35f65203152ce7fc`
@@ -154,8 +159,6 @@ Docker image의 표시 크기 합은 실제 회수량이 아니다. 공유 layer
 - 현재 core `sha256:03d04f9377d46890048786700113c825c054744eda602c1bb24ab615c332c899`
 - 현재 embedding CPU `sha256:12eca76db4f705cdfdd9644d330b278664096242dd098eed0e4d20e0d4dcd104`
 - 현재 OCR CPU `sha256:2e284ec3e5ae4e7ac100525de265092e95ab9aecb3a8c75eda09273714d5c38b`
-- 현재 test `sha256:b9eb5adafb7a9a546b2296fb451a28d693f736f8ff6818d9af6e2d2fffab4555`
-- 현재 OCR test `sha256:7098ba38e90ecdcd19996029e8e2cf282e6f2b4988acc1c5b694f9be029445f0`
 - 실행 중 PostgreSQL·Redis·Elasticsearch와 모든 프로젝트 named volume
 - `.local-data/objects`, `.local-data/models`, `ai-workshop_model-cache`
 - 사용자 소유 `references/`, `.idea/`, `.git/`

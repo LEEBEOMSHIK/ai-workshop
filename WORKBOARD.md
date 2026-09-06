@@ -10,7 +10,7 @@
 - 2026-09-06 Docker backend image의 비정상적인 CUDA·개발 의존성 포함 원인을 확인하고
   CPU-only embedding과 운영·테스트 image 경계를 분리했다. core `398MB`, embedding
   `1.64GB`, OCR `3.01GB`이며 5개 image 경계 검사와 backend unit 675건, Ruff, mypy가
-  통과했다. 완료된 pytest 임시 디렉터리 73개, 교체 image 18개, private BuildKit 2개는
+  통과했다. 완료된 pytest 임시 디렉터리 73개, 교체·test image 20개, private BuildKit 2개는
   `docs/worklogs/2026-09-06-test-artifact-cleanup-audit.md`의 정확 대상에 대한 삭제 승인 대기다.
 
 - 2026-09-06 Linux CPU OCR worker를 core backend image와 분리하고, 10모델 무결성 검증,
@@ -361,8 +361,8 @@ RAG 구성에 고정하고, 관리자가 PP-StructureV3 pipeline과 하위 OCR �
 
 ## 다음 작업
 
-1. 사용자가 정확한 감사 목록의 삭제를 승인하면 pytest 임시 디렉터리 73개, 교체 image
-   18개와 private BuildKit 2개를 재검증 후 제거하고 보존 대상·회수량을 확인
+1. 사용자가 정확한 감사 목록의 삭제를 승인하면 pytest 임시 디렉터리 73개, 교체·test image
+   20개와 private BuildKit 2개를 재검증 후 제거하고 보존 대상·회수량을 확인
 2. native Linux x86_64에서 고정 AMD64 OCR image·10모델의 text·table·bbox actual smoke와
    처리 시간을 검증. Linux GPU는 이후 별도 engine·CUDA·NVIDIA hardware 환경에서 검증
 3. 검증된 OCR adapter 앞에 PDF 페이지 rasterizer를 연결해 스캔 PDF OCR을 다음 형식으로 확장

@@ -379,7 +379,9 @@ RAG 구성에 고정하고, 관리자가 PP-StructureV3 pipeline과 하위 OCR �
   실제 C: 용량 회수를 위해 AI Workshop과 다른 Docker 서비스를 중단하고 exact VHDX를
   오프라인 압축할지 별도 승인이 필요하다.
 - 남은 BuildKit `rbas8nyzf5ef8gwvjqpxny5x0` `427.8MB`를 제거하려면 승인 밖 자식
-  `g98czd2wowjxe2q591c2z2u0s`부터 소유권·후손을 새로 조사하고 승인받아야 한다.
+  `g98czd2wowjxe2q591c2z2u0s` `36.86kB`부터 제거해야 한다. 자식은 AI Workshop 소유,
+  reclaimable·private·non-shared이고 추가 후손이 없음을 조사했으며 exact 두 ID의 새 승인이
+  필요하다.
 - Windows CPU 기준은 확정됐다. Linux CPU/GPU는 같은 10모델 매니페스트의 package build,
   품질과 처리 시간 평가를 통과하기 전 운영 기본값으로 승격하지 않는다.
 - 개발 전용 Codex 연동은 App Server 후보도 차단됐다. 재개하려면 content 전송 전 stable

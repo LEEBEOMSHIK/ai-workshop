@@ -168,8 +168,9 @@ Docker image의 표시 크기 합은 실제 회수량이 아니다. 공유 layer
 - 47개 접근 거부 디렉터리는 UAC 관리자 권한에서 내부 내용과 reparse 상태를 재검증한 뒤
   제거했다.
 - BuildKit `rbas8nyzf5ef8gwvjqpxny5x0`은 승인 목록 밖 자식
-  `g98czd2wowjxe2q591c2z2u0s`가 참조해 exact prune으로 제거되지 않았다. 새 정확 대상 조사와
-  승인 없이는 자식 chain을 제거하지 않는다.
+  `g98czd2wowjxe2q591c2z2u0s`가 참조해 exact prune으로 제거되지 않았다. 자식은 AI Workshop
+  Dockerfile의 `COPY alembic` 레코드, `36.86kB`, reclaimable·private·non-shared이며 추가 후손은
+  없다. 새 정확 승인 없이는 자식과 부모를 순서대로 제거하지 않는다.
 - Docker Desktop VHDX 압축은 현재 범위가 아니며 서비스 중단·별도 승인이 필요하다.
 
 ## 공유 리소스

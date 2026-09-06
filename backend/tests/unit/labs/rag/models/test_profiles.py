@@ -33,6 +33,30 @@ def generation_config() -> dict[str, object]:
     }
 
 
+def document_processing_config() -> dict[str, object]:
+    return {
+        "parser_policy": {
+            "schema_version": 1,
+            "routes": {
+                "text/plain": {"name": "plain-text", "version": "1"},
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+                    "name": "docx-structure",
+                    "version": "1",
+                },
+            },
+        },
+        "ocr": {
+            "enabled": True,
+            "pipeline_name": "PP-StructureV3",
+            "pipeline_version": "3.7.0",
+            "languages": ["ko", "en"],
+            "confidence_threshold": 0.7,
+            "output_schema_version": 1,
+            "data_policy": "local_only",
+        },
+    }
+
+
 def test_model_configuration_is_immutable_and_rejects_literal_secrets() -> None:
     model = ModelDefinition.create(
         kind=ModelKind.EMBEDDING,
@@ -262,3 +286,55 @@ def test_only_passed_profile_can_become_default() -> None:
 
     with pytest.raises(ProfileValidationError, match="evaluation"):
         profile.as_default()
+
+
+def test_document_processing_profile_requires_all_ocr_model_roles() -> None:
+    required_bindings = (
+        binding(ModelKind.OCR_TEXT_DETECTION),
+        binding(ModelKind.OCR_TEXT_RECOGNITION),
+        binding(ModelKind.OCR_TABLE_STRUCTURE),
+    )
+
+    profile = Profile.create(
+        kind=ProfileKind.DOCUMENT_PROCESSING,
+        name="docx-ocr",
+        version=1,
+        config=document_processing_config(),
+        bindings=required_bindings,
+    )
+
+    assert profile.kind is ProfileKind.DOCUMENT_PROCESSING
+
+    with pytest.raises(ProfileValidationError, match="OCR model roles"):
+        Profile.create(
+            kind=ProfileKind.DOCUMENT_PROCESSING,
+            name="docx-ocr-incomplete",
+            version=1,
+            config=document_processing_config(),
+            bindings=required_bindings[:-1],
+        )
+
+
+def test_ocr_model_definition_requires_immutable_artifact_metadata() -> None:
+    with pytest.raises(ProfileValidationError, match="artifact metadata"):
+        ModelDefinition.create(
+            kind=ModelKind.OCR_TEXT_RECOGNITION,
+            name="korean_PP-OCRv5_mobile_rec",
+            version=1,
+            config={"data_policy": "local_only"},
+        )
+
+    model = ModelDefinition.create(
+        kind=ModelKind.OCR_TEXT_RECOGNITION,
+        name="korean_PP-OCRv5_mobile_rec",
+        version=1,
+        config={
+            "source": "PaddlePaddle/korean_PP-OCRv5_mobile_rec",
+            "revision": "approved-revision",
+            "artifact_sha256": "a" * 64,
+            "license": "Apache-2.0",
+            "data_policy": "local_only",
+        },
+    )
+
+    assert model.kind is ModelKind.OCR_TEXT_RECOGNITION

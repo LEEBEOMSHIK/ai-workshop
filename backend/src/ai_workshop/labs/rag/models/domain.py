@@ -14,9 +14,13 @@ class ModelKind(StrEnum):
     EMBEDDING = "embedding"
     RERANKER = "reranker"
     LLM = "llm"
+    OCR_TEXT_DETECTION = "ocr_text_detection"
+    OCR_TEXT_RECOGNITION = "ocr_text_recognition"
+    OCR_TABLE_STRUCTURE = "ocr_table_structure"
 
 
 class ProfileKind(StrEnum):
+    DOCUMENT_PROCESSING = "document_processing"
     INDEXING = "indexing"
     RETRIEVAL = "retrieval"
     GENERATION = "generation"
@@ -92,15 +96,7 @@ class ModelDefinition:
         if not name.strip() or version < 1:
             raise ProfileValidationError("Model name and positive version are required.")
         _validate_environment_references(config)
-        if kind is ModelKind.LLM and (
-            config.get("provider") != "openai_compatible"
-            or config.get("data_policy") != "local_only"
-            or not isinstance(config.get("runtime_model"), str)
-            or not str(config["runtime_model"]).strip()
-        ):
-            raise ProfileValidationError(
-                "An LLM model requires a local OpenAI-compatible runtime identity."
-            )
+        _validate_model_shape(kind, config)
         frozen = freeze_json(config)
         if not isinstance(frozen, Mapping):
             raise TypeError("Model configuration must be a mapping.")
@@ -180,7 +176,9 @@ def _validate_profile_shape(
     deployment_version_id: UUID | None,
 ) -> None:
     roles = {binding.role for binding in bindings}
-    if kind is ProfileKind.INDEXING:
+    if kind is ProfileKind.DOCUMENT_PROCESSING:
+        _validate_document_processing_profile(config, roles, deployment_version_id)
+    elif kind is ProfileKind.INDEXING:
         if deployment_version_id is not None:
             raise ProfileValidationError(
                 "A non-generation profile cannot bind a Deployment."
@@ -207,6 +205,103 @@ def _validate_profile_shape(
             raise ProfileValidationError("A reranker binding requires reranker configuration.")
     else:
         _validate_generation_profile(config, bindings, deployment_version_id)
+
+
+def _validate_model_shape(kind: ModelKind, config: Mapping[str, JsonValue]) -> None:
+    if kind is ModelKind.LLM and (
+        config.get("provider") != "openai_compatible"
+        or config.get("data_policy") != "local_only"
+        or not isinstance(config.get("runtime_model"), str)
+        or not str(config["runtime_model"]).strip()
+    ):
+        raise ProfileValidationError(
+            "An LLM model requires a local OpenAI-compatible runtime identity."
+        )
+    ocr_kinds = {
+        ModelKind.OCR_TEXT_DETECTION,
+        ModelKind.OCR_TEXT_RECOGNITION,
+        ModelKind.OCR_TABLE_STRUCTURE,
+    }
+    if kind not in ocr_kinds:
+        return
+    required_strings = ("source", "revision", "artifact_sha256", "license")
+    if (
+        config.get("data_policy") != "local_only"
+        or any(
+            not isinstance(config.get(key), str) or not str(config[key]).strip()
+            for key in required_strings
+        )
+        or fullmatch(r"[0-9a-f]{64}", str(config.get("artifact_sha256", ""))) is None
+    ):
+        raise ProfileValidationError(
+            "An OCR model requires immutable local artifact metadata."
+        )
+
+
+def _validate_document_processing_profile(
+    config: Mapping[str, JsonValue],
+    roles: set[ModelKind],
+    deployment_version_id: UUID | None,
+) -> None:
+    if deployment_version_id is not None:
+        raise ProfileValidationError(
+            "A non-generation profile cannot bind a Deployment."
+        )
+    parser_policy = config.get("parser_policy")
+    if not isinstance(parser_policy, Mapping):
+        raise ProfileValidationError(
+            "A document processing profile requires a parser policy."
+        )
+    routes = parser_policy.get("routes")
+    if not isinstance(routes, Mapping) or not routes:
+        raise ProfileValidationError(
+            "A document processing profile requires parser routes."
+        )
+    ocr = config.get("ocr")
+    if not isinstance(ocr, Mapping) or not isinstance(ocr.get("enabled"), bool):
+        raise ProfileValidationError(
+            "A document processing profile requires a typed OCR policy."
+        )
+    required_roles = {
+        ModelKind.OCR_TEXT_DETECTION,
+        ModelKind.OCR_TEXT_RECOGNITION,
+        ModelKind.OCR_TABLE_STRUCTURE,
+    }
+    if ocr["enabled"] is False:
+        if roles:
+            raise ProfileValidationError(
+                "An OCR-disabled document processing profile cannot bind OCR models."
+            )
+        return
+    if roles != required_roles:
+        raise ProfileValidationError(
+            "An OCR-enabled document processing profile requires all OCR model roles."
+        )
+    required_strings = ("pipeline_name", "pipeline_version", "data_policy")
+    if any(
+        not isinstance(ocr.get(key), str) or not str(ocr[key]).strip()
+        for key in required_strings
+    ) or ocr.get("data_policy") != "local_only":
+        raise ProfileValidationError(
+            "An OCR policy requires a local pipeline identity."
+        )
+    languages = ocr.get("languages")
+    threshold = ocr.get("confidence_threshold")
+    schema_version = ocr.get("output_schema_version")
+    if (
+        not isinstance(languages, list)
+        or not languages
+        or any(not isinstance(item, str) or not item.strip() for item in languages)
+        or not isinstance(threshold, int | float)
+        or isinstance(threshold, bool)
+        or not 0 <= threshold <= 1
+        or not isinstance(schema_version, int)
+        or isinstance(schema_version, bool)
+        or schema_version < 1
+    ):
+        raise ProfileValidationError(
+            "An OCR policy requires languages, confidence, and output schema settings."
+        )
 
 
 def _validate_generation_profile(

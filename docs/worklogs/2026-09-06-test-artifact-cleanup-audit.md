@@ -2,7 +2,7 @@
 
 - 기준일: 2026-09-06
 - 프로젝트: `C:\projects\ai-workshop`
-- 상태: 삭제 승인 대기
+- 상태: 승인 범위 정리 완료, BuildKit 자식 참조 1건과 VHDX 물리 회수 대기
 - 정책: `CACHE_POLICY.md` schema v1, destructive approval required
 
 ## 제거 후보
@@ -165,12 +165,34 @@ Docker image의 표시 크기 합은 실제 회수량이 아니다. 공유 layer
 
 ## 차단 대상
 
-- 47개 접근 거부 디렉터리는 삭제 직전 관리자 권한으로 ACL·내용·reparse 상태를 다시 확인하지
-  못하면 제거하지 않는다.
+- 47개 접근 거부 디렉터리는 UAC 관리자 권한에서 내부 내용과 reparse 상태를 재검증한 뒤
+  제거했다.
+- BuildKit `rbas8nyzf5ef8gwvjqpxny5x0`은 승인 목록 밖 자식
+  `g98czd2wowjxe2q591c2z2u0s`가 참조해 exact prune으로 제거되지 않았다. 새 정확 대상 조사와
+  승인 없이는 자식 chain을 제거하지 않는다.
 - Docker Desktop VHDX 압축은 현재 범위가 아니며 서비스 중단·별도 승인이 필요하다.
 
 ## 공유 리소스
 
-- BuildKit 전체 `43.67GB` 중 shared `38.03GB`는 다른 현재 image 또는 프로젝트와의 공유 여부를
+- 정리 후 BuildKit 전체 `38.47GB` 중 shared `5.191GB`와 위 차단 chain 외 레코드는 다른 현재
+  image 또는 프로젝트와의 공유 여부를
   개별 증명하지 않았으므로 제거하지 않는다.
-- 위 두 exact private ID 외의 BuildKit record는 삭제 대상이 아니다.
+- 새로 조사·승인되지 않은 BuildKit record는 삭제 대상이 아니다.
+
+## 정리 결과
+
+- UAC 관리자 읽기 전용 감사에서 73개 디렉터리 전체의 프로젝트 경계, 디렉터리 타입,
+  내부 reparse point 부재와 실행 프로세스 참조 0개를 확인했다.
+- 승인된 pytest 임시 디렉터리 73개를 리터럴 경로로 제거했고 사후 잔여는 0개다.
+- 승인된 교체·테스트 Docker image 20개를 exact image ID로 제거했다.
+- BuildKit `93lb850qbb66uqf5rjkxkn2xl`은 exact ID filter로 `5.204GB`를 회수했다.
+  `rbas8nyzf5ef8gwvjqpxny5x0`은 위 자식 참조 때문에 `427.8MB`가 남았다.
+- Docker image 논리 사용량은 `44.22GB`에서 `11.38GB`로 `32.84GB` 감소했고 Build Cache는
+  `43.67GB`에서 `38.47GB`로 `5.20GB` 감소했다.
+- Windows C: 여유 공간은 `150,479,749,120` bytes에서 `150,483,476,480` bytes로
+  `3,727,360` bytes 증가했다. 논리 삭제와 달리 Docker Desktop sparse VHDX가 자동 축소되지
+  않았기 때문이다.
+- `docker_data.vhdx`는 정리 전후 모두 `73,826,041,856` bytes다. 물리 회수는 모든 서비스를
+  정상 종료한 뒤 별도 승인된 오프라인 VHDX 압축으로만 진행한다.
+- 현재 core·embedding CPU·OCR CPU image와 PostgreSQL·Redis·Elasticsearch healthy 상태,
+  PostgreSQL·Redis·Elasticsearch·object·model named volume 보존을 확인했다.

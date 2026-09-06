@@ -10,8 +10,10 @@
 - 2026-09-06 Docker backend image의 비정상적인 CUDA·개발 의존성 포함 원인을 확인하고
   CPU-only embedding과 운영·테스트 image 경계를 분리했다. core `398MB`, embedding
   `1.64GB`, OCR `3.01GB`이며 5개 image 경계 검사와 backend unit 675건, Ruff, mypy가
-  통과했다. 완료된 pytest 임시 디렉터리 73개, 교체·test image 20개, private BuildKit 2개는
-  `docs/worklogs/2026-09-06-test-artifact-cleanup-audit.md`의 정확 대상에 대한 삭제 승인 대기다.
+  통과했다. 완료된 pytest 임시 디렉터리 73개와 교체·test image 20개, private BuildKit
+  `5.204GB`를 승인·재검증 후 제거했다. BuildKit `427.8MB`는 승인 밖 자식 참조로 보존했고
+  Docker VHDX 물리 크기는 자동 축소되지 않았다. 상세 결과는
+  `docs/worklogs/2026-09-06-test-artifact-cleanup-audit.md`다.
 
 - 2026-09-06 Linux CPU OCR worker를 core backend image와 분리하고, 10모델 무결성 검증,
   network-off smoke와 owner 전용 Docker 구성도를 구현했다. ARM64 Paddle SIGSEGV를 근거로
@@ -361,8 +363,8 @@ RAG 구성에 고정하고, 관리자가 PP-StructureV3 pipeline과 하위 OCR �
 
 ## 다음 작업
 
-1. 사용자가 정확한 감사 목록의 삭제를 승인하면 pytest 임시 디렉터리 73개, 교체·test image
-   20개와 private BuildKit 2개를 재검증 후 제거하고 보존 대상·회수량을 확인
+1. 남은 BuildKit `427.8MB`의 exact 자식 chain 제거와 서비스 중단이 필요한 Docker Desktop
+   VHDX 오프라인 압축을 각각 새 조사·승인 범위로 결정
 2. native Linux x86_64에서 고정 AMD64 OCR image·10모델의 text·table·bbox actual smoke와
    처리 시간을 검증. Linux GPU는 이후 별도 engine·CUDA·NVIDIA hardware 환경에서 검증
 3. 검증된 OCR adapter 앞에 PDF 페이지 rasterizer를 연결해 스캔 PDF OCR을 다음 형식으로 확장
@@ -373,6 +375,11 @@ RAG 구성에 고정하고, 관리자가 PP-StructureV3 pipeline과 하위 OCR �
 
 ## 결정이 필요한 항목
 
+- Docker 논리 사용량은 약 `38.04GB` 줄었지만 `docker_data.vhdx`는 자동 축소되지 않았다.
+  실제 C: 용량 회수를 위해 AI Workshop과 다른 Docker 서비스를 중단하고 exact VHDX를
+  오프라인 압축할지 별도 승인이 필요하다.
+- 남은 BuildKit `rbas8nyzf5ef8gwvjqpxny5x0` `427.8MB`를 제거하려면 승인 밖 자식
+  `g98czd2wowjxe2q591c2z2u0s`부터 소유권·후손을 새로 조사하고 승인받아야 한다.
 - Windows CPU 기준은 확정됐다. Linux CPU/GPU는 같은 10모델 매니페스트의 package build,
   품질과 처리 시간 평가를 통과하기 전 운영 기본값으로 승격하지 않는다.
 - 개발 전용 Codex 연동은 App Server 후보도 차단됐다. 재개하려면 content 전송 전 stable

@@ -1,10 +1,10 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-06
-- 현재 단계: 개발 전용 Codex App Server 격리 feasibility gate 실행 대기
-- 전체 상태: Python SDK 경로의 격리 gate 차단은 유지한다. 사용자가 프로젝트 전용
-  `CODEX_HOME`, 별도 Codex 로그인, App Server 상태 증명과 이중 진단 기록을 사용하는 후속
-  설계를 승인했다. 아직 Provider·DB·UI 구현은 시작하지 않았다.
+- 현재 단계: 개발 전용 Codex App Server 격리 feasibility gate 차단 결과 기록
+- 전체 상태: Python SDK 경로의 격리 gate 차단은 유지하며, App Server 후보도 `codex-cli 0.151.0`
+  no-content gate에서 차단됐다. App Server는 승인된 Provider가 아니고 Provider·DB·UI 구현이나
+  RAG 질문 실행은 수행하지 않았다.
 
 ## 현재 작업
 
@@ -15,21 +15,22 @@ Hybrid 검색 결과에 근거 제한 LLM 답변과 인용 검증을 연결한�
 
 ### 진행 상태
 
-- 2026-09-06 사용자는 폐기된 Codex 답변도 원인 분석과 회귀 테스트가 가능해야 한다고
-  확정했다. 정상 답변에는 노출하지 않되 본문 없는 trace·단계·규칙·버전·attestation·event
-  metadata를 항상 저장하고, 전체 protocol·폐기 본문은 합성 데이터 전용 owner 진단 모드에서만
-  Gitignored 로컬 저장소에 임시 보존한다.
-- Python SDK의 차단 증거는 ADR-0010에 유지하고, 고정 버전 App Server stdio, 프로젝트 전용
-  `CODEX_HOME`, 관리형 requirements와 실행 전 effective 상태 검증을 사용하는 후속 결정을
-  ADR-0011과 `2026-09-06-codex-app-server-rag-adapter-design.md`에 승인 상태로 기록했다.
-- 다음 단계는 승인 설계를 실행 가능한 TDD 계획으로 분해하고, 실제 설치나 Provider 등록 전에
-  App Server가 요구한 effective 상태를 증명하는 첫 fail-closed feasibility gate를 정의하는
-  것이다.
-- feasibility gate 실행 계획은
-  `docs/superpowers/plans/2026-09-06-codex-app-server-isolation-gate.md`에 작성했다. 현재 설치된
-  `codex-cli 0.151.0`을 정확 버전 기준으로 삼고, 기능 플래그와 별도로 대상 thread의 effective
-  built-in tool inventory까지 증명하지 못하면 실패하도록 했다. 구현·DB·UI는 아직 변경하지
-  않았다.
+- 2026-09-06 정확히 시험한 `codex-cli 0.151.0`의 비실험 schema에는 config·requirements,
+  MCP·skill·hook·app·plugin 목록과 thread·turn 상태 메서드가 있으나 effective per-thread
+  built-in tool inventory의 안정 계약은 없다. schema gate는 fail closed 했다.
+- no-content live gate는 exit 1과 `codex_isolation_not_enforced`를 반환했다. runtime state는
+  검증되지 않았고 질문, 대화 이력, Evidence, `thread/start`, `turn/start`는 전송하지 않았다.
+  Windows transport cleanup의 원시 경고는 기록하지 않으며, sanitized 사실만 남긴다.
+- 후보 gate source·test·script entry는 FAIL 뒤 제거됐다. Provider 등록, migration, DB, UI 또는
+  RAG 질문 실행은 수행하지 않았다. 단일 빈 진단 run directory만 정확한 cache-policy 절차로
+  제거했고 의미 있는 ignored 진단 산출물은 로컬·untracked 상태로 보존한다.
+- 제거 후 backend unit 636건, Ruff와 mypy가 통과했다. 전체 backend 880건에서는 현재 로컬
+  PostgreSQL·Elasticsearch와 루트 `.env` 영향을 받는 기존 통합·기본값 검증 32건이 실패하고
+  842건 통과·6건 건너뜀으로 끝나 전체 회귀 성공으로 기록하지 않는다.
+- 재개 전에는 effective per-thread built-in tool inventory, config와 managed requirements,
+  MCP·app·plugin·skill·hook·sub-agent 상태, approval `never`, read-only sandbox와 host-path
+  누출 없는 sanitized transport cleanup을 안정 계약으로 content 전송 전에 증명해야 한다. 이후
+  정확 버전의 no-content gate를 재실행한다.
 
 - 2026-09-06 Task 1에서 stable `openai-codex==0.147.0`과 bundled
   `openai-codex-cli-bin==0.147.0`을 실제 설치해 공개 API를 검증했다. ephemeral thread,
@@ -301,32 +302,48 @@ Hybrid 검색 결과에 근거 제한 LLM 답변과 인용 검증을 연결한�
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. 다중 환경 LLM Deployment·데이터 정책·OpenAI Responses adapter·관리자 설정·사용자 고지를 구현하고 전체 backend/frontend·OpenAPI·정책 흐름·migration·privacy 독립 검증을 완료했다. 실제 외부 API smoke는 명시된 승인 조건으로 분리했다 (`docs/worklogs/2026-09-05-rag-openai-deployment-verification.md`).
-2. 대화형 생성 RAG V2의 저장 구성·준비 상태·로컬 LLM adapter·문맥 기반 후속질문·구조화 답변·인용 검증과 관리자/사용자 UI를 구현하고 자동 검증했다 (`docs/worklogs/2026-09-04-conversational-generative-rag-v2.md`).
-3. 파일명과 분리된 지식 공간 범위 SHA-256 중복 판정, 명시적 새 버전 업로드, 검색 준비 상태 안내와 결과 UUID 비노출을 구현·검증했다 (`docs/worklogs/2026-09-04-rag-upload-identity-and-search-readiness.md`).
-4. 비민감 합성 문서로 Asset 검증·E5 색인·BM25 검색·근거·정확 하이라이트·원문 추적을 실제 owner Chrome에서 검증했다. 최초 고정 모델 캐시 실패와 복구, 남은 Hybrid·LLM·UX·버전·캐시 문제를 공식 기록했다 (`docs/worklogs/2026-09-04-owner-rag-live-smoke.md`).
-5. 공개 RAG 작업실에 총괄과 여섯 기술 담당자, 역할별 dialog와 연결 흐름을 구현했다. frontend 168개 테스트·정적 검사·빌드, desktop/tablet/mobile 실제 브라우저와 독립 재검토가 통과했다 (`docs/worklogs/2026-09-04-rag-lab-agent-workroom-verification.md`).
+1. 개발 전용 Codex App Server 후보를 `codex-cli 0.151.0` no-content gate로 측정해 stable effective per-thread built-in tool inventory 계약 부재를 확인했고 fail-closed 차단 결과와 재개 조건을 기록했다 (`docs/worklogs/2026-09-06-codex-app-server-isolation-gate.md`).
+2. 다중 환경 LLM Deployment·데이터 정책·OpenAI Responses adapter·관리자 설정·사용자 고지를 구현하고 전체 backend/frontend·OpenAPI·정책 흐름·migration·privacy 독립 검증을 완료했다. 실제 외부 API smoke는 명시된 승인 조건으로 분리했다 (`docs/worklogs/2026-09-05-rag-openai-deployment-verification.md`).
+3. 대화형 생성 RAG V2의 저장 구성·준비 상태·로컬 LLM adapter·문맥 기반 후속질문·구조화 답변·인용 검증과 관리자/사용자 UI를 구현하고 자동 검증했다 (`docs/worklogs/2026-09-04-conversational-generative-rag-v2.md`).
+4. 파일명과 분리된 지식 공간 범위 SHA-256 중복 판정, 명시적 새 버전 업로드, 검색 준비 상태 안내와 결과 UUID 비노출을 구현·검증했다 (`docs/worklogs/2026-09-04-rag-upload-identity-and-search-readiness.md`).
+5. 비민감 합성 문서로 Asset 검증·E5 색인·BM25 검색·근거·정확 하이라이트·원문 추적을 실제 owner Chrome에서 검증했다. 최초 고정 모델 캐시 실패와 복구, 남은 Hybrid·LLM·UX·버전·캐시 문제를 공식 기록했다 (`docs/worklogs/2026-09-04-owner-rag-live-smoke.md`).
 
 ## 다음 작업
 
-1. 개발 전용 Codex SDK Provider의 fail-closed 차단을 유지하면서, effective tool inventory를
-   검증할 수 있는 App Server 또는 관리형 permission contract를 재설계할지 결정한다. adapter
-   구현과 기존 Deployment resolver의 TDD 통합은 격리 차단을 해소한 뒤에만 시작한다.
+1. DOCX parser·통합 뷰어 지원을 설계하고 스캔 PDF OCR을 다음 형식 확장으로 진행
 2. owner가 외부 전송과 비용을 명시 승인하고 안전한 credential·비민감 합성 자료를 준비하면
    OpenAI Responses 실제 smoke를 운영 절차대로 수행
-3. DOCX parser·통합 뷰어 지원을 설계하고 스캔 PDF OCR을 다음 형식 확장으로 진행
-4. 저장 구성 목록의 generation exact join·readiness 조회를 batch/prefetch해 N+1을 줄이는
+3. 저장 구성 목록의 generation exact join·readiness 조회를 batch/prefetch해 N+1을 줄이는
    성능 개선을 별도 측정과 회귀 테스트로 진행. 현재 Task 11 완료 차단 요소는 아니다.
 
 ## 결정이 필요한 항목
 
-- 개발 전용 Codex 연동을 재개하려면 호출별 effective tool inventory와 모든 금지 도구의
-  비활성 상태를 공개·지원 계약으로 증명할 수 있어야 한다. 현재 Python SDK의 sandbox와 승인
-  거부만으로는 이 조건을 충족하지 않는다.
+- 개발 전용 Codex 연동은 App Server 후보도 차단됐다. 재개하려면 content 전송 전 stable
+  effective per-thread built-in tool inventory, config·managed requirements, MCP·app·plugin·
+  skill·hook·sub-agent, approval `never`, read-only sandbox와 host-path 누출 없는 sanitized
+  transport cleanup을 공개·지원 계약으로 증명하고 exact-version no-content gate를 통과해야 한다.
 - Windows 호스트 E5 캐시에서 런타임에 불필요한 모델 형식만 선별 제거할 수 있도록 정확한 파일 의존성과 회수 가능 용량을 조사한 뒤 사용자 승인을 받아야 한다.
 
 ## 차단 요소
 
+- 개발 전용 Codex App Server 후보는 stable effective per-thread built-in tool inventory 계약이
+  없어 `codex_isolation_not_enforced`로 차단됐다. 이는 다음 활성 제품 작업이 아니라 위 재개
+  조건을 충족할 때만 다시 검토할 차단 기록이다.
+- Task 3 검증이 만든 untracked pytest 임시 폴더
+  `backend/.pytest-task3-cont-characterization-green`,
+  `backend/.pytest-task3-cont-combined-green`, `backend/.pytest-task3-cont-focused-green`,
+  `backend/.pytest-task3-cont-focused-skips`, `backend/.pytest-task3-cont-green-new`,
+  `backend/.pytest-task3-cont-mutation-red-partial`,
+  `backend/.pytest-task3-cont-mutation-red-posix-remove`,
+  `backend/.pytest-task3-cont-mutation-red-report`,
+  `backend/.pytest-task3-cont-mutation-red-report-2`,
+  `backend/.pytest-task3-cont-mutation-red-windows-remove`,
+  `backend/.pytest-task3-cont-pre-fix-2`는 현재 접근이 거부된다. 제품 소스에는 포함되지 않으며
+  `CACHE_POLICY.md`의 정확 경로 조사·승인·재검증 없이는 삭제하지 않는다.
+- Task 2 검증이 만든 접근 거부 untracked pytest 임시 폴더 21개는
+  `.pytest-task2-round4-*` 이름으로 남아 있다. 정확한 경로 목록은
+  `docs/worklogs/2026-09-06-codex-app-server-isolation-gate.md`를 따르며 같은 cache-policy 절차
+  없이는 삭제하지 않는다.
 - `backend/.pytest-nextjs-final-contract`는 untracked지만 Windows 관리자 ACL 때문에 현재 비관리자 환경에서 삭제할 수 없다.
 - `backend/.pytest-tmp`는 Git ignored 경로이며 같은 ACL 문제로 내부 확인과 삭제가 거부된다. 2026-09-03 기본 unit 실행도 이 경로 정리 단계에서 실패했고 fresh `%TEMP%` basetemp로 우회 검증했다. 두 경로 모두 애플리케이션 소스와 실행 데이터에는 영향을 주지 않으며, 대화형 Windows 관리자 세션에서 소유권과 내용을 확인한 뒤 정확 경로만 삭제해야 한다.
 - 이번 backend unit 검증에서 만든 `.local-data/pytest-unit-current`도 정확 경로 삭제를 시도했으나 접근이 거부됐다. 애플리케이션 데이터에는 포함되지 않는 테스트 임시물이며 관리자 세션에서 해당 경로만 제거해야 한다.

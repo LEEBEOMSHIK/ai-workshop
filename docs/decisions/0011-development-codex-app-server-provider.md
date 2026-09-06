@@ -1,6 +1,6 @@
-# ADR-0011: 개발용 Codex Provider는 전용 App Server 경계로 재설계한다
+# ADR-0011: 개발용 Codex Provider의 App Server 경계 후보는 차단한다
 
-- 상태: 승인
+- 상태: 차단
 - 결정일: 2026-09-06
 
 ## 배경
@@ -10,29 +10,33 @@ Provider 구현을 차단했다. 사용자는 안전 기준을 유지하면서 �
 사용 권한을 RAG 생성에 연결하고, 폐기된 결과도 원인 분석과 테스트가 가능해야 한다고
 결정했다.
 
-## 결정
+## 측정 결과와 차단 결정
 
-- Python high-level SDK adapter 대신 고정 버전 Codex App Server의 stdio JSON-RPC를 사용한다.
-- 프로젝트 전용 `CODEX_HOME`, 별도 Codex 로그인과 관리형 requirements를 사용한다.
-- App Server가 보고하는 config, requirements, MCP, skill, hook, app 상태와 대상 thread의
-  effective built-in tool inventory를 질문 전 검증한다. 기능 플래그만으로 inventory를
-  추정하지 않는다.
-- 격리를 증명할 수 없으면 `codex_isolation_not_enforced`로 본문 전송 전에 실패한다.
-- runtime 중 금지 이벤트는 답변 폐기, process quarantine과 안전 사건 기록을 발생시킨다.
-- 일반 사건 기록은 metadata-only이며, 전체 protocol과 폐기 답변은 합성 데이터 전용 owner
-  진단 모드에서만 Gitignored 로컬 저장소에 임시 보존한다.
-- 구현과 UI는 우선 Labs/RAG 내부에 두고 두 번째 실제 사용처가 생길 때 공통화한다.
-- `codex_app_server`는 development-only 외부 Provider이며 운영 Provider의 실행 경로와
-  분리한다.
+- 정확히 고정해 시험한 버전은 `codex-cli 0.151.0`이다.
+- 생성한 비실험 schema에는 `config/read`, `configRequirements/read`, MCP·skill·hook·app·plugin
+  목록과 thread·turn 작업처럼 안정적인 상태 메서드가 있다. 그러나 대상 thread의 effective
+  built-in tool inventory를 증명하는 안정 계약은 없다.
+- 따라서 schema gate가 fail closed 했고, 본문을 보내지 않는 live gate도
+  `codex_isolation_not_enforced`로 exit 1 했다. runtime state는 검증되지 않았다.
+- 질문, 대화 이력, Evidence, `thread/start`, `turn/start`는 전송하지 않았다. Windows transport
+  cleanup은 host path를 포함한 unsanitized runtime warning을 냈지만 원시 출력은 추적 문서에
+  복사하지 않는다.
+- 이 후보는 승인된 Provider가 아니다. fail 결과 뒤 gate source·test·script entry 후보를
+  제거했으며 Provider 등록, migration, DB, UI, RAG 질문 실행은 수행하지 않았다.
+- 단일 빈 진단 run directory만 cache policy의 정확한 절차로 제거했다. 의미 있는 ignored
+  진단 산출물은 로컬·untracked 상태로 유지한다.
 
 ## 결과
 
-안전 통제는 선언된 sandbox에만 의존하지 않고 실행 전 상태 증명과 실행 중 사건 탐지를 함께
-사용한다. 답변을 폐기해도 trace ID, 실패 단계, 규칙, 버전, attestation과 event metadata로
-재현 가능한 분석을 할 수 있다. 실제 비공개 본문과 폐기 초안은 일반 로그나 DB에 남지 않는다.
+안정 지원 계약이 content 전송 전에 effective per-thread built-in tool inventory, config와
+managed requirements, MCP·app·plugin·skill·hook·sub-agent 상태, approval `never`, read-only
+sandbox와 host-path 누출 없는 sanitized transport cleanup을 모두 증명할 때만 재개한다. 그때
+정확히 고정한 버전으로 no-content gate를 다시 실행한 뒤에만 Provider, DB, UI 또는 본문 전송
+실행을 검토한다.
 
 ## 대체 관계
 
-ADR-0010의 Python SDK 구현 차단 판단과 증거는 유효하다. 이 결정은 그 차단 기준을 완화하지
-않고 다른 통합 경계인 App Server를 후속 후보로 채택한다. 상세 계약은
-`docs/superpowers/specs/2026-09-06-codex-app-server-rag-adapter-design.md`를 따른다.
+ADR-0010의 Python SDK 구현 차단 판단과 증거는 유효하다. 이 ADR은 그 기준을 완화하지 않은
+App Server 후보의 측정 차단 결과를 기록한다. 재개 조건을 만족하기 전에는
+`docs/superpowers/specs/2026-09-06-codex-app-server-rag-adapter-design.md`를 구현 승인으로
+해석하지 않는다.

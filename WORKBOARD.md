@@ -1,6 +1,6 @@
 # Workboard
 
-- 마지막 갱신일: 2026-09-06
+- 마지막 갱신일: 2026-09-07
 - 현재 단계: PP-StructureV3 Linux CPU native x86_64 actual smoke 대기
 - 전체 상태: 불변 Document Processing Profile, 10개 고정 PP-StructureV3 모델,
   DOCX 내장 이미지 OCR·provenance·검색 원문 뷰어와 관리자 전체 구성이 구현됐다.
@@ -11,8 +11,10 @@
   CPU-only embedding과 운영·테스트 image 경계를 분리했다. core `398MB`, embedding
   `1.64GB`, OCR `3.01GB`이며 5개 image 경계 검사와 backend unit 675건, Ruff, mypy가
   통과했다. 완료된 pytest 임시 디렉터리 73개와 교체·test image 20개, private BuildKit
-  `5.204GB`를 승인·재검증 후 제거했다. BuildKit `427.8MB`는 승인 밖 자식 참조로 보존했고
-  Docker VHDX 물리 크기는 자동 축소되지 않았다. 상세 결과는
+  `5.204GB`를 승인·재검증 후 제거했다. 2026-09-07 후속 승인으로 BuildKit 자식 `36.86kB`와
+  부모 `427.8MB`를 exact ID로 제거하고 Docker Desktop VHDX를 오프라인 압축했다. VHDX는
+  `48,234,496` bytes(약 46MiB) 감소했으며 기존 컨테이너·volume·서비스 응답을 보존했다.
+  상세 결과는
   `docs/worklogs/2026-09-06-test-artifact-cleanup-audit.md`다.
 
 - 2026-09-06 Linux CPU OCR worker를 core backend image와 분리하고, 10모델 무결성 검증,
@@ -352,8 +354,10 @@ RAG 구성에 고정하고, 관리자가 PP-StructureV3 pipeline과 하위 OCR �
 
 1. core/OCR Docker image를 분리하고 OCR을 공식 지원 `linux/amd64`로 고정했으며, 안전 토폴로지
    owner API와 `/admin/system/runtime`, Compose drift·이미지·모델 무결성 검증을 구현했다.
-   native x86_64 actual smoke는 다음 게이트다
-   (`docs/worklogs/2026-09-06-linux-ocr-runtime-admin-topology.md`).
+   승인된 pytest 산출물·교체 image·private BuildKit을 exact 삭제하고 Docker VHDX 오프라인
+   압축 뒤 기존 서비스와 volume 보존을 검증했다. native x86_64 actual smoke는 다음 게이트다
+   (`docs/worklogs/2026-09-06-linux-ocr-runtime-admin-topology.md`,
+   `docs/worklogs/2026-09-06-test-artifact-cleanup-audit.md`).
 2. PP-StructureV3의 실제 10개 모델을 정확한 revision·SHA-256으로 고정하고 원자적 프로비저닝,
    불변 프로파일 v2, Windows CPU 한국어 텍스트·표·bbox 실제 추론까지 검증했다
    (`docs/worklogs/2026-09-06-pp-structure-v3-windows-smoke.md`).
@@ -363,25 +367,16 @@ RAG 구성에 고정하고, 관리자가 PP-StructureV3 pipeline과 하위 OCR �
 
 ## 다음 작업
 
-1. 남은 BuildKit `427.8MB`의 exact 자식 chain 제거와 서비스 중단이 필요한 Docker Desktop
-   VHDX 오프라인 압축을 각각 새 조사·승인 범위로 결정
-2. native Linux x86_64에서 고정 AMD64 OCR image·10모델의 text·table·bbox actual smoke와
+1. native Linux x86_64에서 고정 AMD64 OCR image·10모델의 text·table·bbox actual smoke와
    처리 시간을 검증. Linux GPU는 이후 별도 engine·CUDA·NVIDIA hardware 환경에서 검증
-3. 검증된 OCR adapter 앞에 PDF 페이지 rasterizer를 연결해 스캔 PDF OCR을 다음 형식으로 확장
-4. owner가 외부 전송과 비용을 명시 승인하고 안전한 credential·비민감 합성 자료를 준비하면
+2. 검증된 OCR adapter 앞에 PDF 페이지 rasterizer를 연결해 스캔 PDF OCR을 다음 형식으로 확장
+3. owner가 외부 전송과 비용을 명시 승인하고 안전한 credential·비민감 합성 자료를 준비하면
    OpenAI Responses 실제 smoke를 운영 절차대로 수행
-5. 저장 구성 목록의 generation exact join·readiness 조회를 batch/prefetch해 N+1을 줄이는
+4. 저장 구성 목록의 generation exact join·readiness 조회를 batch/prefetch해 N+1을 줄이는
    성능 개선을 별도 측정과 회귀 테스트로 진행. 현재 Task 11 완료 차단 요소는 아니다.
 
 ## 결정이 필요한 항목
 
-- Docker 논리 사용량은 약 `38.04GB` 줄었지만 `docker_data.vhdx`는 자동 축소되지 않았다.
-  실제 C: 용량 회수를 위해 AI Workshop과 다른 Docker 서비스를 중단하고 exact VHDX를
-  오프라인 압축할지 별도 승인이 필요하다.
-- 남은 BuildKit `rbas8nyzf5ef8gwvjqpxny5x0` `427.8MB`를 제거하려면 승인 밖 자식
-  `g98czd2wowjxe2q591c2z2u0s` `36.86kB`부터 제거해야 한다. 자식은 AI Workshop 소유,
-  reclaimable·private·non-shared이고 추가 후손이 없음을 조사했으며 exact 두 ID의 새 승인이
-  필요하다.
 - Windows CPU 기준은 확정됐다. Linux CPU/GPU는 같은 10모델 매니페스트의 package build,
   품질과 처리 시간 평가를 통과하기 전 운영 기본값으로 승격하지 않는다.
 - 개발 전용 Codex 연동은 App Server 후보도 차단됐다. 재개하려면 content 전송 전 stable
@@ -395,9 +390,10 @@ RAG 구성에 고정하고, 관리자가 PP-StructureV3 pipeline과 하위 OCR �
 - 개발 전용 Codex App Server 후보는 stable effective per-thread built-in tool inventory 계약이
   없어 `codex_isolation_not_enforced`로 차단됐다. 이는 다음 활성 제품 작업이 아니라 위 재개
   조건을 충족할 때만 다시 검토할 차단 기록이다.
-- 완료된 pytest 임시 디렉터리 73개의 정확 경로와 상태는
-  `docs/worklogs/2026-09-06-test-artifact-cleanup-audit.md`로 통합했다. 이 중 47개는 Windows
-  ACL로 접근이 거부되므로 관리자 권한 재검증 없이 제거하지 않는다.
+- 완료된 pytest 임시 디렉터리 73개, 교체 image 20개와 승인된 private BuildKit chain은
+  `docs/worklogs/2026-09-06-test-artifact-cleanup-audit.md` 절차로 제거했다. VHDX 오프라인
+  압축은 약 46MiB만 물리 회수됐으며 추가 broad prune이나 volume 삭제는 새 조사·승인 없이는
+  수행하지 않는다.
 - 실제 BM25 기준선 검색과 생성형 V2 애플리케이션 구현은 더 이상 차단되지 않는다. 실제
   외부 생성 답변 smoke는 owner의 명시적 외부 전송·비용 승인과 안전한 credential,
   DB에 등록된 exact Deployment·Generation Profile·구성 승인이 없어 수행하지 않았다.

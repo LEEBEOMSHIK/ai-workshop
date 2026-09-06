@@ -1,8 +1,9 @@
 # 테스트 산출물·Docker 정리 감사
 
 - 기준일: 2026-09-06
+- 완료일: 2026-09-07
 - 프로젝트: `C:\projects\ai-workshop`
-- 상태: 승인 범위 정리 완료, BuildKit 자식 참조 1건과 VHDX 물리 회수 대기
+- 상태: 승인 범위 정리와 VHDX 오프라인 압축 완료
 - 정책: `CACHE_POLICY.md` schema v1, destructive approval required
 
 ## 제거 후보
@@ -151,6 +152,11 @@ image임을 확인했다.
 - `rbas8nyzf5ef8gwvjqpxny5x0`: `427.8MB`, 이전 동일 명령의 regular layer,
   reclaimable·private·non-shared
 
+후속 조사에서 부모 `rbas8nyzf5ef8gwvjqpxny5x0`의 유일한 자식
+`g98czd2wowjxe2q591c2z2u0s`를 확인했다. 자식은 AI Workshop Dockerfile의
+`COPY alembic` 레코드, `36.86kB`, reclaimable·private·non-shared였고 추가 후손은 없었다.
+사용자 승인 후 자식과 부모 순서로 exact ID 삭제했다.
+
 Docker image의 표시 크기 합은 실제 회수량이 아니다. 공유 layer와 BuildKit 참조가 있으므로
 논리 제거량, Docker 저장소 감소량과 Windows VHDX 실제 감소량을 정리 후 각각 측정한다.
 
@@ -165,19 +171,16 @@ Docker image의 표시 크기 합은 실제 회수량이 아니다. 공유 layer
 
 ## 차단 대상
 
-- 47개 접근 거부 디렉터리는 UAC 관리자 권한에서 내부 내용과 reparse 상태를 재검증한 뒤
-  제거했다.
-- BuildKit `rbas8nyzf5ef8gwvjqpxny5x0`은 승인 목록 밖 자식
-  `g98czd2wowjxe2q591c2z2u0s`가 참조해 exact prune으로 제거되지 않았다. 자식은 AI Workshop
-  Dockerfile의 `COPY alembic` 레코드, `36.86kB`, reclaimable·private·non-shared이며 추가 후손은
-  없다. 새 정확 승인 없이는 자식과 부모를 순서대로 제거하지 않는다.
-- Docker Desktop VHDX 압축은 현재 범위가 아니며 서비스 중단·별도 승인이 필요하다.
+- 이번에 조사·승인한 정확한 pytest 디렉터리, Docker image, BuildKit 레코드와 VHDX 압축은
+  모두 처리됐다.
+- 새로 조사하지 않은 BuildKit 레코드, image와 volume은 삭제하지 않는다. 특히 volume의
+  `RECLAIMABLE` 표시는 데이터 불필요성을 증명하지 않으므로 broad prune 대상이 아니다.
 
 ## 공유 리소스
 
-- 정리 후 BuildKit 전체 `38.47GB` 중 shared `5.191GB`와 위 차단 chain 외 레코드는 다른 현재
-  image 또는 프로젝트와의 공유 여부를
-  개별 증명하지 않았으므로 제거하지 않는다.
+- exact 자식·부모 삭제 직후 BuildKit은 `38.04GB`였고 Docker Desktop 재시작 뒤 자체 GC로
+  `26.45GB`가 됐다. 남은 레코드는 다른 현재 image 또는 프로젝트와의 공유 여부를 개별
+  증명하지 않았으므로 제거하지 않는다.
 - 새로 조사·승인되지 않은 BuildKit record는 삭제 대상이 아니다.
 
 ## 정리 결과
@@ -187,13 +190,26 @@ Docker image의 표시 크기 합은 실제 회수량이 아니다. 공유 layer
 - 승인된 pytest 임시 디렉터리 73개를 리터럴 경로로 제거했고 사후 잔여는 0개다.
 - 승인된 교체·테스트 Docker image 20개를 exact image ID로 제거했다.
 - BuildKit `93lb850qbb66uqf5rjkxkn2xl`은 exact ID filter로 `5.204GB`를 회수했다.
-  `rbas8nyzf5ef8gwvjqpxny5x0`은 위 자식 참조 때문에 `427.8MB`가 남았다.
+  후속 승인으로 자식 `g98czd2wowjxe2q591c2z2u0s` `36.86kB`와 부모
+  `rbas8nyzf5ef8gwvjqpxny5x0` `427.8MB`도 exact ID filter로 제거했다. 두 ID가 BuildKit
+  목록에 없음을 재검증했다.
 - Docker image 논리 사용량은 `44.22GB`에서 `11.38GB`로 `32.84GB` 감소했고 Build Cache는
   `43.67GB`에서 `38.47GB`로 `5.20GB` 감소했다.
 - Windows C: 여유 공간은 `150,479,749,120` bytes에서 `150,483,476,480` bytes로
   `3,727,360` bytes 증가했다. 논리 삭제와 달리 Docker Desktop sparse VHDX가 자동 축소되지
   않았기 때문이다.
-- `docker_data.vhdx`는 정리 전후 모두 `73,826,041,856` bytes다. 물리 회수는 모든 서비스를
-  정상 종료한 뒤 별도 승인된 오프라인 VHDX 압축으로만 진행한다.
+- 모든 실행 컨테이너를 정상 종료하고 Docker Desktop을 완전히 중지한 뒤 exact 경로
+  `C:\Users\bumci\AppData\Local\Docker\wsl\disk\docker_data.vhdx`의 reparse point 부재와
+  독점 접근을 확인했다. DiskPart `compact vdisk`는 exit code 0으로 끝났다.
+- 종료 직후 압축 기준 크기 `73,814,507,520` bytes에서 압축 직후
+  `73,766,273,024` bytes로 `48,234,496` bytes(약 46MiB) 감소했다. 최초 정리 전
+  `73,826,041,856` bytes와 비교하면 `59,768,832` bytes 감소다.
+- C: 여유 공간은 최신 압축 직전 `150,096,904,192` bytes, 직후
+  `150,141,706,240` bytes, 서비스 재시작 뒤 `150,174,216,192` bytes였다. 호스트 여유 공간은
+  다른 프로세스 영향으로 변동하므로 VHDX 자체 감소량을 물리 회수 정본으로 사용한다.
+- Docker WSL의 `/dev/sde`는 약 `40.5GiB` 사용 중이고 `fstrim --dry-run`은 `0B`를 반환해
+  미전달 TRIM 블록은 없었다. Windows에 `Optimize-VHD` cmdlet이 없어 Full 모드 재배치는
+  수행하지 않았다. 논리 삭제량 전부가 즉시 VHDX 파일 축소로 이어진다고 기록하지 않는다.
 - 현재 core·embedding CPU·OCR CPU image와 PostgreSQL·Redis·Elasticsearch healthy 상태,
-  PostgreSQL·Redis·Elasticsearch·object·model named volume 보존을 확인했다.
+  PostgreSQL·Redis·Elasticsearch·object·model named volume 보존을 확인했다. 다른 프로젝트의
+  PostgreSQL도 기존 컨테이너와 volume으로 재시작해 연결 수락을 확인했다.

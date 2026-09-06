@@ -26,11 +26,19 @@ class RagProjectionRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "'ready', 'failed', 'partial_ready')",
             name="ck_rag_document_projections_status",
         ),
-        UniqueConstraint("asset_version_id", "indexing_profile_id"),
+        UniqueConstraint(
+            "asset_version_id",
+            "document_processing_profile_id",
+            "indexing_profile_id",
+            name="uq_rag_document_projections_processing_indexing",
+        ),
     )
 
     asset_version_id: Mapped[UUID] = mapped_column(
         ForeignKey("asset_versions.id", ondelete="CASCADE"), nullable=False
+    )
+    document_processing_profile_id: Mapped[UUID] = mapped_column(
+        ForeignKey("rag_profiles.id", ondelete="RESTRICT"), nullable=False
     )
     indexing_profile_id: Mapped[UUID] = mapped_column(
         ForeignKey("rag_profiles.id", ondelete="RESTRICT"), nullable=False
@@ -112,6 +120,9 @@ class RagIndexBuildRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     projection_id: Mapped[UUID] = mapped_column(
         ForeignKey("rag_document_projections.id", ondelete="CASCADE"), nullable=False
+    )
+    document_processing_profile_id: Mapped[UUID] = mapped_column(
+        ForeignKey("rag_profiles.id", ondelete="RESTRICT"), nullable=False
     )
     indexing_profile_id: Mapped[UUID] = mapped_column(
         ForeignKey("rag_profiles.id", ondelete="RESTRICT"), nullable=False

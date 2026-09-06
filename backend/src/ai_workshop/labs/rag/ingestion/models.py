@@ -21,7 +21,12 @@ from ai_workshop.shared.models import Base, TimestampMixin
 class RagIngestionJobRecord(TimestampMixin, Base):
     __tablename__ = "rag_ingestion_jobs"
     __table_args__ = (
-        UniqueConstraint("asset_version_id", "indexing_profile_id"),
+        UniqueConstraint(
+            "asset_version_id",
+            "document_processing_profile_id",
+            "indexing_profile_id",
+            name="uq_rag_ingestion_jobs_processing_indexing",
+        ),
         UniqueConstraint("projection_id"),
     )
 
@@ -33,6 +38,9 @@ class RagIngestionJobRecord(TimestampMixin, Base):
     )
     asset_version_id: Mapped[UUID] = mapped_column(
         ForeignKey("asset_versions.id", ondelete="CASCADE"), nullable=False
+    )
+    document_processing_profile_id: Mapped[UUID] = mapped_column(
+        ForeignKey("rag_profiles.id", ondelete="RESTRICT"), nullable=False
     )
     indexing_profile_id: Mapped[UUID] = mapped_column(
         ForeignKey("rag_profiles.id", ondelete="RESTRICT"), nullable=False
@@ -132,6 +140,9 @@ class RagAssetHandoffFailureRecord(TimestampMixin, Base):
 
     asset_version_id: Mapped[UUID] = mapped_column(
         ForeignKey("asset_versions.id", ondelete="CASCADE"), primary_key=True
+    )
+    document_processing_profile_id: Mapped[UUID] = mapped_column(
+        ForeignKey("rag_profiles.id", ondelete="RESTRICT"), primary_key=True
     )
     indexing_profile_id: Mapped[UUID] = mapped_column(
         ForeignKey("rag_profiles.id", ondelete="RESTRICT"), primary_key=True

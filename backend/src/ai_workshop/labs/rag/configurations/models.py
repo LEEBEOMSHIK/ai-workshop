@@ -117,6 +117,9 @@ class RagConfigurationVersionRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ForeignKey("rag_configurations.id", ondelete="CASCADE"), nullable=False
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False)
+    document_processing_profile_id: Mapped[UUID] = mapped_column(
+        ForeignKey("rag_profiles.id", ondelete="RESTRICT"), nullable=False
+    )
     indexing_profile_id: Mapped[UUID] = mapped_column(
         ForeignKey("rag_profiles.id", ondelete="RESTRICT"), nullable=False
     )

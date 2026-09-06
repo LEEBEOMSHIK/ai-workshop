@@ -1,19 +1,29 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-06
-- 현재 단계: 개발 전용 Codex App Server 격리 feasibility gate 차단 결과 기록
-- 전체 상태: Python SDK 경로의 격리 gate 차단은 유지하며, App Server 후보도 `codex-cli 0.151.0`
-  no-content gate에서 차단됐다. App Server는 승인된 Provider가 아니고 Provider·DB·UI 구현이나
-  RAG 질문 실행은 수행하지 않았다.
+- 현재 단계: DOCX 구조 파싱과 내장 이미지 OCR을 위한 문서 처리 프로파일 설계
+- 전체 상태: Parser와 OCR을 별도 불변 Document Processing Profile로 관리하는 방식이 승인됐다.
+  PP-StructureV3와 PP-OCRv5 한국어 인식 조합, 관리자 전체 구성 표시 및 로컬·운영 공통 실행
+  경계를 설계 정본과 ADR에 기록하고 구현 계획 전 사용자 문서 검토를 기다린다.
 
 ## 현재 작업
 
 ### 목표
 
-Hybrid 검색 결과에 근거 제한 LLM 답변과 인용 검증을 연결한다. 리랭커는 없어도 정상
-동작하는 선택 단계로 두고, 구성한 모델의 실패는 조용히 우회하지 않는다.
+DOCX의 문단·표·내장 이미지를 원래 순서와 원문 위치로 처리한다. Parser와 OCR 구성을 저장된
+RAG 구성에 고정하고, 관리자가 PP-StructureV3 pipeline과 하위 OCR 모델·실행·평가 정보를
+전체 상세 구성으로 확인하게 한다.
 
 ### 진행 상태
+
+- 2026-09-06 사용자는 Parser와 OCR을 독립 `Document Processing Profile`로 관리하는 1번
+  구조를 승인했다. 첫 OCR 조합은 PP-StructureV3 pipeline, `PP-OCRv5_server_det`,
+  `korean_PP-OCRv5_mobile_rec`, `SLANet_plus`이며 Tesseract는 자동 fallback이 아닌 평가
+  기준선으로만 둔다.
+- 승인 설계는
+  `docs/superpowers/specs/2026-09-06-rag-document-processing-ocr-profile-design.md`, 결정은
+  `docs/decisions/0012-document-processing-and-ocr-profiles.md`에 기록했다. 다음 단계는 사용자
+  문서 검토 후 정확한 package/model artifact feasibility gate부터 시작하는 TDD 계획 작성이다.
 
 - 2026-09-06 정확히 시험한 `codex-cli 0.151.0`의 비실험 schema에는 config·requirements,
   MCP·skill·hook·app·plugin 목록과 thread·turn 상태 메서드가 있으나 effective per-thread

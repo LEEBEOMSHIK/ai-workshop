@@ -184,6 +184,19 @@ search-after, 다중 색인 경계에서 결과가 실행 순서에 흔들리지
 
 개별 학습 모델은 Model Definition으로 등록한다. BM25와 RRF는 학습 모델이 아니라 검색 방식이므로 모델 목록에 포함하지 않는다.
 
+### 문서 처리 프로파일
+
+- 형식별 parser adapter와 버전
+- OCR 적용 대상과 결정적 eligibility 정책
+- OCR pipeline과 텍스트 검출·인식·표 구조 모델의 정확한 버전
+- 언어, 전처리, confidence와 provenance schema
+- 모델 artifact revision·SHA-256과 로컬·운영 runtime 호환성
+
+Saved RAG Configuration은 불변 Document Processing Profile Version을 직접 참조한다. Parser
+또는 OCR 구성이 달라지면 새 파싱·재청킹·재색인 수명주기를 시작하며 기존 색인 결과와 섞지
+않는다. 첫 OCR 조합과 관리자 표시·오류·평가 계약은
+`docs/superpowers/specs/2026-09-06-rag-document-processing-ocr-profile-design.md`를 따른다.
+
 ### 색인 프로파일
 
 - 청킹 방식 및 버전
@@ -193,10 +206,10 @@ search-after, 다중 색인 경계에서 결과가 실행 순서에 흔들리지
 
 임베딩 모델 또는 청킹 방식이 달라지면 별도 색인 버전을 만든다. 호환되지 않는 임베딩을 같은 벡터 필드에 혼합하지 않는다.
 
-현재 V1의 파서는 문서 MIME 형식에 따라 ingestion에서 선택하며 실제 파서 이름과 버전은
-문서별 파싱 산출물에 기록한다. Saved RAG Configuration과 Indexing Profile은 파서를 직접
-고정하지 않는다. 파서를 패키지 선택 항목으로 제공할 때는 형식별 adapter 버전을 묶는
-불변 Parser Policy와 재파싱·재청킹·재색인 수명주기를 먼저 도입한다.
+기존 V1의 파서는 문서 MIME 형식에 따라 ingestion에서 선택하며 실제 파서 이름과 버전을
+문서별 파싱 산출물에 기록한다. Document Processing Profile 도입 migration은 기존 동작을
+OCR 없는 시스템 불변 프로파일로 이관하고, 이후 Saved RAG Configuration이 정확한 parser와
+OCR 정책을 고정한다.
 
 ### 검색 프로파일
 
@@ -282,7 +295,8 @@ owner 전용이며 일반 검색 화면은 이를 조회하거나 클라이언�
 
 ### 저장된 RAG 구성
 
-사용자 화면의 프로파일은 개별 모델이 아니라 Indexing, Retrieval, Generation 프로파일의 불변 버전을 조합한 저장된 RAG 구성을 뜻한다.
+사용자 화면의 프로파일은 개별 모델이 아니라 Document Processing, Indexing, Retrieval,
+Generation 프로파일의 불변 버전을 조합한 저장된 RAG 구성을 뜻한다.
 
 - 시스템이 미리 제공하는 저장 구성은 BM25 기준선 하나다.
 - 나머지 조합은 사용자가 이름을 붙여 저장한 뒤 목록에 나타난다.

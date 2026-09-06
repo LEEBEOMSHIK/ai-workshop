@@ -1,11 +1,18 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-06
-- 현재 단계: 고정 PP-StructureV3 Windows CPU 검증 완료와 Linux 호환성 검증 준비
+- 현재 단계: PP-StructureV3 Linux CPU 런타임·관리자 Docker 구성도 설계 검토
 - 전체 상태: 불변 Document Processing Profile, 10개 고정 PP-StructureV3 모델,
   DOCX 내장 이미지 OCR·provenance·검색 원문 뷰어와 관리자 전체 구성이 구현됐다.
 
 ## 현재 작업
+
+- 2026-09-06 Linux CPU OCR worker를 core backend image와 분리하고, 같은 10모델 매니페스트의
+  network-off actual smoke와 owner 전용 Docker 구성도를 추가하는 설계를 작성해 사용자 검토를
+  기다린다. GPU는
+  같은 model artifact를 재사용하지만 별도 engine/CUDA/hardware gate 전에는 미검증으로 둔다.
+  설계 정본은
+  `docs/superpowers/specs/2026-09-06-linux-ocr-runtime-admin-topology-design.md`다.
 
 - 2026-09-06 PP-StructureV3 3.7.0의 실제 10개 모델 의존 그래프, 정확한 revision·파일
   SHA-256 매니페스트와 원자적 프로비저닝을 구현했다. Windows CPU에서 한국어 텍스트·표·bbox

@@ -15,6 +15,9 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
+from ai_workshop.labs.rag.models.document_processing import (
+    LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
+)
 from ai_workshop.shared.models import Base, TimestampMixin
 
 
@@ -40,7 +43,9 @@ class RagIngestionJobRecord(TimestampMixin, Base):
         ForeignKey("asset_versions.id", ondelete="CASCADE"), nullable=False
     )
     document_processing_profile_id: Mapped[UUID] = mapped_column(
-        ForeignKey("rag_profiles.id", ondelete="RESTRICT"), nullable=False
+        ForeignKey("rag_profiles.id", ondelete="RESTRICT"),
+        nullable=False,
+        default=LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
     )
     indexing_profile_id: Mapped[UUID] = mapped_column(
         ForeignKey("rag_profiles.id", ondelete="RESTRICT"), nullable=False
@@ -142,7 +147,9 @@ class RagAssetHandoffFailureRecord(TimestampMixin, Base):
         ForeignKey("asset_versions.id", ondelete="CASCADE"), primary_key=True
     )
     document_processing_profile_id: Mapped[UUID] = mapped_column(
-        ForeignKey("rag_profiles.id", ondelete="RESTRICT"), primary_key=True
+        ForeignKey("rag_profiles.id", ondelete="RESTRICT"),
+        primary_key=True,
+        default=LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
     )
     indexing_profile_id: Mapped[UUID] = mapped_column(
         ForeignKey("rag_profiles.id", ondelete="RESTRICT"), primary_key=True

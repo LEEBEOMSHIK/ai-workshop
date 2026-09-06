@@ -13,6 +13,9 @@ from ai_workshop.labs.rag.generation.domain import (
     ExternalGenerationDisclosureVersion,
     GenerationExecutionSnapshot,
 )
+from ai_workshop.labs.rag.models.document_processing import (
+    LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
+)
 from ai_workshop.labs.rag.models.domain import EvaluationState
 
 
@@ -39,6 +42,7 @@ class ExternalTransferApprovalInput(BaseModel):
 
 class SavedRagConfigurationCreate(BaseModel):
     name: str = Field(min_length=1, max_length=180)
+    document_processing_profile_id: UUID = LEGACY_DOCUMENT_PROCESSING_PROFILE_ID
     indexing_profile_id: UUID
     retrieval_profile_id: UUID
     generation_profile_id: UUID | None = None
@@ -75,6 +79,7 @@ class SavedRagConfigurationResponse(BaseModel):
     owner_id: UUID | None
     name: str
     version: int
+    document_processing_profile_id: UUID
     indexing_profile_id: UUID
     retrieval_profile_id: UUID
     generation_profile_id: UUID | None
@@ -109,6 +114,9 @@ class SavedRagConfigurationResponse(BaseModel):
             owner_id=configuration.owner_id,
             name=configuration.name,
             version=configuration.version,
+            document_processing_profile_id=(
+                configuration.document_processing_profile_id
+            ),
             indexing_profile_id=configuration.indexing_profile_id,
             retrieval_profile_id=configuration.retrieval_profile_id,
             generation_profile_id=configuration.generation_profile_id,

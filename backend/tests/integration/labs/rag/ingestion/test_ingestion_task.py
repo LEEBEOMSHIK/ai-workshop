@@ -695,7 +695,10 @@ async def test_postgres_persists_the_complete_command_and_global_idempotency_key
         assert job.workspace_id == workspace_id
         assert job.type == JobType.RAG_INGESTION
         assert job.status == JobStatus.QUEUED
-        assert job.idempotency_key == (f"{asset_version_id}:{indexing_profile_id}:rag_ingestion")
+        assert job.idempotency_key == (
+            f"{asset_version_id}:{ingestion.document_processing_profile_id}:"
+            f"{indexing_profile_id}:rag_ingestion"
+        )
         assert projection is not None
         assert projection.status == ProjectionStatus.PENDING
     finally:

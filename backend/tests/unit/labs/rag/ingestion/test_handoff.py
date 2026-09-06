@@ -204,9 +204,10 @@ async def test_programming_error_is_signaled_after_remaining_commands_run() -> N
     assert failures.resolved == [commands[1].indexing_profile_id]
     assert exc_info.value.result.failed == 1
     assert exc_info.value.identities == (
-        RagAssetHandoffIdentity(
-            commands[0].asset_version_id,
-            commands[0].indexing_profile_id,
+            RagAssetHandoffIdentity(
+                commands[0].asset_version_id,
+                commands[0].document_processing_profile_id,
+                commands[0].indexing_profile_id,
         ),
     )
     assert isinstance(exc_info.value.__cause__, ValueError)
@@ -288,9 +289,10 @@ async def test_programming_failure_identities_are_bounded() -> None:
         ).run_once()
 
     assert exc_info.value.identities == tuple(
-        RagAssetHandoffIdentity(
-            command.asset_version_id,
-            command.indexing_profile_id,
+            RagAssetHandoffIdentity(
+                command.asset_version_id,
+                command.document_processing_profile_id,
+                command.indexing_profile_id,
         )
         for command in commands[:20]
     )

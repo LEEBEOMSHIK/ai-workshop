@@ -34,6 +34,18 @@ class SqlAlchemyRagIngestionCommandRepository:
         asset_version = source.asset
         workspace_id = source.document.workspace_id
         profile = await self.session.get(ProfileRecord, command.indexing_profile_id)
+        processing_profile = await self.session.get(
+            ProfileRecord, command.document_processing_profile_id
+        )
+        if (
+            processing_profile is None
+            or processing_profile.kind != "document_processing"
+        ):
+            raise RagIngestionError(
+                "document_processing_profile_missing",
+                "The document-processing profile does not exist.",
+                retryable=False,
+            )
         if profile is None or profile.kind != "indexing":
             raise RagIngestionError(
                 "indexing_profile_missing",
@@ -45,6 +57,8 @@ class SqlAlchemyRagIngestionCommandRepository:
             .where(
                 RagAssetHandoffFailureRecord.asset_version_id
                 == command.asset_version_id,
+                RagAssetHandoffFailureRecord.document_processing_profile_id
+                == command.document_processing_profile_id,
                 RagAssetHandoffFailureRecord.indexing_profile_id
                 == command.indexing_profile_id,
             )
@@ -54,6 +68,8 @@ class SqlAlchemyRagIngestionCommandRepository:
         existing = await self.session.scalar(
             select(RagIngestionJobRecord).where(
                 RagIngestionJobRecord.asset_version_id == command.asset_version_id,
+                RagIngestionJobRecord.document_processing_profile_id
+                == command.document_processing_profile_id,
                 RagIngestionJobRecord.indexing_profile_id == command.indexing_profile_id,
             )
         )
@@ -79,6 +95,8 @@ class SqlAlchemyRagIngestionCommandRepository:
         projection_record = await self.session.scalar(
             select(RagProjectionRecord).where(
                 RagProjectionRecord.asset_version_id == command.asset_version_id,
+                RagProjectionRecord.document_processing_profile_id
+                == command.document_processing_profile_id,
                 RagProjectionRecord.indexing_profile_id == command.indexing_profile_id,
             )
         )
@@ -86,6 +104,9 @@ class SqlAlchemyRagIngestionCommandRepository:
             projection = RagProjection.pending(
                 asset_version_id=command.asset_version_id,
                 indexing_profile_id=command.indexing_profile_id,
+                document_processing_profile_id=(
+                    command.document_processing_profile_id
+                ),
             )
             await SqlAlchemyRagDocumentRepository(self.session).add_projection(projection)
         else:
@@ -94,6 +115,9 @@ class SqlAlchemyRagIngestionCommandRepository:
                 asset_version_id=projection_record.asset_version_id,
                 indexing_profile_id=projection_record.indexing_profile_id,
                 status=ProjectionStatus(projection_record.status),
+                document_processing_profile_id=(
+                    projection_record.document_processing_profile_id
+                ),
             )
 
         job = Job.create(
@@ -109,6 +133,9 @@ class SqlAlchemyRagIngestionCommandRepository:
                 job_id=job.id,
                 projection_id=projection.id,
                 asset_version_id=command.asset_version_id,
+                document_processing_profile_id=(
+                    command.document_processing_profile_id
+                ),
                 indexing_profile_id=command.indexing_profile_id,
                 requested_by=command.requested_by,
                 parsed_object_key=None,
@@ -161,18 +188,26 @@ class SqlAlchemyRagAssetHandoffSource:
         commands: list[EnsureIndexedCommand] = []
         configurations = SqlAlchemyRagConfigurationRepository(self.session)
         for asset_version_id in asset_version_ids:
-            for indexing_profile_id, requested_by in await configurations.subscriptions_for_asset(
-                asset_version_id
-            ):
+            for (
+                document_processing_profile_id,
+                indexing_profile_id,
+                requested_by,
+            ) in await configurations.subscriptions_for_asset(asset_version_id):
                 exists = await self.session.scalar(
                     select(RagIngestionJobRecord.job_id).where(
                         RagIngestionJobRecord.asset_version_id == asset_version_id,
+                        RagIngestionJobRecord.document_processing_profile_id
+                        == document_processing_profile_id,
                         RagIngestionJobRecord.indexing_profile_id == indexing_profile_id,
                     )
                 )
                 failure = await self.session.get(
                     RagAssetHandoffFailureRecord,
-                    (asset_version_id, indexing_profile_id),
+                    (
+                        asset_version_id,
+                        document_processing_profile_id,
+                        indexing_profile_id,
+                    ),
                 )
                 if exists is None:
                     should_handoff = (
@@ -197,6 +232,7 @@ class SqlAlchemyRagAssetHandoffSource:
                             asset_version_id,
                             indexing_profile_id,
                             requested_by,
+                            document_processing_profile_id,
                         )
                     )
                     if len(commands) >= limit:
@@ -234,6 +270,8 @@ class SqlAlchemyRagAssetHandoffFailureRepository:
                 select(RagAssetHandoffFailureRecord)
                 .where(
                     RagAssetHandoffFailureRecord.asset_version_id == command.asset_version_id,
+                    RagAssetHandoffFailureRecord.document_processing_profile_id
+                    == command.document_processing_profile_id,
                     RagAssetHandoffFailureRecord.indexing_profile_id == command.indexing_profile_id,
                 )
                 .with_for_update()
@@ -241,6 +279,9 @@ class SqlAlchemyRagAssetHandoffFailureRepository:
             if record is None:
                 record = RagAssetHandoffFailureRecord(
                     asset_version_id=command.asset_version_id,
+                    document_processing_profile_id=(
+                        command.document_processing_profile_id
+                    ),
                     indexing_profile_id=command.indexing_profile_id,
                     requested_by=command.requested_by,
                     status="retrying",
@@ -285,6 +326,8 @@ class SqlAlchemyRagAssetHandoffFailureRepository:
                 select(RagAssetHandoffFailureRecord)
                 .where(
                     RagAssetHandoffFailureRecord.asset_version_id == command.asset_version_id,
+                    RagAssetHandoffFailureRecord.document_processing_profile_id
+                    == command.document_processing_profile_id,
                     RagAssetHandoffFailureRecord.indexing_profile_id == command.indexing_profile_id,
                 )
                 .with_for_update()

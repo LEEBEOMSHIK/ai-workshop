@@ -50,6 +50,7 @@ class _IngestionRows:
     projection: RagProjectionRecord
     asset: AssetVersionRecord
     document: DocumentRecord
+    processing_profile: ProfileRecord
     profile: ProfileRecord
     job: Job
 
@@ -336,7 +337,20 @@ class SqlAlchemyRagIngestionLifecycle:
         if lock:
             profile_statement = profile_statement.with_for_update()
         profile = await session.scalar(profile_statement)
-        if asset is None or document is None or profile is None:
+        processing_profile_statement = select(ProfileRecord).where(
+            ProfileRecord.id == ingestion.document_processing_profile_id
+        )
+        if lock:
+            processing_profile_statement = (
+                processing_profile_statement.with_for_update()
+            )
+        processing_profile = await session.scalar(processing_profile_statement)
+        if (
+            asset is None
+            or document is None
+            or profile is None
+            or processing_profile is None
+        ):
             raise RagIngestionError(
                 "ingestion_dependency_missing",
                 "A durable RAG ingestion dependency is missing.",
@@ -346,13 +360,24 @@ class SqlAlchemyRagIngestionLifecycle:
             job.asset_version_id != ingestion.asset_version_id
             or job.user_id != ingestion.requested_by
             or profile.kind != "indexing"
+            or processing_profile.kind != "document_processing"
+            or projection.document_processing_profile_id
+            != ingestion.document_processing_profile_id
         ):
             raise RagIngestionError(
                 "ingestion_command_mismatch",
                 "The durable RAG ingestion command does not match its job.",
                 retryable=False,
             )
-        return _IngestionRows(ingestion, projection, asset, document, profile, job)
+        return _IngestionRows(
+            ingestion,
+            projection,
+            asset,
+            document,
+            processing_profile,
+            profile,
+            job,
+        )
 
     @staticmethod
     def _require_active_source(rows: _IngestionRows) -> None:
@@ -399,6 +424,9 @@ class SqlAlchemyRagIngestionLifecycle:
             ),
             embedding_artifact=_artifact(
                 rows.ingestion.embedding_object_key, rows.ingestion.embedding_sha256
+            ),
+            document_processing_profile_id=(
+                rows.ingestion.document_processing_profile_id
             ),
         )
 

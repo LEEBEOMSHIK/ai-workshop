@@ -289,6 +289,9 @@ class SqlAlchemyRagConfigurationRepository:
                 id=configuration.version_id,
                 configuration_id=configuration.id,
                 version=configuration.version,
+                document_processing_profile_id=(
+                    configuration.document_processing_profile_id
+                ),
                 indexing_profile_id=configuration.indexing_profile_id,
                 retrieval_profile_id=configuration.retrieval_profile_id,
                 generation_profile_id=configuration.generation_profile_id,
@@ -615,6 +618,7 @@ class SqlAlchemyRagConfigurationRepository:
             owner_id=identity.owner_id,
             name=identity.name,
             version=version.version,
+            document_processing_profile_id=version.document_processing_profile_id,
             indexing_profile_id=version.indexing_profile_id,
             retrieval_profile_id=version.retrieval_profile_id,
             retrieval_indexing_profile_id=retrieval_indexing_id,
@@ -629,11 +633,12 @@ class SqlAlchemyRagConfigurationRepository:
     async def subscriptions_for_asset(
         self,
         asset_version_id: UUID,
-    ) -> tuple[tuple[UUID, UUID], ...]:
+    ) -> tuple[tuple[UUID, UUID, UUID], ...]:
         membership = WorkspaceMembershipRecord
         system_rows = (
             await self.session.execute(
                 select(
+                    RagConfigurationVersionRecord.document_processing_profile_id,
                     RagConfigurationVersionRecord.indexing_profile_id,
                     WorkspaceRecord.created_by,
                 )
@@ -675,6 +680,7 @@ class SqlAlchemyRagConfigurationRepository:
         user_rows = (
             await self.session.execute(
                 select(
+                    RagConfigurationVersionRecord.document_processing_profile_id,
                     RagConfigurationVersionRecord.indexing_profile_id,
                     RagConfigurationRecord.owner_id,
                 )
@@ -728,13 +734,16 @@ class SqlAlchemyRagConfigurationRepository:
                 )
             )
         ).all()
-        by_profile: dict[UUID, UUID] = {}
-        for profile_id, owner_id in system_rows:
-            by_profile.setdefault(profile_id, owner_id)
-        for profile_id, owner_id in user_rows:
+        by_profile: dict[tuple[UUID, UUID], UUID] = {}
+        for processing_id, profile_id, owner_id in system_rows:
+            by_profile.setdefault((processing_id, profile_id), owner_id)
+        for processing_id, profile_id, owner_id in user_rows:
             if owner_id is not None:
-                by_profile.setdefault(profile_id, owner_id)
-        return tuple(by_profile.items())
+                by_profile.setdefault((processing_id, profile_id), owner_id)
+        return tuple(
+            (processing_id, profile_id, owner_id)
+            for (processing_id, profile_id), owner_id in by_profile.items()
+        )
 
 
 class SqlAlchemySearchConfigurationResolver:

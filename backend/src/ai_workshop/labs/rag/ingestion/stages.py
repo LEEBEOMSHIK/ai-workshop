@@ -782,6 +782,9 @@ class ProductionIndexingStage:
                 build = RagIndexBuildRecord(
                     id=uuid4(),
                     projection_id=projection_id,
+                    document_processing_profile_id=(
+                        ingestion.document_processing_profile_id
+                    ),
                     indexing_profile_id=indexing_profile_id,
                     index_name=None,
                     expected_document_count=None,
@@ -792,7 +795,11 @@ class ProductionIndexingStage:
                 )
                 session.add(build)
                 await session.flush()
-            elif build.indexing_profile_id != indexing_profile_id:
+            elif (
+                build.indexing_profile_id != indexing_profile_id
+                or build.document_processing_profile_id
+                != ingestion.document_processing_profile_id
+            ):
                 raise RagIngestionError(
                     "index_build_conflict",
                     "An index build cannot change its immutable profile.",
@@ -850,6 +857,8 @@ class ProductionReadinessVerifier:
                 if (
                     projection is None
                     or projection.indexing_profile_id != indexing_profile_id
+                    or projection.document_processing_profile_id
+                    != ingestion.document_processing_profile_id
                     or job is None
                 ):
                     raise RagIngestionError(
@@ -896,6 +905,8 @@ class ProductionReadinessVerifier:
                     build is None
                     or build.projection_id != projection_id
                     or build.indexing_profile_id != indexing_profile_id
+                    or build.document_processing_profile_id
+                    != ingestion.document_processing_profile_id
                     or build.status not in {"prepared", "ready"}
                     or build.index_name is None
                     or build.expected_document_count is None
@@ -946,8 +957,12 @@ class ProductionReadinessVerifier:
                             DocumentRecord.id == AssetVersionRecord.document_id,
                         )
                         .where(
+                            RagIndexBuildRecord.document_processing_profile_id
+                            == ingestion.document_processing_profile_id,
                             RagIndexBuildRecord.indexing_profile_id
                             == indexing_profile_id,
+                            RagProjectionRecord.document_processing_profile_id
+                            == ingestion.document_processing_profile_id,
                             RagProjectionRecord.indexing_profile_id
                             == indexing_profile_id,
                             RagIndexBuildRecord.status == "ready",
@@ -970,6 +985,8 @@ class ProductionReadinessVerifier:
                     )
                     if (
                         candidate.indexing_profile_id != indexing_profile_id
+                        or candidate.document_processing_profile_id
+                        != ingestion.document_processing_profile_id
                         or candidate.status not in {"prepared", "ready"}
                         or candidate.index_name != expected_name
                         or candidate.vector_dimension != build.vector_dimension
@@ -1019,6 +1036,8 @@ class ProductionReadinessVerifier:
                 await session.execute(
                     update(RagIndexBuildRecord)
                     .where(
+                        RagIndexBuildRecord.document_processing_profile_id
+                        == ingestion.document_processing_profile_id,
                         RagIndexBuildRecord.indexing_profile_id == indexing_profile_id,
                     )
                     .values(is_active=RagIndexBuildRecord.id.in_(target_build_ids))

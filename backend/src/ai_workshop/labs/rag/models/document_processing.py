@@ -11,6 +11,10 @@ from ai_workshop.labs.rag.models.domain import (
     ProfileKind,
 )
 
+LEGACY_DOCUMENT_PROCESSING_PROFILE_ID = UUID(
+    "00000000-0000-0000-0000-000000000207"
+)
+
 
 class DocumentProcessingResolutionError(ValueError):
     pass

@@ -101,7 +101,8 @@ class RagIngestionService:
 
     async def ensure_indexed(self, command: EnsureIndexedCommand) -> UUID:
         idempotency_key = (
-            f"{command.asset_version_id}:{command.indexing_profile_id}:rag_ingestion"
+            f"{command.asset_version_id}:{command.document_processing_profile_id}:"
+            f"{command.indexing_profile_id}:rag_ingestion"
         )
         return await self.repository.ensure(command, idempotency_key=idempotency_key)
 

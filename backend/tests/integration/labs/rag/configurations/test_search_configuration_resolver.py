@@ -284,7 +284,11 @@ async def test_postgres_versions_visibility_jobs_subscriptions_and_exact_resolve
 
             subscriptions = await repository.subscriptions_for_asset(asset_version_id)
             assert subscriptions == (
-                (E5_INDEXING_PROFILE_ID, owner_id),
+                (
+                    first.configuration.document_processing_profile_id,
+                    E5_INDEXING_PROFILE_ID,
+                    owner_id,
+                ),
             )
 
             active_version = await session.get(AssetVersionRecord, asset_version_id)
@@ -309,7 +313,11 @@ async def test_postgres_versions_visibility_jobs_subscriptions_and_exact_resolve
 
             assert await repository.subscriptions_for_asset(asset_version_id) == ()
             assert await repository.subscriptions_for_asset(newer_active_version_id) == (
-                (E5_INDEXING_PROFILE_ID, owner_id),
+                (
+                    first.configuration.document_processing_profile_id,
+                    E5_INDEXING_PROFILE_ID,
+                    owner_id,
+                ),
             )
             with pytest.raises(RagIngestionError) as inactive_source:
                 await RagIngestionService(
@@ -358,7 +366,11 @@ async def test_postgres_versions_visibility_jobs_subscriptions_and_exact_resolve
                 async def resolve(self, command) -> None:
                     record = await session.get(
                         RagAssetHandoffFailureRecord,
-                        (command.asset_version_id, command.indexing_profile_id),
+                        (
+                            command.asset_version_id,
+                            command.document_processing_profile_id,
+                            command.indexing_profile_id,
+                        ),
                     )
                     assert record is not None
                     record.status = "resolved"

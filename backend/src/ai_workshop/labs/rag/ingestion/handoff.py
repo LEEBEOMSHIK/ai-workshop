@@ -24,6 +24,7 @@ class RagAssetHandoffResult:
 @dataclass(frozen=True, slots=True)
 class RagAssetHandoffIdentity:
     asset_version_id: UUID
+    document_processing_profile_id: UUID
     indexing_profile_id: UUID
 
 
@@ -112,6 +113,7 @@ def _classify_failure(exc: Exception) -> _ClassifiedFailure | None:
 def _identity(command: EnsureIndexedCommand) -> RagAssetHandoffIdentity:
     return RagAssetHandoffIdentity(
         command.asset_version_id,
+        command.document_processing_profile_id,
         command.indexing_profile_id,
     )
 

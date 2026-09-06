@@ -25,6 +25,9 @@ from ai_workshop.labs.rag.generation.domain import (
 )
 from ai_workshop.labs.rag.generation.profile import resolve_generation_profile
 from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand
+from ai_workshop.labs.rag.models.document_processing import (
+    LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
+)
 from ai_workshop.labs.rag.models.domain import (
     EvaluationState,
     ModelDefinition,
@@ -178,6 +181,7 @@ class RagConfigurationService:
         conflict_mode: str,
         workspace_ids: tuple[UUID, ...],
         answer_mode: str = "extractive",
+        document_processing_profile_id: UUID = LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
         external_transfer_approval: ExternalTransferApprovalConfirmation | None = None,
     ) -> ConfigurationSaveResult:
         clean_name = name.strip()
@@ -218,8 +222,16 @@ class RagConfigurationService:
                 422,
             )
 
+        document_processing = await self.repository.find_profile(
+            document_processing_profile_id
+        )
         indexing = await self.repository.find_profile(indexing_profile_id)
         retrieval = await self.repository.find_profile(retrieval_profile_id)
+        if (
+            document_processing is None
+            or document_processing.kind is not ProfileKind.DOCUMENT_PROCESSING
+        ):
+            raise AppError("not_found", "The requested resource was not found.", 404)
         if indexing is None or indexing.kind is not ProfileKind.INDEXING:
             raise AppError("not_found", "The requested resource was not found.", 404)
         if retrieval is None or retrieval.kind is not ProfileKind.RETRIEVAL:
@@ -328,6 +340,7 @@ class RagConfigurationService:
                 owner_id=owner_id,
                 name=clean_name,
                 version=version,
+                document_processing_profile_id=document_processing.id,
                 indexing_profile_id=indexing.id,
                 retrieval_profile_id=retrieval.id,
                 retrieval_indexing_profile_id=retrieval_indexing_profile_id,
@@ -384,6 +397,7 @@ class RagConfigurationService:
                         asset_version_id=asset_version_id,
                         indexing_profile_id=indexing.id,
                         requested_by=owner_id,
+                        document_processing_profile_id=document_processing.id,
                     )
                 )
             )

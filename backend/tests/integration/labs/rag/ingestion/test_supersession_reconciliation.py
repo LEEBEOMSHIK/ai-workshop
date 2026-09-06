@@ -29,6 +29,9 @@ from ai_workshop.labs.rag.ingestion.repository import (
 from ai_workshop.labs.rag.ingestion.service import RagIngestionService
 from ai_workshop.labs.rag.ingestion.stages import ProductionReadinessVerifier
 from ai_workshop.labs.rag.ingestion.tasks import SqlAlchemyRagIngestionLifecycle
+from ai_workshop.labs.rag.models.document_processing import (
+    LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
+)
 from ai_workshop.labs.rag.models.models import ProfileRecord
 from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecord
 from ai_workshop.platform.assets.tasks import create_asset_verification_workflow
@@ -354,7 +357,11 @@ async def test_handoff_failure_ledger_bounds_retry_and_resolves_exact_identity()
         async with sessions() as session:
             first = await session.get(
                 RagAssetHandoffFailureRecord,
-                (fixture.old_asset_id, fixture.profile_id),
+                (
+                    fixture.old_asset_id,
+                    LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
+                    fixture.profile_id,
+                ),
             )
         assert first is not None
         assert first.status == "retrying"
@@ -379,7 +386,11 @@ async def test_handoff_failure_ledger_bounds_retry_and_resolves_exact_identity()
         async with sessions() as session:
             exhausted = await session.get(
                 RagAssetHandoffFailureRecord,
-                (fixture.old_asset_id, fixture.profile_id),
+                (
+                    fixture.old_asset_id,
+                    LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
+                    fixture.profile_id,
+                ),
             )
         assert exhausted is not None
         assert exhausted.status == "quarantined"
@@ -392,7 +403,11 @@ async def test_handoff_failure_ledger_bounds_retry_and_resolves_exact_identity()
         async with sessions() as session:
             resolved = await session.get(
                 RagAssetHandoffFailureRecord,
-                (fixture.old_asset_id, fixture.profile_id),
+                (
+                    fixture.old_asset_id,
+                    LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
+                    fixture.profile_id,
+                ),
             )
         assert resolved is not None
         assert resolved.status == "resolved"
@@ -409,7 +424,11 @@ async def test_handoff_failure_ledger_bounds_retry_and_resolves_exact_identity()
         async with sessions() as session:
             obsolete = await session.get(
                 RagAssetHandoffFailureRecord,
-                (fixture.old_asset_id, fixture.profile_id),
+                (
+                    fixture.old_asset_id,
+                    LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
+                    fixture.profile_id,
+                ),
             )
         assert obsolete is not None
         assert obsolete.status == "cancelled"
@@ -459,7 +478,11 @@ async def test_cancelled_handoff_absorbs_late_locked_failure_writers() -> None:
         async with sessions() as session:
             record = await session.get(
                 RagAssetHandoffFailureRecord,
-                (fixture.old_asset_id, fixture.profile_id),
+                (
+                    fixture.old_asset_id,
+                    LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
+                    fixture.profile_id,
+                ),
             )
         assert record is not None
         return (
@@ -574,7 +597,11 @@ async def test_direct_ensure_resolves_quarantine_for_new_and_existing_job_once()
         async with sessions() as session:
             failure = await session.get(
                 RagAssetHandoffFailureRecord,
-                (fixture.old_asset_id, fixture.profile_id),
+                (
+                    fixture.old_asset_id,
+                    LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
+                    fixture.profile_id,
+                ),
             )
             job_count = await session.scalar(
                 select(func.count())
@@ -641,7 +668,11 @@ async def test_existing_job_success_resolves_later_exact_quarantine_without_dupl
         async with sessions() as session:
             failure = await session.get(
                 RagAssetHandoffFailureRecord,
-                (fixture.old_asset_id, fixture.profile_id),
+                (
+                    fixture.old_asset_id,
+                    LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
+                    fixture.profile_id,
+                ),
             )
             job_count = await session.scalar(
                 select(func.count())
@@ -697,7 +728,11 @@ async def test_direct_ensure_does_not_reverse_an_obsolete_cancelled_ledger() -> 
         async with sessions() as session:
             failure = await session.get(
                 RagAssetHandoffFailureRecord,
-                (fixture.old_asset_id, fixture.profile_id),
+                (
+                    fixture.old_asset_id,
+                    LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
+                    fixture.profile_id,
+                ),
             )
         assert failure is not None
         assert failure.status == "cancelled"
@@ -761,7 +796,11 @@ async def test_failed_new_job_commit_does_not_falsely_resolve_quarantine() -> No
         async with sessions() as session:
             failure = await session.get(
                 RagAssetHandoffFailureRecord,
-                (fixture.old_asset_id, fixture.profile_id),
+                (
+                    fixture.old_asset_id,
+                    LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
+                    fixture.profile_id,
+                ),
             )
             job_count = await session.scalar(
                 select(func.count())

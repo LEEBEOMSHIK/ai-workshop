@@ -16,6 +16,9 @@ from ai_workshop.labs.rag.documents.models import (
     RetrievalChunkRecord,
     StructuralElementRecord,
 )
+from ai_workshop.labs.rag.models.document_processing import (
+    LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
+)
 
 
 class RagDocumentRepository(Protocol):
@@ -26,6 +29,7 @@ class RagDocumentRepository(Protocol):
         *,
         asset_version_id: UUID,
         indexing_profile_id: UUID,
+        document_processing_profile_id: UUID = LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
     ) -> RagProjection | None: ...
 
     async def save_parsed_document(
@@ -53,6 +57,7 @@ def _projection_to_domain(record: RagProjectionRecord) -> RagProjection:
         asset_version_id=record.asset_version_id,
         indexing_profile_id=record.indexing_profile_id,
         status=ProjectionStatus(record.status),
+        document_processing_profile_id=record.document_processing_profile_id,
     )
 
 
@@ -67,6 +72,9 @@ class SqlAlchemyRagDocumentRepository:
             RagProjectionRecord(
                 id=projection.id,
                 asset_version_id=projection.asset_version_id,
+                document_processing_profile_id=(
+                    projection.document_processing_profile_id
+                ),
                 indexing_profile_id=projection.indexing_profile_id,
                 status=projection.status,
             )
@@ -79,10 +87,13 @@ class SqlAlchemyRagDocumentRepository:
         *,
         asset_version_id: UUID,
         indexing_profile_id: UUID,
+        document_processing_profile_id: UUID = LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
     ) -> RagProjection | None:
         result = await self.session.execute(
             select(RagProjectionRecord).where(
                 RagProjectionRecord.asset_version_id == asset_version_id,
+                RagProjectionRecord.document_processing_profile_id
+                == document_processing_profile_id,
                 RagProjectionRecord.indexing_profile_id == indexing_profile_id,
             )
         )

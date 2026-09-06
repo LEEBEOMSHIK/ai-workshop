@@ -12,6 +12,9 @@ from ai_workshop.labs.rag.generation.domain import (
     EXTERNAL_GENERATION_DISCLOSURE_VERSION,
 )
 from ai_workshop.labs.rag.highlighting.domain import AnswerPolicy
+from ai_workshop.labs.rag.models.document_processing import (
+    LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
+)
 from ai_workshop.labs.rag.models.domain import (
     EvaluationState,
     ModelKind,
@@ -150,6 +153,7 @@ class SavedRagConfiguration:
     evaluation_state: EvaluationState
     is_system: bool
     is_default: bool
+    document_processing_profile_id: UUID = LEGACY_DOCUMENT_PROCESSING_PROFILE_ID
 
     @classmethod
     def create(
@@ -169,6 +173,7 @@ class SavedRagConfiguration:
         evaluation_state: EvaluationState = EvaluationState.PENDING,
         is_system: bool = False,
         is_default: bool = False,
+        document_processing_profile_id: UUID = LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
     ) -> "SavedRagConfiguration":
         clean_name = name.strip()
         if not clean_name or version < 1:
@@ -233,6 +238,7 @@ class SavedRagConfiguration:
             evaluation_state=evaluation_state,
             is_system=is_system,
             is_default=is_default,
+            document_processing_profile_id=document_processing_profile_id,
         )
 
     @property

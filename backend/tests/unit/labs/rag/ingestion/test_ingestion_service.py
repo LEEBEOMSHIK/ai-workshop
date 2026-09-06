@@ -52,7 +52,7 @@ class MemoryCommandRepository(IngestionCommandRepository):
 
 
 @pytest.mark.asyncio
-async def test_ensure_indexed_is_idempotent_for_asset_and_indexing_profile() -> None:
+async def test_ensure_indexed_is_idempotent_for_processing_and_indexing_profiles() -> None:
     repository = MemoryCommandRepository()
     service = RagIngestionService(repository)
     command = EnsureIndexedCommand(uuid4(), uuid4(), uuid4())
@@ -61,11 +61,16 @@ async def test_ensure_indexed_is_idempotent_for_asset_and_indexing_profile() -> 
     duplicate_from_another_requester = await service.ensure_indexed(
         replace(command, requested_by=uuid4())
     )
+    different_processing = await service.ensure_indexed(
+        replace(command, document_processing_profile_id=uuid4())
+    )
 
     assert duplicate_from_another_requester == first
-    assert list(repository.jobs) == [
-        f"{command.asset_version_id}:{command.indexing_profile_id}:rag_ingestion"
-    ]
+    assert different_processing != first
+    assert list(repository.jobs)[0] == (
+        f"{command.asset_version_id}:{command.document_processing_profile_id}:"
+        f"{command.indexing_profile_id}:rag_ingestion"
+    )
     assert repository.commands[first] == command
 
 

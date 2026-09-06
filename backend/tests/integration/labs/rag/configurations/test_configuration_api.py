@@ -21,6 +21,9 @@ from ai_workshop.labs.rag.configurations.service import (
     ConfigurationReadiness,
     ConfigurationSaveResult,
 )
+from ai_workshop.labs.rag.models.document_processing import (
+    LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
+)
 from ai_workshop.labs.rag.models.domain import EvaluationState
 from ai_workshop.labs.rag.policies.repository import SqlAlchemyDataPolicyRepository
 from ai_workshop.main import create_app
@@ -189,7 +192,7 @@ def isolated_configuration_database(
         get_settings.cache_clear()
         command.upgrade(
             Config(str(BACKEND_ROOT / "alembic.ini")),
-            "0016_rag_llm_deployments",
+            "0017_rag_document_processing_ocr",
         )
         yield isolated_url
     finally:
@@ -408,14 +411,16 @@ def seed_external_configuration_contract(isolated_url: str) -> dict[str, UUID]:
         connection.execute(
             """
             INSERT INTO rag_configuration_versions (
-                id, configuration_id, version, indexing_profile_id,
+                id, configuration_id, version, document_processing_profile_id,
+                indexing_profile_id,
                 retrieval_profile_id, generation_profile_id,
                 answer_policy_version_id, evaluation_state, is_default
-            ) VALUES (%s, %s, 1, %s, %s, %s, %s, 'draft', false)
+            ) VALUES (%s, %s, 1, %s, %s, %s, %s, %s, 'draft', false)
             """,
             (
                 ids["legacy_configuration_version"],
                 ids["legacy_configuration"],
+                LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
                 ids["indexing_profile"],
                 ids["retrieval_profile"],
                 ids["legacy_generation_profile"],
@@ -454,6 +459,7 @@ def test_list_exposes_only_the_supplied_system_baseline_and_actor_configurations
 
 def test_create_accepts_extractive_policy_and_leaves_dispatch_to_the_outbox() -> None:
     workspace_id = uuid4()
+    document_processing_profile_id = uuid4()
     indexing_profile_id = uuid4()
     retrieval_profile_id = uuid4()
     saved = _configuration()
@@ -464,6 +470,9 @@ def test_create_accepts_extractive_policy_and_leaves_dispatch_to_the_outbox() ->
             "/api/v1/rag/configurations",
             json={
                 "name": "내 구성",
+                "document_processing_profile_id": str(
+                    document_processing_profile_id
+                ),
                 "indexing_profile_id": str(indexing_profile_id),
                 "retrieval_profile_id": str(retrieval_profile_id),
                 "generation_profile_id": None,
@@ -482,6 +491,7 @@ def test_create_accepts_extractive_policy_and_leaves_dispatch_to_the_outbox() ->
     assert service.created == {
         "owner_id": ACTOR_ID,
         "name": "내 구성",
+        "document_processing_profile_id": document_processing_profile_id,
         "indexing_profile_id": indexing_profile_id,
         "retrieval_profile_id": retrieval_profile_id,
         "generation_profile_id": None,

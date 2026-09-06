@@ -2,6 +2,10 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 from uuid import UUID, uuid4
 
+from ai_workshop.labs.rag.models.document_processing import (
+    LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
+)
+
 
 class ProjectionStatus(StrEnum):
     PENDING = "pending"
@@ -113,10 +117,23 @@ class RagProjection:
     asset_version_id: UUID
     indexing_profile_id: UUID
     status: ProjectionStatus
+    document_processing_profile_id: UUID = LEGACY_DOCUMENT_PROCESSING_PROFILE_ID
 
     @classmethod
-    def pending(cls, *, asset_version_id: UUID, indexing_profile_id: UUID) -> "RagProjection":
-        return cls(uuid4(), asset_version_id, indexing_profile_id, ProjectionStatus.PENDING)
+    def pending(
+        cls,
+        *,
+        asset_version_id: UUID,
+        indexing_profile_id: UUID,
+        document_processing_profile_id: UUID = LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
+    ) -> "RagProjection":
+        return cls(
+            uuid4(),
+            asset_version_id,
+            indexing_profile_id,
+            ProjectionStatus.PENDING,
+            document_processing_profile_id,
+        )
 
     def transition(self, status: ProjectionStatus) -> "RagProjection":
         allowed = {

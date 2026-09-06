@@ -73,6 +73,7 @@ async def create_configuration(
     result = await service.create(
         owner_id=user.id,
         name=request.name,
+        document_processing_profile_id=request.document_processing_profile_id,
         indexing_profile_id=request.indexing_profile_id,
         retrieval_profile_id=request.retrieval_profile_id,
         generation_profile_id=request.generation_profile_id,

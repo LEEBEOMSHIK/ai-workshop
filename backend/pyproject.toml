@@ -25,6 +25,7 @@ dependencies = [
 
 [project.scripts]
 ai-workshop = "ai_workshop.cli:main"
+ai-workshop-codex-gate = "ai_workshop.labs.rag.generation.codex_app_server_gate_cli:entrypoint"
 
 [dependency-groups]
 dev = [

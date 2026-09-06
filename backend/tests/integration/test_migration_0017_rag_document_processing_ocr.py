@@ -56,7 +56,7 @@ def test_upgrade_seeds_legacy_profile_and_backfills_processing_identity(
             get_settings.cache_clear()
             config = Config(str(BACKEND_ROOT / "alembic.ini"))
             command.upgrade(config, REVISION_0017)
-            command.current(config, check_heads=True)
+            command.current(config)
 
             with psycopg.connect(_sync_url(isolated_url)) as connection:
                 profile = connection.execute(
@@ -125,6 +125,8 @@ def test_upgrade_seeds_legacy_profile_and_backfills_processing_identity(
 
             command.downgrade(config, REVISION_0016)
             command.upgrade(config, REVISION_0017)
+            command.upgrade(config, "head")
+            command.current(config, check_heads=True)
     finally:
         get_settings.cache_clear()
         _drop_database(base_settings.database_url, database)

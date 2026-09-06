@@ -39,6 +39,7 @@ EXPECTED_PATHS = {
     "/api/v1/rag/profiles/{kind}/yaml",
     "/api/v1/rag/profiles/{profile_id}/default",
     "/api/v1/rag/search",
+    "/api/v1/rag/sources/{asset_version_id}/docx/images/{element_id}",
     "/api/v1/rag/sources/{asset_version_id}/normalized-text",
     "/api/v1/rag/sources/{asset_version_id}/pdf/pages/{page_number}",
     "/api/v1/workspaces",
@@ -142,6 +143,7 @@ def test_rag_search_contract_uses_authenticated_actor_and_distinct_highlights() 
     ]
 
     for path in (
+        "/api/v1/rag/sources/{asset_version_id}/docx/images/{element_id}",
         "/api/v1/rag/sources/{asset_version_id}/normalized-text",
         "/api/v1/rag/sources/{asset_version_id}/pdf/pages/{page_number}",
     ):
@@ -157,6 +159,15 @@ def test_rag_search_contract_uses_authenticated_actor_and_distinct_highlights() 
         "format": "binary",
         "type": "string",
     }
+
+    docx_success = schema["paths"][
+        "/api/v1/rag/sources/{asset_version_id}/docx/images/{element_id}"
+    ]["get"]["responses"]["200"]
+    assert set(docx_success["content"]) == {"image/jpeg", "image/png"}
+    assert all(
+        media["schema"] == {"format": "binary", "type": "string"}
+        for media in docx_success["content"].values()
+    )
 
     normalized_failure = schema["paths"][
         "/api/v1/rag/sources/{asset_version_id}/normalized-text"

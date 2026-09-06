@@ -6,7 +6,9 @@ from ai_workshop.labs.rag.documents.domain import (
     EvidenceUnit,
     ProvenanceError,
     RetrievalChunk,
+    SourceKind,
     SourceLocation,
+    TableCellLocation,
 )
 
 
@@ -30,6 +32,33 @@ def test_source_location_retains_pdf_coordinates_and_character_offsets() -> None
     assert location.char_start == 14
     assert location.char_end == 37
     assert location.bbox == (10.5, 20.25, 210.75, 42.0)
+
+
+def test_docx_image_location_requires_normalized_coordinates_and_identity() -> None:
+    element_id = UUID("11111111-1111-1111-1111-111111111112")
+    location = SourceLocation.docx_image(
+        element_id=element_id,
+        char_start=0,
+        char_end=7,
+        source_part="word/media/image1.png",
+        image_sha256="a" * 64,
+        bbox=(0.1, 0.2, 0.7, 0.4),
+        table_cell=TableCellLocation(row=1, column=2, row_span=1, column_span=2),
+    )
+
+    assert location.source_kind is SourceKind.DOCX_IMAGE
+    assert location.source_part == "word/media/image1.png"
+    assert location.table_cell == TableCellLocation(1, 2, 1, 2)
+
+    with pytest.raises(ProvenanceError, match="normalized"):
+        SourceLocation.docx_image(
+            element_id=element_id,
+            char_start=0,
+            char_end=7,
+            source_part="word/media/image1.png",
+            image_sha256="b" * 64,
+            bbox=(0.1, 0.2, 1.7, 0.4),
+        )
 
 
 def test_retrieval_chunk_requires_evidence_to_declare_its_projection() -> None:

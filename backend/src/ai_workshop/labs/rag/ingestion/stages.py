@@ -65,6 +65,9 @@ from ai_workshop.labs.rag.ingestion.serialization import (
     deserialize_embedding_result,
     serialize_embedding_result,
 )
+from ai_workshop.labs.rag.models.document_processing import (
+    index_namespace_document_processing_profile_id,
+)
 from ai_workshop.labs.rag.models.models import (
     ModelDefinitionRecord,
     ProfileModelBindingRecord,
@@ -259,9 +262,7 @@ class ProductionChunkingStage:
             document,
             projection_id=projection_id,
             config=config,
-            embedding=self.runtime_provider.get(
-                resolved.config, self.settings.model_cache_root
-            ),
+            embedding=self.runtime_provider.get(resolved.config, self.settings.model_cache_root),
         )
 
 
@@ -298,9 +299,7 @@ async def _lock_active_stage_rows(
         )
     job = await SqlAlchemyJobRepository(session).find_by_id_for_update(ingestion.job_id)
     projection = await session.scalar(
-        select(RagProjectionRecord)
-        .where(RagProjectionRecord.id == projection_id)
-        .with_for_update()
+        select(RagProjectionRecord).where(RagProjectionRecord.id == projection_id).with_for_update()
     )
     if job is None or projection is None:
         raise RagIngestionError(
@@ -376,9 +375,7 @@ async def _resolve_embedding(
             profile_config=cast(dict[str, object], embedding_profile),
         )
     except EmbeddingValidationError as exc:
-        raise RagIngestionError(
-            "embedding_model_invalid", str(exc), retryable=False
-        ) from exc
+        raise RagIngestionError("embedding_model_invalid", str(exc), retryable=False) from exc
     return _ResolvedEmbedding(
         config,
         EmbeddingDescriptor(
@@ -396,9 +393,7 @@ async def _resolve_embedding(
     )
 
 
-async def _read_artifact(
-    store: LocalObjectStore, reference: ArtifactReference
-) -> bytes:
+async def _read_artifact(store: LocalObjectStore, reference: ArtifactReference) -> bytes:
     try:
         content = b"".join([part async for part in store.open(reference.key)])
     except OSError as exc:
@@ -445,9 +440,7 @@ async def _publish_embedding(
         ) from exc
 
 
-def _default_embedding_factory(
-    config: EmbeddingModelConfig, cache_folder: Path
-) -> EmbeddingPort:
+def _default_embedding_factory(config: EmbeddingModelConfig, cache_folder: Path) -> EmbeddingPort:
     return SentenceTransformerEmbedding(
         config,
         cache_folder=cache_folder,
@@ -466,9 +459,7 @@ class ProductionEmbeddingStage:
     ) -> None:
         self.settings = settings
         self.object_store = object_store
-        self.runtime_provider = runtime_provider or EmbeddingRuntimeProvider(
-            embedding_factory
-        )
+        self.runtime_provider = runtime_provider or EmbeddingRuntimeProvider(embedding_factory)
 
     async def embed(self, *, projection_id: UUID, indexing_profile_id: UUID) -> int:
         engine = create_engine(self.settings)
@@ -518,9 +509,7 @@ class ProductionEmbeddingStage:
                     retryable=False,
                 ) from exc
             persisted = tuple((row.id, row.ordinal, row.text) for row in rows)
-            authoritative = tuple(
-                (chunk.id, chunk.ordinal, chunk.text) for chunk in chunks.chunks
-            )
+            authoritative = tuple((chunk.id, chunk.ordinal, chunk.text) for chunk in chunks.chunks)
             if persisted != authoritative:
                 raise RagIngestionError(
                     "chunk_artifact_mismatch",
@@ -556,9 +545,7 @@ class ProductionEmbeddingStage:
                 expected_descriptor=resolved.descriptor,
             )
             async with sessions.begin() as session:
-                ingestion, _projection = await _lock_active_stage_rows(
-                    session, projection_id
-                )
+                ingestion, _projection = await _lock_active_stage_rows(session, projection_id)
                 current = await _resolve_embedding(
                     session,
                     projection_id=projection_id,
@@ -680,12 +667,10 @@ class ProductionIndexingStage:
                     retryable=False,
                 )
             persisted = tuple(
-                (row.id, row.ordinal, row.text, tuple(row.section_path))
-                for row in persisted_chunks
+                (row.id, row.ordinal, row.text, tuple(row.section_path)) for row in persisted_chunks
             )
             authoritative = tuple(
-                (chunk.id, chunk.ordinal, chunk.text, chunk.section_path)
-                for chunk in chunks.chunks
+                (chunk.id, chunk.ordinal, chunk.text, chunk.section_path) for chunk in chunks.chunks
             )
             if persisted != authoritative:
                 raise RagIngestionError(
@@ -723,11 +708,14 @@ class ProductionIndexingStage:
                     projection_id=projection_id,
                     expected_chunk_count=len(chunks.chunks),
                     documents=documents,
+                    document_processing_profile_id=(
+                        index_namespace_document_processing_profile_id(
+                            ingestion.document_processing_profile_id
+                        )
+                    ),
                 )
             async with sessions.begin() as session:
-                ingestion, _projection = await _lock_active_stage_rows(
-                    session, projection_id
-                )
+                ingestion, _projection = await _lock_active_stage_rows(session, projection_id)
                 build = await session.scalar(
                     select(RagIndexBuildRecord)
                     .where(RagIndexBuildRecord.id == build_id)
@@ -755,9 +743,7 @@ class ProductionIndexingStage:
         indexing_profile_id: UUID,
     ) -> UUID:
         async with sessions.begin() as session:
-            ingestion, projection = await _lock_active_stage_rows(
-                session, projection_id
-            )
+            ingestion, projection = await _lock_active_stage_rows(session, projection_id)
             if (
                 projection.status != ProjectionStatus.INDEXING
                 or ingestion.indexing_profile_id != indexing_profile_id
@@ -782,9 +768,7 @@ class ProductionIndexingStage:
                 build = RagIndexBuildRecord(
                     id=uuid4(),
                     projection_id=projection_id,
-                    document_processing_profile_id=(
-                        ingestion.document_processing_profile_id
-                    ),
+                    document_processing_profile_id=(ingestion.document_processing_profile_id),
                     indexing_profile_id=indexing_profile_id,
                     index_name=None,
                     expected_document_count=None,
@@ -797,8 +781,7 @@ class ProductionIndexingStage:
                 await session.flush()
             elif (
                 build.indexing_profile_id != indexing_profile_id
-                or build.document_processing_profile_id
-                != ingestion.document_processing_profile_id
+                or build.document_processing_profile_id != ingestion.document_processing_profile_id
             ):
                 raise RagIngestionError(
                     "index_build_conflict",
@@ -846,9 +829,7 @@ class ProductionReadinessVerifier:
                         "The final activation requires a durable prepared build.",
                         retryable=False,
                     )
-                job = await SqlAlchemyJobRepository(session).find_by_id_for_update(
-                    ingestion.job_id
-                )
+                job = await SqlAlchemyJobRepository(session).find_by_id_for_update(ingestion.job_id)
                 projection = await session.scalar(
                     select(RagProjectionRecord)
                     .where(RagProjectionRecord.id == projection_id)
@@ -959,12 +940,10 @@ class ProductionReadinessVerifier:
                         .where(
                             RagIndexBuildRecord.document_processing_profile_id
                             == ingestion.document_processing_profile_id,
-                            RagIndexBuildRecord.indexing_profile_id
-                            == indexing_profile_id,
+                            RagIndexBuildRecord.indexing_profile_id == indexing_profile_id,
                             RagProjectionRecord.document_processing_profile_id
                             == ingestion.document_processing_profile_id,
-                            RagProjectionRecord.indexing_profile_id
-                            == indexing_profile_id,
+                            RagProjectionRecord.indexing_profile_id == indexing_profile_id,
                             RagIndexBuildRecord.status == "ready",
                             RagProjectionRecord.status == ProjectionStatus.READY,
                             AssetVersionRecord.status == VersionStatus.READY,
@@ -976,12 +955,18 @@ class ProductionReadinessVerifier:
                 target_builds = {candidate.id: candidate for candidate, *_ in active_rows}
                 target_builds[build.id] = build
                 descriptor = IndexDescriptor(build.vector_dimension, "cosine")
+                index_namespace_profile_id = (
+                    index_namespace_document_processing_profile_id(
+                        ingestion.document_processing_profile_id
+                    )
+                )
                 intended_targets: list[str] = []
                 for candidate in target_builds.values():
                     expected_name = descriptor.concrete_index_name(
                         self.settings.elasticsearch_index_prefix,
                         indexing_profile_id,
                         candidate.id,
+                        document_processing_profile_id=index_namespace_profile_id,
                     )
                     if (
                         candidate.indexing_profile_id != indexing_profile_id
@@ -1004,10 +989,13 @@ class ProductionReadinessVerifier:
                     projection_id=projection_id,
                     index_name=build.index_name,
                     alias=descriptor.active_alias(
-                        self.settings.elasticsearch_index_prefix, indexing_profile_id
+                        self.settings.elasticsearch_index_prefix,
+                        indexing_profile_id,
+                        document_processing_profile_id=index_namespace_profile_id,
                     ),
                     indexed_document_count=build.indexed_document_count,
                     alias_verified=False,
+                    document_processing_profile_id=index_namespace_profile_id,
                 )
                 try:
                     async with self.search_index_session() as search_index:
@@ -1057,9 +1045,7 @@ class ProductionReadinessVerifier:
             await engine.dispose()
 
 
-async def _load_index_source(
-    session: AsyncSession, asset_version_id: UUID
-) -> _IndexSource:
+async def _load_index_source(session: AsyncSession, asset_version_id: UUID) -> _IndexSource:
     asset = await session.get(AssetVersionRecord, asset_version_id)
     if asset is None:
         raise RagIngestionError(

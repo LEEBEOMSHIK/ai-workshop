@@ -13,6 +13,7 @@ from ai_workshop.labs.rag.documents.domain import (
     RetrievalChunk,
     SourceLocation,
     StructuralElement,
+    TableCellLocation,
 )
 from ai_workshop.labs.rag.ingestion.domain import (
     ArtifactReference,
@@ -135,6 +136,40 @@ def test_artifact_serialization_round_trips_all_immutable_provenance() -> None:
     assert parsed_copy == document
     assert chunks_copy == chunks
     assert chunks_copy.chunks[0].evidence_units[0] is chunks_copy.evidence_units[0]
+
+
+def test_artifact_serialization_round_trips_docx_image_provenance() -> None:
+    asset_version_id = uuid4()
+    element_id = uuid4()
+    location = SourceLocation.docx_image(
+        element_id=element_id,
+        char_start=0,
+        char_end=7,
+        source_part="word/media/image1.png",
+        image_sha256="a" * 64,
+        bbox=(0.1, 0.2, 0.8, 0.5),
+        table_cell=TableCellLocation(0, 1),
+    )
+    document = ParsedDocument(
+        asset_version_id=asset_version_id,
+        parser_name="docx-structure",
+        parser_version="1",
+        elements=(
+            StructuralElement(
+                id=element_id,
+                ordinal=0,
+                kind="ocr_text",
+                text="운용 한도 7%",
+                section_path=(),
+                location=location,
+                parser_name="docx-structure",
+                parser_version="1",
+                confidence=0.97,
+            ),
+        ),
+    )
+
+    assert deserialize_parsed_document(serialize_parsed_document(document)) == document
 
 
 class MemoryObjectStore:

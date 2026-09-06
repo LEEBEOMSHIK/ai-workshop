@@ -8,6 +8,7 @@ from ai_workshop.labs.rag.parsing.contracts import (
     ParsingError,
     UnsupportedParserError,
 )
+from ai_workshop.labs.rag.parsing.docx import DocxStructureParser
 from ai_workshop.labs.rag.parsing.markdown import MarkdownParser
 from ai_workshop.labs.rag.parsing.pdf import PdfParser
 from ai_workshop.labs.rag.parsing.plain_text import PlainTextParser
@@ -15,7 +16,9 @@ from ai_workshop.labs.rag.parsing.registry import ParserRegistry
 
 
 def test_registry_resolves_format_adapters_from_media_type_and_filename() -> None:
-    registry = ParserRegistry((PlainTextParser(), MarkdownParser(), PdfParser()))
+    registry = ParserRegistry(
+        (PlainTextParser(), MarkdownParser(), PdfParser(), DocxStructureParser())
+    )
 
     parser = registry.resolve("text/plain", "investment-notes.txt")
 

@@ -100,6 +100,8 @@ class StructuralChunker:
 def _evidence_sources(document: ParsedDocument) -> tuple[_EvidenceSource, ...]:
     sources: list[_EvidenceSource] = []
     for element in document.elements:
+        if not element.evidence_eligible:
+            continue
         spans = (
             split_sentences(element.text)
             if element.kind == "paragraph" and element.location.bbox is None

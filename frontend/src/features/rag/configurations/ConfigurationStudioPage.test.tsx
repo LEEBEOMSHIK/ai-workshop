@@ -421,6 +421,7 @@ describe("ConfigurationStudioPage", () => {
 
     expect(requestBody).toEqual({
       name: "내 BGE 구성",
+      document_processing_profile_id: "00000000-0000-0000-0000-000000000207",
       indexing_profile_id: "indexing-bge",
       retrieval_profile_id: "retrieval-bge",
       generation_profile_id: null,
@@ -579,6 +580,48 @@ describe("ConfigurationStudioPage", () => {
     expect(screen.queryByText("configuration-compare-version-1")).not.toBeInTheDocument();
   });
 
+  it("shows the selected document processing and full OCR configuration without UUID labels", async () => {
+    const data = studioData();
+    data.models.push(
+      { id: "ocr-det", kind: "ocr_text_detection", name: "PP-OCRv5_server_det", version: 1, config: { source: "PaddleOCR", revision: "v5", artifact_sha256: "a".repeat(64), license: "Apache-2.0" } },
+      { id: "ocr-rec", kind: "ocr_text_recognition", name: "korean_PP-OCRv5_mobile_rec", version: 1, config: { source: "PaddleOCR", revision: "v5", artifact_sha256: "b".repeat(64), license: "Apache-2.0" } },
+      { id: "ocr-table", kind: "ocr_table_structure", name: "SLANet_plus", version: 1, config: { source: "PaddleOCR", revision: "v1", artifact_sha256: "c".repeat(64), license: "Apache-2.0" } },
+    );
+    data.profiles.unshift({
+      id: "00000000-0000-0000-0000-000000000207",
+      kind: "document_processing",
+      name: "DOCX 구조·OCR",
+      version: 1,
+      config: {
+        parser_policy: { routes: { "application/vnd.openxmlformats-officedocument.wordprocessingml.document": { name: "docx-structure", version: "1" } } },
+        ocr: { enabled: true, pipeline_name: "PP-StructureV3", pipeline_version: "3.7.0", languages: ["ko", "en"], confidence_threshold: 0.8, data_policy: "local_only" },
+      },
+      bindings: [
+        { role: "ocr_text_detection", model_id: "ocr-det" },
+        { role: "ocr_text_recognition", model_id: "ocr-rec" },
+        { role: "ocr_table_structure", model_id: "ocr-table" },
+      ],
+      deployment_version_id: null,
+      legacy: false,
+      readiness: { ready: false, reason_codes: [] },
+      evaluation_state: "draft",
+      is_default: false,
+    });
+    const user = userEvent.setup();
+
+    render(<ConfigurationStudioPage initialData={data} />);
+
+    expect(screen.getByRole("group", { name: "문서 처리 구성" })).toBeVisible();
+    expect(screen.getByRole("option", { name: /DOCX 구조·OCR v1.*PP-StructureV3 3.7.0.*draft/ })).toBeVisible();
+    const detailsSummary = screen.getByText("전체 OCR 구성 보기");
+    await user.click(detailsSummary);
+    const details = detailsSummary.closest("details");
+    expect(details).not.toBeNull();
+    expect(within(details!).getByText("PP-StructureV3 3.7.0")).toBeVisible();
+    expect(within(details!).getByText(/korean_PP-OCRv5_mobile_rec v1/)).toBeVisible();
+    expect(screen.queryByText("document-processing-pp-structure", { exact: true })).not.toBeInTheDocument();
+  });
+
 });
 
 function studioData(): ConfigurationStudioData {
@@ -734,6 +777,7 @@ function savedConfiguration(overrides: Partial<SavedConfiguration> = {}): SavedC
     owner_id: "owner-1",
     name: "저장 구성",
     version: 1,
+    document_processing_profile_id: "00000000-0000-0000-0000-000000000207",
     indexing_profile_id: "indexing-e5",
     retrieval_profile_id: "retrieval-e5",
     generation_profile_id: null,

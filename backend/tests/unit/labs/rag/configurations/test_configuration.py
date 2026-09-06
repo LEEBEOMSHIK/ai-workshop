@@ -32,6 +32,9 @@ from ai_workshop.labs.rag.evaluation.domain import (
     PromotionEvidence,
 )
 from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand
+from ai_workshop.labs.rag.models.document_processing import (
+    LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
+)
 from ai_workshop.labs.rag.models.domain import (
     EvaluationState,
     ModelDefinition,
@@ -219,8 +222,7 @@ def test_orm_metadata_pairs_the_exact_policy_version_for_task11_promotion() -> N
         constraint
         for constraint in configuration_table.constraints
         if isinstance(constraint, ForeignKeyConstraint)
-        and "answer_policy_version_id"
-        in {element.parent.name for element in constraint.elements}
+        and "answer_policy_version_id" in {element.parent.name for element in constraint.elements}
     )
     assert [element.parent.name for element in policy_foreign_key.elements] == [
         "configuration_id",
@@ -273,9 +275,7 @@ def test_default_promotion_requires_passed_and_applicable_versioned_policy() -> 
             policy=policy,
             evidence=replace(
                 evidence,
-                metrics=EvaluationMetrics(
-                    0.7, 0.9, 0.9, 1.0, 0.0, 0.9, 50, 100, 0, 1.0
-                ),
+                metrics=EvaluationMetrics(0.7, 0.9, 0.9, 1.0, 0.0, 0.9, 50, 100, 0, 1.0),
             ),
         )
 
@@ -329,9 +329,25 @@ class MemoryConfigurationRepository:
         reject_approval: bool = False,
     ) -> None:
         self.profiles = {profile.id: profile for profile in profiles}
+        self.profiles.setdefault(
+            LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
+            Profile(
+                id=LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
+                kind=ProfileKind.DOCUMENT_PROCESSING,
+                name="legacy-text-document-processing",
+                version=1,
+                config={"parsers": {}},
+                bindings=(),
+                evaluation_state=EvaluationState.PASSED,
+                is_default=True,
+            ),
+        )
         self.accessible = accessible_workspace_ids
         self.active_assets = active_asset_version_ids
-        self.ready_profiles = ready_indexing_profile_ids
+        self.ready_profiles = frozenset(
+            (LEGACY_DOCUMENT_PROCESSING_PROFILE_ID, profile_id)
+            for profile_id in ready_indexing_profile_ids
+        )
         self.identities: dict[tuple[UUID, str], UUID] = {}
         self.saved: list[SavedRagConfiguration] = []
         self.events: list[str] = []
@@ -368,9 +384,7 @@ class MemoryConfigurationRepository:
     ) -> ModelDeploymentVersion | None:
         return self.deployments.get(deployment_version_id)
 
-    async def get_model_definition(
-        self, model_definition_id: UUID
-    ) -> ModelDefinition | None:
+    async def get_model_definition(self, model_definition_id: UUID) -> ModelDefinition | None:
         return self.models.get(model_definition_id)
 
     async def lock_external_execution_policy(self) -> None:
@@ -412,19 +426,17 @@ class MemoryConfigurationRepository:
             None,
         )
 
-    async def active_asset_version_ids(
-        self, workspace_ids: tuple[UUID, ...]
-    ) -> tuple[UUID, ...]:
+    async def active_asset_version_ids(self, workspace_ids: tuple[UUID, ...]) -> tuple[UUID, ...]:
         del workspace_ids
         return self.active_assets
 
     async def list_visible(self, actor_id: UUID) -> list[SavedRagConfiguration]:
         return [item for item in self.saved if item.owner_id in {None, actor_id}]
 
-    async def ready_indexing_profile_ids(
-        self, indexing_profile_ids: tuple[UUID, ...]
-    ) -> frozenset[UUID]:
-        return frozenset(self.ready_profiles.intersection(indexing_profile_ids))
+    async def ready_processing_indexing_profile_ids(
+        self, profile_ids: tuple[tuple[UUID, UUID], ...]
+    ) -> frozenset[tuple[UUID, UUID]]:
+        return frozenset(self.ready_profiles.intersection(profile_ids))
 
     async def find_visible(
         self, configuration_id: UUID, actor_id: UUID
@@ -465,6 +477,11 @@ class GenerationReadiness:
 async def test_search_readiness_is_mapped_by_immutable_configuration_version() -> None:
     ready = _configuration()
     pending = _configuration()
+    different_processing = replace(
+        ready,
+        version_id=uuid4(),
+        document_processing_profile_id=uuid4(),
+    )
     repository = MemoryConfigurationRepository(
         profiles=(),
         accessible_workspace_ids=(),
@@ -472,9 +489,13 @@ async def test_search_readiness_is_mapped_by_immutable_configuration_version() -
     )
     service = RagConfigurationService(repository, RecordingIngestionJobs(repository.events))
 
-    result = await service.search_readiness((ready, pending))
+    result = await service.search_readiness((ready, pending, different_processing))
 
-    assert result == {ready.version_id: True, pending.version_id: False}
+    assert result == {
+        ready.version_id: True,
+        pending.version_id: False,
+        different_processing.version_id: False,
+    }
 
 
 @pytest.mark.asyncio
@@ -700,9 +721,7 @@ def _installation_policy(
         version=2,
         mode=mode,
         approved_providers=(
-            (ProviderKind.OPENAI_RESPONSES,)
-            if mode is OutboundMode.APPROVED_PROVIDERS
-            else ()
+            (ProviderKind.OPENAI_RESPONSES,) if mode is OutboundMode.APPROVED_PROVIDERS else ()
         ),
         changed_by=uuid4(),
     )
@@ -781,9 +800,12 @@ async def _saved_external_configuration_for_readiness() -> tuple[
 
 @pytest.mark.asyncio
 async def test_external_readiness_requires_exact_current_saved_approval() -> None:
-    configuration, _repository, service, generation_readiness = (
-        await _saved_external_configuration_for_readiness()
-    )
+    (
+        configuration,
+        _repository,
+        service,
+        generation_readiness,
+    ) = await _saved_external_configuration_for_readiness()
 
     readiness = (await service.readiness((configuration,)))[configuration.version_id]
 
@@ -806,9 +828,12 @@ async def test_external_readiness_fails_closed_for_stale_or_denied_policy(
     policy_change: str,
     expected_reason: str,
 ) -> None:
-    configuration, repository, service, _generation_readiness = (
-        await _saved_external_configuration_for_readiness()
-    )
+    (
+        configuration,
+        repository,
+        service,
+        _generation_readiness,
+    ) = await _saved_external_configuration_for_readiness()
     repository.installation_policy = _installation_policy(
         mode=(OutboundMode.DENY if policy_change == "deny" else OutboundMode.APPROVED_PROVIDERS)
     )
@@ -988,11 +1013,11 @@ async def test_external_generation_rejects_denied_or_stale_policy_before_commit(
         ),
         (
             MemoryConfigurationRepository(
-            profiles=(indexing, retrieval, generation),
-            accessible_workspace_ids=(workspace_id,),
-            deployments=(deployment,),
-            installation_policy=_installation_policy(mode=OutboundMode.DENY),
-            workspace_policies=(_workspace_policy(workspace_id),),
+                profiles=(indexing, retrieval, generation),
+                accessible_workspace_ids=(workspace_id,),
+                deployments=(deployment,),
+                installation_policy=_installation_policy(mode=OutboundMode.DENY),
+                workspace_policies=(_workspace_policy(workspace_id),),
             ),
             "provider_not_allowed",
         ),
@@ -1147,11 +1172,7 @@ def _retrieval_with_reranker(
             "indexing_profile_id": str(uuid4()),
             "reranker": reranker,
         },
-        bindings=(
-            (ProfileModelBinding(ModelKind.RERANKER, uuid4()),)
-            if with_binding
-            else ()
-        ),
+        bindings=((ProfileModelBinding(ModelKind.RERANKER, uuid4()),) if with_binding else ()),
     )
 
 

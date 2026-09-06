@@ -14,6 +14,7 @@ from ai_workshop.labs.rag.indexing.service import (
 )
 
 PROFILE_ID = UUID("00000000-0000-0000-0000-000000000101")
+PROCESSING_PROFILE_ID = UUID("00000000-0000-0000-0000-000000000102")
 BUILD_ID = UUID("00000000-0000-0000-0000-000000000201")
 PROJECTION_ID = UUID("00000000-0000-0000-0000-000000000301")
 CHUNK_ID = UUID("00000000-0000-0000-0000-000000000401")
@@ -53,9 +54,7 @@ class RecordingIndex:
         self.events.append(f"count:{index_name}:{projection_id}")
         return self.counted
 
-    async def replace_active_targets(
-        self, alias: str, index_names: Sequence[str]
-    ) -> bool:
+    async def replace_active_targets(self, alias: str, index_names: Sequence[str]) -> bool:
         targets = tuple(sorted(index_names))
         self.events.append(f"replace:{alias}:{','.join(targets)}")
         self.current_targets = targets
@@ -109,11 +108,33 @@ def test_descriptor_generates_immutable_concrete_name_and_active_alias() -> None
     descriptor = IndexDescriptor(vector_dimension=768, similarity="cosine")
 
     assert descriptor.concrete_index_name("ai-workshop-rag", PROFILE_ID, BUILD_ID) == (
-        "ai-workshop-rag-00000000-0000-0000-0000-000000000101-"
-        "00000000-0000-0000-0000-000000000201"
+        "ai-workshop-rag-00000000-0000-0000-0000-000000000101-00000000-0000-0000-0000-000000000201"
     )
     assert descriptor.active_alias("ai-workshop-rag", PROFILE_ID) == (
         "ai-workshop-rag-00000000-0000-0000-0000-000000000101-active"
+    )
+
+
+def test_descriptor_isolates_indices_by_document_processing_profile() -> None:
+    descriptor = IndexDescriptor(vector_dimension=768, similarity="cosine")
+
+    assert descriptor.concrete_index_name(
+        "ai-workshop-rag",
+        PROFILE_ID,
+        BUILD_ID,
+        document_processing_profile_id=PROCESSING_PROFILE_ID,
+    ) == (
+        "ai-workshop-rag-00000000-0000-0000-0000-000000000102-"
+        "00000000-0000-0000-0000-000000000101-"
+        "00000000-0000-0000-0000-000000000201"
+    )
+    assert descriptor.active_alias(
+        "ai-workshop-rag",
+        PROFILE_ID,
+        document_processing_profile_id=PROCESSING_PROFILE_ID,
+    ) == (
+        "ai-workshop-rag-00000000-0000-0000-0000-000000000102-"
+        "00000000-0000-0000-0000-000000000101-active"
     )
 
 
@@ -206,9 +227,7 @@ async def test_alias_verification_rejects_wrong_or_multiple_targets(
 async def test_unacknowledged_alias_activation_has_a_distinct_error() -> None:
     index = RecordingIndex(activation_acknowledged=False)
 
-    with pytest.raises(
-        AliasActivationNotAcknowledgedError, match="did not acknowledge"
-    ):
+    with pytest.raises(AliasActivationNotAcknowledgedError, match="did not acknowledge"):
         await _index_one(_service(index))
 
     assert index.events[-1].startswith("replace:")
@@ -232,12 +251,13 @@ async def test_successful_indexing_verifies_alias_after_count_and_activation() -
     expected_name = IndexDescriptor(768, "cosine").concrete_index_name(
         service.index_prefix, PROFILE_ID, BUILD_ID
     )
-    assert await service.revalidate_active_targets(
-        alias=IndexDescriptor(768, "cosine").active_alias(
-            service.index_prefix, PROFILE_ID
-        ),
-        intended_targets=(expected_name,),
-    ) is True
+    assert (
+        await service.revalidate_active_targets(
+            alias=IndexDescriptor(768, "cosine").active_alias(service.index_prefix, PROFILE_ID),
+            intended_targets=(expected_name,),
+        )
+        is True
+    )
 
 
 @pytest.mark.asyncio
@@ -350,12 +370,8 @@ async def test_prepared_activation_replaces_alias_and_removes_superseded_target(
     stale_build = UUID("00000000-0000-0000-0000-000000000202")
     retained_build = UUID("00000000-0000-0000-0000-000000000203")
     descriptor = IndexDescriptor(768, "cosine")
-    stale_name = descriptor.concrete_index_name(
-        "ai-workshop-rag", PROFILE_ID, stale_build
-    )
-    retained_name = descriptor.concrete_index_name(
-        "ai-workshop-rag", PROFILE_ID, retained_build
-    )
+    stale_name = descriptor.concrete_index_name("ai-workshop-rag", PROFILE_ID, stale_build)
+    retained_name = descriptor.concrete_index_name("ai-workshop-rag", PROFILE_ID, retained_build)
     index = RecordingIndex()
     index.current_targets = (stale_name, retained_name)
     service = _service(index)
@@ -422,9 +438,7 @@ async def test_evidence_with_wrong_parent_never_reaches_elasticsearch() -> None:
         chunk_id=UUID("00000000-0000-0000-0000-000000000499"),
         ordinal=0,
         text="근거",
-        location=SourceLocation(
-            UUID("00000000-0000-0000-0000-000000000400"), 1, 0, 2, None
-        ),
+        location=SourceLocation(UUID("00000000-0000-0000-0000-000000000400"), 1, 0, 2, None),
         projection_id=PROJECTION_ID,
     )
     index = RecordingIndex()
@@ -442,9 +456,7 @@ async def test_evidence_with_wrong_projection_never_reaches_elasticsearch() -> N
         chunk_id=CHUNK_ID,
         ordinal=0,
         text="근거",
-        location=SourceLocation(
-            UUID("00000000-0000-0000-0000-000000000400"), 1, 0, 2, None
-        ),
+        location=SourceLocation(UUID("00000000-0000-0000-0000-000000000400"), 1, 0, 2, None),
         projection_id=UUID("00000000-0000-0000-0000-000000000399"),
     )
     index = RecordingIndex()

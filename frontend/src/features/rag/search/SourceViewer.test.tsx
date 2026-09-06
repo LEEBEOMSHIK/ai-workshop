@@ -148,6 +148,46 @@ describe("SourceViewer", () => {
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:authorized-page");
   });
 
+  it("loads the DOCX image that contains the selected evidence offsets", async () => {
+    vi.stubGlobal("URL", { ...URL, createObjectURL: vi.fn(() => "blob:docx-image") });
+    const requests: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        requests.push(String(input));
+        if (String(input).includes("normalized-text")) {
+          return jsonResponse({
+            ...normalizedText(
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+            title: "OCR 보고서.docx",
+            elements: [
+              docxImageElement("element-1", 0, 4, "a".repeat(64), "첫째"),
+              docxImageElement("element-2", 10, 14, "b".repeat(64), "둘째"),
+            ],
+          });
+        }
+        return new Response(new Blob(["png"], { type: "image/png" }), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      }),
+    );
+
+    render(
+      <SourceViewer
+        assetVersionId="asset-version-1"
+        projectionId="projection-1"
+        highlights={[{ ...highlight("semantic", 10, 12, "둘"), bbox: [0, 0, 1, 1] }]}
+      />,
+    );
+
+    expect(await screen.findByRole("img", { name: "OCR 보고서.docx 안의 근거 이미지" }))
+      .toBeVisible();
+    expect(requests[1]).toContain("/docx/images/element-2?");
+    expect(requests[1]).toContain(`image_sha256=${"b".repeat(64)}`);
+  });
+
   it.each([
     [404, "원문을 찾을 수 없습니다.", false],
     [503, "원문 파일을 일시적으로 불러올 수 없습니다.", true],
@@ -240,6 +280,36 @@ function highlight(
     page: null,
     bbox: null,
     score: kind === "semantic" ? 0.9 : null,
+    warnings: [],
+  };
+}
+
+function docxImageElement(
+  id: string,
+  charStart: number,
+  charEnd: number,
+  imageSha256: string,
+  text: string,
+) {
+  return {
+    id,
+    ordinal: charStart,
+    kind: "ocr_text",
+    text,
+    section_path: [],
+    location: {
+      element_id: id,
+      page: null,
+      char_start: charStart,
+      char_end: charEnd,
+      bbox: [0, 0, 1, 1],
+      source_kind: "docx_image",
+      source_part: `word/media/${id}.png`,
+      image_sha256: imageSha256,
+      table_cell: null,
+    },
+    confidence: 0.99,
+    evidence_eligible: true,
     warnings: [],
   };
 }

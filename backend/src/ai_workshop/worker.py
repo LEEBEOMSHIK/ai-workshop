@@ -44,6 +44,9 @@ from ai_workshop.labs.rag.ingestion.repository import (
 )
 from ai_workshop.labs.rag.ingestion.service import RagIngestionService, RagIngestionWorkflow
 from ai_workshop.labs.rag.ingestion.tasks import create_rag_ingestion_workflow
+from ai_workshop.labs.rag.models.document_processing import (
+    LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
+)
 from ai_workshop.labs.rag.parsing.contracts import ParsingError
 from ai_workshop.platform.assets.dispatch import (
     AssetVerificationDispatchReconciler,
@@ -75,6 +78,7 @@ logger = getLogger(__name__)
 class VerifiedAssetSubscription:
     indexing_profile_id: UUID
     requested_by: UUID
+    document_processing_profile_id: UUID = LEGACY_DOCUMENT_PROCESSING_PROFILE_ID
 
 
 class VerifiedAssetSubscriptionPort(Protocol):
@@ -105,8 +109,16 @@ class PersistentVerifiedAssetSubscriptions:
                     session
                 ).subscriptions_for_asset(asset_version_id)
             return tuple(
-                VerifiedAssetSubscription(profile_id, requested_by)
-                for profile_id, requested_by in subscriptions
+                VerifiedAssetSubscription(
+                    indexing_profile_id=indexing_profile_id,
+                    requested_by=requested_by,
+                    document_processing_profile_id=document_processing_profile_id,
+                )
+                for (
+                    document_processing_profile_id,
+                    indexing_profile_id,
+                    requested_by,
+                ) in subscriptions
             )
         finally:
             await engine.dispose()
@@ -181,11 +193,15 @@ def create_celery(
                 resolved_settings
             )
             asset_version_id = run(workflow.run(UUID(job_id)))
-            seen_profiles: set[UUID] = set()
+            seen_profiles: set[tuple[UUID, UUID]] = set()
             for subscription in run(subscriptions.for_asset(asset_version_id)):
-                if subscription.indexing_profile_id in seen_profiles:
+                profile_identity = (
+                    subscription.document_processing_profile_id,
+                    subscription.indexing_profile_id,
+                )
+                if profile_identity in seen_profiles:
                     continue
-                seen_profiles.add(subscription.indexing_profile_id)
+                seen_profiles.add(profile_identity)
                 run(
                     _ensure_rag_job(
                         resolved_settings,
@@ -193,6 +209,9 @@ def create_celery(
                             asset_version_id=asset_version_id,
                             indexing_profile_id=subscription.indexing_profile_id,
                             requested_by=subscription.requested_by,
+                            document_processing_profile_id=(
+                                subscription.document_processing_profile_id
+                            ),
                         ),
                     )
                 )
@@ -427,7 +446,8 @@ async def _reconcile_rag_asset_handoffs(settings: Settings) -> None:
 
 def _log_handoff_run_error(exc: RagAssetHandoffRunError) -> None:
     identities = ",".join(
-        f"{identity.asset_version_id}:{identity.indexing_profile_id}"
+        f"{identity.asset_version_id}:{identity.document_processing_profile_id}:"
+        f"{identity.indexing_profile_id}"
         for identity in exc.identities
     )
     logger.error(

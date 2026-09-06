@@ -2,10 +2,12 @@ from collections.abc import AsyncIterator, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import replace
 from hashlib import sha256
+from io import BytesIO
 from pathlib import Path
 from threading import Event, Thread
 from typing import Annotated
 from uuid import UUID, uuid4
+from zipfile import ZipFile
 
 import psycopg
 import pymupdf
@@ -2311,7 +2313,7 @@ def test_unauthorized_or_inactive_viewer_resource_is_404_before_object_access() 
     assert store.open_calls == []
 
 
-def test_normalized_viewer_rejects_unsupported_content_before_object_access() -> None:
+def test_normalized_viewer_supports_docx_parsed_content_without_original_access() -> None:
     original = b"synthetic"
     asset_version_id = UUID("f0000000-0000-0000-0000-000000000001")
     parsed = _parsed_artifact(asset_version_id)
@@ -2341,6 +2343,74 @@ def test_normalized_viewer_rejects_unsupported_content_before_object_access() ->
             params={"projection_id": str(resource.projection_id)},
         )
 
-    assert response.status_code == 404
-    assert response.json()["error"]["code"] == "not_found"
-    assert store.open_calls == []
+    assert response.status_code == 200
+    assert response.json()["media_type"].endswith("wordprocessingml.document")
+    assert store.open_calls == ["authorized/parsed"]
+
+
+def test_docx_image_viewer_requires_authorized_exact_element_and_sha256() -> None:
+    image = b"\x89PNG\r\n\x1a\nsynthetic-image"
+    image_sha256 = sha256(image).hexdigest()
+    package_buffer = BytesIO()
+    with ZipFile(package_buffer, "w") as package:
+        package.writestr("word/media/image1.png", image)
+    original = package_buffer.getvalue()
+    asset_version_id = uuid4()
+    element_id = uuid4()
+    document = ParsedDocument(
+        asset_version_id=asset_version_id,
+        parser_name="docx-structure",
+        parser_version="1",
+        elements=(
+            StructuralElement(
+                id=element_id,
+                ordinal=0,
+                kind="ocr_text",
+                text="운용 한도 7%",
+                section_path=("운용 기준",),
+                location=SourceLocation.docx_image(
+                    element_id=element_id,
+                    char_start=0,
+                    char_end=7,
+                    source_part="word/media/image1.png",
+                    image_sha256=image_sha256,
+                    bbox=(0.1, 0.2, 0.8, 0.5),
+                ),
+                parser_name="docx-structure",
+                parser_version="1",
+                confidence=0.97,
+            ),
+        ),
+    )
+    parsed = serialize_parsed_document(document)
+    resource = _viewer_resource(
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        original=original,
+        parsed=parsed,
+    )
+    resource = replace(resource, asset_version_id=asset_version_id)
+    repository = MemoryViewerAccessRepository(resource)
+    store = MemoryObjectStore(
+        {"authorized/original": original, "authorized/parsed": parsed}
+    )
+
+    with _viewer_client(repository, store) as client:
+        response = client.get(
+            f"/api/v1/rag/sources/{asset_version_id}/docx/images/{element_id}",
+            params={
+                "projection_id": str(resource.projection_id),
+                "image_sha256": image_sha256,
+            },
+        )
+        wrong_digest = client.get(
+            f"/api/v1/rag/sources/{asset_version_id}/docx/images/{element_id}",
+            params={
+                "projection_id": str(resource.projection_id),
+                "image_sha256": "0" * 64,
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.content == image
+    assert response.headers["content-type"] == "image/png"
+    assert wrong_digest.status_code == 404

@@ -18,6 +18,7 @@ describe("summarizeRagPackage", () => {
 
     expect(summarizeRagPackage({ indexing, retrieval, models })).toEqual({
       parser: "형식별 자동 선택 · 현재 구성에 고정되지 않음",
+      ocr: "OCR 사용 안 함",
       chunker: "structure-aware · v2 · target 380 · overlap 60",
       embedding: "multilingual-e5-base v1",
       sparseRetriever: "BM25",

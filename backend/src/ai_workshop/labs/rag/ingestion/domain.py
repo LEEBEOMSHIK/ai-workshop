@@ -5,6 +5,7 @@ from ai_workshop.labs.rag.chunking.contracts import ChunkingConfig
 from ai_workshop.labs.rag.documents.domain import ProjectionStatus
 from ai_workshop.labs.rag.models.document_processing import (
     LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
+    DocumentProcessingSpec,
 )
 from ai_workshop.platform.assets.domain import AssetVersion
 
@@ -60,6 +61,7 @@ class IngestionExecution:
     chunk_artifact: ArtifactReference | None = None
     embedding_artifact: ArtifactReference | None = None
     document_processing_profile_id: UUID = LEGACY_DOCUMENT_PROCESSING_PROFILE_ID
+    document_processing_spec: DocumentProcessingSpec | None = None
 
 
 class RagIngestionError(Exception):

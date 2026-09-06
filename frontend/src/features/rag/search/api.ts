@@ -83,3 +83,23 @@ export async function loadPdfPage(
   }
   return response.blob();
 }
+
+export async function loadDocxImage(
+  assetVersionId: string,
+  projectionId: string,
+  elementId: string,
+  imageSha256: string,
+): Promise<Blob> {
+  const query = new URLSearchParams({
+    projection_id: projectionId,
+    image_sha256: imageSha256,
+  });
+  const response = await fetch(
+    `/api/v1/rag/sources/${assetVersionId}/docx/images/${elementId}?${query}`,
+    { credentials: "include" },
+  );
+  if (!response.ok) {
+    throw new ApiError("DOCX 이미지 원문을 불러오지 못했습니다.", response.status, "source_failed");
+  }
+  return response.blob();
+}

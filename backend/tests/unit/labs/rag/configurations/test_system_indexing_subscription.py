@@ -26,15 +26,15 @@ def test_system_indexing_subscription_references_exact_configuration_version() -
 
 
 class _Rows:
-    def __init__(self, rows: list[tuple[object, object]]) -> None:
+    def __init__(self, rows: list[tuple[object, ...]]) -> None:
         self._rows = rows
 
-    def all(self) -> list[tuple[object, object]]:
+    def all(self) -> list[tuple[object, ...]]:
         return self._rows
 
 
 class _Session:
-    def __init__(self, *rows: list[tuple[object, object]]) -> None:
+    def __init__(self, *rows: list[tuple[object, ...]]) -> None:
         self._rows = iter(rows)
         self.statements: list[str] = []
 
@@ -47,24 +47,23 @@ class _Session:
 async def test_system_and_user_demand_collapse_to_one_asset_profile_command() -> None:
     baseline_profile = uuid4()
     other_profile = uuid4()
+    processing_profile = uuid4()
     workspace_creator = uuid4()
     saved_configuration_owner = uuid4()
     session = _Session(
-        [(baseline_profile, workspace_creator)],
+        [(processing_profile, baseline_profile, workspace_creator)],
         [
-            (baseline_profile, saved_configuration_owner),
-            (other_profile, saved_configuration_owner),
+            (processing_profile, baseline_profile, saved_configuration_owner),
+            (processing_profile, other_profile, saved_configuration_owner),
         ],
     )
-    repository = SqlAlchemyRagConfigurationRepository(
-        cast(AsyncSession, cast(Any, session))
-    )
+    repository = SqlAlchemyRagConfigurationRepository(cast(AsyncSession, cast(Any, session)))
 
     subscriptions = await repository.subscriptions_for_asset(uuid4())
 
     assert subscriptions == (
-        (baseline_profile, workspace_creator),
-        (other_profile, saved_configuration_owner),
+        (processing_profile, baseline_profile, workspace_creator),
+        (processing_profile, other_profile, saved_configuration_owner),
     )
     assert "rag_system_indexing_subscriptions" in session.statements[0]
     assert "rag_configuration_workspace_subscriptions" in session.statements[1]

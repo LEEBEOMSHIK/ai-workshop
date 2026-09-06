@@ -1,19 +1,29 @@
 import asyncio
+import mimetypes
 from dataclasses import dataclass
 from hashlib import sha256
+from io import BytesIO
 from typing import Any, NoReturn, Protocol, cast
 from uuid import UUID
+from zipfile import BadZipFile, ZipFile
 
 import pymupdf
 
-from ai_workshop.labs.rag.documents.domain import ParsedDocument
+from ai_workshop.labs.rag.documents.domain import ParsedDocument, SourceKind
 from ai_workshop.labs.rag.ingestion.serialization import deserialize_parsed_document
 from ai_workshop.platform.assets.storage import ObjectStore
 from ai_workshop.shared.errors import AppError
 
 NORMALIZED_VIEWER_MEDIA_TYPES = frozenset(
-    {"text/plain", "text/markdown", "text/x-markdown", "application/pdf"}
+    {
+        "text/plain",
+        "text/markdown",
+        "text/x-markdown",
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    }
 )
+DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 _PDF_OPERATIONAL_ERRORS = (
     pymupdf.FileDataError,
     pymupdf.EmptyFileError,
@@ -53,6 +63,12 @@ class ViewerResourceAccessRepositoryPort(Protocol):
 class NormalizedTextResource:
     resource: ViewerResource
     document: ParsedDocument
+
+
+@dataclass(frozen=True, slots=True)
+class DocxImageResource:
+    content: bytes
+    media_type: str
 
 
 class ViewerService:
@@ -115,6 +131,56 @@ class ViewerService:
         ):
             self._raise_invalid_artifact()
         return await asyncio.to_thread(_render_pdf_page, content, page_number)
+
+    async def docx_image(
+        self,
+        *,
+        actor_id: UUID,
+        asset_version_id: UUID,
+        projection_id: UUID,
+        element_id: UUID,
+        image_sha256: str,
+    ) -> DocxImageResource:
+        normalized = await self.normalized_text(
+            actor_id=actor_id,
+            asset_version_id=asset_version_id,
+            projection_id=projection_id,
+        )
+        resource = normalized.resource
+        if resource.media_type != DOCX_MEDIA_TYPE or len(image_sha256) != 64:
+            self._raise_not_found()
+        element = next(
+            (item for item in normalized.document.elements if item.id == element_id),
+            None,
+        )
+        if (
+            element is None
+            or element.location.source_kind is not SourceKind.DOCX_IMAGE
+            or element.location.image_sha256 != image_sha256
+            or element.location.source_part is None
+        ):
+            self._raise_not_found()
+        content = await self._read_object(resource.original_object_key)
+        if (
+            len(content) != resource.original_size
+            or sha256(content).hexdigest() != resource.original_sha256
+        ):
+            self._raise_invalid_artifact()
+        try:
+            with ZipFile(BytesIO(content)) as package:
+                image = package.read(element.location.source_part)
+        except (BadZipFile, KeyError) as exc:
+            raise AppError(
+                "source_artifact_invalid",
+                "The DOCX source artifact could not be read.",
+                503,
+            ) from exc
+        if sha256(image).hexdigest() != image_sha256:
+            self._raise_invalid_artifact()
+        media_type = mimetypes.guess_type(element.location.source_part)[0]
+        if media_type not in {"image/png", "image/jpeg"}:
+            self._raise_not_found()
+        return DocxImageResource(image, media_type)
 
     async def _authorize(
         self,

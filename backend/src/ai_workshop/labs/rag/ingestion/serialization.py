@@ -7,8 +7,10 @@ from ai_workshop.labs.rag.documents.domain import (
     EvidenceUnit,
     ParsedDocument,
     RetrievalChunk,
+    SourceKind,
     SourceLocation,
     StructuralElement,
+    TableCellLocation,
 )
 from ai_workshop.labs.rag.embeddings.contracts import (
     EmbeddingDescriptor,
@@ -24,17 +26,50 @@ def _location_to_json(location: SourceLocation) -> dict[str, object]:
         "char_start": location.char_start,
         "char_end": location.char_end,
         "bbox": list(location.bbox) if location.bbox is not None else None,
+        "source_kind": location.source_kind.value,
+        "source_part": location.source_part,
+        "image_sha256": location.image_sha256,
+        "table_cell": (
+            {
+                "row": location.table_cell.row,
+                "column": location.table_cell.column,
+                "row_span": location.table_cell.row_span,
+                "column_span": location.table_cell.column_span,
+            }
+            if location.table_cell is not None
+            else None
+        ),
     }
 
 
 def _location_from_json(value: dict[str, Any]) -> SourceLocation:
-    bbox_value = value["bbox"]
+    bbox_value = value.get("bbox")
+    raw_kind = value.get("source_kind")
+    source_kind = (
+        SourceKind(raw_kind)
+        if raw_kind is not None
+        else (SourceKind.PDF_PAGE if value.get("page") is not None else SourceKind.NORMALIZED_TEXT)
+    )
+    raw_cell = value.get("table_cell")
     return SourceLocation(
         element_id=UUID(value["element_id"]),
         page=value["page"],
         char_start=value["char_start"],
         char_end=value["char_end"],
         bbox=tuple(bbox_value) if bbox_value is not None else None,
+        source_kind=source_kind,
+        source_part=value.get("source_part"),
+        image_sha256=value.get("image_sha256"),
+        table_cell=(
+            TableCellLocation(
+                row=raw_cell["row"],
+                column=raw_cell["column"],
+                row_span=raw_cell.get("row_span", 1),
+                column_span=raw_cell.get("column_span", 1),
+            )
+            if raw_cell is not None
+            else None
+        ),
     )
 
 
@@ -66,6 +101,8 @@ def serialize_parsed_document(document: ParsedDocument) -> bytes:
                     "parser_name": element.parser_name,
                     "parser_version": element.parser_version,
                     "confidence": element.confidence,
+                    "evidence_eligible": element.evidence_eligible,
+                    "warnings": list(element.warnings),
                 }
                 for element in document.elements
             ],
@@ -90,6 +127,8 @@ def deserialize_parsed_document(content: bytes) -> ParsedDocument:
                 parser_name=element["parser_name"],
                 parser_version=element["parser_version"],
                 confidence=element["confidence"],
+                evidence_eligible=element.get("evidence_eligible", True),
+                warnings=tuple(element.get("warnings", ())),
             )
             for element in value["elements"]
         ),

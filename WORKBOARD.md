@@ -1,10 +1,10 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-06
-- 현재 단계: DOCX 구조 파싱과 내장 이미지 OCR을 위한 문서 처리 프로파일 설계
-- 전체 상태: Parser와 OCR을 별도 불변 Document Processing Profile로 관리하는 방식이 승인됐다.
-  PP-StructureV3와 PP-OCRv5 한국어 인식 조합, 관리자 전체 구성 표시 및 로컬·운영 공통 실행
-  경계를 설계 정본과 ADR에 기록하고 구현 계획 전 사용자 문서 검토를 기다린다.
+- 현재 단계: DOCX 구조 파싱·내장 이미지 OCR 구현과 자동 검증 완료
+- 전체 상태: 불변 Document Processing Profile, PP-StructureV3/PP-OCRv5 실행 경계,
+  provenance·검색·원문 이미지 하이라이트와 관리자 전체 구성을 구현했다. 실제 Paddle 추론은
+  승인된 고정 모델 산출물 프로비저닝 뒤 수행한다.
 
 ## 현재 작업
 
@@ -15,6 +15,18 @@ RAG 구성에 고정하고, 관리자가 PP-StructureV3 pipeline과 하위 OCR �
 전체 상세 구성으로 확인하게 한다.
 
 ### 진행 상태
+
+- 2026-09-06 DOCX 문단·표·내장 이미지 파싱, 이미지 SHA-256 OCR 중복 실행 방지,
+  confidence 기반 근거 제외, 정확한 source part·bbox provenance와 권한 재검사 이미지 endpoint를
+  구현했다. 문서 처리/색인 profile 조합별 Elasticsearch alias와 준비 상태를 분리했다.
+- 관리자 구성 화면에 parser, PP-StructureV3 pipeline, detector·한국어 recognizer·table 모델,
+  언어·confidence·실행 위치·revision/license/SHA 등록 정보를 읽기 전용으로 표시한다. 사용자
+  뷰어는 선택 evidence가 가리키는 DOCX 이미지와 bbox를 표시한다.
+- Backend unit 653건, DOCX OCR E2E를 포함한 집중 계약·통합 75건, 별칭 복구와 문서 처리
+  profile별 색인 격리 2건, Paddle import smoke, mypy와 frontend 200건·TypeScript·ESLint·
+  OpenAPI 동기화·Next build를 통과했다. 실제 모델
+  산출물이 없어 실 Paddle 추론은 수행하지 않았으며 상세 증거는
+  `docs/worklogs/2026-09-06-rag-docx-ocr-verification.md`를 따른다.
 
 - 2026-09-06 사용자는 Parser와 OCR을 독립 `Document Processing Profile`로 관리하는 1번
   구조를 승인했다. 첫 OCR 조합은 PP-StructureV3 pipeline, `PP-OCRv5_server_det`,
@@ -301,35 +313,40 @@ RAG 구성에 고정하고, 관리자가 PP-StructureV3 pipeline과 하위 OCR �
 
 ### 완료 기준
 
-- 리랭커가 없는 생성형 구성으로 Hybrid 검색과 검증된 LLM 답변을 완료한다.
-- 생성 profile·LLM runtime·인용 정책이 없거나 준비되지 않으면 `answer_ready=false`다.
-- 근거 부족 시 LLM을 호출하지 않고 명시적인 근거 부족 상태와 검색 근거를 반환한다.
-- 허용된 검색 근거를 벗어난 인용이나 검증 실패 생성문을 사용자에게 노출하지 않는다.
-- 후속질문은 bounded 이전 turn을 반영한 검색 질의를 사용하고 원 질문과 확정 질의를 함께
-  확인할 수 있다.
-- LLM 변경만으로 검색 색인을 다시 만들지 않고 모든 모델·profile·prompt 버전을 기록한다.
-- 비공개 질문·본문·prompt·생성 초안을 로그와 오류 응답에 남기지 않는다.
+- 저장 RAG 구성은 정확한 Document Processing Profile을 고정하고 변경 시 새 Projection·색인을
+  만든다.
+- DOCX 문단·표·이미지 OCR 결과는 검색 Evidence에서 정확한 Asset Version·Projection·Element·
+  source part·bbox로 추적된다.
+- confidence 기준 미달 OCR은 실행 기록에 남지만 검색과 LLM 인용 근거에는 사용되지 않는다.
+- 문서·모델 산출물 오류는 조용한 fallback 없이 안전 오류 코드로 실패한다.
+- 권한 없는 사용자는 원문·파싱 결과·DOCX 이미지의 존재 여부도 확인할 수 없다.
+- 관리자 화면은 parser/OCR 전체 구성을 사용자용 UUID·로컬 경로·endpoint 노출 없이 설명한다.
+- 실제 모델 산출물 smoke 전에는 OCR 실동작 완료를 주장하지 않는다.
 
 ## 최근 완료 작업
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**.
 
-1. 개발 전용 Codex App Server 후보를 `codex-cli 0.151.0` no-content gate로 측정해 stable effective per-thread built-in tool inventory 계약 부재를 확인했고 fail-closed 차단 결과와 재개 조건을 기록했다 (`docs/worklogs/2026-09-06-codex-app-server-isolation-gate.md`).
-2. 다중 환경 LLM Deployment·데이터 정책·OpenAI Responses adapter·관리자 설정·사용자 고지를 구현하고 전체 backend/frontend·OpenAPI·정책 흐름·migration·privacy 독립 검증을 완료했다. 실제 외부 API smoke는 명시된 승인 조건으로 분리했다 (`docs/worklogs/2026-09-05-rag-openai-deployment-verification.md`).
-3. 대화형 생성 RAG V2의 저장 구성·준비 상태·로컬 LLM adapter·문맥 기반 후속질문·구조화 답변·인용 검증과 관리자/사용자 UI를 구현하고 자동 검증했다 (`docs/worklogs/2026-09-04-conversational-generative-rag-v2.md`).
-4. 파일명과 분리된 지식 공간 범위 SHA-256 중복 판정, 명시적 새 버전 업로드, 검색 준비 상태 안내와 결과 UUID 비노출을 구현·검증했다 (`docs/worklogs/2026-09-04-rag-upload-identity-and-search-readiness.md`).
-5. 비민감 합성 문서로 Asset 검증·E5 색인·BM25 검색·근거·정확 하이라이트·원문 추적을 실제 owner Chrome에서 검증했다. 최초 고정 모델 캐시 실패와 복구, 남은 Hybrid·LLM·UX·버전·캐시 문제를 공식 기록했다 (`docs/worklogs/2026-09-04-owner-rag-live-smoke.md`).
+1. DOCX 구조 파싱·내장 이미지 OCR, 불변 문서 처리 프로파일, source provenance·권한 원문 이미지 뷰어와 관리자 전체 구성을 구현하고 자동 검증했다. 실제 모델 추론은 고정 산출물 준비 뒤 별도 실행한다 (`docs/worklogs/2026-09-06-rag-docx-ocr-verification.md`).
+2. 개발 전용 Codex App Server 후보를 `codex-cli 0.151.0` no-content gate로 측정해 stable effective per-thread built-in tool inventory 계약 부재를 확인했고 fail-closed 차단 결과와 재개 조건을 기록했다 (`docs/worklogs/2026-09-06-codex-app-server-isolation-gate.md`).
+3. 다중 환경 LLM Deployment·데이터 정책·OpenAI Responses adapter·관리자 설정·사용자 고지를 구현하고 전체 backend/frontend·OpenAPI·정책 흐름·migration·privacy 독립 검증을 완료했다. 실제 외부 API smoke는 명시된 승인 조건으로 분리했다 (`docs/worklogs/2026-09-05-rag-openai-deployment-verification.md`).
+4. 대화형 생성 RAG V2의 저장 구성·준비 상태·로컬 LLM adapter·문맥 기반 후속질문·구조화 답변·인용 검증과 관리자/사용자 UI를 구현하고 자동 검증했다 (`docs/worklogs/2026-09-04-conversational-generative-rag-v2.md`).
+5. 파일명과 분리된 지식 공간 범위 SHA-256 중복 판정, 명시적 새 버전 업로드, 검색 준비 상태 안내와 결과 UUID 비노출을 구현·검증했다 (`docs/worklogs/2026-09-04-rag-upload-identity-and-search-readiness.md`).
 
 ## 다음 작업
 
-1. DOCX parser·통합 뷰어 지원을 설계하고 스캔 PDF OCR을 다음 형식 확장으로 진행
-2. owner가 외부 전송과 비용을 명시 승인하고 안전한 credential·비민감 합성 자료를 준비하면
+1. 승인된 PP-StructureV3/PP-OCRv5/SLANet_plus 모델 산출물 manifest를 프로비저닝하고 비민감
+   합성 DOCX로 Windows CPU 실제 OCR·검색·원문 bbox smoke를 수행
+2. 같은 manifest의 Linux CPU/GPU 실행 호환성을 검증한 뒤 스캔 PDF OCR을 다음 형식 확장으로 진행
+3. owner가 외부 전송과 비용을 명시 승인하고 안전한 credential·비민감 합성 자료를 준비하면
    OpenAI Responses 실제 smoke를 운영 절차대로 수행
-3. 저장 구성 목록의 generation exact join·readiness 조회를 batch/prefetch해 N+1을 줄이는
+4. 저장 구성 목록의 generation exact join·readiness 조회를 batch/prefetch해 N+1을 줄이는
    성능 개선을 별도 측정과 회귀 테스트로 진행. 현재 Task 11 완료 차단 요소는 아니다.
 
 ## 결정이 필요한 항목
 
+- OCR 실제 smoke 전에 세 모델의 승인 source·정확 revision·license·artifact SHA-256 manifest와
+  Windows CPU 및 후속 Linux GPU 실행 환경을 확정해야 한다.
 - 개발 전용 Codex 연동은 App Server 후보도 차단됐다. 재개하려면 content 전송 전 stable
   effective per-thread built-in tool inventory, config·managed requirements, MCP·app·plugin·
   skill·hook·sub-agent, approval `never`, read-only sandbox와 host-path 누출 없는 sanitized
@@ -338,6 +355,8 @@ RAG 구성에 고정하고, 관리자가 PP-StructureV3 pipeline과 하위 OCR �
 
 ## 차단 요소
 
+- DOCX OCR 코드·자동 검증은 완료됐지만 실제 Paddle 추론은 승인된 세 모델 산출물이 로컬
+  model cache에 없어 실행할 수 없다. 런타임 다운로드나 다른 OCR fallback으로 우회하지 않는다.
 - 개발 전용 Codex App Server 후보는 stable effective per-thread built-in tool inventory 계약이
   없어 `codex_isolation_not_enforced`로 차단됐다. 이는 다음 활성 제품 작업이 아니라 위 재개
   조건을 충족할 때만 다시 검토할 차단 기록이다.
@@ -375,8 +394,8 @@ RAG 구성에 고정하고, 관리자가 PP-StructureV3 pipeline과 하위 OCR �
 - RAG worktree의 Git 등록과 물리 폴더, 미등록 foundation 복사본, 네 테스트 임시 폴더가 모두 제거됐다. 상세 결과는 캐시 감사 보고서를 따른다.
 - 루트 `.pnpm-store` junction과 `node_modules`는 제거됐다.
 - 프론트 의존성은 `frontend/node_modules/.pnpm`에 독립 설치됐으며 루트 `node_modules`는 감사 보고서의 레거시 제거 후보로 확정했다.
-- RAG 패키지 UI는 현재 Parser가 구성에 고정되지 않음을 명시한다. Parser Policy Version과
-  패키지·산출물 수명주기는 대화형 생성 RAG 완료 뒤 DOCX 확장 설계에서 다룬다.
+- RAG 패키지 UI는 저장된 Document Processing Profile의 Parser와 OCR을 고정해 표시한다.
+  문서 처리 profile 변경은 재색인 대상이며 LLM만 변경하는 경우는 재색인하지 않는다.
 - Next.js 프론트는 `http://127.0.0.1:5173`, 기존 호스트 FastAPI는 `http://127.0.0.1:18000`에서 실행한다. 2026-09-03 route smoke 뒤 FastAPI는 기존 프로세스를 유지했고 Next는 현재 소스 설정으로 재시작해 실행 중이다.
 - 최종 Docker 상태와 잔여 BuildKit 계보는 `docs/worklogs/2026-09-01-cache-audit.md`를 정본으로 사용한다.
 - 추가 승인된 잔여 BuildKit 네 레코드는 모두 제거됐으며 추가 Docker 정리는 새 조사와 승인 없이 진행하지 않는다.

@@ -920,6 +920,13 @@ async def test_replacement_version_retains_other_document_and_isolates_other_pro
                 )
             )
 
+        async with sessions() as session:
+            seeded_isolated_build = await session.get(
+                RagIndexBuildRecord, other_build_id
+            )
+        assert seeded_isolated_build is not None
+        assert seeded_isolated_build.is_active is True
+
         verifier = ProductionReadinessVerifier(settings)
         await workflow(settings, verifier).run(job_ids[0])
         await workflow(settings, verifier).run(job_ids[1])

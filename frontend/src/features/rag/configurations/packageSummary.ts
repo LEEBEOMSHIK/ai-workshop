@@ -2,6 +2,7 @@ import type { ModelDefinition, Profile } from "./api";
 
 export interface RagPackageSummary {
   parser: string;
+  ocr: string;
   chunker: string;
   embedding: string;
   sparseRetriever: string;
@@ -13,11 +14,13 @@ export interface RagPackageSummary {
 
 export function summarizeRagPackage({
   indexing,
+  documentProcessing,
   retrieval,
   generation,
   models,
 }: {
   indexing: Profile | undefined;
+  documentProcessing?: Profile | undefined;
   retrieval: Profile | undefined;
   generation?: Profile | undefined;
   models: ModelDefinition[];
@@ -26,7 +29,8 @@ export function summarizeRagPackage({
   const llm = boundModel(generation, "llm", models);
 
   return {
-    parser: "형식별 자동 선택 · 현재 구성에 고정되지 않음",
+    parser: parserIdentity(documentProcessing),
+    ocr: ocrIdentity(documentProcessing),
     chunker: profileValue(indexing, "chunker", "프로파일에 명시되지 않음"),
     embedding: modelIdentity(embedding),
     sparseRetriever: hasConfig(retrieval, "bm25") ? "BM25" : "사용 안 함",
@@ -37,6 +41,10 @@ export function summarizeRagPackage({
     reranker: "사용 안 함 (선택)",
     llm: generation ? modelIdentity(llm) : "사용 안 함 (추출식)",
   };
+}
+
+export function documentProcessingOptionLabel(profile: Profile): string {
+  return `${profile.name} v${profile.version} · ${parserIdentity(profile)} · ${ocrIdentity(profile)} · ${profile.evaluation_state}`;
 }
 
 export function isV1CompatibleRetrieval(profile: Profile): boolean {
@@ -103,6 +111,32 @@ function boundModel(
 
 function hasConfig(profile: Profile | undefined, key: string): boolean {
   return Boolean(profile && key in profile.config && profile.config[key] !== null);
+}
+
+function parserIdentity(profile: Profile | undefined): string {
+  const policy = profile?.config.parser_policy;
+  if (!profile) return "형식별 자동 선택 · 현재 구성에 고정되지 않음";
+  if (!policy || typeof policy !== "object" || Array.isArray(policy)) return "파서 정보 없음";
+  const routes = policy.routes;
+  if (!routes || typeof routes !== "object" || Array.isArray(routes)) return "파서 정보 없음";
+  const labels = Object.keys(routes).map((mediaType) => {
+    if (mediaType.includes("wordprocessingml")) return "DOCX";
+    if (mediaType === "application/pdf") return "PDF";
+    if (mediaType.includes("markdown")) return "Markdown";
+    if (mediaType === "text/plain") return "TXT";
+    return mediaType;
+  });
+  return Array.from(new Set(labels)).join("·") || "파서 정보 없음";
+}
+
+function ocrIdentity(profile: Profile | undefined): string {
+  const ocr = profile?.config.ocr;
+  if (!ocr || typeof ocr !== "object" || Array.isArray(ocr) || ocr.enabled !== true) {
+    return "OCR 사용 안 함";
+  }
+  const name = typeof ocr.pipeline_name === "string" ? ocr.pipeline_name : "OCR";
+  const version = typeof ocr.pipeline_version === "string" ? ` ${ocr.pipeline_version}` : "";
+  return `${name}${version}`;
 }
 
 function profileValue(profile: Profile | undefined, key: string, fallback: string): string {

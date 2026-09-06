@@ -31,6 +31,10 @@ from ai_workshop.labs.rag.indexing.contracts import (
 from ai_workshop.labs.rag.indexing.elasticsearch import ElasticsearchSearchIndex
 from ai_workshop.labs.rag.ingestion.domain import RagIngestionError
 from ai_workshop.labs.rag.ingestion.locking import lock_ingestion_source
+from ai_workshop.labs.rag.models.document_processing import (
+    LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
+    index_namespace_document_processing_profile_id,
+)
 from ai_workshop.labs.rag.models.models import ProfileRecord
 from ai_workshop.platform.assets.domain import VersionStatus
 from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecord
@@ -92,6 +96,7 @@ class _AuthoritativeTarget:
     build_id: UUID
     index_name: str | None
     vector_dimension: int | None
+    document_processing_profile_id: UUID
 
 
 @asynccontextmanager
@@ -244,10 +249,38 @@ class SqlAlchemyRagAliasParityReconciler:
                 retryable=True,
             )
 
+        processing_profile_ids = tuple(
+            await session.scalars(
+                select(RagIndexBuildRecord.document_processing_profile_id)
+                .where(RagIndexBuildRecord.indexing_profile_id == profile_id)
+                .distinct()
+                .order_by(RagIndexBuildRecord.document_processing_profile_id)
+            )
+        )
+        if not processing_profile_ids:
+            processing_profile_ids = (LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,)
+        for processing_profile_id in processing_profile_ids:
+            await self._reconcile_scope(session, profile_id, processing_profile_id)
+
+    async def _reconcile_scope(
+        self,
+        session: AsyncSession,
+        profile_id: UUID,
+        processing_profile_id: UUID,
+    ) -> None:
+        current = await _authoritative_targets(
+            session,
+            profile_id,
+            processing_profile_id=processing_profile_id,
+        )
         builds = tuple(
             await session.scalars(
                 select(RagIndexBuildRecord)
-                .where(RagIndexBuildRecord.indexing_profile_id == profile_id)
+                .where(
+                    RagIndexBuildRecord.indexing_profile_id == profile_id,
+                    RagIndexBuildRecord.document_processing_profile_id
+                    == processing_profile_id,
+                )
                 .order_by(RagIndexBuildRecord.id)
                 .with_for_update()
             )
@@ -272,9 +305,13 @@ class SqlAlchemyRagAliasParityReconciler:
             )
         dimension = next(iter(dimensions), 1)
         descriptor = IndexDescriptor(dimension, "cosine")
+        index_namespace_profile_id = index_namespace_document_processing_profile_id(
+            processing_profile_id
+        )
         alias = descriptor.active_alias(
             self.settings.elasticsearch_index_prefix,
             profile_id,
+            document_processing_profile_id=index_namespace_profile_id,
         )
         intended_names: list[str] = []
         for target in current:
@@ -283,6 +320,7 @@ class SqlAlchemyRagAliasParityReconciler:
                 self.settings.elasticsearch_index_prefix,
                 profile_id,
                 target.build_id,
+                document_processing_profile_id=index_namespace_profile_id,
             )
             if (
                 build is None
@@ -329,7 +367,11 @@ class SqlAlchemyRagAliasParityReconciler:
         target_build_ids = tuple(target.build_id for target in current)
         await session.execute(
             update(RagIndexBuildRecord)
-            .where(RagIndexBuildRecord.indexing_profile_id == profile_id)
+            .where(
+                RagIndexBuildRecord.indexing_profile_id == profile_id,
+                RagIndexBuildRecord.document_processing_profile_id
+                == processing_profile_id,
+            )
             .values(is_active=RagIndexBuildRecord.id.in_(target_build_ids))
         )
         await session.flush()
@@ -338,38 +380,50 @@ class SqlAlchemyRagAliasParityReconciler:
 async def _authoritative_targets(
     session: AsyncSession,
     profile_id: UUID,
+    *,
+    processing_profile_id: UUID | None = None,
 ) -> tuple[_AuthoritativeTarget, ...]:
+    statement = (
+        select(
+            AssetVersionRecord.id,
+            DocumentRecord.id,
+            RagProjectionRecord.id,
+            RagIndexBuildRecord.id,
+            RagIndexBuildRecord.index_name,
+            RagIndexBuildRecord.vector_dimension,
+            RagProjectionRecord.document_processing_profile_id,
+        )
+        .join(
+            RagProjectionRecord,
+            RagProjectionRecord.asset_version_id == AssetVersionRecord.id,
+        )
+        .join(
+            RagIndexBuildRecord,
+            RagIndexBuildRecord.projection_id == RagProjectionRecord.id,
+        )
+        .join(
+            DocumentRecord,
+            DocumentRecord.id == AssetVersionRecord.document_id,
+        )
+        .where(
+            RagProjectionRecord.indexing_profile_id == profile_id,
+            RagProjectionRecord.status == ProjectionStatus.READY,
+            RagIndexBuildRecord.indexing_profile_id == profile_id,
+            RagIndexBuildRecord.document_processing_profile_id
+            == RagProjectionRecord.document_processing_profile_id,
+            RagIndexBuildRecord.status == "ready",
+            AssetVersionRecord.status == VersionStatus.READY,
+            DocumentRecord.active_version_id == AssetVersionRecord.id,
+        )
+    )
+    if processing_profile_id is not None:
+        statement = statement.where(
+            RagProjectionRecord.document_processing_profile_id
+            == processing_profile_id,
+        )
     rows = (
         await session.execute(
-            select(
-                AssetVersionRecord.id,
-                DocumentRecord.id,
-                RagProjectionRecord.id,
-                RagIndexBuildRecord.id,
-                RagIndexBuildRecord.index_name,
-                RagIndexBuildRecord.vector_dimension,
-            )
-            .join(
-                RagProjectionRecord,
-                RagProjectionRecord.asset_version_id == AssetVersionRecord.id,
-            )
-            .join(
-                RagIndexBuildRecord,
-                RagIndexBuildRecord.projection_id == RagProjectionRecord.id,
-            )
-            .join(
-                DocumentRecord,
-                DocumentRecord.id == AssetVersionRecord.document_id,
-            )
-            .where(
-                RagProjectionRecord.indexing_profile_id == profile_id,
-                RagProjectionRecord.status == ProjectionStatus.READY,
-                RagIndexBuildRecord.indexing_profile_id == profile_id,
-                RagIndexBuildRecord.status == "ready",
-                AssetVersionRecord.status == VersionStatus.READY,
-                DocumentRecord.active_version_id == AssetVersionRecord.id,
-            )
-            .order_by(AssetVersionRecord.id, RagIndexBuildRecord.id)
+            statement.order_by(AssetVersionRecord.id, RagIndexBuildRecord.id)
         )
     ).all()
     return tuple(_AuthoritativeTarget(*row) for row in rows)

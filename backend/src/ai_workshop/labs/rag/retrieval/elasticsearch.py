@@ -6,7 +6,12 @@ from uuid import UUID
 
 from elasticsearch import ApiError, AsyncElasticsearch, TransportError
 
-from ai_workshop.labs.rag.documents.domain import EvidenceUnit, SourceLocation
+from ai_workshop.labs.rag.documents.domain import (
+    EvidenceUnit,
+    SourceKind,
+    SourceLocation,
+    TableCellLocation,
+)
 from ai_workshop.labs.rag.retrieval.domain import (
     ActiveIndexAlias,
     DenseHit,
@@ -573,6 +578,7 @@ def _parse_evidence(
         if len(values) != 4:
             raise ValueError("Evidence bounding boxes require four values.")
         bbox = values
+    raw_cell = source.get("table_cell")
     return EvidenceUnit(
         id=UUID(str(source["id"])),
         chunk_id=stored_chunk_id,
@@ -584,6 +590,21 @@ def _parse_evidence(
             char_start=int(source["char_start"]),
             char_end=int(source["char_end"]),
             bbox=bbox,
+            source_kind=SourceKind(str(source.get("source_kind", "normalized_text"))),
+            source_part=(str(source["source_part"]) if source.get("source_part") else None),
+            image_sha256=(
+                str(source["image_sha256"]) if source.get("image_sha256") else None
+            ),
+            table_cell=(
+                TableCellLocation(
+                    row=int(raw_cell["row"]),
+                    column=int(raw_cell["column"]),
+                    row_span=int(raw_cell.get("row_span", 1)),
+                    column_span=int(raw_cell.get("column_span", 1)),
+                )
+                if isinstance(raw_cell, dict)
+                else None
+            ),
         ),
         projection_id=stored_projection_id,
     )

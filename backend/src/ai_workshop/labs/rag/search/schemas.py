@@ -4,6 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from ai_workshop.labs.rag.deployments.domain import ExecutionLocation, ProviderKind
+from ai_workshop.labs.rag.documents.domain import SourceKind, SourceLocation
 from ai_workshop.labs.rag.highlighting.domain import (
     AnswerStatus,
     ConflictState,
@@ -67,6 +68,34 @@ class SourceLocationResponse(BaseModel):
     char_start: int
     char_end: int
     bbox: tuple[float, float, float, float] | None
+    source_kind: SourceKind
+    source_part: str | None
+    image_sha256: str | None
+    table_cell: dict[str, int] | None
+
+    @classmethod
+    def from_domain(cls, location: SourceLocation) -> Self:
+        cell = location.table_cell
+        return cls(
+            element_id=location.element_id,
+            page=location.page,
+            char_start=location.char_start,
+            char_end=location.char_end,
+            bbox=location.bbox,
+            source_kind=location.source_kind,
+            source_part=location.source_part,
+            image_sha256=location.image_sha256,
+            table_cell=(
+                {
+                    "row": cell.row,
+                    "column": cell.column,
+                    "row_span": cell.row_span,
+                    "column_span": cell.column_span,
+                }
+                if cell is not None
+                else None
+            ),
+        )
 
 
 class HighlightSpanResponse(BaseModel):
@@ -128,13 +157,7 @@ class SourceReferenceResponse(BaseModel):
             title=source.chunk.title,
             media_type=source.media_type,
             section_path=list(source.chunk.section_path),
-            location=SourceLocationResponse(
-                element_id=location.element_id,
-                page=location.page,
-                char_start=location.char_start,
-                char_end=location.char_end,
-                bbox=location.bbox,
-            ),
+            location=SourceLocationResponse.from_domain(location),
         )
 
 
@@ -271,6 +294,8 @@ class NormalizedElementResponse(BaseModel):
     section_path: list[str]
     location: SourceLocationResponse
     confidence: float | None
+    evidence_eligible: bool
+    warnings: list[str]
 
 
 class NormalizedTextResponse(BaseModel):

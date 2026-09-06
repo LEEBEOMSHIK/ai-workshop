@@ -12,6 +12,9 @@ from psycopg import sql
 from sqlalchemy import make_url
 
 from ai_workshop.config import get_settings
+from ai_workshop.labs.rag.models.document_processing import (
+    LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
+)
 from alembic import command
 
 pytestmark = pytest.mark.integration
@@ -142,13 +145,15 @@ def _insert_configuration_version(
     return connection.execute(
         """
         INSERT INTO rag_configuration_versions (
-            configuration_id, version, indexing_profile_id,
+            configuration_id, version, document_processing_profile_id,
+            indexing_profile_id,
             retrieval_profile_id, generation_profile_id,
             answer_policy_version_id, evaluation_state, is_default, id
-        ) VALUES (%s, 1, %s, %s, NULL, %s, 'pending', false, %s)
+        ) VALUES (%s, 1, %s, %s, %s, NULL, %s, 'pending', false, %s)
         """,
         (
             fixture.configuration_id,
+            LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
             fixture.indexing_profile_id,
             fixture.retrieval_profile_id,
             fixture.policy_id,

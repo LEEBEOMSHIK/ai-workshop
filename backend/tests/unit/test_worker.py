@@ -79,7 +79,7 @@ def test_unknown_handoff_log_carries_bounded_exact_identities(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     identities = tuple(
-        RagAssetHandoffIdentity(uuid4(), uuid4()) for _ in range(25)
+        RagAssetHandoffIdentity(uuid4(), uuid4(), uuid4()) for _ in range(25)
     )
     error = RagAssetHandoffRunError(
         RagAssetHandoffResult(claimed=25, created=0, failed=25),

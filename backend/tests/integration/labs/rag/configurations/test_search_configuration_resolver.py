@@ -169,6 +169,7 @@ async def test_postgres_versions_visibility_jobs_subscriptions_and_exact_resolve
     settings = Settings(
         secret_key="task10-integration-secret-key-at-least-32-chars",
         database_url=database_url,
+        elasticsearch_index_prefix="ai-workshop-rag",
     )
     async with engine.connect() as connection:
         transaction = await connection.begin()

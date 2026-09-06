@@ -72,10 +72,7 @@ class FrozenResolvedScope:
         indexing_profile_id: UUID,
     ) -> ResolvedSearchScope:
         del actor_id, indexing_profile_id
-        if (
-            workspace_ids != self.value.workspace_ids
-            or folder_ids != self.value.folder_ids
-        ):
+        if workspace_ids != self.value.workspace_ids or folder_ids != self.value.folder_ids:
             raise RuntimeError("The resolved Evaluation Search scope changed.")
         return self.value
 
@@ -93,9 +90,7 @@ class _FrozenConfiguration:
 class FrozenSourceResolver:
     def __init__(self, snapshot: dict[str, object]) -> None:
         raw_sources = cast(list[dict[str, object]], snapshot.get("sources", []))
-        self.sources = {
-            UUID(str(item["chunk_id"])): item for item in raw_sources
-        }
+        self.sources = {UUID(str(item["chunk_id"])): item for item in raw_sources}
 
     def resolve(
         self,
@@ -112,11 +107,9 @@ class FrozenSourceResolver:
                 continue
             if (
                 UUID(str(frozen["indexing_profile_id"])) != indexing_profile_id
-                or UUID(str(frozen["index_build_id"]))
-                != hit.chunk.index_build_id
+                or UUID(str(frozen["index_build_id"])) != hit.chunk.index_build_id
                 or UUID(str(frozen["projection_id"])) != hit.chunk.projection_id
-                or UUID(str(frozen["asset_version_id"]))
-                != hit.chunk.asset_version_id
+                or UUID(str(frozen["asset_version_id"])) != hit.chunk.asset_version_id
             ):
                 raise RuntimeError("The frozen Evaluation source manifest drifted.")
             evidence = tuple(
@@ -129,19 +122,14 @@ class FrozenSourceResolver:
                     location=SourceLocation(
                         element_id=UUID(str(item["element_id"])),
                         page=(
-                            int(cast(int, item["page"]))
-                            if item.get("page") is not None
-                            else None
+                            int(cast(int, item["page"])) if item.get("page") is not None else None
                         ),
                         char_start=int(cast(int, item["char_start"])),
                         char_end=int(cast(int, item["char_end"])),
                         bbox=(
                             cast(
                                 tuple[float, float, float, float],
-                                tuple(
-                                    float(value)
-                                    for value in cast(list[float], item["bbox"])
-                                ),
+                                tuple(float(value) for value in cast(list[float], item["bbox"])),
                             )
                             if item.get("bbox") is not None
                             else None
@@ -155,23 +143,18 @@ class FrozenSourceResolver:
             resolved.append(
                 EvidenceSource(
                     document_id=UUID(str(frozen["document_id"])),
-                    asset_version_number=int(
-                        cast(int, frozen["asset_version_number"])
-                    ),
+                    asset_version_number=int(cast(int, frozen["asset_version_number"])),
                     media_type=str(frozen["media_type"]),
                     chunk=RetrievedChunk(
                         chunk_id=hit.chunk_id,
                         projection_id=UUID(str(frozen["projection_id"])),
                         asset_version_id=UUID(str(frozen["asset_version_id"])),
                         workspace_id=UUID(str(workspace["id"])),
-                        folder_id=(
-                            UUID(str(folder["id"])) if folder is not None else None
-                        ),
+                        folder_id=(UUID(str(folder["id"])) if folder is not None else None),
                         index_build_id=UUID(str(frozen["index_build_id"])),
                         title=str(frozen["title"]),
                         section_path=tuple(
-                            str(item)
-                            for item in cast(list[str], frozen["section_path"])
+                            str(item) for item in cast(list[str], frozen["section_path"])
                         ),
                         text=str(frozen["chunk_text"]),
                         evidence_units=evidence,
@@ -180,6 +163,26 @@ class FrozenSourceResolver:
                 )
             )
         return tuple(resolved)
+
+
+def _candidate_processing_profile_id(
+    candidate: CandidateExecutionInput,
+) -> UUID | None:
+    snapshot = candidate.component_snapshot
+    if snapshot is None:
+        return None
+    configuration = snapshot.get("configuration")
+    if not isinstance(configuration, Mapping):
+        return None
+    raw = configuration.get("document_processing_profile_id")
+    if raw is None:
+        return None
+    try:
+        return UUID(str(raw))
+    except ValueError as exc:
+        raise RuntimeError(
+            "The frozen Evaluation document processing identity is invalid."
+        ) from exc
 
 
 class ProductionEvaluationSearch(EvaluationSearchPort):
@@ -217,14 +220,39 @@ class ProductionEvaluationSearch(EvaluationSearchPort):
         mapping_versions = {item.mapping_version for item in candidate.index_builds}
         if len(dimensions) != 1 or len(profile_ids) != 1 or len(mapping_versions) != 1:
             raise RuntimeError("The frozen Evaluation index manifest is incompatible.")
+        descriptor = IndexDescriptor(
+            next(iter(dimensions)),
+            "cosine",
+            mapping_version=next(iter(mapping_versions)),
+        )
+        indexing_profile_id = next(iter(profile_ids))
+        processing_profile_id = _candidate_processing_profile_id(candidate)
+        actual_names = tuple(item.index_name for item in candidate.index_builds)
+        legacy_prefix = descriptor.active_alias(
+            self.settings.elasticsearch_index_prefix,
+            indexing_profile_id,
+        ).removesuffix("active")
+        processing_prefix = (
+            descriptor.active_alias(
+                self.settings.elasticsearch_index_prefix,
+                indexing_profile_id,
+                document_processing_profile_id=processing_profile_id,
+            ).removesuffix("active")
+            if processing_profile_id is not None
+            else None
+        )
+        if processing_prefix is not None and all(
+            name.startswith(processing_prefix) for name in actual_names
+        ):
+            target_processing_profile_id = processing_profile_id
+        elif all(name.startswith(legacy_prefix) for name in actual_names):
+            target_processing_profile_id = None
+        else:
+            raise RuntimeError("The frozen Evaluation index identity is incompatible.")
         target = FrozenIndexTarget(
-            descriptor=IndexDescriptor(
-                next(iter(dimensions)),
-                "cosine",
-                mapping_version=next(iter(mapping_versions)),
-            ),
+            descriptor=descriptor,
             index_prefix=self.settings.elasticsearch_index_prefix,
-            indexing_profile_id=next(iter(profile_ids)),
+            indexing_profile_id=indexing_profile_id,
             identities=tuple(
                 FrozenIndexIdentity(
                     index_name=item.index_name,
@@ -238,10 +266,9 @@ class ProductionEvaluationSearch(EvaluationSearchPort):
                 for item in candidate.index_builds
             ),
             asset_version_ids=tuple(
-                item.asset_version_id
-                for item in candidate.index_builds
-                if item.active_at_snapshot
+                item.asset_version_id for item in candidate.index_builds if item.active_at_snapshot
             ),
+            document_processing_profile_id=target_processing_profile_id,
         )
         await require_concrete_frozen_indices(self.elasticsearch, target)
         configuration = self._resolve_configuration(candidate, target)
@@ -333,9 +360,7 @@ class ProductionEvaluationSearch(EvaluationSearchPort):
                     spans=(CharacterSpan(item.char_start, item.char_end),)
                     if item.bbox is None
                     else (),
-                    bboxes=(BoundingBox(*item.bbox),)
-                    if item.bbox is not None
-                    else (),
+                    bboxes=(BoundingBox(*item.bbox),) if item.bbox is not None else (),
                 )
                 for surface, selected_item, item in highlights
             ),
@@ -357,9 +382,7 @@ class ProductionEvaluationSearch(EvaluationSearchPort):
             raise RuntimeError("The frozen Evaluation execution snapshot is unavailable.")
         scopes = [
             item
-            for item in cast(
-                list[dict[str, object]], snapshot.get("permission_scopes", [])
-            )
+            for item in cast(list[dict[str, object]], snapshot.get("permission_scopes", []))
             if item.get("case_id") == str(case.id)
         ]
         if len(scopes) != 1:
@@ -370,8 +393,7 @@ class ProductionEvaluationSearch(EvaluationSearchPort):
             scope.get("actor_id") != str(actor_id)
             or cast(list[str], scope["workspace_ids"])
             != [str(item) for item in scenario.workspace_ids]
-            or cast(list[str], scope["folder_ids"])
-            != [str(item) for item in scenario.folder_ids]
+            or cast(list[str], scope["folder_ids"]) != [str(item) for item in scenario.folder_ids]
             or set(cast(list[str], scope["authorized_source_ids"]))
             != {str(item) for item in scenario.authorized_source_ids}
             or set(cast(list[str], scope["forbidden_source_ids"]))
@@ -397,21 +419,15 @@ class ProductionEvaluationSearch(EvaluationSearchPort):
             raise RuntimeError("The frozen Evaluation component snapshot is unavailable.")
         manifest_candidates = [
             item
-            for item in cast(
-                list[dict[str, object]], execution_snapshot.get("candidates", [])
-            )
-            if item.get("configuration_version_id")
-            == str(candidate.configuration_version_id)
+            for item in cast(list[dict[str, object]], execution_snapshot.get("candidates", []))
+            if item.get("configuration_version_id") == str(candidate.configuration_version_id)
         ]
         component_without_hash = {
-            key: value
-            for key, value in snapshot.items()
-            if key != "execution_snapshot_sha256"
+            key: value for key, value in snapshot.items() if key != "execution_snapshot_sha256"
         }
         if (
             len(manifest_candidates) != 1
-            or manifest_candidates[0].get("component_snapshot")
-            != component_without_hash
+            or manifest_candidates[0].get("component_snapshot") != component_without_hash
         ):
             raise RuntimeError("The frozen Evaluation component manifest drifted.")
         configuration = cast(dict[str, object], snapshot["configuration"])
@@ -503,13 +519,9 @@ class ProductionEvaluationSearch(EvaluationSearchPort):
         policy = cast(dict[str, object], snapshot["answer_policy"])
         answer_policy = AnswerPolicy(
             min_semantic_score=float(cast(float, policy["min_semantic_score"])),
-            min_keyword_coverage=float(
-                cast(float, policy["min_keyword_coverage"])
-            ),
+            min_keyword_coverage=float(cast(float, policy["min_keyword_coverage"])),
             require_complete_provenance=bool(policy["require_complete_provenance"]),
-            conflict_mode=cast(
-                Literal["separate_sources"], str(policy["conflict_mode"])
-            ),
+            conflict_mode=cast(Literal["separate_sources"], str(policy["conflict_mode"])),
         )
         return _FrozenConfiguration(
             indexing_profile_id=target.indexing_profile_id,

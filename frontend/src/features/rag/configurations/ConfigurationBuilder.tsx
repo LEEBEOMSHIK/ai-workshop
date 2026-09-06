@@ -10,7 +10,9 @@ import type {
   Workspace,
 } from "./api";
 import { loadDeploymentOptions, saveConfiguration } from "./api";
+import { DocumentProcessingDetails } from "./DocumentProcessingDetails";
 import {
+  documentProcessingOptionLabel,
   hasResolvableEmbedding,
   indexingOptionLabel,
   isV1CompatibleRetrieval,
@@ -25,6 +27,8 @@ interface ConfigurationBuilderProps {
   onSaved: (configuration: SavedConfiguration, addToComparison: boolean) => void;
 }
 
+const LEGACY_DOCUMENT_PROCESSING_PROFILE_ID = "00000000-0000-0000-0000-000000000207";
+
 export function ConfigurationBuilder({
   configurations,
   models,
@@ -36,6 +40,15 @@ export function ConfigurationBuilder({
     () => profiles.filter((profile) => hasResolvableEmbedding(profile, models)),
     [models, profiles],
   );
+  const documentProcessingProfiles = useMemo(
+    () => profiles.filter((profile) => profile.kind === "document_processing"),
+    [profiles],
+  );
+  const baselineProcessingId =
+    configurations.find((configuration) => configuration.is_system)?.document_processing_profile_id
+    ?? documentProcessingProfiles[0]?.id
+    ?? LEGACY_DOCUMENT_PROCESSING_PROFILE_ID;
+  const [documentProcessingProfileId, setDocumentProcessingProfileId] = useState(baselineProcessingId);
   const baselineIndexingId =
     configurations.find((configuration) => configuration.is_system)?.indexing_profile_id ??
     indexingProfiles[0]?.id ??
@@ -148,16 +161,22 @@ export function ConfigurationBuilder({
     ? externalApprovalPayload(generationDeployment)
     : null;
   const packageSummary = summarizeRagPackage({
+    documentProcessing: documentProcessingProfiles.find(
+      (profile) => profile.id === documentProcessingProfileId,
+    ),
     indexing: indexingProfile,
     retrieval: retrievalProfile,
     generation: answerMode === "generative" ? generationProfile : undefined,
     models,
   });
   const requiresNewIndex = Boolean(
-    baselineIndexingId && indexingProfileId && baselineIndexingId !== indexingProfileId,
+    (baselineIndexingId && indexingProfileId && baselineIndexingId !== indexingProfileId)
+      || (baselineProcessingId && documentProcessingProfileId
+        && baselineProcessingId !== documentProcessingProfileId),
   );
   const canSave = Boolean(
     name.trim() &&
+      documentProcessingProfileId &&
       indexingProfileId &&
       effectiveRetrievalProfileId &&
       workspaceIds.length > 0 &&
@@ -177,6 +196,7 @@ export function ConfigurationBuilder({
       submitter instanceof HTMLButtonElement && submitter.value === "compare";
     const request: SavedConfigurationCreate = {
       name: name.trim(),
+      document_processing_profile_id: documentProcessingProfileId,
       indexing_profile_id: indexingProfileId,
       retrieval_profile_id: effectiveRetrievalProfileId,
       generation_profile_id:
@@ -231,6 +251,36 @@ export function ConfigurationBuilder({
       </div>
       <form onSubmit={handleSubmit}>
         <fieldset disabled={saving}>
+          <legend>문서 처리 구성</legend>
+          <label>
+            문서 처리 프로파일
+            <select
+              value={documentProcessingProfileId}
+              onChange={(event) => setDocumentProcessingProfileId(event.target.value)}
+            >
+              {documentProcessingProfiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {documentProcessingOptionLabel(profile)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <ReadOnlyComponent label="Parser" value={packageSummary.parser} />
+          <ReadOnlyComponent label="OCR" value={packageSummary.ocr} />
+          <DocumentProcessingDetails
+            profile={documentProcessingProfiles.find(
+              (profile) => profile.id === documentProcessingProfileId,
+            )}
+            models={models}
+          />
+          {baselineProcessingId !== documentProcessingProfileId ? (
+            <p className="index-warning" role="alert">
+              문서 처리 구성이 변경되어 새 파싱·청킹·색인 버전이 필요합니다.
+            </p>
+          ) : null}
+        </fieldset>
+
+        <fieldset disabled={saving}>
           <legend>색인 구성</legend>
           <label>
             색인 패키지
@@ -248,7 +298,6 @@ export function ConfigurationBuilder({
           <p className="control-help">
             임베딩 모델과 청킹 방식이 함께 고정되며, 변경하면 호환되는 새 색인이 필요합니다.
           </p>
-          <ReadOnlyComponent label="Parser" value={packageSummary.parser} />
           <ReadOnlyComponent label="Chunker" value={packageSummary.chunker} />
           <ReadOnlyComponent label="Embedding" value={packageSummary.embedding} />
           {requiresNewIndex ? (

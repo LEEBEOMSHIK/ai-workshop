@@ -28,6 +28,7 @@ class IndexingResult:
     alias: str
     indexed_document_count: int
     alias_verified: bool
+    document_processing_profile_id: UUID | None = None
 
 
 class IndexingService:
@@ -44,6 +45,7 @@ class IndexingService:
         projection_id: UUID,
         expected_chunk_count: int,
         documents: Sequence[IndexDocument],
+        document_processing_profile_id: UUID | None = None,
     ) -> IndexingResult:
         prepared = await self.prepare_projection(
             descriptor=descriptor,
@@ -52,6 +54,7 @@ class IndexingService:
             projection_id=projection_id,
             expected_chunk_count=expected_chunk_count,
             documents=documents,
+            document_processing_profile_id=document_processing_profile_id,
         )
         existing_targets = await self.search_index.active_targets(prepared.alias)
         intended_targets = tuple(sorted({*existing_targets, prepared.index_name}))
@@ -69,6 +72,7 @@ class IndexingService:
         projection_id: UUID,
         expected_chunk_count: int,
         documents: Sequence[IndexDocument],
+        document_processing_profile_id: UUID | None = None,
     ) -> IndexingResult:
         if expected_chunk_count <= 0:
             raise ValueError("The expected chunk count must be positive.")
@@ -77,8 +81,17 @@ class IndexingService:
         if len({document.chunk_id for document in documents}) != len(documents):
             raise ValueError("Every supplied chunk must have a unique ID.")
         self._validate_documents(documents, projection_id, build_id, descriptor.vector_dimension)
-        index_name = descriptor.concrete_index_name(self.index_prefix, profile_id, build_id)
-        alias = descriptor.active_alias(self.index_prefix, profile_id)
+        index_name = descriptor.concrete_index_name(
+            self.index_prefix,
+            profile_id,
+            build_id,
+            document_processing_profile_id=document_processing_profile_id,
+        )
+        alias = descriptor.active_alias(
+            self.index_prefix,
+            profile_id,
+            document_processing_profile_id=document_processing_profile_id,
+        )
         await self.search_index.create(
             descriptor.for_index(
                 index_name,
@@ -113,6 +126,7 @@ class IndexingService:
             alias=alias,
             indexed_document_count=indexed_document_count,
             alias_verified=False,
+            document_processing_profile_id=document_processing_profile_id,
         )
 
     async def activate_prepared(
@@ -124,11 +138,13 @@ class IndexingService:
         expected_alias = prepared.descriptor.active_alias(
             self.index_prefix,
             prepared.profile_id,
+            document_processing_profile_id=prepared.document_processing_profile_id,
         )
         expected_name = prepared.descriptor.concrete_index_name(
             self.index_prefix,
             prepared.profile_id,
             prepared.build_id,
+            document_processing_profile_id=prepared.document_processing_profile_id,
         )
         if prepared.alias != expected_alias or prepared.index_name != expected_name:
             raise ValueError(

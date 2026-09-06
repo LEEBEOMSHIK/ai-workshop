@@ -55,3 +55,33 @@ class InvalidPdfCoordinatesError(ParsingError):
             "invalid_pdf_coordinates",
             f"PDF page {page_number} has text coordinates outside page bounds.",
         )
+
+
+class DocxPackageError(ParsingError):
+    pass
+
+
+class InvalidDocxError(DocxPackageError):
+    def __init__(self) -> None:
+        super().__init__("docx_invalid", "The DOCX package is malformed or unreadable.")
+
+
+class UnsafeDocxPackageError(DocxPackageError):
+    def __init__(self) -> None:
+        super().__init__("docx_package_unsafe", "The DOCX package exceeds safe processing limits.")
+
+
+class ExternalDocxRelationshipError(DocxPackageError):
+    def __init__(self) -> None:
+        super().__init__(
+            "docx_external_relationship",
+            "The DOCX package contains an external relationship.",
+        )
+
+
+class UnsupportedEmbeddedImageError(DocxPackageError):
+    def __init__(self) -> None:
+        super().__init__(
+            "docx_image_unsupported",
+            "The DOCX package contains an unsupported embedded image.",
+        )

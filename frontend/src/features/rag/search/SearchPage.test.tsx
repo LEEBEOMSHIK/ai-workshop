@@ -1012,6 +1012,7 @@ function savedConfiguration(
     version: 3,
     owner_id: "owner-1",
     workspace_ids: ["company-1", "personal-1"],
+    document_processing_profile_id: "00000000-0000-0000-0000-000000000207",
     indexing_profile_id: "indexing-1",
     retrieval_profile_id: "retrieval-1",
     generation_profile_id: "generation-1",

@@ -151,14 +151,10 @@ async def normalized_text(
                 kind=element.kind,
                 text=element.text,
                 section_path=list(element.section_path),
-                location=SourceLocationResponse(
-                    element_id=element.location.element_id,
-                    page=element.location.page,
-                    char_start=element.location.char_start,
-                    char_end=element.location.char_end,
-                    bbox=element.location.bbox,
-                ),
+                location=SourceLocationResponse.from_domain(element.location),
                 confidence=element.confidence,
+                evidence_eligible=element.evidence_eligible,
+                warnings=list(element.warnings),
             )
             for element in result.document.elements
         ],
@@ -195,5 +191,45 @@ async def pdf_page(
         headers={
             "X-AI-Workshop-Asset-Version": str(asset_version_id),
             "X-AI-Workshop-Projection": str(projection_id),
+        },
+    )
+
+
+@router.get(
+    "/sources/{asset_version_id}/docx/images/{element_id}",
+    response_class=Response,
+    responses={
+        200: {
+            "content": {
+                "image/jpeg": {"schema": {"type": "string", "format": "binary"}},
+                "image/png": {"schema": {"type": "string", "format": "binary"}},
+            },
+            "description": "Authorized immutable DOCX embedded image.",
+        },
+        503: {"model": ErrorEnvelope, "description": "Source object unavailable."},
+    },
+)
+async def docx_image(
+    asset_version_id: UUID,
+    element_id: UUID,
+    projection_id: Annotated[UUID, Query()],
+    image_sha256: Annotated[str, Query(min_length=64, max_length=64)],
+    user: Annotated[User, Depends(get_current_user)],
+    service: Annotated[ViewerService, Depends(get_viewer_service)],
+) -> Response:
+    result = await service.docx_image(
+        actor_id=user.id,
+        asset_version_id=asset_version_id,
+        projection_id=projection_id,
+        element_id=element_id,
+        image_sha256=image_sha256,
+    )
+    return Response(
+        content=result.content,
+        media_type=result.media_type,
+        headers={
+            "X-AI-Workshop-Asset-Version": str(asset_version_id),
+            "X-AI-Workshop-Projection": str(projection_id),
+            "X-AI-Workshop-Element": str(element_id),
         },
     )

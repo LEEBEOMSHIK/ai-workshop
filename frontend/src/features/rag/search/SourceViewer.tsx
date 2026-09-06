@@ -7,6 +7,7 @@ import {
   type HighlightSpan,
   type NormalizedTextData,
   loadNormalizedText,
+  loadDocxImage,
   loadPdfPage,
 } from "./api";
 
@@ -30,11 +31,16 @@ export function SourceViewer({
 }: SourceViewerProps) {
   const [attempt, setAttempt] = useState(0);
   const requestedPage = page ?? highlights.find((highlight) => highlight.page !== null)?.page;
-  const requestKey = `${assetVersionId}:${projectionId}:${requestedPage ?? "auto"}:${attempt}`;
+  const highlightSelectionKey = highlights
+    .map((highlight) => `${highlight.char_start}-${highlight.char_end}`)
+    .join(",");
+  const requestKey = `${assetVersionId}:${projectionId}:${requestedPage ?? "auto"}:${highlightSelectionKey}:${attempt}`;
   const [viewerState, setViewerState] = useState<{
     key: string;
     document: NormalizedTextData;
     pdfUrl: string | null;
+    docxImageUrl: string | null;
+    docxElementId: string | null;
   } | null>(null);
   const [failure, setFailure] = useState<{ key: string; error: ApiError } | null>(null);
   const [pageDimensions, setPageDimensions] = useState<{
@@ -44,6 +50,8 @@ export function SourceViewer({
   } | null>(null);
   const document = viewerState?.key === requestKey ? viewerState.document : null;
   const pdfUrl = viewerState?.key === requestKey ? viewerState.pdfUrl : null;
+  const docxImageUrl = viewerState?.key === requestKey ? viewerState.docxImageUrl : null;
+  const docxElementId = viewerState?.key === requestKey ? viewerState.docxElementId : null;
   const error = failure?.key === requestKey ? failure.error : null;
   const loading = document === null && error === null;
   const dimensions =
@@ -65,6 +73,8 @@ export function SourceViewer({
         const loadedDocument = await loadNormalizedText(assetVersionId, projectionId);
         if (!active) return;
         let loadedPdfUrl: string | null = null;
+        let loadedDocxImageUrl: string | null = null;
+        let loadedDocxElementId: string | null = null;
         if (loadedDocument.media_type === "application/pdf") {
           const pdfPage =
             requestedPage ??
@@ -75,7 +85,35 @@ export function SourceViewer({
           objectUrl = URL.createObjectURL(blob);
           loadedPdfUrl = objectUrl;
         }
-        setViewerState({ key: requestKey, document: loadedDocument, pdfUrl: loadedPdfUrl });
+        if (loadedDocument.media_type.endsWith("wordprocessingml.document")) {
+          const imageElements = loadedDocument.elements.filter(
+            (element) => element.location.source_kind === "docx_image"
+              && element.location.image_sha256,
+          );
+          const imageElement = imageElements.find((element) => highlights.some(
+            (highlight) => highlight.char_start >= element.location.char_start
+              && highlight.char_end <= element.location.char_end,
+          )) ?? imageElements[0];
+          if (imageElement?.location.image_sha256) {
+            const blob = await loadDocxImage(
+              assetVersionId,
+              projectionId,
+              imageElement.id,
+              imageElement.location.image_sha256,
+            );
+            if (!active) return;
+            objectUrl = URL.createObjectURL(blob);
+            loadedDocxImageUrl = objectUrl;
+            loadedDocxElementId = imageElement.id;
+          }
+        }
+        setViewerState({
+          key: requestKey,
+          document: loadedDocument,
+          pdfUrl: loadedPdfUrl,
+          docxImageUrl: loadedDocxImageUrl,
+          docxElementId: loadedDocxElementId,
+        });
       } catch (caught) {
         if (!active) return;
         setFailure({
@@ -92,7 +130,7 @@ export function SourceViewer({
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [assetVersionId, projectionId, requestKey, requestedPage]);
+  }, [assetVersionId, highlights, projectionId, requestKey, requestedPage]);
 
   const resolvedHighlights = useMemo(
     () => resolveHighlightText(document, highlights),
@@ -138,6 +176,14 @@ export function SourceViewer({
           highlights={resolvedHighlights}
           dimensions={dimensions}
           onImageLoad={(width, height) => setPageDimensions({ key: requestKey, width, height })}
+        />
+      ) : docxImageUrl && docxElementId ? (
+        <DocxImage
+          title={document.title}
+          imageUrl={docxImageUrl}
+          highlights={resolvedHighlights}
+          elementId={docxElementId}
+          document={document}
         />
       ) : (
         <section className="normalized-document" aria-label="정규화된 원문">
@@ -359,4 +405,58 @@ function resolveHighlightText(
     const end = highlight.char_end - element.location.char_start;
     return { ...highlight, text: Array.from(element.text).slice(start, end).join("") };
   });
+}
+
+function DocxImage({
+  title,
+  imageUrl,
+  highlights,
+  elementId,
+  document,
+}: {
+  title: string;
+  imageUrl: string;
+  highlights: HighlightSpan[];
+  elementId: string;
+  document: NormalizedTextData;
+}) {
+  const element = document.elements.find((item) => item.id === elementId);
+  const relevant = highlights.filter((highlight) => element
+    && highlight.char_start >= element.location.char_start
+    && highlight.char_end <= element.location.char_end);
+  return (
+    <section className="pdf-viewer" aria-label="DOCX 이미지 OCR 원문">
+      <p className="source-location">OCR로 인식한 의미 근거</p>
+      <div className="pdf-page">
+        <img src={imageUrl} alt={`${title} 안의 근거 이미지`} />
+        <div className="pdf-overlay-layer" aria-hidden={relevant.length === 0}>
+          {relevant.map((highlight) => {
+            const style = normalizedOverlayStyle(highlight.bbox);
+            return style ? (
+              <span
+                key={`${highlight.evidence_unit_id}-${highlight.kind}-${highlight.char_start}`}
+                className={`pdf-highlight ${highlight.kind}-highlight`}
+                aria-label={`${highlightLabels[highlight.kind]} OCR 강조 영역`}
+                style={style}
+              />
+            ) : null;
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function normalizedOverlayStyle(bbox: HighlightSpan["bbox"]): CSSProperties | null {
+  if (!bbox) return null;
+  const [left, top, right, bottom] = bbox;
+  if (![left, top, right, bottom].every(Number.isFinite)
+    || left < 0 || top < 0 || right > 1 || bottom > 1
+    || right <= left || bottom <= top) return null;
+  return {
+    left: `${left * 100}%`,
+    top: `${top * 100}%`,
+    width: `${(right - left) * 100}%`,
+    height: `${(bottom - top) * 100}%`,
+  };
 }

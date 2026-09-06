@@ -3,7 +3,9 @@ from uuid import uuid4
 import pytest
 
 from ai_workshop.labs.rag.models.document_processing import (
+    LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
     DocumentProcessingResolutionError,
+    index_namespace_document_processing_profile_id,
     resolve_document_processing_spec,
 )
 from ai_workshop.labs.rag.models.domain import (
@@ -101,3 +103,14 @@ def test_resolver_rejects_an_unresolved_model_binding() -> None:
 
     with pytest.raises(DocumentProcessingResolutionError, match="cannot be resolved"):
         resolve_document_processing_spec(broken, models)
+
+
+def test_legacy_processing_profile_keeps_legacy_index_namespace() -> None:
+    assert (
+        index_namespace_document_processing_profile_id(
+            LEGACY_DOCUMENT_PROCESSING_PROFILE_ID
+        )
+        is None
+    )
+    ocr_profile_id = uuid4()
+    assert index_namespace_document_processing_profile_id(ocr_profile_id) == ocr_profile_id

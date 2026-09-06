@@ -4,7 +4,12 @@ from uuid import uuid4
 
 import pymupdf
 
-from ai_workshop.labs.rag.documents.domain import ParsedDocument, SourceLocation, StructuralElement
+from ai_workshop.labs.rag.documents.domain import (
+    ParsedDocument,
+    SourceKind,
+    SourceLocation,
+    StructuralElement,
+)
 from ai_workshop.labs.rag.parsing.contracts import (
     InvalidPdfCoordinatesError,
     OcrRequiredError,
@@ -75,6 +80,7 @@ class PdfParser:
                                         char_start=char_offset,
                                         char_end=char_offset + len(value),
                                         bbox=_validated_bbox(span["bbox"], page.rect, page_number),
+                                        source_kind=SourceKind.PDF_PAGE,
                                     ),
                                     parser_name=self.parser_name,
                                     parser_version=self.parser_version,

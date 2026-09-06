@@ -103,8 +103,7 @@ def _profile_to_domain(
         version=record.version,
         config=frozen,
         bindings=tuple(
-            ProfileModelBinding(ModelKind(item.role), item.model_id)
-            for item in record.bindings
+            ProfileModelBinding(ModelKind(item.role), item.model_id) for item in record.bindings
         ),
         evaluation_state=EvaluationState(record.evaluation_state),
         is_default=record.is_default,
@@ -144,39 +143,29 @@ class SqlAlchemyRagConfigurationRepository:
     async def get_deployment_version(
         self, deployment_version_id: UUID
     ) -> ModelDeploymentVersion | None:
-        return await SqlAlchemyDeploymentRepository(self.session).get_version(
-            deployment_version_id
-        )
+        return await SqlAlchemyDeploymentRepository(self.session).get_version(deployment_version_id)
 
-    async def get_model_definition(
-        self, model_definition_id: UUID
-    ) -> ModelDefinition | None:
+    async def get_model_definition(self, model_definition_id: UUID) -> ModelDefinition | None:
         record = await self.session.get(ModelDefinitionRecord, model_definition_id)
         return _model_to_domain(record) if record is not None else None
 
     async def lock_external_execution_policy(self) -> None:
-        await SqlAlchemyDataPolicyRepository(
-            self.session
-        ).lock_external_execution_policy()
+        await SqlAlchemyDataPolicyRepository(self.session).lock_external_execution_policy()
 
     async def latest_installation_policy(self) -> InstallationDataPolicyVersion:
-        return await SqlAlchemyDataPolicyRepository(
-            self.session
-        ).latest_installation_policy()
+        return await SqlAlchemyDataPolicyRepository(self.session).latest_installation_policy()
 
     async def latest_workspace_policies(
         self, workspace_ids: tuple[UUID, ...]
     ) -> tuple[WorkspaceDataPolicyVersion, ...]:
-        return await SqlAlchemyDataPolicyRepository(
-            self.session
-        ).latest_workspace_policies(workspace_ids)
+        return await SqlAlchemyDataPolicyRepository(self.session).latest_workspace_policies(
+            workspace_ids
+        )
 
     async def add_external_approval(
         self, approval: ExternalConfigurationApproval
     ) -> ExternalConfigurationApproval:
-        return await SqlAlchemyDataPolicyRepository(
-            self.session
-        ).add_external_approval(approval)
+        return await SqlAlchemyDataPolicyRepository(self.session).add_external_approval(approval)
 
     async def get_external_approval_for_configuration(
         self, configuration_version_id: UUID
@@ -289,9 +278,7 @@ class SqlAlchemyRagConfigurationRepository:
                 id=configuration.version_id,
                 configuration_id=configuration.id,
                 version=configuration.version,
-                document_processing_profile_id=(
-                    configuration.document_processing_profile_id
-                ),
+                document_processing_profile_id=(configuration.document_processing_profile_id),
                 indexing_profile_id=configuration.indexing_profile_id,
                 retrieval_profile_id=configuration.retrieval_profile_id,
                 generation_profile_id=configuration.generation_profile_id,
@@ -350,29 +337,45 @@ class SqlAlchemyRagConfigurationRepository:
         )
         return [await self._latest(record) for record in records]
 
-    async def ready_indexing_profile_ids(
+    async def ready_processing_indexing_profile_ids(
         self,
-        indexing_profile_ids: tuple[UUID, ...],
-    ) -> frozenset[UUID]:
-        if not indexing_profile_ids:
+        profile_ids: tuple[tuple[UUID, UUID], ...],
+    ) -> frozenset[tuple[UUID, UUID]]:
+        if not profile_ids:
             return frozenset()
         rows = (
             await self.session.execute(
                 select(
+                    RagIndexBuildRecord.document_processing_profile_id,
                     RagIndexBuildRecord.indexing_profile_id,
                     RagIndexBuildRecord.vector_dimension,
                 )
                 .where(
-                    RagIndexBuildRecord.indexing_profile_id.in_(indexing_profile_ids),
+                    or_(
+                        *(
+                            and_(
+                                RagIndexBuildRecord.document_processing_profile_id
+                                == processing_id,
+                                RagIndexBuildRecord.indexing_profile_id == indexing_id,
+                            )
+                            for processing_id, indexing_id in profile_ids
+                        )
+                    ),
                     RagIndexBuildRecord.status == "ready",
                     RagIndexBuildRecord.is_active.is_(True),
                 )
-                .order_by(RagIndexBuildRecord.indexing_profile_id, RagIndexBuildRecord.id)
+                .order_by(
+                    RagIndexBuildRecord.document_processing_profile_id,
+                    RagIndexBuildRecord.indexing_profile_id,
+                    RagIndexBuildRecord.id,
+                )
             )
         ).all()
-        dimensions_by_profile: dict[UUID, set[int | None]] = {}
-        for profile_id, dimension in rows:
-            dimensions_by_profile.setdefault(profile_id, set()).add(dimension)
+        dimensions_by_profile: dict[tuple[UUID, UUID], set[int | None]] = {}
+        for processing_id, indexing_id, dimension in rows:
+            dimensions_by_profile.setdefault(
+                (processing_id, indexing_id), set()
+            ).add(dimension)
         return frozenset(
             profile_id
             for profile_id, dimensions in dimensions_by_profile.items()
@@ -405,8 +408,7 @@ class SqlAlchemyRagConfigurationRepository:
                 select(RagConfigurationRecord, RagConfigurationVersionRecord)
                 .join(
                     RagConfigurationVersionRecord,
-                    RagConfigurationVersionRecord.configuration_id
-                    == RagConfigurationRecord.id,
+                    RagConfigurationVersionRecord.configuration_id == RagConfigurationRecord.id,
                 )
                 .where(
                     RagConfigurationVersionRecord.id == configuration_version_id,
@@ -457,17 +459,14 @@ class SqlAlchemyRagConfigurationRepository:
                 )
                 .join(
                     EvaluationRunRecord,
-                    EvaluationRunRecord.id
-                    == EvaluationRunConfigurationRecord.run_id,
+                    EvaluationRunRecord.id == EvaluationRunConfigurationRecord.run_id,
                 )
                 .join(
                     EvaluationPolicyRecord,
-                    EvaluationPolicyRecord.id
-                    == EvaluationRunRecord.evaluation_policy_version_id,
+                    EvaluationPolicyRecord.id == EvaluationRunRecord.evaluation_policy_version_id,
                 )
                 .where(
-                    EvaluationRunConfigurationRecord.configuration_version_id
-                    == version.id,
+                    EvaluationRunConfigurationRecord.configuration_version_id == version.id,
                     EvaluationRunRecord.owner_id == actor_id,
                     EvaluationPolicyRecord.owner_id == actor_id,
                     EvaluationPolicyRecord.dataset_snapshot_id
@@ -649,8 +648,7 @@ class SqlAlchemyRagConfigurationRepository:
                 )
                 .join(
                     RagConfigurationRecord,
-                    RagConfigurationRecord.id
-                    == RagConfigurationVersionRecord.configuration_id,
+                    RagConfigurationRecord.id == RagConfigurationVersionRecord.configuration_id,
                 )
                 .join(
                     AssetVersionRecord,
@@ -691,8 +689,7 @@ class SqlAlchemyRagConfigurationRepository:
                 )
                 .join(
                     RagConfigurationRecord,
-                    RagConfigurationRecord.id
-                    == RagConfigurationVersionRecord.configuration_id,
+                    RagConfigurationRecord.id == RagConfigurationVersionRecord.configuration_id,
                 )
                 .join(
                     DocumentRecord,
@@ -861,9 +858,7 @@ class SqlAlchemySearchConfigurationResolver:
         generation_profile: GenerationProfile | None = None
         external_approval: ResolvedExternalApproval | None = None
         if configuration.generation_profile_id is not None:
-            generation = await self.repository.find_profile(
-                configuration.generation_profile_id
-            )
+            generation = await self.repository.find_profile(configuration.generation_profile_id)
             if generation is None or generation.kind is not ProfileKind.GENERATION:
                 raise AppError(
                     "configuration_invalid",
@@ -909,9 +904,7 @@ class SqlAlchemySearchConfigurationResolver:
                 external_approval = ResolvedExternalApproval(
                     configuration_version_id=stored_approval.configuration_version_id,
                     deployment_version_id=stored_approval.deployment_version_id,
-                    installation_policy_version_id=(
-                        stored_approval.installation_policy_version_id
-                    ),
+                    installation_policy_version_id=(stored_approval.installation_policy_version_id),
                     disclosure_version=stored_approval.disclosure_version,
                     workspace_policies=tuple(
                         ResolvedWorkspacePolicyApproval(
@@ -927,6 +920,8 @@ class SqlAlchemySearchConfigurationResolver:
                 await self.session.scalars(
                     select(RagIndexBuildRecord)
                     .where(
+                        RagIndexBuildRecord.document_processing_profile_id
+                        == configuration.document_processing_profile_id,
                         RagIndexBuildRecord.indexing_profile_id == indexing.id,
                         RagIndexBuildRecord.status == "ready",
                         RagIndexBuildRecord.is_active.is_(True),
@@ -943,10 +938,40 @@ class SqlAlchemySearchConfigurationResolver:
                 )
             vector_dimension = next(iter(dimensions))
             assert vector_dimension is not None
-            target: SearchIndexTarget = ActiveIndexAlias(
-                IndexDescriptor(vector_dimension, "cosine"),
+            descriptor = IndexDescriptor(vector_dimension, "cosine")
+            if any(build.index_name is None for build in builds):
+                raise AppError(
+                    "configuration_not_ready",
+                    "The selected configuration has an incomplete active index identity.",
+                    409,
+                )
+            actual_names = {
+                build.index_name for build in builds if build.index_name is not None
+            }
+            legacy_prefix = descriptor.active_alias(
                 self.settings.elasticsearch_index_prefix,
                 indexing.id,
+            ).removesuffix("active")
+            processing_prefix = descriptor.active_alias(
+                self.settings.elasticsearch_index_prefix,
+                indexing.id,
+                document_processing_profile_id=(configuration.document_processing_profile_id),
+            ).removesuffix("active")
+            if all(name.startswith(processing_prefix) for name in actual_names):
+                alias_processing_profile_id = configuration.document_processing_profile_id
+            elif all(name.startswith(legacy_prefix) for name in actual_names):
+                alias_processing_profile_id = None
+            else:
+                raise AppError(
+                    "configuration_not_ready",
+                    "The selected configuration has incompatible active index identities.",
+                    409,
+                )
+            target: SearchIndexTarget = ActiveIndexAlias(
+                descriptor,
+                self.settings.elasticsearch_index_prefix,
+                indexing.id,
+                alias_processing_profile_id,
             )
         else:
             target = frozen_target

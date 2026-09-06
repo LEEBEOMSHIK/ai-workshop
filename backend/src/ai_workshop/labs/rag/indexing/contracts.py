@@ -34,18 +34,15 @@ def _canonical_alias_targets(
         raise ValueError("An active RAG alias target set cannot contain duplicates.")
     target_prefix = f"{alias_base}-"
     for target in targets:
-        if (
-            _SAFE_ELASTICSEARCH_NAME.fullmatch(target) is None
-            or not target.startswith(target_prefix)
+        if _SAFE_ELASTICSEARCH_NAME.fullmatch(target) is None or not target.startswith(
+            target_prefix
         ):
             raise ValueError("Every active alias target must belong to the exact profile.")
         build_text = target.removeprefix(target_prefix)
         try:
             build_id = UUID(build_text)
         except ValueError as exc:
-            raise ValueError(
-                "Every active alias target must identify an immutable build."
-            ) from exc
+            raise ValueError("Every active alias target must identify an immutable build.") from exc
         if str(build_id) != build_text:
             raise ValueError("Every active alias target must use a canonical build identity.")
     return tuple(sorted(targets))
@@ -75,11 +72,34 @@ class IndexDescriptor:
         if self.similarity != "cosine":
             raise ValueError("The RAG projection supports cosine similarity only.")
 
-    def concrete_index_name(self, prefix: str, profile_id: UUID, build_id: UUID) -> str:
-        return f"{prefix}-{profile_id}-{build_id}"
+    def concrete_index_name(
+        self,
+        prefix: str,
+        profile_id: UUID,
+        build_id: UUID,
+        *,
+        document_processing_profile_id: UUID | None = None,
+    ) -> str:
+        profile_prefix = (
+            f"{prefix}-{document_processing_profile_id}-{profile_id}"
+            if document_processing_profile_id is not None
+            else f"{prefix}-{profile_id}"
+        )
+        return f"{profile_prefix}-{build_id}"
 
-    def active_alias(self, prefix: str, profile_id: UUID) -> str:
-        return f"{prefix}-{profile_id}-active"
+    def active_alias(
+        self,
+        prefix: str,
+        profile_id: UUID,
+        *,
+        document_processing_profile_id: UUID | None = None,
+    ) -> str:
+        profile_prefix = (
+            f"{prefix}-{document_processing_profile_id}-{profile_id}"
+            if document_processing_profile_id is not None
+            else f"{prefix}-{profile_id}"
+        )
+        return f"{profile_prefix}-active"
 
     def for_index(
         self,
@@ -151,15 +171,26 @@ class IndexDocument:
                     "bbox": list(evidence.location.bbox)
                     if evidence.location.bbox is not None
                     else None,
+                    "source_kind": evidence.location.source_kind.value,
+                    "source_part": evidence.location.source_part,
+                    "image_sha256": evidence.location.image_sha256,
+                    "table_cell": (
+                        {
+                            "row": evidence.location.table_cell.row,
+                            "column": evidence.location.table_cell.column,
+                            "row_span": evidence.location.table_cell.row_span,
+                            "column_span": evidence.location.table_cell.column_span,
+                        }
+                        if evidence.location.table_cell is not None
+                        else None
+                    ),
                 }
                 for evidence in self.evidence_units
             ],
             "embedding": list(self.embedding) if self.embedding is not None else None,
             "index_build_id": str(self.index_build_id),
             "indexing_profile_id": (
-                str(self.indexing_profile_id)
-                if self.indexing_profile_id is not None
-                else None
+                str(self.indexing_profile_id) if self.indexing_profile_id is not None else None
             ),
             "rag_mapping_version": self.rag_mapping_version,
         }
@@ -175,9 +206,7 @@ class SearchIndexPort(Protocol):
     async def count_projection(self, index_name: str, projection_id: UUID) -> int:
         raise NotImplementedError
 
-    async def replace_active_targets(
-        self, alias: str, index_names: Sequence[str]
-    ) -> bool:
+    async def replace_active_targets(self, alias: str, index_names: Sequence[str]) -> bool:
         raise NotImplementedError
 
     async def active_targets(self, alias: str) -> tuple[str, ...]:

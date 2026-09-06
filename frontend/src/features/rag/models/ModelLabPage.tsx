@@ -26,11 +26,15 @@ const modelLabels: Record<ModelKind, string> = {
   embedding: "임베딩 모델",
   reranker: "리랭커 모델",
   llm: "LLM 모델",
+  ocr_text_detection: "OCR 텍스트 감지 모델",
+  ocr_text_recognition: "OCR 텍스트 인식 모델",
+  ocr_table_structure: "OCR 표 구조 모델",
 };
 const profileLabels: Record<ProfileKind, string> = {
   indexing: "색인 프로파일",
   retrieval: "검색 프로파일",
   generation: "생성 프로파일",
+  document_processing: "문서 처리 프로파일",
 };
 const evaluationLabels: Record<ProfileSummary["evaluation_state"], string> = {
   draft: "초안",
@@ -199,6 +203,9 @@ export function ModelLabPage({
             <label>종류<select name="kind" defaultValue="embedding">
               <option value="embedding">임베딩</option><option value="reranker">리랭커</option>
               <option value="llm">LLM</option>
+              <option value="ocr_text_detection">OCR 텍스트 감지</option>
+              <option value="ocr_text_recognition">OCR 텍스트 인식</option>
+              <option value="ocr_table_structure">OCR 표 구조</option>
             </select></label>
             <label>이름<input name="name" required /></label>
             <label>버전<input name="version" type="number" min="1" defaultValue="1" required /></label>
@@ -215,6 +222,7 @@ export function ModelLabPage({
             <label>종류<select name="kind" defaultValue="retrieval">
               <option value="indexing">색인</option><option value="retrieval">검색</option>
               <option value="generation">생성</option>
+              <option value="document_processing">문서 처리</option>
             </select></label>
             <label>프로파일 YAML<textarea name="content" rows={10} defaultValue={"kind: retrieval\nname: bm25-baseline\nversion: 1\nconfig:\n  bm25: {}\nbindings: []"} required /></label>
           </fieldset>
@@ -271,7 +279,12 @@ function RegistryTable({
 }
 
 function isSupportedModel(model: ModelDefinitionSummary): boolean {
-  return model.kind === "embedding" || model.kind === "reranker" || model.kind === "llm";
+  return model.kind === "embedding"
+    || model.kind === "reranker"
+    || model.kind === "llm"
+    || model.kind === "ocr_text_detection"
+    || model.kind === "ocr_text_recognition"
+    || model.kind === "ocr_table_structure";
 }
 
 function modelDetails(model: ModelDefinitionSummary): string {

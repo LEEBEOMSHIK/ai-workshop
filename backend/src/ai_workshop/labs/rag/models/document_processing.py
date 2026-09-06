@@ -16,6 +16,13 @@ LEGACY_DOCUMENT_PROCESSING_PROFILE_ID = UUID(
 )
 
 
+def index_namespace_document_processing_profile_id(profile_id: UUID) -> UUID | None:
+    """Keep migrated text indices on their legacy namespace; isolate newer processors."""
+    if profile_id == LEGACY_DOCUMENT_PROCESSING_PROFILE_ID:
+        return None
+    return profile_id
+
+
 class DocumentProcessingResolutionError(ValueError):
     pass
 

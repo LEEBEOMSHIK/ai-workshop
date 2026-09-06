@@ -482,6 +482,7 @@ function savedConfiguration(overrides: Partial<SavedConfiguration> = {}): SavedC
     owner_id: "owner-1",
     name: "내 E5 구성",
     version: 2,
+    document_processing_profile_id: "00000000-0000-0000-0000-000000000207",
     indexing_profile_id: "indexing-e5",
     retrieval_profile_id: "retrieval-e5",
     generation_profile_id: null,

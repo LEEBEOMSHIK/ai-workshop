@@ -50,6 +50,17 @@ def build_mapping(descriptor: IndexDescriptor) -> dict[str, Any]:
                         "char_start": {"type": "integer"},
                         "char_end": {"type": "integer"},
                         "bbox": {"type": "float"},
+                        "source_kind": {"type": "keyword"},
+                        "source_part": {"type": "keyword", "index": False},
+                        "image_sha256": {"type": "keyword"},
+                        "table_cell": {
+                            "properties": {
+                                "row": {"type": "integer"},
+                                "column": {"type": "integer"},
+                                "row_span": {"type": "integer"},
+                                "column_span": {"type": "integer"},
+                            }
+                        },
                     },
                 },
                 "embedding": {

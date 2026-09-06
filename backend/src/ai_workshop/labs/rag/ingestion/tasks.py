@@ -31,7 +31,17 @@ from ai_workshop.labs.rag.ingestion.stages import (
     ProductionIndexingStage,
     ProductionReadinessVerifier,
 )
+from ai_workshop.labs.rag.models.document_processing import (
+    DocumentProcessingResolutionError,
+    DocumentProcessingSpec,
+    resolve_document_processing_spec,
+)
+from ai_workshop.labs.rag.models.domain import ModelKind
 from ai_workshop.labs.rag.models.models import ProfileRecord
+from ai_workshop.labs.rag.models.repository import SqlAlchemyModelRegistryRepository
+from ai_workshop.labs.rag.ocr.contracts import OcrProfileSpec
+from ai_workshop.labs.rag.ocr.paddle_structure import PaddleStructureV3Adapter
+from ai_workshop.labs.rag.parsing.docx import DOCX_MEDIA_TYPE, DocxStructureParser
 from ai_workshop.labs.rag.parsing.markdown import MarkdownParser
 from ai_workshop.labs.rag.parsing.pdf import PdfParser
 from ai_workshop.labs.rag.parsing.plain_text import PlainTextParser
@@ -53,6 +63,7 @@ class _IngestionRows:
     processing_profile: ProfileRecord
     profile: ProfileRecord
     job: Job
+    processing_spec: DocumentProcessingSpec
 
 
 class SqlAlchemyRagIngestionLifecycle:
@@ -369,6 +380,28 @@ class SqlAlchemyRagIngestionLifecycle:
                 "The durable RAG ingestion command does not match its job.",
                 retryable=False,
             )
+        registry = SqlAlchemyModelRegistryRepository(session)
+        processing_domain = await registry.find_profile(processing_profile.id)
+        if processing_domain is None:
+            raise RagIngestionError(
+                "ingestion_dependency_missing",
+                "The document processing profile cannot be resolved.",
+                retryable=False,
+            )
+        models = await registry.find_models(
+            tuple(binding.model_id for binding in processing_domain.bindings)
+        )
+        try:
+            processing_spec = resolve_document_processing_spec(
+                processing_domain,
+                models,
+            )
+        except DocumentProcessingResolutionError as exc:
+            raise RagIngestionError(
+                "document_processing_profile_invalid",
+                "The selected document processing profile is invalid.",
+                retryable=False,
+            ) from exc
         return _IngestionRows(
             ingestion,
             projection,
@@ -377,6 +410,7 @@ class SqlAlchemyRagIngestionLifecycle:
             processing_profile,
             profile,
             job,
+            processing_spec,
         )
 
     @staticmethod
@@ -428,6 +462,7 @@ class SqlAlchemyRagIngestionLifecycle:
             document_processing_profile_id=(
                 rows.ingestion.document_processing_profile_id
             ),
+            document_processing_spec=rows.processing_spec,
         )
 
     def _require_completed_stage(
@@ -488,6 +523,9 @@ def create_rag_ingestion_workflow(settings: Settings) -> RagIngestionWorkflow:
         ParsingService(
             object_store,
             ParserRegistry((PlainTextParser(), MarkdownParser(), PdfParser())),
+            profile_parser_factory=lambda media_type, spec: _profile_parser(
+                media_type, spec, settings
+            ),
         ),
         ProductionChunkingStage(settings, runtime_provider),
         ProductionEmbeddingStage(
@@ -495,4 +533,46 @@ def create_rag_ingestion_workflow(settings: Settings) -> RagIngestionWorkflow:
         ),
         ProductionIndexingStage(settings, object_store),
         ProductionReadinessVerifier(settings),
+    )
+
+
+def _profile_parser(
+    media_type: str,
+    spec: DocumentProcessingSpec,
+    settings: Settings,
+) -> DocxStructureParser | None:
+    if media_type != DOCX_MEDIA_TYPE:
+        return None
+    if spec.ocr is None:
+        return DocxStructureParser()
+    ocr = spec.ocr
+    detection = ocr.models[ModelKind.OCR_TEXT_DETECTION]
+    recognition = ocr.models[ModelKind.OCR_TEXT_RECOGNITION]
+    table = ocr.models[ModelKind.OCR_TABLE_STRUCTURE]
+    profile = OcrProfileSpec.create(
+        pipeline_name=ocr.pipeline_name,
+        pipeline_version=ocr.pipeline_version,
+        detection_model_name=detection.name,
+        recognition_model_name=recognition.name,
+        table_model_name=table.name,
+        languages=ocr.languages,
+        confidence_threshold=ocr.confidence_threshold,
+        artifact_directories={
+            "detection": settings.model_cache_root
+            / "ocr"
+            / detection.kind.value
+            / detection.artifact_sha256,
+            "recognition": settings.model_cache_root
+            / "ocr"
+            / recognition.kind.value
+            / recognition.artifact_sha256,
+            "table": settings.model_cache_root
+            / "ocr"
+            / table.kind.value
+            / table.artifact_sha256,
+        },
+    )
+    return DocxStructureParser(
+        ocr_runtime=PaddleStructureV3Adapter(),
+        ocr_profile=profile,
     )

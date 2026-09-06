@@ -9,6 +9,7 @@ from ai_workshop.labs.rag.documents.domain import (
     ProjectionStatus,
     RagProjection,
     RetrievalChunk,
+    SourceLocation,
 )
 from ai_workshop.labs.rag.documents.models import (
     EvidenceUnitRecord,
@@ -19,6 +20,18 @@ from ai_workshop.labs.rag.documents.models import (
 from ai_workshop.labs.rag.models.document_processing import (
     LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
 )
+
+
+def _table_cell_json(location: SourceLocation) -> dict[str, int] | None:
+    cell = location.table_cell
+    if cell is None:
+        return None
+    return {
+        "row": cell.row,
+        "column": cell.column,
+        "row_span": cell.row_span,
+        "column_span": cell.column_span,
+    }
 
 
 class RagDocumentRepository(Protocol):
@@ -138,6 +151,12 @@ class SqlAlchemyRagDocumentRepository:
                     parser_name=element.parser_name,
                     parser_version=element.parser_version,
                     confidence=element.confidence,
+                    source_kind=element.location.source_kind.value,
+                    source_part=element.location.source_part,
+                    image_sha256=element.location.image_sha256,
+                    table_cell=_table_cell_json(element.location),
+                    evidence_eligible=element.evidence_eligible,
+                    warnings=list(element.warnings),
                 )
                 for element in document.elements
             ]
@@ -210,6 +229,10 @@ class SqlAlchemyRagDocumentRepository:
                             if evidence.location.bbox is not None
                             else None
                         ),
+                        source_kind=evidence.location.source_kind.value,
+                        source_part=evidence.location.source_part,
+                        image_sha256=evidence.location.image_sha256,
+                        table_cell=_table_cell_json(evidence.location),
                     )
                 )
         await self.session.flush()

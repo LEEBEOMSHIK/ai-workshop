@@ -64,6 +64,10 @@ def test_projection_document_preserves_provenance_and_optional_embedding() -> No
             "page": 3,
             "char_start": 10,
             "char_end": 14,
-            "bbox": [1.0, 2.0, 3.0, 4.0],
-        }
+                "bbox": [1.0, 2.0, 3.0, 4.0],
+                "source_kind": "pdf_page",
+                "source_part": None,
+                "image_sha256": None,
+                "table_cell": None,
+            }
     ]

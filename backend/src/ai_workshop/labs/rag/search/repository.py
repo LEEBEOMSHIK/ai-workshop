@@ -3,7 +3,12 @@ from uuid import UUID
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ai_workshop.labs.rag.documents.domain import EvidenceUnit, SourceLocation
+from ai_workshop.labs.rag.documents.domain import (
+    EvidenceUnit,
+    SourceKind,
+    SourceLocation,
+    TableCellLocation,
+)
 from ai_workshop.labs.rag.documents.models import (
     EvidenceUnitRecord,
     RagIndexBuildRecord,
@@ -28,6 +33,17 @@ def _bbox(value: list[float] | None) -> tuple[float, float, float, float] | None
     if len(value) != 4:
         raise ValueError("Authoritative evidence bounding boxes require four values.")
     return value[0], value[1], value[2], value[3]
+
+
+def _table_cell(value: dict[str, int] | None) -> TableCellLocation | None:
+    if value is None:
+        return None
+    return TableCellLocation(
+        row=value["row"],
+        column=value["column"],
+        row_span=value.get("row_span", 1),
+        column_span=value.get("column_span", 1),
+    )
 
 
 class SqlAlchemySearchSourceResolver:
@@ -139,6 +155,10 @@ class SqlAlchemySearchSourceResolver:
                             char_start=evidence.char_start,
                             char_end=evidence.char_end,
                             bbox=_bbox(evidence.bbox),
+                            source_kind=SourceKind(evidence.source_kind),
+                            source_part=evidence.source_part,
+                            image_sha256=evidence.image_sha256,
+                            table_cell=_table_cell(evidence.table_cell),
                         ),
                     )
                 )

@@ -327,11 +327,13 @@ class FailOnceParser:
         self.delegate = delegate
         self.attempts = 0
 
-    async def materialize_and_parse(self, asset_version, filename):
+    async def materialize_and_parse(self, asset_version, filename, *, processing_spec=None):
         self.attempts += 1
         if self.attempts == 1:
             raise OSError("synthetic transient parser failure")
-        return await self.delegate.materialize_and_parse(asset_version, filename)
+        return await self.delegate.materialize_and_parse(
+            asset_version, filename, processing_spec=processing_spec
+        )
 
 
 class ExplicitFailingParser:
@@ -339,7 +341,8 @@ class ExplicitFailingParser:
         self.calls = 0
         self.fallback_calls = 0
 
-    async def materialize_and_parse(self, asset_version, filename):
+    async def materialize_and_parse(self, asset_version, filename, *, processing_spec=None):
+        del processing_spec
         self.calls += 1
         raise ParsingError("synthetic_parser_failure", "The explicit parser failed.")
 
@@ -351,8 +354,10 @@ class BarrierParser:
         self.lock = Lock()
         self.element_ids: list[UUID] = []
 
-    async def materialize_and_parse(self, asset_version, filename):
-        document = await self.delegate.materialize_and_parse(asset_version, filename)
+    async def materialize_and_parse(self, asset_version, filename, *, processing_spec=None):
+        document = await self.delegate.materialize_and_parse(
+            asset_version, filename, processing_spec=processing_spec
+        )
         with self.lock:
             self.element_ids.append(document.elements[0].id)
         self.barrier.wait(timeout=10)

@@ -515,6 +515,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/rag/sources/{asset_version_id}/docx/images/{element_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Docx Image */
+        get: operations["docx_image_api_v1_rag_sources__asset_version_id__docx_images__element_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/rag/sources/{asset_version_id}/normalized-text": {
         parameters: {
             query?: never;
@@ -1472,7 +1489,7 @@ export interface components {
          * ModelKind
          * @enum {string}
          */
-        ModelKind: "embedding" | "reranker" | "llm";
+        ModelKind: "embedding" | "reranker" | "llm" | "ocr_text_detection" | "ocr_text_recognition" | "ocr_table_structure";
         /** ModelResponse */
         ModelResponse: {
             /** Config */
@@ -1496,6 +1513,8 @@ export interface components {
         NormalizedElementResponse: {
             /** Confidence */
             confidence: number | null;
+            /** Evidence Eligible */
+            evidence_eligible: boolean;
             /**
              * Id
              * Format: uuid
@@ -1510,6 +1529,8 @@ export interface components {
             section_path: string[];
             /** Text */
             text: string;
+            /** Warnings */
+            warnings: string[];
         };
         /** NormalizedTextResponse */
         NormalizedTextResponse: {
@@ -1597,7 +1618,7 @@ export interface components {
          * ProfileKind
          * @enum {string}
          */
-        ProfileKind: "indexing" | "retrieval" | "generation";
+        ProfileKind: "document_processing" | "indexing" | "retrieval" | "generation";
         /** ProfileReadinessResponse */
         ProfileReadinessResponse: {
             /** Ready */
@@ -1685,6 +1706,12 @@ export interface components {
         /** SavedRagConfigurationCreate */
         SavedRagConfigurationCreate: {
             answer_policy: components["schemas"]["AnswerPolicyCreate"];
+            /**
+             * Document Processing Profile Id
+             * Format: uuid
+             * @default 00000000-0000-0000-0000-000000000207
+             */
+            document_processing_profile_id: string;
             external_transfer_approval?: components["schemas"]["ExternalTransferApprovalInput"] | null;
             /** Generation Profile Id */
             generation_profile_id?: string | null;
@@ -1710,6 +1737,11 @@ export interface components {
             answer_ready: boolean;
             /** Answer Reasons */
             answer_reasons: string[];
+            /**
+             * Document Processing Profile Id
+             * Format: uuid
+             */
+            document_processing_profile_id: string;
             evaluation_state: components["schemas"]["EvaluationState"];
             /** Experimental */
             experimental: boolean;
@@ -1804,6 +1836,11 @@ export interface components {
             /** Setup Required */
             setup_required: boolean;
         };
+        /**
+         * SourceKind
+         * @enum {string}
+         */
+        SourceKind: "normalized_text" | "pdf_page" | "docx_image";
         /** SourceLocationResponse */
         SourceLocationResponse: {
             /** Bbox */
@@ -1822,8 +1859,17 @@ export interface components {
              * Format: uuid
              */
             element_id: string;
+            /** Image Sha256 */
+            image_sha256: string | null;
             /** Page */
             page: number | null;
+            source_kind: components["schemas"]["SourceKind"];
+            /** Source Part */
+            source_part: string | null;
+            /** Table Cell */
+            table_cell: {
+                [key: string]: number;
+            } | null;
         };
         /** SourceReferenceResponse */
         SourceReferenceResponse: {
@@ -4350,6 +4396,87 @@ export interface operations {
                 };
             };
             /** @description Search dependency unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    docx_image_api_v1_rag_sources__asset_version_id__docx_images__element_id__get: {
+        parameters: {
+            query: {
+                image_sha256: string;
+                projection_id: string;
+            };
+            header?: never;
+            path: {
+                asset_version_id: string;
+                element_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authorized immutable DOCX embedded image. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/jpeg": string;
+                    "image/png": string;
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Source object unavailable. */
             503: {
                 headers: {
                     [name: string]: unknown;

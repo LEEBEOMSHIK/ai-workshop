@@ -72,6 +72,12 @@ class StructuralElementRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     parser_name: Mapped[str] = mapped_column(String(180), nullable=False)
     parser_version: Mapped[str] = mapped_column(String(180), nullable=False)
     confidence: Mapped[float | None] = mapped_column(Float)
+    source_kind: Mapped[str] = mapped_column(String(32), nullable=False, default="normalized_text")
+    source_part: Mapped[str | None] = mapped_column(String(700))
+    image_sha256: Mapped[str | None] = mapped_column(String(64))
+    table_cell: Mapped[dict[str, int] | None] = mapped_column(JSON)
+    evidence_eligible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    warnings: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
 
 
 class RetrievalChunkRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -114,6 +120,10 @@ class EvidenceUnitRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     char_start: Mapped[int] = mapped_column(Integer, nullable=False)
     char_end: Mapped[int] = mapped_column(Integer, nullable=False)
     bbox: Mapped[list[float] | None] = mapped_column(JSON)
+    source_kind: Mapped[str] = mapped_column(String(32), nullable=False, default="normalized_text")
+    source_part: Mapped[str | None] = mapped_column(String(700))
+    image_sha256: Mapped[str | None] = mapped_column(String(64))
+    table_cell: Mapped[dict[str, int] | None] = mapped_column(JSON)
 
 
 class RagIndexBuildRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):

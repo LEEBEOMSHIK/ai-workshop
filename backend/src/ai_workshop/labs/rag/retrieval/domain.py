@@ -21,6 +21,7 @@ class ActiveIndexAlias:
     descriptor: IndexDescriptor
     index_prefix: str
     indexing_profile_id: UUID
+    document_processing_profile_id: UUID | None = None
 
     def __post_init__(self) -> None:
         if not self.index_prefix.strip():
@@ -31,6 +32,7 @@ class ActiveIndexAlias:
         return self.descriptor.active_alias(
             self.index_prefix,
             self.indexing_profile_id,
+            document_processing_profile_id=self.document_processing_profile_id,
         )
 
 
@@ -58,12 +60,12 @@ class FrozenIndexTarget:
     indexing_profile_id: UUID
     identities: tuple[FrozenIndexIdentity, ...]
     asset_version_ids: tuple[UUID, ...]
+    document_processing_profile_id: UUID | None = None
 
     def __post_init__(self) -> None:
-        if (
-            re.fullmatch(r"[a-z0-9][a-z0-9._-]*", self.index_prefix) is None
-            or self.index_prefix in {".", ".."}
-        ):
+        if re.fullmatch(
+            r"[a-z0-9][a-z0-9._-]*", self.index_prefix
+        ) is None or self.index_prefix in {".", ".."}:
             raise ValueError("A frozen target requires a safe physical index prefix.")
         if not self.identities:
             raise ValueError("A frozen index target requires concrete index identities.")
@@ -82,6 +84,7 @@ class FrozenIndexTarget:
                 self.index_prefix,
                 self.indexing_profile_id,
                 build_id,
+                document_processing_profile_id=(self.document_processing_profile_id),
             )
             for build_id in index_build_ids
         )

@@ -18,6 +18,7 @@ from ai_workshop.labs.rag.ingestion.serialization import (
     serialize_chunking_result,
     serialize_parsed_document,
 )
+from ai_workshop.labs.rag.models.document_processing import DocumentProcessingSpec
 from ai_workshop.platform.assets.domain import AssetVersion
 from ai_workshop.platform.assets.storage import StoredObject
 
@@ -66,7 +67,11 @@ class RagIngestionLifecycle(Protocol):
 
 class ParsingPort(Protocol):
     async def materialize_and_parse(
-        self, asset_version: AssetVersion, filename: str
+        self,
+        asset_version: AssetVersion,
+        filename: str,
+        *,
+        processing_spec: DocumentProcessingSpec | None = None,
     ) -> ParsedDocument: ...
 
 
@@ -130,9 +135,16 @@ class RagIngestionWorkflow:
         execution = await self.lifecycle.begin(job_id)
         while execution.status is not ProjectionStatus.READY:
             if execution.status is ProjectionStatus.PARSING:
-                document = await self.parser.materialize_and_parse(
-                    execution.asset_version, execution.filename
-                )
+                if execution.document_processing_spec is None:
+                    document = await self.parser.materialize_and_parse(
+                        execution.asset_version, execution.filename
+                    )
+                else:
+                    document = await self.parser.materialize_and_parse(
+                        execution.asset_version,
+                        execution.filename,
+                        processing_spec=execution.document_processing_spec,
+                    )
                 self._require_nonempty_document(document)
                 content = serialize_parsed_document(document)
                 artifact, authoritative_content = await self._publish_artifact(

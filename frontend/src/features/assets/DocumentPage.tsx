@@ -20,6 +20,7 @@ export function DocumentPage({ workspaceId, initialLibrary, initialRoot, initial
       initialWorkspaces={initialWorkspaces}
       initialDocument={initialDocument}
       initialVersionId={initialVersionId}
+      showMemberManagement
     />
   );
 }

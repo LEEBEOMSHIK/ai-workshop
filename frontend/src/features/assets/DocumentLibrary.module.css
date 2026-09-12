@@ -5,6 +5,7 @@
   --file-border: #2b3944;
   --file-muted: #91a0ac;
   --file-accent: #55d9c9;
+  --file-error: #ffb7ad;
   min-height: 100vh;
   padding: clamp(1rem, 2.5vw, 2.5rem);
   background: var(--file-bg);

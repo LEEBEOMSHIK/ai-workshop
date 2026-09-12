@@ -468,3 +468,20 @@ it("supports an injected read-only document picker without exposing management a
   expect(writeSelection).toHaveBeenCalledWith("workspace-1", { folderId: "folder-1", documentId: null, versionId: null });
   expect(getDocument).not.toHaveBeenCalled();
 });
+
+it("mounts workspace member management only when the caller explicitly enables it", async () => {
+  const fetcher = vi.fn<typeof fetch>(async () => Response.json({ read: true, write: true, delete: true, manage_members: true }));
+  vi.stubGlobal("fetch", fetcher);
+
+  const hidden = renderBrowser();
+  await act(async () => undefined);
+  expect(fetcher).not.toHaveBeenCalled();
+  hidden.unmount();
+
+  renderBrowser({ showMemberManagement: true });
+  expect(await screen.findByRole("button", { name: "구성원 권한 관리" })).toBeVisible();
+  expect(fetcher).toHaveBeenCalledWith(
+    "/api/v1/workspaces/workspace-1/capabilities",
+    expect.objectContaining({ credentials: "include" }),
+  );
+});

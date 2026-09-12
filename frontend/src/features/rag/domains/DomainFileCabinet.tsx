@@ -187,6 +187,7 @@ export function DomainFileCabinet({
         initialDocument={view.document}
         initialVersionId={view.versionId}
         readOnly
+        showMemberManagement={!embedded}
         browse={browse}
         getDocument={getDocument}
         writeSelection={publishSelection}

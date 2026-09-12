@@ -52,6 +52,7 @@ it("keeps selected documents across pages and sends only bounded UUID pairs to s
 it("keeps workspace navigation inside the domain and invalidates selection after an authorization failure", async () => {
   const fetcher = vi.fn(async (input: RequestInfo | URL) => {
     const path = String(input);
+    if (path === `/api/v1/workspaces/${company.id}/capabilities`) return Response.json({ read: true, write: false, delete: false, manage_members: false });
     if (path.includes(`/workspaces/${personal.id}`)) return Response.json({ error: { code: "not_found", message: "private", correlation_id: "synthetic" } }, { status: 404 });
     throw new Error(`Unexpected request: ${path}`);
   });
@@ -68,7 +69,14 @@ it("keeps workspace navigation inside the domain and invalidates selection after
     `/api/v1/rag/domains/asset-management/library/workspaces/${personal.id}`,
     expect.objectContaining({ credentials: "include" }),
   );
-  expect(fetcher.mock.calls.some(([input]) => String(input).startsWith("/api/v1/workspaces/"))).toBe(false);
+  expect(fetcher).toHaveBeenCalledWith(
+    `/api/v1/workspaces/${company.id}/capabilities`,
+    expect.objectContaining({ credentials: "include" }),
+  );
+  expect(fetcher.mock.calls.some(([input]) => {
+    const path = String(input);
+    return path.startsWith("/api/v1/workspaces/") && !path.endsWith("/capabilities");
+  })).toBe(false);
 });
 
 it("restores another authorized workspace from Back without escaping the domain route", async () => {

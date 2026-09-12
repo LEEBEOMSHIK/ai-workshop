@@ -5,6 +5,7 @@ import { useCallback, useRef, useState, type FormEvent } from "react";
 
 import { routes } from "../../shared/routing/routes";
 import type { WorkspaceSummary } from "../workspaces/api";
+import { WorkspaceMemberPermissions } from "../workspaces/WorkspaceMemberPermissions";
 import { JobStatus } from "../jobs/JobStatus";
 import {
   browseLibrary,
@@ -30,6 +31,7 @@ interface DocumentBrowserProps {
   initialDocument: DocumentSummary | null;
   initialVersionId: string | null;
   readOnly?: boolean;
+  showMemberManagement?: boolean;
   browse?: typeof browseLibrary;
   getDocument?: typeof getLibraryDocument;
   writeSelection?: typeof writeLibrarySelection;
@@ -65,6 +67,7 @@ export function DocumentBrowser({
   initialDocument,
   initialVersionId,
   readOnly = false,
+  showMemberManagement = false,
   browse = browseLibrary,
   getDocument = getLibraryDocument,
   writeSelection: publishSelection = writeLibrarySelection,
@@ -304,6 +307,7 @@ export function DocumentBrowser({
       </div>
       {backHref ? <Link className={styles.backLink} href={backHref}>파일함으로</Link> : null}
     </header>
+    {showMemberManagement ? <WorkspaceMemberPermissions key={workspaceId} workspaceId={workspaceId} /> : null}
     <div className={`${styles.explorer} ${selectedDocument ? styles.explorerWithViewer : ""}`}>
       <LibraryTree key={`${workspaceId}:${treeRevision}`} workspaces={initialWorkspaces} currentWorkspaceId={workspaceId} selectedFolderId={library.folder?.id ?? null} initialRoot={treeRoot} initialSelection={treeSelection} onSelectFolder={selectFolder} browse={browse} onSelectWorkspace={onSelectWorkspace} isFolderSelectionDisabled={isFolderSelectionDisabled} />
       <section className={styles.browser} aria-label="현재 폴더 문서">

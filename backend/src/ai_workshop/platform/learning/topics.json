@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "topics": [
+    {
+      "key": "rag",
+      "label": "RAG",
+      "description": "Retrieval-augmented generation concepts and experiments."
+    },
+    {
+      "key": "fine-tuning",
+      "label": "Fine-tuning",
+      "description": "Fine-tuning concepts and experiments, independent of service availability."
+    }
+  ]
+}

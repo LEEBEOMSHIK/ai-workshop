@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { EvidenceAnswerData, SearchResult, SearchSubmissionContext } from "./api";
 import { ConfigurationProvenance, SourceScopeProvenance } from "./Provenance";
 import { buildSourceHref } from "./source-route-query";
+import { CodexModelIdentity } from "../conversation/CodexModelIdentity";
 
 interface EvidenceAnswerProps {
   result: SearchResult;
@@ -23,6 +24,7 @@ export function EvidenceAnswer({ result, context }: EvidenceAnswerProps) {
 
   return (
     <div className="answer-stack">
+      {result.generation?.execution ? <CodexModelIdentity execution={result.generation.execution} /> : null}
       {result.generation?.status === "answered" && result.generation.text ? (
         <section className="generated-answer" aria-labelledby="generated-answer-title">
           <h2 id="generated-answer-title">AI 답변</h2>
@@ -105,6 +107,7 @@ function GenerationExecutionDetails({
   const providers: Record<typeof execution.provider, string> = {
     local_openai_compatible: "로컬 OpenAI 호환",
     openai_responses: "OpenAI Responses API",
+    development_codex_exec: "개발용 Codex CLI (외부 처리)",
   };
   const locations: Record<typeof execution.location, string> = {
     local: "로컬",

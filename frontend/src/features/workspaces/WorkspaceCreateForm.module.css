@@ -1,0 +1,49 @@
+.form {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  margin-block: 1.5rem;
+  padding: 1.25rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 0.85rem;
+  background: #101821;
+}
+
+.form fieldset {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  gap: 1rem;
+  min-width: 0;
+  margin: 1rem 0;
+  padding: 0;
+  border: 0;
+}
+
+.form label { display: grid; align-content: start; gap: 0.5rem; min-width: 0; }
+.help { font-size: 0.85rem; color: #9aa8b5; }
+.form :is(input, select) {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 0.5rem;
+  padding: 0.7rem;
+  background: #141e29;
+  color: #edf2f7;
+  color-scheme: dark;
+  font: inherit;
+}
+.form button {
+  width: fit-content;
+  padding: 0.7rem 1rem;
+  border: 1px solid var(--color-accent-text);
+  border-radius: 0.5rem;
+  background: var(--color-accent-text);
+  color: #07100f;
+  font: inherit;
+  font-weight: 750;
+  cursor: pointer;
+}
+.form :disabled { opacity: 0.6; cursor: not-allowed; }
+.form :is(input, select, button):focus-visible { outline: 2px solid var(--color-accent-text); outline-offset: 0.2rem; }
+.form [role="alert"] { color: #ffb4ab; }
+.form [role="status"] { color: var(--color-accent-text); }

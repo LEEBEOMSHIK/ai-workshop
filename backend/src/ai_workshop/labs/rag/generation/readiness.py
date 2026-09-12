@@ -6,29 +6,59 @@ from ai_workshop.config import Settings
 from ai_workshop.labs.rag.configurations.repository import (
     SqlAlchemyRagConfigurationRepository,
 )
-from ai_workshop.labs.rag.deployments.domain import DeploymentEnvironment
+from ai_workshop.labs.rag.deployments.domain import DeploymentEnvironment, ProviderKind
 from ai_workshop.labs.rag.deployments.repository import (
     SqlAlchemyDeploymentRepository,
 )
+from ai_workshop.labs.rag.generation.codex_composition import codex_services
+from ai_workshop.labs.rag.generation.codex_verification import CodexVerificationService
 
 
 class SqlAlchemyGenerationReadiness:
-    def __init__(self, session: AsyncSession, settings: Settings) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        settings: Settings,
+        *,
+        actor_id: UUID | None = None,
+        verification: CodexVerificationService | None = None,
+    ) -> None:
         self.settings = settings
+        self.actor_id, self.verification = actor_id, verification
         self.profiles = SqlAlchemyRagConfigurationRepository(session)
         self.deployments = SqlAlchemyDeploymentRepository(session)
 
-    async def is_ready(self, profile_id: UUID) -> bool:
+    async def is_ready(
+        self, profile_id: UUID, *, configuration_version_id: UUID | None = None
+    ) -> bool:
         profile = await self.profiles.find_profile(profile_id)
-        if (
-            profile is None
-            or profile.bindings
-            or profile.deployment_version_id is None
-        ):
+        if profile is None or profile.bindings or profile.deployment_version_id is None:
             return False
         deployment = await self.deployments.get_version(profile.deployment_version_id)
         if deployment is None:
             return False
+        if deployment.provider is ProviderKind.DEVELOPMENT_CODEX_EXEC:
+            actor_id = getattr(self, "actor_id", None)
+            if actor_id is None or configuration_version_id is None:
+                return False
+            try:
+                configuration = await self.profiles.find_version_visible(
+                    configuration_version_id, actor_id
+                )
+                if configuration is None or configuration.generation_profile_id != profile_id:
+                    return False
+                if self.verification is not None:
+                    result = await self.verification.status(
+                        actor_id=actor_id, configuration_version_id=configuration_version_id
+                    )
+                else:
+                    async with codex_services(self.settings) as services:
+                        result = await services.verification.status(
+                            actor_id=actor_id, configuration_version_id=configuration_version_id
+                        )
+                return result.ready is True
+            except Exception:
+                return False
         environment = _normalized_environment(self.settings.environment)
         if (
             environment not in deployment.allowed_environments

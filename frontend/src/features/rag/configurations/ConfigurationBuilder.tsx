@@ -10,6 +10,7 @@ import type {
   Workspace,
 } from "./api";
 import { loadDeploymentOptions, saveConfiguration } from "./api";
+import { loadCodexRunners, type CodexRunner } from "../models/api";
 import { DocumentProcessingDetails } from "./DocumentProcessingDetails";
 import {
   documentProcessingOptionLabel,
@@ -76,6 +77,12 @@ export function ConfigurationBuilder({
   const [answerMode, setAnswerMode] = useState<"extractive" | "generative">("extractive");
   const [generationProfileId, setGenerationProfileId] = useState("");
   const [deploymentOptions, setDeploymentOptions] = useState<DeploymentOption[]>([]);
+  const [codexRunners, setCodexRunners] = useState<CodexRunner[]>([]);
+  const [codexCatalogUnavailable, setCodexCatalogUnavailable] = useState(false);
+  function canConfigure(deployment: DeploymentOption | undefined): boolean {
+    if (deployment?.provider !== "development_codex_exec") return deployment?.readiness.ready === true;
+    return codexRunners.some((runner) => runner.runner_ref === deployment.runner_ref && runner.local_preflight_passed);
+  }
   const [deploymentOptionsState, setDeploymentOptionsState] = useState<"idle" | "loading" | "loaded" | "error">("idle");
   const [externalApproved, setExternalApproved] = useState(false);
   const [name, setName] = useState("");
@@ -115,11 +122,14 @@ export function ConfigurationBuilder({
     deploymentController.current = nextController;
     setDeploymentOptionsState("loading");
     void loadDeploymentOptions(nextController.signal)
-      .then((options) => {
+      .then(async (options) => {
+        let catalogUnavailable = false;
+        const runners = options.some((item) => item.provider === "development_codex_exec")
+          ? await loadCodexRunners(nextController.signal).catch(() => { catalogUnavailable = true; return []; }) : [];
         if (deploymentController.current !== nextController || nextController.signal.aborted) return;
-        setDeploymentOptions(options.filter((item) =>
-          item.provider === "local_openai_compatible" || item.provider === "openai_responses",
-        ));
+        setDeploymentOptions(options);
+        setCodexRunners(runners);
+        setCodexCatalogUnavailable(catalogUnavailable);
         setDeploymentOptionsState("loaded");
       })
       .catch(() => {
@@ -181,7 +191,7 @@ export function ConfigurationBuilder({
       effectiveRetrievalProfileId &&
       workspaceIds.length > 0 &&
       (answerMode === "extractive" || effectiveGenerationProfileId) &&
-      (answerMode === "extractive" || generationDeployment?.readiness.ready) &&
+      (answerMode === "extractive" || canConfigure(generationDeployment)) &&
       (answerMode === "extractive"
         || !generationDeployment?.external_transfer
         || (externalApproved && externalApproval !== null)) &&
@@ -361,7 +371,7 @@ export function ConfigurationBuilder({
                   const deployment = deploymentOptions.find(
                     (option) => option.deployment_version_id === profile.deployment_version_id,
                   );
-                  const disabled = !deployment?.readiness.ready;
+                  const disabled = !canConfigure(deployment);
                   return (
                     <option key={profile.id} value={profile.id} disabled={disabled}>
                       {generationDeploymentOptionLabel(profile, deployment)}
@@ -371,6 +381,7 @@ export function ConfigurationBuilder({
               </select>
             </label>
           ) : null}
+          {answerMode === "generative" && codexCatalogUnavailable ? <p role="status">Codex runner 사전점검 목록을 확인할 수 없습니다. Codex 초안 저장은 차단됩니다. 다른 공급자의 준비 상태는 유지됩니다.</p> : null}
           {answerMode === "generative" && deploymentOptionsState === "loading" ? (
             <p role="status">실행 가능한 생성 배포를 불러오는 중…</p>
           ) : null}
@@ -417,6 +428,7 @@ export function ConfigurationBuilder({
           {answerMode === "generative" ? (
             <p className="control-help">후속질문 문맥과 인용 검증 정책이 Generation Profile 버전에 함께 고정됩니다.</p>
           ) : null}
+          {answerMode === "generative" && generationDeployment?.provider === "development_codex_exec" ? <p role="status">로컬 사전점검을 통과한 구성은 연결 검사 전에도 저장할 수 있습니다. 저장 후 이 구성 버전의 합성 연결 검사와 실제 검색 평가가 필요합니다.</p> : null}
         </fieldset>
 
         <fieldset disabled={saving}>
@@ -551,7 +563,7 @@ function externalApprovalLabel(
   workspaces: Workspace[],
   workspaceIds: string[],
 ): string {
-  const provider = deployment.provider === "openai_responses"
+  const provider = deployment.provider === "development_codex_exec" ? "개발용 Codex CLI" : deployment.provider === "openai_responses"
     ? "OpenAI Responses API"
     : "로컬 OpenAI 호환 공급자";
   const workspaceNames = workspaceIds

@@ -1,11 +1,17 @@
 from typing import Protocol
 from uuid import UUID
 
-from sqlalchemy import select, text
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_workshop.platform.identity.authorization_models import (
+    AuthorityAuditRecord,
+    AuthorizationStateRecord,
+    UserAuthorizationStateRecord,
+)
 from ai_workshop.platform.identity.domain import User, UserRole
 from ai_workshop.platform.identity.models import UserRecord
+from ai_workshop.shared.errors import AppError
 
 
 class UserRepository(Protocol):
@@ -52,8 +58,65 @@ class SqlAlchemyUserRepository:
         return result.scalar_one_or_none() is not None
 
     async def lock_owner_setup(self) -> None:
-        """Serialize the one-time owner setup within the current transaction."""
-        await self.session.execute(text("LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE"))
+        """Serialize bootstrap on the shared authorization singleton."""
+        initialized = await self.session.scalar(
+            select(AuthorizationStateRecord.initialized)
+            .where(AuthorizationStateRecord.id == 1)
+            .with_for_update()
+        )
+        if initialized is None:
+            raise AppError(
+                "authorization_migration_required",
+                "Authorization storage is unavailable; apply the required migration.",
+                409,
+            )
+        if initialized:
+            raise AppError(
+                "setup_already_completed",
+                "Initial setup has already been completed.",
+                409,
+            )
+
+    async def owner_setup_required(self) -> bool:
+        initialized = await self.session.scalar(
+            select(AuthorizationStateRecord.initialized).where(AuthorizationStateRecord.id == 1)
+        )
+        return initialized is False
+
+    async def complete_owner_setup(self, owner_id: UUID) -> None:
+        self.session.add(UserAuthorizationStateRecord(user_id=owner_id, revision=0))
+        self.session.add(
+            AuthorityAuditRecord(
+                actor_id=None,
+                target_user_id=owner_id,
+                event_type="authorization_bootstrap",
+                technology_key=None,
+                before={"initialized": False},
+                after={
+                    "initialized": True,
+                    "role": UserRole.OWNER.value,
+                    "is_active": True,
+                    "revision": 0,
+                    "technologies": {},
+                },
+            )
+        )
+        updated = await self.session.scalar(
+            update(AuthorizationStateRecord)
+            .where(
+                AuthorizationStateRecord.id == 1,
+                AuthorizationStateRecord.initialized.is_(False),
+            )
+            .values(initialized=True)
+            .returning(AuthorizationStateRecord.id)
+        )
+        if updated != 1:
+            raise AppError(
+                "setup_already_completed",
+                "Initial setup has already been completed.",
+                409,
+            )
+        await self.session.flush()
 
     async def add(self, user: User) -> User:
         record = UserRecord(

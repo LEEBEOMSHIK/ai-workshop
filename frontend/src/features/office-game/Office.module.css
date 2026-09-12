@@ -1,0 +1,166 @@
+.shell {
+  --ink: #eaf6ef;
+  --muted: #9bb3ad;
+  --paper: #f5edda;
+  --navy: #152735;
+  --navy-light: #233e4d;
+  --line: #5b7883;
+  --cyan: #74dce7;
+  --gold: #e9bd68;
+  color: var(--ink);
+  background: var(--navy);
+  height: 100dvh;
+  min-height: 560px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: Inter, Pretendard, "Noto Sans KR", sans-serif;
+}
+.shell a { color: inherit; text-decoration: none; }
+.header {
+  min-height: 72px;
+  padding: 11px 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 3px solid #0d1b26;
+  background: linear-gradient(180deg, #233b49, #172a37);
+  box-shadow: 0 5px 0 #0e1e29, 0 10px 24px #07121c99;
+  z-index: 2;
+}
+.brand { display: flex; align-items: center; gap: 12px; font-size: 16px; font-weight: 850; letter-spacing: 1.4px; }
+.brand small { display: block; color: #94b0b3; font-size: 8px; letter-spacing: 2.4px; font-weight: 650; margin-top: 4px; }
+.logo {
+  background: #28586a;
+  color: #aaf4ed;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 2px solid #78d6d9;
+  box-shadow: inset 0 0 0 3px #173644, 3px 3px 0 #0c1b26;
+  font-family: monospace;
+  font-size: 22px;
+}
+.header nav { color: #c8d9d7; font-size: 12px; font-weight: 700; }
+.workshopLink { border: 1px solid #68838b; padding: 9px 16px; background: #294452; box-shadow: 2px 2px 0 #0d1c27; }
+.world { position: relative; flex: 1; min-height: 0; isolation: isolate; background: radial-gradient(circle at 50% 30%, #36596a, #132431 65%); }
+.canvasHost { width: 100%; height: 100%; }
+.canvasHost canvas { display: block; image-rendering: pixelated; }
+.canvasHost canvas:focus-visible { outline: 3px solid var(--gold); outline-offset: -3px; }
+.roomBadge {
+  position: absolute;
+  top: 18px;
+  left: 22px;
+  background: #152735eb;
+  padding: 10px 14px;
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  border: 2px solid #6a8c96;
+  box-shadow: inset 0 0 0 2px #0d1c27, 4px 4px 0 #0d1c27a8;
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: .2px;
+}
+.dot { width: 7px; height: 7px; background: #64d991; box-shadow: 0 0 8px #64d991; }
+.floor { border-left: 1px solid #58717a; padding-left: 10px; color: #a7c3c2; font-size: 10px; }
+.guide {
+  position: absolute;
+  top: 73px;
+  left: 22px;
+  width: min(224px, calc(100% - 44px));
+  background: #172b38ed;
+  border: 2px solid #6c8991;
+  padding: 16px;
+  box-shadow: inset 0 0 0 2px #0d1e2a, 5px 5px 0 #0a1924b5;
+  transition: width 140ms ease, padding 140ms ease;
+}
+.guideCollapsed { width: 42px; padding: 5px; }
+.guideToggle {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #6b8790;
+  background: #294452;
+  color: #d9eff0;
+  font: 700 18px/1 monospace;
+}
+.guideCollapsed .guideToggle { position: relative; inset: auto; width: 28px; height: 28px; }
+.eyebrow { color: var(--cyan); font-family: monospace; font-size: 9px; letter-spacing: 1.6px; font-weight: 800; }
+.guide h1 { max-width: 170px; font-size: 18px; line-height: 1.42; margin: 10px 0 8px; letter-spacing: -.6px; }
+.guide p { margin: 0; font-size: 11px; line-height: 1.7; color: #b9cbc8; }
+.guide strong { color: #fff0b0; }
+.route { display: block; border-top: 1px solid #49626b; padding-top: 10px; margin-top: 11px; color: #a9c6c5; font: 700 9px/1 monospace; letter-spacing: .5px; }
+.route span { margin: 0 9px; color: var(--gold); }
+.bottomBar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #10212ded;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 24px;
+  border-top: 2px solid #4c6c78;
+  font-size: 10px;
+  pointer-events: none;
+}
+.bottomBar p { margin: 0; }
+.shell kbd { border: 1px solid #75919a; border-bottom-width: 2px; background: #294652; color: #eef9f7; padding: 2px 5px; font-family: monospace; font-size: 9px; display: inline-block; }
+.separator { padding: 0 9px; color: #68838b; }
+.coordinates { color: #a5bcba; font-family: monospace; }
+.interaction { position: absolute; bottom: 64px; left: 50%; transform: translateX(-50%); white-space: nowrap; }
+.shell button { font-family: inherit; cursor: pointer; }
+.shell :is(a,button):focus-visible { outline: 3px solid var(--gold); outline-offset: 4px; }
+.primary {
+  display: inline-flex;
+  gap: 11px;
+  align-items: center;
+  justify-content: center;
+  background: #28586a;
+  color: #fff !important;
+  border: 2px solid #79d3d7;
+  padding: 12px 19px;
+  font-size: 12px;
+  font-weight: 750;
+  box-shadow: inset 0 0 0 2px #173542, 4px 4px 0 #0d1d28, 0 10px 24px #1025318f;
+}
+.primary kbd { border-color: #9eebea; }
+.focusButton { padding: 9px 15px; border: 1px solid #78949a; background: #142733e8; color: var(--ink); font-size: 11px; box-shadow: 3px 3px 0 #0d1c27; }
+.message { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 22px; border: 2px solid #6a8790; background: #172b38; max-width: 420px; line-height: 1.7; box-shadow: 5px 5px 0 #0b1a24; }
+.backdrop { position: absolute; inset: 0; z-index: 100; display: grid; place-items: center; background: #081722c9; backdrop-filter: blur(3px); padding: 24px; }
+.dialog {
+  background: #172c39;
+  border: 3px solid #71939d;
+  padding: 27px;
+  width: min(500px, 100%);
+  box-shadow: inset 0 0 0 3px #0e202c, 8px 8px 0 #08141e, 0 22px 80px #07131ccf;
+  min-height: 0;
+  max-height: 100%;
+  overflow: auto;
+}
+.dialog h2 { color: #f8e6bc; font-size: 28px; margin: 11px 0 4px; }
+.role { color: #85dfe2; font-size: 12px; }
+.dialog p { color: #c6d7d4; line-height: 1.75; font-size: 13px; margin: 20px 0; }
+.dialog .note { font-size: 10px; color: #8ca5a5; margin-bottom: 0; }
+.close { background: #294652; border: 1px solid #739098; color: var(--ink); width: 30px; height: 30px; }
+.directions { padding: 0; list-style: none; display: grid; gap: 10px; }
+.directions li { border-left: 3px solid var(--gold); background: #213b46; padding: 12px 15px; }
+.directions li > span { color: #8edbce; font-size: 10px; }
+.directions h3 { font-size: 14px; color: #f4dfb5; margin: 5px 0; }
+.directions li p { font-size: 12px; margin: 5px 0 0; }
+
+@media (max-width: 800px) {
+  .guide { top: 68px; padding: 12px; width: 188px; }
+  .guideCollapsed { width: 38px; padding: 4px; }
+  .guide h1 { font-size: 15px; }
+  .guide p, .route { display: none; }
+  .header { padding-inline: 16px; }
+  .brand { font-size: 12px; }
+}

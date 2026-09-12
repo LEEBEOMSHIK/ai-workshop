@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="384" height="64" viewBox="0 0 384 64" shape-rendering="crispEdges">
+  <!-- cream lobby stone -->
+  <path fill="#eadfc8" d="M0 0h64v64H0z"/>
+  <path stroke="#d7c9ae" d="M0 31.5h64M31.5 0v64"/>
+  <path stroke="#f6eddc" d="M1 1h62M1 33h30M33 33h30"/>
+  <path fill="#d2bea0" d="M14 14h3v3h-3zm33 33h3v3h-3z"/>
+  <!-- warm lab parquet -->
+  <path fill="#b77e50" d="M64 0h64v64H64z"/>
+  <path fill="#c99462" d="M65 2h62v17H65zm0 22h62v17H65zm0 22h62v17H65z"/>
+  <path stroke="#8d5c3d" d="M64 20h64M64 42h64M84 0v20m24 0v20M76 42v22m34 0v22"/>
+  <path stroke="#deb17d" d="M67 4h14m5 18h19m7 22h13"/>
+  <!-- deep navy structural wall -->
+  <path fill="#1d3040" d="M128 0h64v64h-64z"/>
+  <path fill="#526d7b" d="M128 0h64v9h-64z"/>
+  <path fill="#2e4a5b" d="M128 9h64v8h-64z"/>
+  <path fill="#142431" d="M128 55h64v9h-64z"/>
+  <path stroke="#365467" d="M134 18h52v34h-52z"/>
+  <path fill="#e6bd65" d="M157 21h6v15h-6z"/>
+  <path fill="#fff0a6" d="M159 23h2v10h-2z"/>
+  <!-- blue-glow workstation -->
+  <path fill="#482f27" d="M192 48h64v16h-64z"/>
+  <path fill="#a56d45" d="M192 39h64v13h-64z"/>
+  <path fill="#d9a66e" d="M192 38h64v5h-64z"/>
+  <path fill="#102b3d" d="M197 3h27v32h-27zm31 3h23v29h-23z"/>
+  <path fill="#2d7997" d="M201 7h19v23h-19zm31 3h15v20h-15z"/>
+  <path fill="#68e0ec" d="M204 11h12v3h-12zm0 7h8v2h-8zm31-4h9v2h-9zm0 6h7v2h-7z"/>
+  <path fill="#283d51" d="M207 35h7v5h-7zm31 0h6v5h-6z"/>
+  <path fill="#eee2c8" d="M218 45h13v3h-13z"/>
+  <path fill="#243746" d="M211 54h26v10h-26z"/>
+  <!-- layered planter -->
+  <path fill="#172a31" d="M268 56h40v8h-40z"/>
+  <path fill="#9c6846" d="M276 39h24l-3 21h-18z"/>
+  <path fill="#d39258" d="M274 37h28v7h-28z"/>
+  <path fill="#2d6249" d="M286 39c-17-5-21-17-12-21 8-3 13 9 14 16-2-20 7-34 15-28 8 6-5 24-12 31 10-16 24-18 26-8 2 10-15 13-26 12z"/>
+  <path fill="#65a866" d="M285 33c-10-7-11-16-4-17 6-1 7 9 7 16 1-15 8-23 13-18 5 5-4 16-10 21 8-9 17-9 18-2 1 6-9 8-18 6z"/>
+  <path fill="#a6d278" d="M287 20h4v21h-4z"/>
+  <!-- research room woven sage carpet -->
+  <path fill="#8daba5" d="M320 0h64v64h-64z"/>
+  <path fill="#97b3aa" d="M320 0h32v32h-32zm32 32h32v32h-32z"/>
+  <path stroke="#7e9c94" stroke-opacity=".5" d="M320 8h64m-64 8h64m-64 8h64m-64 8h64m-64 8h64m-64 8h64m-64 8h64M328 0v64m8-64v64m8-64v64m8-64v64m8-64v64m8-64v64m8-64v64"/>
+</svg>

@@ -19,6 +19,37 @@ class MembershipRole(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class WorkspaceGrants:
+    read: bool = True
+    write: bool = False
+    delete: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.read and (self.write or self.delete):
+            raise ValueError("Write and delete require read permission.")
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceCapabilities:
+    read: bool
+    write: bool
+    delete: bool
+    manage_members: bool
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceMember:
+    user_id: UUID
+    display_name: str
+    role: MembershipRole
+    is_active: bool
+    read: bool
+    write: bool
+    delete: bool
+    permission_revision: int
+
+
+@dataclass(frozen=True, slots=True)
 class Workspace:
     id: UUID
     name: str

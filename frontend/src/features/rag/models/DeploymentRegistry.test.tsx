@@ -38,7 +38,13 @@ describe("DeploymentRegistry", () => {
       secret: "sk-not-a-real-secret",
     } as DeploymentSummary & Record<string, unknown>;
 
-    render(<DeploymentRegistry deployments={[deployment]} />);
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    const { rerender } = render(<DeploymentRegistry deployments={[deployment]} readOnly />);
+    expect(screen.queryByRole("button", { name: /상태 확인/ })).not.toBeInTheDocument();
+    expect(fetcher).not.toHaveBeenCalled();
+    rerender(<DeploymentRegistry deployments={[deployment]} />);
+    expect(screen.getByRole("button", { name: "OpenAI 금융 답변 상태 확인" })).toBeVisible();
 
     expect(screen.getByRole("heading", { name: "OpenAI 금융 답변" })).toBeVisible();
     expect(screen.getByText("외부 API")).toBeVisible();

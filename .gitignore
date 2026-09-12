@@ -27,3 +27,9 @@ __pycache__/
 .pytest-tmp/
 .mypy_cache/
 .ruff_cache/
+
+# Local-only RAG manual validation samples; keep generator source tracked.
+/sample-data/public/rag/asset-management-ocr-v1.pdf
+/sample-data/public/rag/asset-management-text-v1.pdf
+/sample-data/public/rag/asset-management-reference.md
+/sample-data/public/rag/asset-management-pdf-validation.md

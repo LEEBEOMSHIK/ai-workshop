@@ -17,18 +17,41 @@ describe("WorkspaceNavigation", () => {
     );
 
     expect(screen.getByRole("navigation", { name: "비공개 작업소" })).toBeVisible();
-    expect(screen.getByRole("link", { name: "지식 공간" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "파일함" })).toHaveAttribute(
       "href",
       routes.workshopHome,
     );
-    expect(screen.getByRole("link", { name: "RAG 검색" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "RAG 대화" })).toHaveAttribute(
       "href",
       routes.workshopRagSearch,
+    );
+    expect(screen.getByRole("link", { name: "학습 기록" })).toHaveAttribute(
+      "href",
+      routes.workshopLearning,
     );
     expect(screen.queryByRole("link", { name: "RAG 구성" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "AI Lab" })).toHaveAttribute(
       "href",
       routes.labs,
     );
+  });
+
+  it("shows learning records to a member without exposing owner administration", () => {
+    render(
+      <WorkspaceNavigation
+        user={{
+          id: "2bfa26a6-acde-4c54-8e44-e713c20e69d4",
+          display_name: "Member",
+          email: "member@example.com",
+          role: "member",
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: "학습 기록" })).toHaveAttribute(
+      "href",
+      "/workshop/learning",
+    );
+    expect(screen.queryByRole("link", { name: "관리자" })).not.toBeInTheDocument();
   });
 });

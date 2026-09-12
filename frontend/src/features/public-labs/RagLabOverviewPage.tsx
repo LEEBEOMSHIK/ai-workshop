@@ -1,14 +1,18 @@
 import Link from "next/link";
 
-import { loginPath, routes } from "../../shared/routing/routes";
+import { routes } from "../../shared/routing/routes";
 import { PublicNavigation } from "../navigation/PublicNavigation";
 import { AgentCharacter } from "./AgentCharacter";
 import { listPublicLabs } from "./catalog";
 import { listRagLabAgents } from "./rag-lab-agents";
 import { RagWorkerCharacter } from "./RagWorkerCharacter";
 import styles from "./PublicLabScene.module.css";
+import { PixelPerson } from "./PixelPerson";
+import { RagWorkbench } from "./RagWorkbench";
+import type { StudySnapshot } from "../publishing/types";
+import { relatedStudiesForWorker } from "../publishing/study-links";
 
-export function RagLabOverviewPage() {
+export function RagLabOverviewPage({ studies = [] }: { studies?: readonly StudySnapshot[] }) {
   const ragLab = listPublicLabs().find((lab) => lab.slug === "rag");
   const agents = listRagLabAgents();
 
@@ -35,9 +39,13 @@ export function RagLabOverviewPage() {
             살펴보세요. 캐릭터에게 말을 걸면 현재 맡은 일을 직접 설명합니다.
           </p>
         </div>
-        <Link className={styles.labLink} href={loginPath(routes.workshopRagSearch)}>
-          로그인하고 현재 검색 기능 사용하기
+        <div className={styles.ragHeaderActions}>
+        <Link className={styles.returnToOffice} href="/">← 사장실 · 로비로 돌아가기</Link>
+        <Link className={styles.labLink} href={routes.workshopRagSearch}>
+          현재 검색 기능 사용하기
         </Link>
+        <Link className={styles.labLink} href={routes.ragStudies}>공개 연구 기록</Link>
+        </div>
       </section>
 
       <section
@@ -45,6 +53,7 @@ export function RagLabOverviewPage() {
         aria-labelledby="rag-pipeline-title"
       >
         <div className={styles.workroomGrid} aria-hidden="true" />
+        <div className={styles.labBackWall} aria-hidden="true"><span /><span /><span /></div>
         <section className={styles.commandDeck}>
           <div className={styles.commandCopy}>
             <p className={styles.eyebrow}>RAG COMMAND</p>
@@ -62,10 +71,12 @@ export function RagLabOverviewPage() {
             <AgentCharacter
               lab={ragLab}
               variant="working"
+              visual={<PixelPerson identity="rag-chief" />}
               dialogAction={{
-                href: loginPath(routes.workshopRagSearch),
+                href: routes.workshopRagSearch,
                 label: "현재 검색 기능 사용하기",
               }}
+              relatedStudies={studies}
             />
           </div>
         </section>
@@ -83,16 +94,13 @@ export function RagLabOverviewPage() {
                     <h3 id={`${agent.slug}-station-title`}>{agent.role}</h3>
                   </div>
                 </header>
-                <div className={styles.stationConsole} aria-hidden="true">
-                  <span />
-                  <span />
-                  <span />
-                </div>
-                <RagWorkerCharacter agent={agent} />
+                <RagWorkbench slug={agent.slug} />
+                <RagWorkerCharacter agent={agent} relatedStudies={relatedStudiesForWorker(agent.slug, studies)} />
               </section>
             </li>
           ))}
         </ol>
+        <div className={styles.workroomThreshold}><span>RAG RESEARCH STUDIO</span><p>캐릭터를 클릭해 담당 업무 듣기 · 공개 소개 연출</p></div>
       </section>
 
       <section className={styles.ragCapabilityDeck} aria-label="현재 RAG 연구 범위">

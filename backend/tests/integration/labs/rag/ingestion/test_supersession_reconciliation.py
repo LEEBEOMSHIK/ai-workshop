@@ -41,6 +41,7 @@ from ai_workshop.platform.jobs.models import JobRecord
 from ai_workshop.platform.jobs.repository import SqlAlchemyJobRepository
 from ai_workshop.platform.workspaces.models import WorkspaceRecord
 from ai_workshop.shared.db import create_engine, create_session_factory
+from tests.integration.rag_isolation_support import isolated_rag_resources  # noqa: F401
 
 pytestmark = pytest.mark.integration
 
@@ -939,7 +940,10 @@ async def test_final_old_source_activation_waits_for_concurrent_new_verification
 
     fixture = await _seed_supersession_fixture()
     settings = get_settings().model_copy(
-        update={"elasticsearch_index_prefix": f"task14b-r2-{uuid4().hex}"}
+        update={
+            "elasticsearch_index_prefix":
+                f"{get_settings().elasticsearch_index_prefix}-supersession"
+        }
     )
     engine = create_engine(settings)
     sessions = create_session_factory(engine)

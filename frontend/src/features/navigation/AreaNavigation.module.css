@@ -1,0 +1,33 @@
+.header {
+  --area-nav-background: #101821;
+  --area-nav-text: #e9edf3;
+  --area-nav-user-text: #aebbc8;
+  --area-nav-link-text: #bdcbd8;
+  --area-nav-hover-background: #243240;
+  --area-nav-hover-text: #fff;
+  --area-nav-current-background: #25423f;
+  min-width: 0;
+  padding: 0.8rem clamp(1rem, 4vw, 3rem) 0;
+  background: var(--area-nav-background);
+  border-bottom: 1px solid var(--color-border-subtle);
+  color: var(--area-nav-text);
+}
+.topRow { display: flex; align-items: center; flex-wrap: wrap; gap: 0.8rem 1.5rem; min-width: 0; padding-bottom: 0.8rem; }
+.brand { color: var(--area-nav-text); font-weight: 800; text-decoration: none; white-space: nowrap; }
+.account { display: flex; align-items: center; flex-wrap: wrap; gap: 0.6rem; margin-left: auto; min-width: 0; max-width: 100%; }
+.user { min-width: 0; max-width: 100%; overflow-wrap: anywhere; color: var(--area-nav-user-text); font-size: 0.9rem; }
+.master { padding: 0.2rem 0.45rem; border: 1px solid var(--color-accent-text); border-radius: 999px; color: var(--color-accent-text); font-size: 0.75rem; font-weight: 750; }
+.logout { padding: 0.6rem 0.8rem; border: 1px solid var(--color-border-subtle); border-radius: 0.5rem; background: transparent; color: var(--area-nav-link-text); font: inherit; font-size: 0.9rem; cursor: pointer; }
+.logout:hover:not(:disabled) { background: var(--area-nav-hover-background); color: var(--area-nav-hover-text); }
+.logout:disabled { opacity: 0.65; cursor: wait; }
+.error { margin: 0 0 0.8rem; color: #ffc1bb; font-size: 0.9rem; overflow-wrap: anywhere; }
+.links { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; min-width: 0; }
+.links a { display: inline-block; max-width: 100%; padding: 0.65rem 0.85rem; border-radius: 0.5rem; color: var(--area-nav-link-text); text-decoration: none; overflow-wrap: anywhere; }
+.links a:hover { background: var(--area-nav-hover-background); color: var(--area-nav-hover-text); }
+.links a[aria-current] { background: var(--area-nav-current-background); color: var(--color-accent-text); font-weight: 750; }
+.header a:focus-visible, .logout:focus-visible { outline: 2px solid var(--color-accent-text); outline-offset: 0.2rem; }
+.menuRow { padding-block: 0.65rem; border-top: 1px solid var(--color-border-subtle); }
+@media (max-width: 40rem) {
+  .topRow > nav { flex-basis: 100%; order: 3; }
+  .links a { padding: 0.6rem 0.7rem; }
+}

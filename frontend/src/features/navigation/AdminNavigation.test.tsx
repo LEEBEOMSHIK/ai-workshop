@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 
 import { routes } from "../../shared/routing/routes";
 import { AdminNavigation } from "./AdminNavigation";
@@ -16,13 +16,23 @@ describe("AdminNavigation", () => {
       />,
     );
 
+    expect(within(screen.getByRole("navigation", { name: "관리자 운영" })).getAllByRole("link")).toHaveLength(6);
+    expect(within(screen.getByRole("navigation", { name: "영역 이동" })).getByRole("link", { name: "비공개 작업소" })).toHaveAttribute("href", routes.workshopHome);
     expect(screen.getByRole("link", { name: "RAG 구성" })).toHaveAttribute(
       "href",
       routes.adminRagConfigurations,
     );
+    expect(screen.getByRole("link", { name: "RAG 도메인" })).toHaveAttribute(
+      "href",
+      routes.adminRagDomains,
+    );
     expect(screen.getByRole("link", { name: "RAG 모델" })).toHaveAttribute(
       "href",
       routes.adminRagModels,
+    );
+    expect(screen.getByRole("link", { name: "공개 연구 관리" })).toHaveAttribute(
+      "href",
+      routes.adminPublishing,
     );
     expect(screen.getByRole("link", { name: "시스템 런타임" })).toHaveAttribute(
       "href",

@@ -1,9 +1,5 @@
-import { SearchPage } from "../../../../../features/rag/search/SearchPage";
-import type {
-  SavedConfiguration,
-  SearchOptions,
-  WorkspaceOption,
-} from "../../../../../features/rag/search/api";
+import { DomainPickerPage } from "../../../../../features/rag/domains/DomainPickerPage";
+import type { Domain } from "../../../../../features/rag/domains/api";
 import { serverApiRequest } from "../../../../../shared/api/server-client";
 import {
   incomingCookieHeader,
@@ -17,15 +13,11 @@ import {
 
 export default async function RagSearchRoute() {
   const result = await captureServerRoute(async () => {
-    await requireWorkspaceUser(routes.workshopRagSearch);
+    const user = await requireWorkspaceUser(routes.workshopRagSearch);
     const cookieHeader = await incomingCookieHeader();
-    return Promise.all([
-      serverApiRequest<WorkspaceOption[]>("/api/v1/workspaces", {}, cookieHeader),
-      serverApiRequest<SavedConfiguration[]>("/api/v1/rag/configurations", {}, cookieHeader),
-    ]);
+    const domains = await serverApiRequest<Domain[]>("/api/v1/rag/domains", {}, cookieHeader);
+    return { domains, isOwner: user.role === "owner" };
   });
   if (!result.ok) return <ServerRouteFailure failure={result.failure} />;
-  const [workspaces, configurations] = result.value;
-  const initialOptions: SearchOptions = { workspaces, configurations };
-  return <SearchPage initialOptions={initialOptions} />;
+  return <DomainPickerPage domains={result.value.domains} isOwner={result.value.isOwner} />;
 }

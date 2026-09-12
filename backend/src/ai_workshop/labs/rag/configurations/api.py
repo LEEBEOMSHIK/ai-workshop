@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_workshop.config import Settings, get_settings
 from ai_workshop.labs.rag.configurations.schemas import (
+    EvaluationAcceptanceRequest,
+    EvaluationAcceptanceResponse,
     SavedRagConfigurationCreate,
     SavedRagConfigurationResponse,
 )
@@ -20,6 +22,7 @@ router = APIRouter(prefix="/api/v1/rag/configurations", tags=["rag-configuration
 def get_rag_configuration_service(
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
+    user: Annotated[User, Depends(get_current_user)],
 ) -> RagConfigurationService:
     from ai_workshop.labs.rag.configurations.repository import (
         SqlAlchemyRagConfigurationRepository,
@@ -35,7 +38,7 @@ def get_rag_configuration_service(
     return RagConfigurationService(
         SqlAlchemyRagConfigurationRepository(session),
         RagIngestionService(SqlAlchemyRagIngestionCommandRepository(session)),
-        generation_readiness=SqlAlchemyGenerationReadiness(session, settings),
+        generation_readiness=SqlAlchemyGenerationReadiness(session, settings, actor_id=user.id),
         environment=settings.environment,
     )
 
@@ -55,9 +58,7 @@ async def list_configurations(
             service_ready=readiness[item.version_id].service_ready,
             search_reasons=readiness[item.version_id].search_reasons,
             answer_reasons=readiness[item.version_id].answer_reasons,
-            generation_execution_preview=(
-                readiness[item.version_id].generation_execution_preview
-            ),
+            generation_execution_preview=(readiness[item.version_id].generation_execution_preview),
         )
         for item in configurations
     ]
@@ -119,6 +120,38 @@ async def configuration_detail(
         search_reasons=current.search_reasons,
         answer_reasons=current.answer_reasons,
         generation_execution_preview=current.generation_execution_preview,
+    )
+
+
+@router.post(
+    "/{configuration_id}/versions/{version_id}/evaluation-acceptance",
+    response_model=EvaluationAcceptanceResponse,
+)
+async def accept_configuration_evaluation(
+    configuration_id: UUID,
+    version_id: UUID,
+    request: EvaluationAcceptanceRequest,
+    user: Annotated[User, Depends(require_owner)],
+    service: Annotated[RagConfigurationService, Depends(get_rag_configuration_service)],
+) -> EvaluationAcceptanceResponse:
+    accepted = await service.accept_evaluation(
+        configuration_id, version_id, request.evaluation_run_id, user.id
+    )
+    configuration = accepted.configuration
+    readiness = await service.readiness((configuration,))
+    current = readiness[configuration.version_id]
+    return EvaluationAcceptanceResponse(
+        configuration=SavedRagConfigurationResponse.from_domain(
+            configuration,
+            search_ready=current.search_ready,
+            answer_ready=current.answer_ready,
+            service_ready=current.service_ready,
+            search_reasons=current.search_reasons,
+            answer_reasons=current.answer_reasons,
+            generation_execution_preview=current.generation_execution_preview,
+        ),
+        evaluation_run_id=accepted.evaluation_run_id,
+        evaluation_policy_version_id=accepted.evaluation_policy_version_id,
     )
 
 

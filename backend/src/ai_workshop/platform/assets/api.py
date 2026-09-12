@@ -4,6 +4,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile
 
+from ai_workshop.platform.assets.library_api import router as library_router
+from ai_workshop.platform.assets.originals_api import router as originals_router
 from ai_workshop.platform.assets.schemas import (
     AssetVersionResponse,
     DocumentResponse,
@@ -21,6 +23,8 @@ from ai_workshop.platform.identity.domain import User
 from ai_workshop.worker import CeleryJobDispatcher, get_job_dispatcher
 
 router = APIRouter(prefix="/api/v1", tags=["assets"])
+router.include_router(library_router)
+router.include_router(originals_router)
 
 
 @router.get(

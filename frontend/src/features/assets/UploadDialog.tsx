@@ -8,17 +8,23 @@ interface UploadDialogProps {
   onUpload: (file: File) => Promise<void>;
   buttonLabel?: string;
   inputLabel?: string;
+  disabled?: boolean;
 }
 
 export function UploadDialog({
   onUpload,
   buttonLabel = "문서 올리기",
   inputLabel = "새 문서 파일",
+  disabled = false,
 }: UploadDialogProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<string | null>(null);
 
   async function handleFile(event: ChangeEvent<HTMLInputElement>) {
+    if (disabled) {
+      event.target.value = "";
+      return;
+    }
     const file = event.target.files?.[0];
     if (!file) return;
     setStatus("업로드 중…");
@@ -38,7 +44,7 @@ export function UploadDialog({
 
   return (
     <div className="upload-control">
-      <button type="button" onClick={() => inputRef.current?.click()}>
+      <button type="button" disabled={disabled} onClick={() => inputRef.current?.click()}>
         {buttonLabel}
       </button>
       <input
@@ -46,6 +52,7 @@ export function UploadDialog({
         aria-label={inputLabel}
         className="visually-hidden"
         type="file"
+        disabled={disabled}
         accept={accepted}
         onChange={handleFile}
       />

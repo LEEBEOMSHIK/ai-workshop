@@ -3,6 +3,10 @@
 - 상태: 승인됨
 - 기준일: 2026-09-05
 - 상세 설계: [2026-08-30 AI 검색 상세 설계](designs/2026-08-30-ai-search-detailed-design.md)
+- 승인된 사용자 흐름 변경(구현 중): [도메인 선택 후 대화형 RAG](../../superpowers/specs/2026-09-07-domain-first-rag-conversation-design.md)
+- 도메인 파일함 초기 구현: [도메인 파일함과 문서 대화](../../superpowers/specs/2026-09-10-domain-cabinet-conversation-design.md)
+- 승인된 후속 흐름(단계별 구현 중): [통합 파일함과 대화 범위](../../superpowers/specs/2026-09-13-unified-cabinet-design.md). 파일 탐색·미리보기는 필수 순서가 아니며 공간·폴더·파일 선택과 별개다.
+- 승인 복구 흐름(구현 중): [문서 버전과 승인 수명주기 분리](../../superpowers/specs/2026-09-10-document-transfer-reapproval.md), ADR-0024.
 
 ## 1. 목적
 
@@ -141,7 +145,13 @@ PDF 요소에 페이지와 요소 bbox만 있을 때는 픽셀 단위 문장 bbo
 - XLSX: 통합 뷰어의 시트, 행과 셀 하이라이트
 - 표: 관련 셀과 함께 필요한 행·열 머리글 표시
 
-첫 수직 슬라이스는 Markdown, TXT와 텍스트가 포함된 PDF를 지원한다. 이후 DOCX, 스캔 PDF와 OCR 순서로 확장하고, PPTX, XLSX, HTML과 HWPX는 형식 확장 단계에서 추가한다.
+현재 Markdown, TXT, 텍스트 PDF, DOCX 내장 이미지 OCR과 스캔 PDF 페이지 OCR을 지원한다.
+`pymupdf-ocr` v1은 텍스트 없는 페이지만 렌더링한다. v2는 본문 직접 추출과 함께
+삽입 이미지 영역도 렌더링해 OCR하고, 동일 위치의 동일 본문과 겹친 OCR 결과는 경고와
+함께 검색 근거에서 제외한다. 원문 위치는 보존하며 다른 위치의 반복 문구는 유지한다.
+텍스트가 없는 페이지는 v2에서도 전체 페이지 OCR한다. 벡터 도형 의미 해석은 별도 범위다.
+자원 상한·좌표·실패 정책은 [ADR 0014](../../decisions/0014-scanned-pdf-ocr.md)를 따른다.
+PPTX, XLSX, HTML과 HWPX는 이후 형식 확장 단계에서 추가한다.
 
 원본 애플리케이션을 완전히 재현하지 않는다. 원본 위치의 정확한 확인과 일관된 검색 경험을 우선한다.
 
@@ -274,6 +284,12 @@ host-path 누출 없는 sanitized transport cleanup을 안정 지원 계약으�
 Responses Provider 경계는 이 차단 결과로 변경하지 않는다. 상세 결과와 재개 조건은
 `docs/decisions/0011-development-codex-app-server-provider.md`를 따른다.
 
+개인 owner-only 제한 실행에 대한 사용자 승인과 내부 통제 지침 요구는 별도
+[ADR-0017](../../decisions/0017-personal-codex-exec-provider.md)과
+[상세 설계](../../superpowers/specs/2026-09-07-personal-codex-exec-rag-design.md)를 따른다.
+이 설계는 위 SDK/App Server의 격리 성공을 뜻하지 않는다. `codex exec` 연결, 지침의 신뢰 경계,
+개발 전용/외부 전송 정책·실제 모델 검증이 별도 구현 대상이며 아직 활성화하지 않았다.
+
 정책이 허용하고 근거가 충분한 경우에만 구조화 생성을 실행한다. 응답은 허용된 Evidence ID의
 문장별 인용을 통과해야 하며 실패한 초안은 노출하지 않는다. 구성한 Provider가 실패해도 다른
 Provider나 추출 답변으로 조용히 전환하지 않는다. 공개 생성 실행 정보에는 Provider, 사용자용
@@ -332,6 +348,10 @@ Generation 프로파일의 불변 버전을 조합한 저장된 RAG 구성을 �
 평가 작업자는 검색 순위, 답변 선택, 구조화된 하이라이트, 노출 표면, 지연 시간과 반복 서명으로 이루어진 원시 관측만 증명한다. PostgreSQL은 불변 정답 케이스와 원시 관측에서 케이스 지표와 후보 집계를 다시 검증한다. 완전한 정확 케이스 행과 정책 임계값을 만족한 실행만 승격 근거가 되며, 작업자가 제출한 스칼라 지표 자체는 신뢰 경계에 포함하지 않는다.
 
 검증된 실험 프로파일만 별도의 승인 과정을 거쳐 일반 검색 기본값으로 승격한다.
+
+관리자 첫 평가 작성과 전체 기본값을 바꾸지 않는 정확한 구성 버전의 평가 통과 반영은
+[ADR 0020](../../decisions/0020-rag-evaluation-authoring.md)의 승인된 보완 계약을 따른다.
+이 보완은 구현 중이며, 검색 평가 통과와 생성 준비·도메인 실제 사용 가능 여부는 구분한다.
 
 ## 10. RAG 에이전트 조직
 

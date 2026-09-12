@@ -1,9 +1,9 @@
 import { ModelLabPage } from "../../../../../features/rag/models/ModelLabPage";
 import type {
   ModelDefinitionSummary,
-  ProfileKind,
   ProfileSummary,
 } from "../../../../../features/rag/models/api";
+import { profileKinds } from "../../../../../features/rag/models/registryCatalog";
 import { serverApiRequest } from "../../../../../shared/api/server-client";
 import {
   incomingCookieHeader,
@@ -13,8 +13,6 @@ import {
   captureServerRoute,
   ServerRouteFailure,
 } from "../../../../../shared/ui/ServerRouteFailure";
-
-const profileKinds: ProfileKind[] = ["indexing", "retrieval", "generation"];
 
 export default async function RagModelsRoute() {
   const result = await captureServerRoute(async () => {

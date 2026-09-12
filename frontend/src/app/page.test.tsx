@@ -1,30 +1,36 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 
-import { routes } from "../shared/routing/routes";
+import type { GameStore } from "../features/office-game/gameStore";
+import { loginPath, routes } from "../shared/routing/routes";
 import HomeRoute, { metadata } from "./page";
 
+// Canvas/WebGL and real keyboard movement belong to office.e2e.ts. Keep the
+// actual React host, state bridge and public navigation under test here.
+vi.mock("../features/office-game/PhaserGame", () => ({
+  createPhaserGame: (_parent: HTMLDivElement, store: GameStore) => {
+    store.getState().setStatus("ready");
+    return { destroy() {} };
+  },
+}));
+
 describe("HomeRoute", () => {
-  it("introduces the public Lab entrance before the working Lab floor", async () => {
-    const user = userEvent.setup();
+  it("opens the game campus with public navigation and an optional private-workshop entry", async () => {
     render(<HomeRoute />);
 
     expect(
-      screen.getByRole("heading", { name: "AI 기술 관리자들을 만나는 연구소 입구" }),
+      screen.getByRole("heading", { name: /연구소에 오신 것을.*환영합니다/ }),
     ).toBeVisible();
     expect(
-      screen.getByRole("button", { name: "RAG 총괄에게 말 걸기" }),
+      screen.getByRole("region", { name: "게임형 AI 연구소" }),
     ).toBeVisible();
     expect(
-      screen.getByRole("link", { name: "연구실 전체 보기" }),
+      screen.getByRole("link", { name: /AI Labs/ }),
     ).toHaveAttribute("href", routes.labs);
-    expect(screen.queryByText("문서 수집 라인")).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "RAG 총괄에게 말 걸기" }));
-
     expect(
-      screen.getByRole("link", { name: "RAG 연구실 들어가기" }),
-    ).toHaveAttribute("href", routes.ragLab);
+      screen.getByRole("link", { name: "내 작업소" }),
+    ).toHaveAttribute("href", loginPath(routes.workshopHome));
+    expect(await screen.findByRole("button", { name: "이동 키가 반응하지 않으면 여기를 클릭" })).toBeVisible();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("declares the public entrance as the canonical route", () => {

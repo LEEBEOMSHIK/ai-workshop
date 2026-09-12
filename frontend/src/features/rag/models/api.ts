@@ -1,5 +1,6 @@
 import { ApiError, apiRequest } from "../../../shared/api/client";
 import type { components } from "../../../shared/api/schema";
+import { profileKinds } from "./registryCatalog";
 
 export type ModelKind = components["schemas"]["ModelKind"];
 export type ProfileKind = components["schemas"]["ProfileKind"];
@@ -10,6 +11,41 @@ export type ProfileBindingSummary = components["schemas"]["ProfileBindingCreate"
 export type ProfileSummary = components["schemas"]["ProfileResponse"];
 export type DeploymentSummary = components["schemas"]["DeploymentAdminResponse"];
 export type DeploymentHealth = components["schemas"]["DeploymentHealthResponse"];
+export type CodexRunner = components["schemas"]["CodexRunnerResponse"];
+export type CodexEvidence = components["schemas"]["CodexEvidenceResponse"];
+export type CodexVerification = components["schemas"]["CodexVerificationResponse"];
+export type DeploymentCreate = components["schemas"]["DeploymentVersionCreate"];
+export const codexMutationHeaders = { "x-codex-request": "1", "content-type": "application/json" };
+
+export function loadCodexRunners(signal?: AbortSignal): Promise<CodexRunner[]> {
+  return apiRequest("/api/v1/admin/rag/codex-runners", { signal });
+}
+export function registerDeployment(request: DeploymentCreate): Promise<DeploymentSummary> {
+  return apiRequest("/api/v1/admin/rag/deployments", { method: "POST", json: request, ...(request.provider === "development_codex_exec" ? { headers: codexMutationHeaders } : {}) });
+}
+export function loadCodexEvidence(workspaceId: string, signal?: AbortSignal): Promise<CodexEvidence[]> {
+  return apiRequest(`/api/v1/admin/rag/codex-evidence?workspace_id=${encodeURIComponent(workspaceId)}`, { signal });
+}
+export function approveCodexEvidence(revisionId: string, request: components["schemas"]["CodexEvidenceApprovalRequest"]): Promise<void> {
+  return apiRequest(`/api/v1/admin/rag/codex-evidence/${encodeURIComponent(revisionId)}/approval`, { method: "POST", json: request, headers: codexMutationHeaders });
+}
+export function revokeCodexEvidence(revisionId: string, request: components["schemas"]["CodexEvidenceRevocationRequest"]): Promise<void> {
+  return apiRequest(`/api/v1/admin/rag/codex-evidence/${encodeURIComponent(revisionId)}/approval`, { method: "DELETE", json: request, headers: codexMutationHeaders });
+}
+export function verifyCodexConfiguration(versionId: string, request: components["schemas"]["CodexVerificationRequest"]): Promise<CodexVerification> {
+  return apiRequest(`/api/v1/admin/rag/configuration-versions/${encodeURIComponent(versionId)}/codex-verify`, { method: "POST", json: request, headers: codexMutationHeaders });
+}
+export function loadCodexStatus(versionId: string, signal?: AbortSignal): Promise<CodexVerification> {
+  return apiRequest(`/api/v1/admin/rag/configuration-versions/${encodeURIComponent(versionId)}/codex-status`, { signal });
+}
+
+export function codexError(error: unknown): string {
+  if (!(error instanceof ApiError)) return "요청을 완료하지 못했습니다. 설정과 연결을 확인해 주세요.";
+  return `요청 실패 (${error.code})${error.correlationId ? ` · 문의 ID: ${error.correlationId}` : ""}`;
+}
+export function isCodexEvidenceConflict(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 409 && error.code === "codex_evidence_approval_conflict";
+}
 export type InstallationDataPolicy = components["schemas"]["InstallationDataPolicyResponse"];
 export type InstallationDataPolicyCreate = components["schemas"]["InstallationDataPolicyCreate"];
 export type WorkspaceDataPolicy = components["schemas"]["WorkspaceDataPolicyResponse"];
@@ -33,7 +69,7 @@ export interface ModelAdministrationData {
 export async function loadModelLab(): Promise<ModelLabData> {
   const [models, ...profileGroups] = await Promise.all([
     apiRequest<ModelDefinitionSummary[]>("/api/v1/rag/models"),
-    ...(["indexing", "retrieval", "generation"] as ProfileKind[]).map((kind) =>
+    ...profileKinds.map((kind) =>
       apiRequest<ProfileSummary[]>(`/api/v1/rag/profiles/${kind}`),
     ),
   ]);

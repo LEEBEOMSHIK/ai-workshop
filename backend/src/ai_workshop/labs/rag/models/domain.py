@@ -60,6 +60,36 @@ class ProfileValidationError(ValueError):
     pass
 
 
+@dataclass(frozen=True, slots=True)
+class PdfRasterSpec:
+    raster_dpi: int
+    max_page_pixels: int
+    max_pages: int
+
+
+def resolve_pdf_raster_spec(
+    media_type: str,
+    route: Mapping[str, object],
+    *,
+    ocr_enabled: bool,
+) -> PdfRasterSpec | None:
+    if route.get("name") != "pymupdf-ocr":
+        return None
+    if media_type != "application/pdf" or route.get("version") not in ("1", "2") or not ocr_enabled:
+        raise ProfileValidationError("PDF OCR requires its supported route and enabled OCR.")
+    options = route.get("options")
+    bounds = {"raster_dpi": (72, 600), "max_page_pixels": (1, 100_000_000), "max_pages": (1, 2000)}
+    if not isinstance(options, Mapping) or set(options) != set(bounds):
+        raise ProfileValidationError("PDF OCR requires explicit raster options.")
+    values: dict[str, int] = {}
+    for name, (minimum, maximum) in bounds.items():
+        value = options[name]
+        if not isinstance(value, int) or isinstance(value, bool) or not minimum <= value <= maximum:
+            raise ProfileValidationError("PDF OCR raster options exceed supported integer limits.")
+        values[name] = value
+    return PdfRasterSpec(**values)
+
+
 def freeze_json(value: JsonValue) -> FrozenJsonValue:
     if isinstance(value, dict):
         return MappingProxyType({key: freeze_json(item) for key, item in value.items()})
@@ -203,18 +233,14 @@ def _validate_profile_shape(
         _validate_document_processing_profile(config, roles, deployment_version_id)
     elif kind is ProfileKind.INDEXING:
         if deployment_version_id is not None:
-            raise ProfileValidationError(
-                "A non-generation profile cannot bind a Deployment."
-            )
+            raise ProfileValidationError("A non-generation profile cannot bind a Deployment.")
         if "chunker" not in config:
             raise ProfileValidationError("An indexing profile requires a chunker configuration.")
         if roles != {ModelKind.EMBEDDING}:
             raise ProfileValidationError("An indexing profile requires an embedding model.")
     elif kind is ProfileKind.RETRIEVAL:
         if deployment_version_id is not None:
-            raise ProfileValidationError(
-                "A non-generation profile cannot bind a Deployment."
-            )
+            raise ProfileValidationError("A non-generation profile cannot bind a Deployment.")
         if "bm25" not in config:
             raise ProfileValidationError("A retrieval profile requires BM25 configuration.")
         if ModelKind.LLM in roles:
@@ -231,6 +257,16 @@ def _validate_profile_shape(
 
 
 def _validate_model_shape(kind: ModelKind, config: Mapping[str, JsonValue]) -> None:
+    if kind is ModelKind.LLM and "model_identifier" in config:
+        identity = config["model_identifier"]
+        if (
+            set(config) != {"model_identifier"}
+            or type(identity) is not str
+            or not identity.strip()
+            or len(identity) > 180
+        ):
+            raise ProfileValidationError("An LLM model requires an exact model identity.")
+        return
     if kind is ModelKind.LLM and (
         config.get("provider") != "openai_compatible"
         or config.get("data_policy") != "local_only"
@@ -251,9 +287,7 @@ def _validate_model_shape(kind: ModelKind, config: Mapping[str, JsonValue]) -> N
         )
         or fullmatch(r"[0-9a-f]{64}", str(config.get("artifact_sha256", ""))) is None
     ):
-        raise ProfileValidationError(
-            "An OCR model requires immutable local artifact metadata."
-        )
+        raise ProfileValidationError("An OCR model requires immutable local artifact metadata.")
 
 
 def _validate_document_processing_profile(
@@ -262,25 +296,20 @@ def _validate_document_processing_profile(
     deployment_version_id: UUID | None,
 ) -> None:
     if deployment_version_id is not None:
-        raise ProfileValidationError(
-            "A non-generation profile cannot bind a Deployment."
-        )
+        raise ProfileValidationError("A non-generation profile cannot bind a Deployment.")
     parser_policy = config.get("parser_policy")
     if not isinstance(parser_policy, Mapping):
-        raise ProfileValidationError(
-            "A document processing profile requires a parser policy."
-        )
+        raise ProfileValidationError("A document processing profile requires a parser policy.")
     routes = parser_policy.get("routes")
     if not isinstance(routes, Mapping) or not routes:
-        raise ProfileValidationError(
-            "A document processing profile requires parser routes."
-        )
+        raise ProfileValidationError("A document processing profile requires parser routes.")
     ocr = config.get("ocr")
     if not isinstance(ocr, Mapping) or not isinstance(ocr.get("enabled"), bool):
-        raise ProfileValidationError(
-            "A document processing profile requires a typed OCR policy."
-        )
+        raise ProfileValidationError("A document processing profile requires a typed OCR policy.")
     required_roles = PP_STRUCTURE_V3_MODEL_KINDS
+    for media_type, route in routes.items():
+        if isinstance(route, Mapping):
+            resolve_pdf_raster_spec(media_type, route, ocr_enabled=ocr["enabled"] is True)
     if ocr["enabled"] is False:
         if roles:
             raise ProfileValidationError(
@@ -292,13 +321,14 @@ def _validate_document_processing_profile(
             "An OCR-enabled document processing profile requires all OCR model roles."
         )
     required_strings = ("pipeline_name", "pipeline_version", "data_policy")
-    if any(
-        not isinstance(ocr.get(key), str) or not str(ocr[key]).strip()
-        for key in required_strings
-    ) or ocr.get("data_policy") != "local_only":
-        raise ProfileValidationError(
-            "An OCR policy requires a local pipeline identity."
+    if (
+        any(
+            not isinstance(ocr.get(key), str) or not str(ocr[key]).strip()
+            for key in required_strings
         )
+        or ocr.get("data_policy") != "local_only"
+    ):
+        raise ProfileValidationError("An OCR policy requires a local pipeline identity.")
     languages = ocr.get("languages")
     threshold = ocr.get("confidence_threshold")
     schema_version = ocr.get("output_schema_version")

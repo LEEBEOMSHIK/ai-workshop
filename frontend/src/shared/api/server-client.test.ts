@@ -60,4 +60,15 @@ describe("serverApiRequest", () => {
       ),
     );
   });
+
+  it("fails closed before fetch when the frontend is in public runtime mode", async () => {
+    vi.stubEnv("AI_WORKSHOP_FRONTEND_RUNTIME", "public");
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(serverApiRequest("/api/v1/admin/publishing/studies")).rejects.toThrow(
+      "private_api_unavailable_in_public_runtime",
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
 });

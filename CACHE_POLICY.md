@@ -1,7 +1,7 @@
 ---
 schema_version: 1
 project: ai-workshop
-scope: repository-local caches, completed worktrees, and project-owned Docker artifacts
+scope: repository-local caches, explicitly audited project pytest directories in Windows Temp, completed worktrees, and project-owned Docker artifacts
 destructive_approval: required
 ---
 
@@ -27,6 +27,8 @@ destructive_approval: required
 | 영구 보존 | `.git` | 모든 정리에서 제외한다. |
 | 사용자 환경 | `.idea` | 사용자의 별도 요청 없이는 변경하거나 제거하지 않는다. |
 | 애플리케이션 데이터 | `.local-data/objects` | 업로드 원본과 파생 자산일 수 있으므로 보존한다. |
+| 공개 기록 데이터 | Publishing 설정이 가리키는 공개 SQLite DB와 부속 파일 | 공개 snapshot·철회 순서·멱등 이력이므로 캐시 정리에서 제외한다. DB 파일을 삭제하거나 초기화해 철회·공개 상태를 복구하지 않는다. |
+| 공개 준비·승인 자료 | `.local-data/publishing-preparation` | 검토한 편집본, 비공개 출처 목록과 승인 해시를 보존한다. 에이전트 임시 리뷰 diff와 구분하며 공개 DB에 적용됐다는 이유만으로 자동 삭제하지 않는다. |
 | 실행 모델 자산 | `.local-data/models/ocr/<model-kind>/<artifact-sha256>` | 매니페스트로 검증·설치된 불변 OCR 실행 의존성이므로 캐시라는 이름만으로 제거하지 않는다. 참조 프로파일, 실행 중 worker와 재프로비저닝 가능성을 모두 확인해야 한다. |
 | 모델 준비 산출물 | `.local-data/models/p/<runtime-role>`, `.local-data/models/ocr/staging/<exact-id>` | 최종 불변 경로의 전 파일 크기·SHA-256 검증과 실제 smoke가 끝난 뒤에만 정확한 경로별 정리 후보로 보고한다. |
 | 기타 모델 캐시 | `.local-data/models`의 위 분류 외 경로 | 재다운로드 가능성, 사용 중 프로세스와 승인된 모델 출처를 확인한 경우에만 후보로 보고한다. |
@@ -42,6 +44,17 @@ destructive_approval: required
 | 도구 산출물 | `.superpowers` | 목업, 최종 검증 보고서와 선별 실패 기록을 먼저 보존하고 중간 상태와 재생성 가능한 diff만 후보로 보고한다. |
 
 프로젝트 에이전트 임시 기록의 상태 전이와 정리 게이트는 [temporary work lifecycle](docs/project-agents/governance/temporary-work-lifecycle.md)를 정본으로 사용한다.
+
+### 저장소 밖 pytest 산출물
+
+- Windows Temp 전체나 `pytest-of-<사용자>` 부모 디렉터리는 정리하지 않는다.
+- 당시 후보는 `<사용자 Temp>/pytest-of-<사용자>/pytest-41`, `pytest-42`, `pytest-43`으로 한정했다.
+  공개 문서의 경로는 비식별 표기이며 실행 대상 경로가 아니다. 재정리 시 절대경로를 새로 확인하고 승인받는다.
+- 프로젝트의 합성 fixture 생성 코드와 경로·파일 목록을 대조하고, reparse point 부재와
+  테스트 프로세스 종료를 다시 확인한 뒤 새 조사 보고에 대한 명시적 승인을 받는다.
+- 다른 번호의 디렉터리는 자동 포함하지 않는다. 회귀 테스트 소스와 사용자 원본은 보존한다.
+- 앱 DB에 남은 합성 테스트 레코드 정리는 캐시 삭제가 아닌 별도 데이터 복구 작업이다.
+  DB 자체·DB 파일·Docker 볼륨은 삭제하지 않는다.
 
 ## worktree 수명주기
 

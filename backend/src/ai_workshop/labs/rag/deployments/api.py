@@ -1,8 +1,10 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 
+from ai_workshop.config import Settings, get_settings
+from ai_workshop.labs.rag.deployments.domain import ProviderKind
 from ai_workshop.labs.rag.deployments.schemas import (
     DeploymentAdminResponse,
     DeploymentHealthResponse,
@@ -15,6 +17,7 @@ from ai_workshop.labs.rag.deployments.service import (
     get_deployment_health_service,
     get_deployment_registry_service,
 )
+from ai_workshop.labs.rag.generation.codex_admin_api import require_codex_mutation
 from ai_workshop.platform.identity.api import require_owner
 from ai_workshop.platform.identity.domain import User
 
@@ -33,9 +36,7 @@ async def check_deployment_health(
         Depends(get_deployment_health_service),
     ],
 ) -> DeploymentHealthResponse:
-    return DeploymentHealthResponse.from_result(
-        await service.check(version_id, actor_id=user.id)
-    )
+    return DeploymentHealthResponse.from_result(await service.check(version_id, actor_id=user.id))
 
 
 @router.post(
@@ -45,9 +46,13 @@ async def check_deployment_health(
 )
 async def create_deployment(
     request: DeploymentVersionCreate,
+    http_request: Request,
+    settings: Annotated[Settings, Depends(get_settings)],
     user: Annotated[User, Depends(require_owner)],
     service: Annotated[DeploymentRegistryService, Depends(get_deployment_registry_service)],
 ) -> DeploymentAdminResponse:
+    if request.provider is ProviderKind.DEVELOPMENT_CODEX_EXEC:
+        require_codex_mutation(http_request, settings)
     entry = await service.create_identity(request, actor_id=user.id)
     return DeploymentAdminResponse.from_entry(
         entry,
@@ -63,9 +68,13 @@ async def create_deployment(
 async def create_deployment_version(
     deployment_id: UUID,
     request: DeploymentVersionCreate,
+    http_request: Request,
+    settings: Annotated[Settings, Depends(get_settings)],
     user: Annotated[User, Depends(require_owner)],
     service: Annotated[DeploymentRegistryService, Depends(get_deployment_registry_service)],
 ) -> DeploymentAdminResponse:
+    if request.provider is ProviderKind.DEVELOPMENT_CODEX_EXEC:
+        require_codex_mutation(http_request, settings)
     entry = await service.create_version(deployment_id, request, actor_id=user.id)
     return DeploymentAdminResponse.from_entry(
         entry,
@@ -98,7 +107,4 @@ async def list_deployment_options(
     _user: Annotated[User, Depends(require_owner)],
     service: Annotated[DeploymentRegistryService, Depends(get_deployment_registry_service)],
 ) -> list[DeploymentOptionResponse]:
-    return [
-        DeploymentOptionResponse.from_entry(item)
-        for item in await service.list_versions()
-    ]
+    return [DeploymentOptionResponse.from_entry(item) for item in await service.list_versions()]

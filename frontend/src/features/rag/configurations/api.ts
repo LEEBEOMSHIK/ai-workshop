@@ -12,6 +12,32 @@ export type Profile = components["schemas"]["ProfileResponse"];
 export type SavedConfiguration = components["schemas"]["SavedRagConfigurationResponse"];
 export type SavedConfigurationCreate = components["schemas"]["SavedRagConfigurationCreate"];
 export type Workspace = components["schemas"]["WorkspaceResponse"];
+export type AuthoringDocumentsRequest = components["schemas"]["AuthoringDocumentsRequest"];
+export type AuthoringDocumentsResponse = components["schemas"]["AuthoringDocumentsResponse"];
+export type AuthoringScope = components["schemas"]["AuthoringScope"];
+export type AuthoringPreview = components["schemas"]["AuthoringPreview"];
+export type AuthoringEvidence = components["schemas"]["AuthoringEvidence"];
+export type AuthoringCase = components["schemas"]["AuthoringCase"];
+export type AuthoringRunRequest = components["schemas"]["AuthoringRunRequest"];
+export type EvaluationPolicyCreate = components["schemas"]["EvaluationPolicyCreate"];
+export type EvaluationPolicy = components["schemas"]["EvaluationPolicyResponse"];
+export type EvaluationAcceptance = components["schemas"]["EvaluationAcceptanceResponse"];
+
+export function listEvaluationDocuments(request: AuthoringDocumentsRequest, signal?: AbortSignal): Promise<AuthoringDocumentsResponse> {
+  return apiRequest("/api/v1/rag/evaluation-authoring/documents", { method: "POST", json: request, signal });
+}
+export function previewEvaluationSources(request: AuthoringScope, signal?: AbortSignal): Promise<AuthoringPreview> {
+  return apiRequest("/api/v1/rag/evaluation-authoring/preview", { method: "POST", json: request, signal });
+}
+export function startAuthoredEvaluation(request: AuthoringRunRequest, signal?: AbortSignal): Promise<EvaluationRun> {
+  return apiRequest("/api/v1/rag/evaluation-authoring/runs", { method: "POST", json: request, signal });
+}
+export function createEvaluationPolicy(request: EvaluationPolicyCreate, signal?: AbortSignal): Promise<EvaluationPolicy> {
+  return apiRequest("/api/v1/rag/evaluation-policies", { method: "POST", json: request, signal });
+}
+export function acceptConfigurationEvaluation(configurationId: string, versionId: string, runId: string, signal?: AbortSignal): Promise<EvaluationAcceptance> {
+  return apiRequest(`/api/v1/rag/configurations/${encodeURIComponent(configurationId)}/versions/${encodeURIComponent(versionId)}/evaluation-acceptance`, { method: "POST", json: { evaluation_run_id: runId }, signal });
+}
 
 export interface ConfigurationStudioData {
   configurations: SavedConfiguration[];

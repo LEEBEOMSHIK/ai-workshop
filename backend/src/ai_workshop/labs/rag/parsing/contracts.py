@@ -57,6 +57,25 @@ class InvalidPdfCoordinatesError(ParsingError):
         )
 
 
+class PdfProcessingLimitError(ParsingError):
+    def __init__(self) -> None:
+        super().__init__(
+            "pdf_processing_limit_exceeded", "PDF exceeds the configured processing limits."
+        )
+
+
+class InvalidPdfError(ParsingError):
+    def __init__(self) -> None:
+        super().__init__("pdf_invalid", "PDF is malformed, encrypted or unreadable.")
+
+
+class EmptyPdfOcrError(ParsingError):
+    def __init__(self, page_number: int) -> None:
+        super().__init__(
+            "pdf_ocr_empty", f"OCR returned no text or table content for PDF page {page_number}."
+        )
+
+
 class DocxPackageError(ParsingError):
     pass
 

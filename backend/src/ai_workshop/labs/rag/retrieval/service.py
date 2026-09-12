@@ -27,6 +27,8 @@ class SearchScopeResolverPort(Protocol):
         workspace_ids: tuple[UUID, ...],
         folder_ids: tuple[UUID, ...],
         indexing_profile_id: UUID,
+        document_ids: tuple[UUID, ...] | None = None,
+        document_processing_profile_id: UUID | None = None,
     ) -> ResolvedSearchScope: ...
 
 
@@ -80,6 +82,8 @@ class HybridRetrievalService:
         index_alias: SearchIndexTarget,
         result_limit: int,
         query_max_tokens: int = 512,
+        document_ids: tuple[UUID, ...] | None = None,
+        document_processing_profile_id: UUID | None = None,
     ) -> tuple[FusedHit, ...]:
         clean_query = query.strip()
         if not clean_query:
@@ -115,10 +119,10 @@ class HybridRetrievalService:
             workspace_ids=workspace_ids,
             folder_ids=folder_ids,
             indexing_profile_id=indexing_profile_id,
+            document_ids=document_ids,
+            document_processing_profile_id=document_processing_profile_id,
         )
-        if scope.active_only and (
-            not scope.asset_version_ids or not scope.index_build_ids
-        ):
+        if scope.active_only and (not scope.asset_version_ids or not scope.index_build_ids):
             return ()
 
         if dense_top_k is None:
@@ -146,6 +150,18 @@ class HybridRetrievalService:
                 "Hybrid search is temporarily unavailable.",
                 503,
             ) from exc
+
+        # Encoding may take long enough for another request to revoke access.
+        # Revalidate immediately before either candidate branch starts, while
+        # retaining the same authorized source snapshot for sparse and dense.
+        await self.scope_resolver.resolve(
+            actor_id=actor_id,
+            workspace_ids=workspace_ids,
+            folder_ids=folder_ids,
+            indexing_profile_id=indexing_profile_id,
+            document_ids=document_ids,
+            document_processing_profile_id=document_processing_profile_id,
+        )
 
         try:
             async with asyncio.TaskGroup() as group:
@@ -208,9 +224,7 @@ def _validate_active_alias(
     dense_top_k: int | None,
 ) -> None:
     if index_alias.indexing_profile_id != indexing_profile_id:
-        raise ValueError(
-            "The active index alias must match the selected indexing profile."
-        )
+        raise ValueError("The active index alias must match the selected indexing profile.")
     profile_id = profile.config.get("indexing_profile_id")
     if profile_id is None and dense_top_k is None:
         return
@@ -219,9 +233,7 @@ def _validate_active_alias(
     try:
         expected_profile_id = UUID(profile_id)
     except ValueError as exc:
-        raise ValueError(
-            "A retrieval profile requires a valid indexing profile UUID."
-        ) from exc
+        raise ValueError("A retrieval profile requires a valid indexing profile UUID.") from exc
     if indexing_profile_id != expected_profile_id:
         raise ValueError(
             "The selected indexing profile must match the retrieval profile reference."

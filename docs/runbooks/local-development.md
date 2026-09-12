@@ -5,6 +5,76 @@
 
 이 문서는 AI Workshop 기반을 로컬에서 설치하고 실행·검증하는 절차의 정본이다. 원본 문서와 비밀값은 Git에 추가하지 않는다.
 
+### 게임형 공개 입구 실행
+
+공개 `/`의 Office MVP는 백엔드·Docker·로그인 없이 실행할 수 있다.
+`pnpm --dir frontend install --frozen-lockfile` 후
+`pnpm --dir frontend dev`로 `http://127.0.0.1:5173/`에 접속한다.
+화면 준비 후 최초 자동 포커스가 적용되면 바로 WASD/방향키로 이동한다.
+로딩 중 메뉴를 선택하거나 창을 떠났다면 포커스를 빼앗지 않는다. 이때는 화면을 클릭하거나
+Tab으로 이동 공간에 초점을 두어 이동을 시작한다.
+로비의 통로에서 사장실 또는 RAG 연구소로 이동한다. Founder와 RAG 총괄 캐릭터를 클릭하거나
+가까이에서 E를 눌러 React 대화창을 연다. Founder는 공개 연구 방향을 소개하며 실제 명령을
+  실행하지 않는다. RAG 총괄의 `RAG 연구소 들어가기`는 `/labs/rag`의 담당자 작업실로 연결된다.
+닫기 또는 Escape로 복귀한다. 대화 중·포커스 이탈 중에는 이동하지 않는다.
+로비 아래 연결 복도에는 파인튜닝 연구소·AI 공부실·온톨로지 연구소가 준비 공간으로 있다.
+각 방의 모집 안내판을 클릭하거나 가까이에서 E로 목적과 준비 상태를 확인한다.
+세 공간은 둘러보기만 가능하며 서비스 실행·신청·관리자 NPC는 제공하지 않는다.
+
+검증 명령은 `pnpm --dir frontend test --run src/features/office-game`,
+`pnpm --dir frontend typecheck`, `pnpm --dir frontend lint`, `pnpm --dir frontend build`다.
+실행 중인 프론트를 대상으로 `pnpm --dir frontend test:office`로 실제 브라우저를 검증한다.
+기본 브라우저는 설치된 Edge이며 `OFFICE_TEST_BROWSER=chrome` 등 Playwright channel과
+`OFFICE_TEST_BASE_URL`로 테스트 환경을 변경할 수 있다. 브라우저를 자동 설치하지 않는다.
+테스트는 공개 입구만 사용하며 로그인·업로드·모델 요청을 하지 않는다.
+실패 진단 산출물은 `.local-data/browser-verification/office-game/`에 한정한다.
+후속 그래픽 교체 시 `frontend/public/office/maps/office.json`을 Tiled로 편집하고
+맵과 tileset 상대 경로를 함께 유지한다.
+
+## 개발·실험 기록 공개 저장소
+
+Publishing은 비공개 PostgreSQL의 편집본·승인·명령과 별도 SQLite의 공개 게시본을 분리한다.
+로컬 private API와 공개 reader가 사용하는 아래 두 경로는 같은 절대 경로로 지정한다.
+상대 경로를 쓰면 프로세스 작업 디렉터리에 따라 서로 다른 파일을 바라볼 수 있다.
+
+- private API: `AI_WORKSHOP_PUBLISHING_PUBLIC_STORE_PATH`
+- 공개 reader: `AI_WORKSHOP_PUBLIC_STORE_PATH`
+- 로컬 전달: `AI_WORKSHOP_PUBLISHING_DELIVERY_MODE=local`
+- 관리자 변경 Origin: `AI_WORKSHOP_PUBLISHING_ALLOWED_ADMIN_ORIGINS`
+  (JSON 배열, 기본 `http://127.0.0.1:5173`, `http://localhost:5173`)
+- 공개 표시 인물: `AI_WORKSHOP_PUBLISHING_APPROVED_PUBLIC_PERSONAS`
+  (승인된 `{slug,label}`의 JSON 배열, 기본 빈 배열). 로그인 계정에서 자동 생성하지 않는다.
+
+관리자 변경 요청은 기존 owner 인증 외에 허용 Origin, JSON Content-Type,
+`X-Publishing-Request: 1`을 요구한다. 다른 포트로 관리자 화면을 실행하면 정확한 Origin을
+추가해야 하며 와일드카드를 사용하지 않는다.
+
+독립 reader 진입점은 `ai_workshop.public_app:app`이다. 이 프로세스에는 루트 `.env`나
+private DB·모델 비밀값을 주입하지 않고 공개 SQLite 경로만 전달한다. 공개 reader는 파일을
+읽기 전용으로 열며 파일이 없거나 사용할 수 없으면 빈 목록 대신 서비스 오류를 반환한다.
+게시 적용은 private 측에서 수행하고 적용 확인 전에는 관리자 화면에서 대기로 표시한다.
+SQLite 파일과 sidecar는 캐시가 아닌 공개 서비스 데이터이므로 `CACHE_POLICY.md`를 따른다.
+
+같은 Windows 계정의 별도 프로세스는 기능 분리만 확인한다. 실제 파일 접근권한 격리를
+입증하지 않으며 운영 배포 전 별도 사용자/ACL 등으로 검증해야 한다. 운영 환경은
+`manual` 전달 모드를 요구한다. 수동 반출·반입·receipt 운영 도구와 실제 격리 검증은
+로컬 UI 확인과 별도의 배포 준비 사항이다.
+
+프론트 실행 모드는 `AI_WORKSHOP_FRONTEND_RUNTIME=combined|public`이다. 통합 로컬 모드는
+기존 `API_PORT`로 private API를 찾는다. 공개 reader는 `AI_WORKSHOP_PUBLIC_API_TARGET`의
+HTTP(S) origin을 사용하거나, 미설정 시 `PUBLIC_API_PORT`(기본 18001)의 loopback 주소를
+사용한다. 이 값에는 인증정보·경로·query를 넣지 않는다.
+
+공개 전용 모드는 루트 `.env`를 읽지 않고 private API rewrite를 만들지 않으며 관리자·작업소·
+로그인·설정 경로와 private API 요청을 제공하지 않는다. 이 모드의 설정은 루트 `.env`가 아닌
+해당 프로세스 환경으로 전달해야 한다. 기능 분리와 별개로 운영 서버의 권한 격리는 필요하다.
+
+같은 소스에서 검증용 프론트를 별도로 실행할 때는 프로세스 환경에
+`AI_WORKSHOP_FRONTEND_INSTANCE`를 안전한 인스턴스 이름으로 지정한다. 기본값은 기존 `.next`이며,
+지정한 인스턴스의 빌드는 `frontend/.next/instances/<이름>/`에서 분리한다. 포트만 바꾸면 기존
+개발 서버의 빌드 잠금과 충돌할 수 있다. 경로 자체를 입력하지 않으며 기존 서버를 종료하지 않는다.
+Next.js의 [별도 빌드 디렉터리 설정](https://nextjs.org/docs/pages/api-reference/config/next-config-js/distDir)을 사용한다.
+
 ## 1. 준비물
 
 - Docker Desktop과 Docker Compose v2
@@ -23,6 +93,53 @@ cd ..
 ```
 
 ## 2. 로컬 인프라 준비
+
+### 기술별 권한 기반 배포 전 주의
+
+[ADR-0022](../decisions/0022-technology-permissions.md)의 권한 기반은 단계별 구현 중이다.
+권한 테이블·설치 완료 상태를 추가하는 migration과 실행 중인 로컬 DB 반영은 별도 작업이다.
+코드 검증만으로 적용 완료를 추정하지 말고 `WORKBOARD.md`의 실제 반영 상태를 확인한다.
+
+실제 반영은 아래 순서를 포함하는 하나의 조정된 유지보수 cutover로 별도 승인받아 수행한다.
+승인 범위에는 정확한 대상 DB, 백업 산출물과 복원 대상, 중단 시간, 함께 배포할 backend/frontend
+버전을 포함한다. 코드·문서 변경은 이 승인이나 실제 migration·재시작·계정 작업을 대신하지 않는다.
+
+1. 신규 setup 및 identity 쓰기가 들어오지 않도록 진입 경로를 차단한다.
+2. 구 API가 새 요청을 받지 않게 하고 진행 중인 setup/identity 쓰기를 drain한 뒤 구 API를 중지한다.
+   구 버전 `bootstrap-owner`, CLI, 자동화 등 사용자를 쓰는 모든 bootstrap writer도 함께 중지한다.
+3. 구 API와 구 bootstrap writer가 모두 중지됐음을 확인한 뒤에만 승인된 `0030` migration을 적용한다.
+4. DB의 현재 revision이 `0030_technology_permissions`인지 읽기 전용으로 확인한다.
+5. 확인 후 같은 릴리스의 새 backend와 frontend만 시작하고 health, setup 완료 상태, 기존 마스터
+   로그인 응답과 `/admin/system/access` 조회를 읽기 전용으로 확인한다.
+
+구·신 backend writer를 동시에 실행하지 않으며 migration 후 구 bootstrap/CLI를 다시 사용하지 않는다.
+새 권한 UI를 구 API와 조합하면 관련 route가 없어 사용할 수 없는 상태이며 활성화로 간주하지 않는다.
+새 backend를 migration 전에 시작하거나 구 writer를 migration 뒤 다시 시작하지 않는다.
+자동 startup migration이나 기존 사용자 자동 승격·활성화로 오류를 우회하지 않는다.
+기존 사용자에 활성 마스터가 없거나 역할 데이터가 불일치하면 migration을 중단하고 조사한다.
+빈 설치는 공개 setup을 한 번만 허용하며, 완료 후 계정이 손상돼도 setup을 다시 열지 않는다.
+
+최초 권한 관리 화면은 기존 사용자만 대상으로 한다. 한 명이면 마스터 본인과 보호 안내만
+보이는 것이 정상이며, 테스트를 위해 실사용 DB에 회원을 만들거나 권한을 변경하지 않는다.
+기술 권한의 저장과 RAG 경로 위임 연결은 구별된다. `적용 준비 중` 기술은 저장하더라도
+기존 마스터 전용 경로가 일반 사용자에게 열리지 않는다.
+권한 migration의 downgrade는 감사·권한·설치 완료 상태를 없앨 수 있으므로 자동 복구 수단으로
+사용하지 않는다. 백업·서비스 중단·복원 대상 검토와 별도 승인이 선행되어야 한다.
+`0030_technology_permissions`는 `0029_codex_verification` 다음 단계다. 권한/감사 또는
+변경된 revision이 있으면 downgrade를 거절한다. 이를 우회하려고 감사 행을 지우지 않는다.
+실제 반영 승인을 받은 경우에만 위의 쓰기 차단과 구 writer 중지를 완료한 뒤 목표 revision을
+명시해 실행한다.
+
+```powershell
+backend\.venv\Scripts\python.exe -c "import asyncio; asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()); from alembic.config import main; main(argv=['-c','backend/alembic.ini','upgrade','0030_technology_permissions'])"
+```
+
+migration 또는 새 애플리케이션 시작이 실패하면 그 지점에서 중단한다. 검토되지 않은 downgrade,
+데이터 삭제, 사용자 수리나 호환되지 않는 구 writer 재시작을 복구 수단으로 사용하지 않는다.
+승인된 백업·복원 절차와 원인 검토 뒤 다음 조치를 다시 승인받는다. 읽기 전용 확인에서는 마스터
+한 명일 때 비활성화·강등 버튼의 보호 안내를 확인하되, 실사용 계정으로 변경을 시험하지 않는다.
+
+### 인프라 실행
 
 로컬 개발에서는 PostgreSQL, Redis와 Elasticsearch만 Docker로 실행한다. React, FastAPI, Celery worker와 beat는 호스트에서 실행하며 애플리케이션 컨테이너를 함께 띄우지 않는다. API, worker와 beat는 스키마를 자동 변경하지 않으므로 migration은 명시적으로 한 번 실행한다.
 
@@ -111,11 +228,13 @@ pipeline, layout·detector·한국어 recognizer·표 분류·유선/무선 구�
 OCR 최상위 방향 모듈을 구분한 비기본 `pp-structure-v3-docx v2`다. 마이그레이션 `0020`은
 기존 v1을 수정하지 않고 v2를 새 불변 버전으로 추가한다.
 
-실제 Windows CPU 검증은 준비된 불변 모델 경로만 사용하며 다음 명령으로 실행한다. 모델 경로가
-없으면 실제 추론 테스트는 명시적으로 건너뛰므로, 앞의 프로비저닝 명령과 출력 경로 10개를 먼저
-확인한다.
+실제 Windows CPU 검증은 준비된 불변 모델 경로만 사용하며 다음 명령으로 실행한다.
+`AI_WORKSHOP_OCR_ACTUAL_SMOKE=1`이 없으면 실제 검증 3개가 건너뛰어진다. 활성화한 상태에서
+모델 산출물이 없거나 손상됐다면 실패하므로, 앞의 프로비저닝 명령과 출력 경로 10개를 먼저
+확인한다. 아래 명령은 실제 검증 3개를 선택하므로 `3 passed, 0 skipped`를 확인한다.
 
 ```powershell
+$env:AI_WORKSHOP_OCR_ACTUAL_SMOKE = "1"
 backend\.venv\Scripts\python.exe -m pytest backend\tests\integration\labs\rag\ocr\test_paddle_structure_smoke.py -q -m integration
 ```
 
@@ -132,6 +251,10 @@ docker compose -f infrastructure\compose\compose.yaml run --rm ocr-linux-cpu-smo
 ```
 
 ARM64 Docker 엔진은 이미지를 AMD64로 에뮬레이션하므로 전체 추론 smoke가 매우 느릴 수 있다.
+실행 전 `docker info --format '{{.Architecture}}'`로 서버가 `x86_64` 또는 `amd64`인지 확인한다.
+위 Compose smoke는 설정·fixture 2개와 실제 검증 3개를 모두 실행하므로
+`5 passed, 0 skipped`를 확인한다. Linux fixture는 영문 합성 데이터이며 bbox는 `[0,1]`
+범위를 검사한다. 이 결과만으로 한국어 품질이나 좌표 위치 정밀도까지 검증됐다고 판단하지 않는다.
 이미지·package·artifact 검증만으로 Linux CPU를 검증 완료로 승격하지 않는다. native Linux
 x86_64에서 text·table·bbox 실제 추론과 처리 시간을 통과해야 하며, 그 전에는 관리자 화면에
 `미구현/미검증`으로 표시한다. Linux GPU는 별도 engine·CUDA·NVIDIA hardware gate다.
@@ -140,8 +263,10 @@ x86_64에서 text·table·bbox 실제 추론과 처리 시간을 통과해야 �
 
 각각 별도 터미널에서 위 `.env` 로드 블록을 먼저 실행한다. Windows Celery worker는 `--pool=solo`를 사용하며 애플리케이션 진입 시 psycopg와 호환되는 Selector 정책을 설정한다.
 
+Windows API는 아래 명시적 loop factory를 사용한다. Uvicorn의 `--loop asyncio`는 reload 없는 Windows 실행에서 정책과 무관하게 Proactor 루프를 선택하므로, Selector 정책 설정만으로는 psycopg async 호환성이 보장되지 않는다. 같은 factory를 유지하면 `--reload`를 생략한 실행도 Selector 루프를 사용한다.
+
 ```powershell
-backend\.venv\Scripts\python.exe -m uvicorn ai_workshop.main:app --reload --host 127.0.0.1 --port $env:API_PORT
+backend\.venv\Scripts\python.exe -m uvicorn ai_workshop.main:app --loop ai_workshop.shared.asyncio_policy:create_selector_event_loop --reload --host 127.0.0.1 --port $env:API_PORT
 ```
 
 ```powershell
@@ -200,6 +325,68 @@ backend\.venv\Scripts\python.exe -c "import asyncio; asyncio.set_event_loop_poli
 
 종료할 때 호스트 애플리케이션 프로세스를 먼저 중지한다. 인프라도 중지할 경우 `docker compose -f infrastructure/compose/compose.yaml stop postgres redis elasticsearch`를 사용해 데이터 볼륨을 유지한다.
 
+### 개인 개발용 Codex 연결
+
+이 흐름은 소유자·개발 환경 전용이다. 설치된 CLI와 서버의
+`AI_WORKSHOP_CODEX_RUNNER_REFS` 사전 설정이 필요하며, CLI 인증 파일을 앱에 복사하거나
+관리자 화면에 비밀번호·API 키·실행 파일 경로를 입력하지 않는다.
+Codex는 로컬에서 실행해도 질문·포함된 대화·승인 근거를 OpenAI로 보내고 계정 사용량을 쓴다.
+운영 HTTP API 모델의 준비 상태·모델 식별 검증 기준은 이 예외로 완화하지 않는다.
+
+1. 정상 소유자 로그인 후 `/admin/rag/models`에서 LLM 모델 식별자를 등록한다.
+   요청 모델명은 관리 데이터이며 업무 코드에 고정하지 않는다.
+2. **서버 Codex 설정 불러오기**로 사전 검사된 실행기를 확인하고 배포·생성 프로파일을 저장한다.
+   제어·답변·문맥 프롬프트는 읽기 전용이다. 온도는 CLI에 전달하지 않으며,
+   출력 수락 한도는 제공자 과금 상한을 보장하지 않는다.
+3. 현재 설치·지식 공간의 외부 전송 정책을 확인하고 `/admin/rag/configurations`에서
+   호환되는 색인·검색·생성 조합과 대상 공간, 정확한 고지 동의를 저장한다.
+   사전 검사를 통과한 Codex 초안은 연결 검사 전에도 저장할 수 있지만 사용 준비 완료는 아니다.
+4. 저장된 정확한 구성 카드에서 동의 후 **합성 입력으로 연결 검사**를 실행한다.
+   상태 조회는 모델을 호출하지 않는다. 구성 목록을 다시 불러와 서버의 준비 상태를 확인한다.
+   연결 성공은 빈 근거의 형식·통신 검사이며 검색 평가나 실제 답변 품질의 통과가 아니다.
+5. 사용할 공개·합성 자료만 관리자 모델 화면에서 정확한 문서 버전·SHA-256을 확인해 승인한다.
+   비공개 사용자 문서는 자동 승인하지 않는다. 승인 복구 변경(ADR-0024)을 적용한 환경에서는
+   같은 문서 버전을 다시 승인할 수 있고 취소 이력은 보존된다. 변경 전 환경은 여전히 재승인 불가다.
+6. 실제 색인·근거 기반 평가를 통과한 정확한 구성만 기존 도메인에 연결한다.
+   `/workshop/rag/search`에서 도메인을 선택하고 질문과 포함된 이력의 분류·전송에 매번 동의한다.
+   요청 모델과 실제 관측 모델은 별도이며, 관측되지 않았다면 `미확인`으로 유지한다.
+
+검증 자료도 평가 스냅샷·승인 이력에 남는다. 현재 완전 삭제 UI가 없으므로 임시 업로드 후
+완전 삭제를 약속하지 말고 보관 범위를 먼저 승인받는다. 실제 검증 현황과 남은 게이트는
+[연결 진행 기록](../worklogs/2026-09-09-codex-rag-activation.md)을 따른다.
+
+### 문서 전송 승인 복구 적용
+
+승인 복구 변경은 코드 검증과 실제 적용을 구분한다. 현재 이관 목표는
+`0032_evidence_approval_requests`까지이며 `0031_evidence_reapproval`을 거쳐 기존
+`0030_technology_permissions` 데이터를 보존한다. 2026-09-12 로컬 적용·실제 백업 복원 및
+독립 보존 검증을 완료했다. [적용 기록](../worklogs/2026-09-12-rag-domain-resume.md)을 참고한다.
+요청 API 적용과 일반 사용자 요청함 UI의 구현 완료는 별개다.
+승인/모델 실행 writer를 모두 중지하고 정확한 DB·스키마 head·백업을 확인한 다음에만
+이관과 신규 binding v3 서버를 함께 적용한다. 적용 중 구버전 서버를 다시 띄우지 않는다.
+이관은 기존 승인/취소 시각을 유지하고 미기록 철회 주체를 임의로 채우지 않는다.
+기존 v2 대기 호출은 무효화되며 필요하면 새로운 실행 동의를 받아 발급한다.
+데이터가 있는 환경의 downgrade는 차단된다. 장애 시 테이블을 비우거나 이전 승인을
+덮어쓰지 말고 검토된 백업 복구/순방향 수정 절차를 선택한다.
+최종 실제 적용 head와 요청함 후속 migration은 `WORKBOARD.md`의 검증 상태를 확인한다.
+
+### 파일 관리 독립 열람 검증
+
+구현·연결 상태는 `WORKBOARD.md`의 파일 관리 작업을 먼저 확인한다. 아래는 단계별 구현의
+검증 절차이며, 화면 연결 완료 또는 RAG 검색 준비 완료를 의미하지 않는다.
+
+1. 로그인 후 `/workshop/workspaces`에서 접근 가능한 회사/개인 공간을 확인한다.
+2. 공간의 `/documents`에서 실제 공간명·현재 폴더 경로와 직접 자식 문서 목록을 확인한다.
+3. 기존 공개 합성 TXT/Markdown 문서를 클릭해 활성 READY 버전의 원문을 연다.
+   이 열람에는 RAG projection·색인·외부 AI 전송 승인이 필요하지 않다.
+4. 버전 선택·닫기·새로고침과 URL 복원을 확인한다. 최신 업로드 버전과 활성 버전을 구분한다.
+5. PDF는 서버에서 로컬 페이지 이미지로 처리한다. Office/HTML은 최초 독립 미리보기 대상이
+   아니며 명시적으로 원본을 다운로드한다. 기존 RAG 근거 뷰어의 지원 범위와 혼동하지 않는다.
+
+폴더 생성·업로드·다중 페이지 PDF·권한 거절·무결성 실패는 격리된 합성 테스트로 검증한다.
+사용자 공간에 임시 문서나 폴더를 만들거나 승인 상태를 바꾸지 않는다. 실제 브라우저 검증은
+이미 보관 중인 합성 문서 읽기만 수행하며, 별도 형식의 실제 UI 검증 여부를 구분해 기록한다.
+
 ## 4. RAG ingestion, 검색과 평가
 
 업로드가 검증되면 Platform Asset Version이 `stored`에서 `ready`로 전이되고 Document의 active version이 원자적으로 교체된다. 구독된 indexing profile마다 RAG Projection은 `pending → parsing → chunking → embedding → indexing → ready`를 거친다. Job과 Projection이 `failed`이면 오류 코드를 확인하며, READY가 되기 전에는 검색 alias에 포함되지 않는다.
@@ -239,14 +426,72 @@ docker compose -f infrastructure/compose/compose.yaml --profile tools run --rm m
 
 API, worker와 beat를 여러 개 실행해도 migration을 자동 수행하지 않는다.
 
+### 비공개 Learning 스키마와 검증
+
+Learning 1단계는 `0024_learning_records`에서 사용자별 현재 기록과 불변 revision 테이블을
+추가한다. 구현·격리 DB 검증과 실행 중인 개발 DB 반영은 별도 단계다. 현재 반영 여부는
+`WORKBOARD.md`를 확인하며, 화면 파일이 존재한다는 이유로 migration 완료를 추정하지 않는다.
+
+Windows에서는 저장소 루트에서 기존 `.env`를 사용해 현재 버전을 먼저 확인한다.
+
+```powershell
+backend/.venv/Scripts/python.exe -c "import asyncio; asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()); from alembic.config import main; main(argv=['-c','backend/alembic.ini','current'])"
+```
+
+개발 DB 반영이 승인되고 현재 버전이 `0023_rag_domains`인지 확인된 경우에만 같은 루트에서
+명시적으로 `0024_learning_records`까지 upgrade한다. 임의 downgrade는 학습 기록을 제거하므로
+복구 수단으로 실행하지 않는다. 적용 뒤 current와 기존 서비스 응답을 다시 확인한다.
+
+```powershell
+backend/.venv/Scripts/python.exe -c "import asyncio; asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()); from alembic.config import main; main(argv=['-c','backend/alembic.ini','upgrade','0024_learning_records'])"
+```
+
+단위·계약 검사는 외부 모델 없이 실행한다. DB 검사는 `learning_support.py`가 생성하고 정확한
+이름을 검증한 `ai_workshop_learning_<UUID>` 전용 DB만 사용한다. 개발 DB를 truncate/reset하지 않는다.
+
+```powershell
+backend/.venv/Scripts/python.exe -m pytest -c backend/pyproject.toml backend/tests/unit/platform/learning backend/tests/contract/test_learning_api.py -q
+backend/.venv/Scripts/python.exe -m pytest -c backend/pyproject.toml backend/tests/integration/test_learning_persistence.py backend/tests/integration/test_migration_0024_learning_records.py backend/tests/integration/test_learning_lifecycle.py -q -m integration
+pnpm --dir frontend test --run src/features/learning 'src/app/(workspace)/workshop/learning' src/features/navigation src/shared/routing/routes.test.ts --pool=threads --maxWorkers=1 --reporter=verbose
+```
+
+DB lifecycle은 실제 API·서비스·SQL 저장과 RAG 참조 권한을 검증한다. 프론트 lifecycle은
+실제 컴포넌트와 HTTP mock을 연결한 검사이며 실제 브라우저 E2E가 아니다. migration 적용 후
+`/workshop/learning`에서 메모 저장→재조회→실험 전환→이력→보관→복원을 별도로 확인한다.
+
+학습 기록은 로그인 사용자별 비공개 데이터다. 보관·복원과 revision 조회만 제공하고 영구 삭제,
+공개 게시, 모델 호출·훈련을 실행하지 않는다. API 응답은 접근 불가 참조를 편집용 draft에서 제외하되
+저장 이력은 보존한다. 이 draft를 다시 저장하면 해당 연결이 빠지므로 UI의 확인 안내를 따라야 한다.
+
 ## 6. 테스트와 품질 검사
 
-빠른 로컬 검사는 다음 명령을 사용한다. 기본 pytest에서 실제 DB E2E는 건너뛴다.
+### Publishing 기반 계약 검사
+
+공개 기록 관리의 첫 구현은 package·승인·철회 순서를 검증하는 순수 Python 계약이다.
+관리자 UI·게시 API·공개 저장소는 아직 연결하지 않았다. `backend`에서 다음을 실행한다.
+
+```powershell
+.venv/Scripts/python.exe -m pytest tests/unit/platform/publishing -q
+.venv/Scripts/python.exe -m ruff check src/ai_workshop/platform/publishing tests/unit/platform/publishing
+.venv/Scripts/python.exe -m mypy src/ai_workshop/platform/publishing
+```
+
+이 검사는 DB·모델·실제 인증 키가 필요 없다. 전체 unit/contract 검사는 기존 인증 Settings를
+초기화하는 테스트를 포함한다. 환경 파일을 읽지 않는 독립 테스트 터미널에서는
+`$env:AI_WORKSHOP_SECRET_KEY = ('offline-test-' * 4)`처럼 합성 테스트 키만 지정한다.
+이 값을 앱 서버나 운영 설정에 사용하지 않는다. 검증 범위와 결과는
+[Publishing 작업 기록](../worklogs/2026-09-08-publishing-contracts.md)에 남긴다.
+
+빠른 로컬 검사는 아래처럼 단위 테스트 경로를 명시한다. `integration` marker는 서비스 연결
+허가나 DB 격리를 보장하지 않는다. 전체 `pytest`를 실사용 `.env`로 실행하지 않는다.
+일부 기존 통합 테스트가 앱 DB에 fixture를 commit하는 문제가 확인됐으며,
+격리 보완 범위와 증거는 [RAG 테스트 격리 기록](../worklogs/2026-09-09-rag-test-isolation.md)을 따른다.
+전체 integration 격리 검증이 끝나기 전에는 검토된 파일·전용 자원 경계만 명시해 실행한다.
 
 ```powershell
 cd backend
 uv lock --check
-uv run pytest -q
+uv run pytest tests/unit -q
 uv run ruff check .
 uv run mypy src
 uv run alembic check
@@ -393,6 +638,89 @@ Deployment·Generation Profile·구성 version과 metadata-only 감사 기록은
 docker compose -f infrastructure/compose/compose.yaml ps
 docker compose -f infrastructure/compose/compose.yaml logs api worker beat postgres redis elasticsearch
 ```
+
+### Windows 스캔 PDF OCR
+
+Migration `0021_pdf_ocr_profile`은 `pp-structure-v3-pdf-docx` v1을, `0022_mixed_pdf_ocr_profile`은
+혼합 페이지를 지원하는 같은 이름의 v2를 draft·비기본으로 등록한다.
+관리자 RAG 구성에서 이 문서 처리 프로파일을 선택해 새 저장 구성 버전을 만든다.
+기존 구성은 자동 변경되지 않는다. 프로파일 변경은 새 Projection·색인이 필요하다.
+Windows 호스트 API·worker를 최신 코드로 실행하고 기존 10개 모델 무결성을 확인한다.
+별도 Linux 서버는 필요 없다.
+
+관리자 상세 화면은 선택한 `pymupdf-ocr` 버전, 144 DPI, 페이지당 16,000,000 pixels,
+최대 200 pages와 PP-StructureV3 구성을 표시한다. 변경은 새 프로파일 버전으로 한다.
+v1은 텍스트 없는 페이지만 OCR한다. v2는 본문 직접 추출과 이미지 영역 OCR을 함께 수행하며
+동일 위치의 중복 OCR은 `pdf_ocr_native_duplicate` 경고로 남기고 근거에서 제외한다.
+글자 없는 장식 이미지는 정상 처리하되 런타임 실패는 전파한다. 낮은 confidence는 근거에서
+제외하고 하이라이트는 OCR 요소 bbox를 사용한다. 기존 v1 구성은 자동 변경되지 않는다.
+
+실제 모델 smoke는 backend 디렉터리에서 실행한다. 검증된 로컬 모델만 사용한다.
+
+```powershell
+$env:AI_WORKSHOP_PDF_OCR_ACTUAL_SMOKE='1'
+$env:HF_HUB_OFFLINE='1'
+$env:TRANSFORMERS_OFFLINE='1'
+$env:PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK='True'
+.\.venv\Scripts\python.exe -m pytest tests/integration/labs/rag/ocr/test_scanned_pdf_smoke.py -q
+```
+
+`pdf_processing_limit_exceeded`는 입력 분할 또는 제한 프로파일 재평가가 필요하다.
+`pdf_ocr_empty`는 추출 결과가 없다는 뜻이다. `ocr_model_artifact_missing`,
+`ocr_runtime_unavailable`, `ocr_output_invalid`는 모델 파일·런타임·출력 계약을 확인한다.
+실패 시 다른 모델로 전환하지 않으며 임시 PNG는 성공·실패 모두 정리한다.
+
+혼합 페이지의 실제 업로드·색인·검색 API 검증은 저장소 루트에서 별도로 실행한다.
+기존 PostgreSQL·Elasticsearch 인스턴스에 고유 임시 DB와 색인을 만들고 종료 시 정리한다.
+모델은 기존 로컬 캐시를 읽는다. 사용자 DB·저장 구성은 변경하지 않는다.
+
+```powershell
+$env:AI_WORKSHOP_MIXED_PDF_ACTUAL_SMOKE='1'
+backend\.venv\Scripts\python.exe -m pytest -c backend/pyproject.toml backend/tests/e2e/test_rag_mixed_pdf_actual.py -q --tb=short
+```
+
+기본 모드는 실제 OCR·E5·Elasticsearch와 API를 사용하고 worker workflow를 직접 실행한다.
+Redis/Celery 전달도 검증하려면 위 호스트 실행 절차의 `.env` 로드 후
+`AI_WORKSHOP_MIXED_PDF_ACTUAL_QUEUE=1`을 추가한다. 테스트가 고유 queue·Redis keyprefix와
+별도 host worker를 만들고 종료한다. 기존 개발 worker·beat는 중지하지 않는다.
+Windows에서는 `--basetemp`를 해당 작업의 짧은 전용 경로로 지정한다. 생성 파일은 검증 후
+정확한 경로별로 정리하며 사용자 객체 저장소를 basetemp로 지정하지 않는다.
+두 모드 모두 브라우저 상호작용과 외부 LLM 생성은 검증 범위가 아니다. 실제 큐 모드도
+ingestion command 생성은 서비스에서 수행하므로 관리자 구성 UI 전체 검증을 대체하지 않는다.
+모델·DB·색인 오류가 있으면 실패하며 다른 모델로 대체하지 않는다.
+
+### 도메인 대화 등록과 확인
+
+도메인 선택형 대화의 설계·구현 상태와 검증 범위는
+[작업 기록](../worklogs/2026-09-07-domain-first-rag-conversation.md)을 확인한다.
+
+1. migration `0023_rag_domains` 이상을 적용하고 API를 현재 코드로 실행한다. 도메인 예시는
+   자동 생성되지 않으며 기존 문서도 자동 분류되지 않는다.
+2. owner로 `/admin/rag/domains`에서 도메인 표시명·고유 slug·설명을 등록한다. 저장 RAG 구성의
+   정확한 버전과 해당 구성에 연결된 공간을 선택해 서비스 연결 버전을 만든다.
+3. 평가를 통과하고 생성형 답변·색인·런타임이 준비된 연결을 명시적으로 활성화한다. 준비
+   오류가 나면 기존 `/admin/rag/configurations`와 모델 관리에서 원인을 확인한다. DB 상태를
+   직접 바꾸거나 미준비 모델을 다른 모델로 대체하지 않는다.
+4. 로그인 사용자로 `/workshop/rag/search`에서 도메인을 선택한다. 실제 허용 공간은
+   도메인·구성·현재 사용자 권한의 교집합이다. 도메인에 연결해도 문서 권한이 새로 생기지 않는다.
+5. 대화 안에서 공간·폴더를 조정한다. 공간을 모두 해제하면 전송할 수 없고, 폴더를 선택하지
+   않으면 선택 공간 전체를 검색한다. 범위 변경 후에는 이전 대화를 새 LLM 문맥에 넣지 않는다.
+6. 답변의 인용에서 원문과 하이라이트를 확인한다. 연결 버전 변경·비활성화·권한 회수 오류가
+   표시되면 도메인 목록으로 돌아가 현재 연결로 새 대화를 시작한다. 새로고침 시 대화는 초기화된다.
+
+외부 모델 전송은 기존 저장 구성의 승인 정책을 계속 적용한다. 화면의 전송 안내 확인은
+관리자의 저장 승인·데이터 분류 검사를 대체하지 않는다. 실제 API 호출 검증은 외부 전송과
+비용 승인을 별도로 받은 뒤 수행한다. 이번 단계에는 공개 검색·인라인 첨부·피드백 저장이 없다.
+
+Windows 프론트 테스트의 순차 jsdom 준비와 출력 지연이 길면 다음 명령으로 진행 상황을
+확인한다. 실행 중이라는 이유만으로 실패 판정하지 말고 종료 코드와 요약을 확인한다.
+
+```powershell
+cd frontend
+node node_modules/vitest/vitest.mjs run --pool=threads --maxWorkers=1 --reporter=verbose
+```
+
+### 일반 실행 오류
 
 - Docker 연결 오류: Docker Desktop을 시작하고 `docker info`가 성공하는지 확인한다.
 - 포트 충돌: `.env`의 `API_PORT`, `POSTGRES_PORT`, `REDIS_PORT`, `ELASTICSEARCH_PORT`를 사용하지 않는 포트로 바꾼다.

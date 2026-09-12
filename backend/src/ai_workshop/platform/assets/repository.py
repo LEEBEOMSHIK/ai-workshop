@@ -7,10 +7,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ai_workshop.platform.assets.domain import AssetVersion, Document, Folder
 from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecord, FolderRecord
 from ai_workshop.platform.workspaces.models import WorkspaceMembershipRecord, WorkspaceRecord
-from ai_workshop.platform.workspaces.repository import workspace_is_active
+from ai_workshop.platform.workspaces.permissions import (
+    require_workspace_write,
+    workspace_read_allowed,
+)
+from ai_workshop.platform.workspaces.repository import (
+    workspace_is_active,
+    workspace_personal_owner_matches,
+)
 
 
 class AssetRepository(Protocol):
+    async def require_workspace_write(
+        self, user_id: UUID, workspace_id: UUID, *, lock: bool = False
+    ) -> None: ...
     async def has_workspace_access(self, user_id: UUID, workspace_id: UUID) -> bool: ...
     async def workspace_contains_sha256(self, workspace_id: UUID, sha256: str) -> bool: ...
     async def save(self, document: Document) -> Document: ...
@@ -20,6 +30,7 @@ class AssetRepository(Protocol):
         self, workspace_id: UUID, parent_id: UUID | None, name: str
     ) -> bool: ...
     async def folder_belongs_to(self, folder_id: UUID, workspace_id: UUID) -> bool: ...
+    async def lock_folder_siblings(self, workspace_id: UUID, parent_id: UUID | None) -> None: ...
     async def add_folder(self, folder: Folder) -> Folder: ...
     async def find_document_for_user(self, user_id: UUID, document_id: UUID) -> Document | None: ...
     async def save_version(self, document: Document, version: AssetVersion) -> Document: ...
@@ -30,6 +41,11 @@ class SqlAlchemyAssetRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
+    async def require_workspace_write(
+        self, user_id: UUID, workspace_id: UUID, *, lock: bool = False
+    ) -> None:
+        await require_workspace_write(self.session, user_id, workspace_id, lock=lock)
+
     async def has_workspace_access(self, user_id: UUID, workspace_id: UUID) -> bool:
         result = await self.session.execute(
             select(WorkspaceMembershipRecord.id)
@@ -39,8 +55,10 @@ class SqlAlchemyAssetRepository:
             )
             .where(
                 WorkspaceMembershipRecord.user_id == user_id,
+                workspace_read_allowed(user_id),
                 WorkspaceMembershipRecord.workspace_id == workspace_id,
                 workspace_is_active(),
+                workspace_personal_owner_matches(user_id),
             )
             .limit(1)
         )
@@ -166,6 +184,17 @@ class SqlAlchemyAssetRepository:
         )
         return result.scalar_one_or_none() is not None
 
+    async def lock_folder_siblings(
+        self,
+        workspace_id: UUID,
+        parent_id: UUID | None,
+    ) -> None:
+        parent_scope = str(parent_id) if parent_id is not None else "root"
+        lock_scope = f"asset-folder-siblings:{workspace_id}:{parent_scope}"
+        await self.session.execute(
+            select(func.pg_advisory_xact_lock(func.hashtextextended(lock_scope, 0)))
+        )
+
     async def add_folder(self, folder: Folder) -> Folder:
         self.session.add(
             FolderRecord(
@@ -192,8 +221,10 @@ class SqlAlchemyAssetRepository:
             .join(WorkspaceRecord, WorkspaceRecord.id == DocumentRecord.workspace_id)
             .where(
                 DocumentRecord.id == document_id,
+                workspace_read_allowed(user_id),
                 WorkspaceMembershipRecord.user_id == user_id,
                 workspace_is_active(),
+                workspace_personal_owner_matches(user_id),
             )
         )
         record = result.scalar_one_or_none()
@@ -250,9 +281,7 @@ class SqlAlchemyAssetRepository:
 
     async def find_version_for_update(self, version_id: UUID) -> AssetVersion | None:
         record = await self.session.scalar(
-            select(AssetVersionRecord)
-            .where(AssetVersionRecord.id == version_id)
-            .with_for_update()
+            select(AssetVersionRecord).where(AssetVersionRecord.id == version_id).with_for_update()
         )
         if record is None:
             return None

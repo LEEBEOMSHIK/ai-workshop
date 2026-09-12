@@ -38,7 +38,7 @@
 - 현재 RAG 범위는 Markdown, TXT와 텍스트 PDF ingestion, 구조 청킹, BM25+dense+RRF 검색, 근거·하이라이트·원문 뷰어, 저장 구성과 평가 비교다.
 - 로컬 실행, migration, owner bootstrap과 smoke 절차는 `docs/runbooks/local-development.md`만 정본으로 사용한다.
 - 다음 RAG 경계는 근거 제한 LLM 답변과 인용 검증이며, 그 다음은 DOCX 파서·뷰어와 스캔 PDF OCR이다.
-- 미래 `Labs` 영역이나 이후 RAG 형식의 빈 폴더와 예제 구현을 미리 만들지 않는다.
+- 미래 기능의 빈 폴더·예제 구현은 만들지 않는다. 명시 승인된 맵 준비 공간의 표시 기준은 [ADR-0018](docs/decisions/0018-game-office-entrance.md)을 따른다.
 
 ## 아키텍처 경계
 

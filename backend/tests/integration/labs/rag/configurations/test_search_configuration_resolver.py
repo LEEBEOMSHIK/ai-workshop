@@ -7,7 +7,7 @@ import psycopg
 import pytest
 from alembic.config import Config
 from psycopg import sql
-from sqlalchemy import func, make_url, select
+from sqlalchemy import func, make_url, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from ai_workshop.config import Settings, get_settings
@@ -84,9 +84,7 @@ def isolated_configuration_database_url(
         get_settings.cache_clear()
         with psycopg.connect(_sync_url(administrative), autocommit=True) as connection:
             connection.execute(
-                sql.SQL("DROP DATABASE {} WITH (FORCE)").format(
-                    sql.Identifier(database)
-                )
+                sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(database))
             )
 
 
@@ -95,6 +93,7 @@ async def _seed_actor_workspace(
     *,
     label: str,
     with_active_asset: bool,
+    legacy_membership: bool = False,
 ) -> tuple[UUID, UUID, UUID | None]:
     actor_id = uuid4()
     workspace_id = uuid4()
@@ -120,13 +119,23 @@ async def _seed_actor_workspace(
         )
     )
     await session.flush()
-    session.add(
-        WorkspaceMembershipRecord(
-            workspace_id=workspace_id,
-            user_id=actor_id,
-            role="owner",
+    if legacy_membership:
+        await session.execute(
+            text("""
+            INSERT INTO workspace_memberships
+                (id, workspace_id, user_id, role, created_at, updated_at)
+            VALUES (:id, :workspace, :actor, 'owner', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        """),
+            {"id": uuid4(), "workspace": workspace_id, "actor": actor_id},
         )
-    )
+    else:
+        session.add(
+            WorkspaceMembershipRecord(
+                workspace_id=workspace_id,
+                user_id=actor_id,
+                role="owner",
+            )
+        )
     if not with_active_asset:
         await session.flush()
         return actor_id, workspace_id, None
@@ -237,20 +246,16 @@ async def test_postgres_versions_visibility_jobs_subscriptions_and_exact_resolve
             assert await session.scalar(select(func.count()).select_from(JobRecord)) == 1
             assert (
                 await session.scalar(
-                    select(func.count()).select_from(RagConfigurationVersionRecord).where(
-                        RagConfigurationVersionRecord.configuration_id
-                        == first.configuration.id
-                    )
+                    select(func.count())
+                    .select_from(RagConfigurationVersionRecord)
+                    .where(RagConfigurationVersionRecord.configuration_id == first.configuration.id)
                 )
                 == 2
             )
             policies = list(
                 await session.scalars(
                     select(AnswerPolicyVersionRecord)
-                    .where(
-                        AnswerPolicyVersionRecord.configuration_id
-                        == first.configuration.id
-                    )
+                    .where(AnswerPolicyVersionRecord.configuration_id == first.configuration.id)
                     .order_by(AnswerPolicyVersionRecord.version)
                 )
             )
@@ -264,10 +269,7 @@ async def test_postgres_versions_visibility_jobs_subscriptions_and_exact_resolve
                         RagConfigurationVersionRecord.id
                         == RagConfigurationWorkspaceSubscriptionRecord.configuration_version_id,
                     )
-                    .where(
-                        RagConfigurationVersionRecord.configuration_id
-                        == first.configuration.id
-                    )
+                    .where(RagConfigurationVersionRecord.configuration_id == first.configuration.id)
                 )
                 == 2
             )
@@ -483,9 +485,7 @@ async def test_postgres_versions_visibility_jobs_subscriptions_and_exact_resolve
 
             resolver = SqlAlchemySearchConfigurationResolver(session, settings)
             resolved = await resolver.resolve(first.configuration.id, owner_id)
-            exact_first = await resolver.resolve_version(
-                first.configuration.version_id, owner_id
-            )
+            exact_first = await resolver.resolve_version(first.configuration.version_id, owner_id)
 
             assert resolved.configuration_version_id == second.configuration.version_id
             assert resolved.configuration_version == 2
@@ -583,9 +583,7 @@ async def test_postgres_versions_visibility_jobs_subscriptions_and_exact_resolve
             assert resolved_generative.generation_profile is not None
             assert resolved_generative.generation_profile.profile_id == generation_profile.id
             assert resolved_generative.generation_profile.model_id == llm.id
-            assert resolved_generative.generation_profile.runtime_model == (
-                "synthetic/exact-model"
-            )
+            assert resolved_generative.generation_profile.runtime_model == ("synthetic/exact-model")
 
             second_active_build.vector_dimension = 1024
             await session.flush()

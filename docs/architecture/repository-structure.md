@@ -14,27 +14,41 @@ ai-workshop/
 │  │  │  ├─ (public)/
 │  │  │  │  ├─ labs/
 │  │  │  │  │  ├─ page.tsx
-│  │  │  │  │  └─ rag/page.tsx
+│  │  │  │  │  └─ rag/
+│  │  │  │  │     ├─ page.tsx
+│  │  │  │  │     └─ studies/page.tsx
+│  │  │  │  ├─ studies/[publicSlug]/page.tsx
 │  │  │  │  ├─ login/page.tsx
 │  │  │  │  └─ setup/page.tsx
 │  │  │  ├─ (workspace)/workshop/
 │  │  │  │  ├─ workspaces/
+│  │  │  │  ├─ learning/[recordId]/
 │  │  │  │  └─ rag/
 │  │  │  │     ├─ search/
+│  │  │  │     ├─ domains/[slug]/chat/
 │  │  │  │     └─ sources/
 │  │  │  └─ (administration)/admin/
+│  │  │     ├─ publishing/
 │  │  │     ├─ rag/
 │  │  │     │  ├─ configurations/
+│  │  │     │  ├─ domains/
 │  │  │     │  └─ models/
-│  │  │     └─ system/runtime/
+│  │  │     └─ system/
+│  │  │        ├─ runtime/
+│  │  │        └─ access/
 │  │  ├─ features/
 │  │  │  ├─ identity/
 │  │  │  ├─ workspaces/
 │  │  │  ├─ assets/
 │  │  │  ├─ navigation/
+│  │  │  ├─ office-game/
 │  │  │  ├─ runtime-topology/
+│  │  │  ├─ learning/
+│  │  │  ├─ publishing/
 │  │  │  └─ rag/
 │  │  │     ├─ search/
+│  │  │     ├─ domains/
+│  │  │     ├─ conversation/
 │  │  │     ├─ configurations/
 │  │  │     └─ models/
 │  │  └─ shared/
@@ -44,6 +58,10 @@ ai-workshop/
 ├─ backend/
 │  ├─ src/
 │  │  └─ ai_workshop/
+│  │     ├─ learning_composition.py
+│  │     ├─ publishing_composition.py
+│  │     ├─ authorization_composition.py
+│  │     ├─ public_app.py
 │  │     ├─ platform/
 │  │     │  ├─ identity/
 │  │     │  ├─ workspaces/
@@ -55,6 +73,7 @@ ai-workshop/
 │  │     │  └─ runtime_topology/
 │  │     ├─ labs/
 │  │     │  └─ rag/
+│  │     │     ├─ domains/
 │  │     │     ├─ documents/
 │  │     │     ├─ ingestion/
 │  │     │     ├─ parsing/
@@ -107,6 +126,10 @@ ai-workshop/
 ## 생성 원칙
 
 이 구조는 목표 상태를 나타낸다. 구현을 시작할 때 필요한 디렉터리만 생성하며, 미래 기술의 빈 `labs` 폴더를 미리 만들지 않는다.
+
+`learning_composition.py`는 Platform Learning의 일반 참조 계약과 기술별 권한 조회를 조립한다.
+Learning 내부에서 Labs 구현을 직접 import하지 않는다. 비공개 목록은 `/workshop/learning`,
+상세·이력은 `/workshop/learning/[recordId]`를 사용한다.
 
 작은 기능에 모든 계층을 기계적으로 만들지 않는다. 모듈이 복잡해질 때 `domain`, `application`, `adapters`, `api` 같은 내부 계층을 도입하되 의존 방향은 유지한다.
 

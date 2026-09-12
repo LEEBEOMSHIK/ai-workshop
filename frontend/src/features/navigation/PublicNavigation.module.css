@@ -1,4 +1,11 @@
 .navigation {
+  position: relative;
+  z-index: 4;
+  width: 100%;
+  padding: 1rem clamp(1rem, 4vw, 4rem);
+  border-bottom: 1px solid rgb(85 217 201 / 18%);
+  background: rgb(7 11 16 / 82%);
+  backdrop-filter: blur(1rem);
   align-items: center;
   display: flex;
   flex-wrap: wrap;
@@ -6,7 +13,16 @@
   justify-content: space-between;
 }
 
-.brand {
+/* The header qualifier keeps shared navigation above page-level link styles. */
+header.navigation a,
+header.navigation a:visited {
+  color: #d9e5d5;
+  font-weight: 400;
+  text-decoration: none;
+}
+
+header.navigation .brand,
+header.navigation .brand:visited {
   font-weight: 700;
 }
 
@@ -16,7 +32,18 @@
   gap: 0.75rem 1rem;
 }
 
-.navigation a:focus-visible {
-  outline: 3px solid currentColor;
-  outline-offset: 3px;
+header.navigation a:hover {
+  color: #f4d69c;
+}
+
+header.navigation a:focus-visible {
+  border-radius: 0;
+  outline: 2px solid #f4d69c;
+  outline-offset: 5px;
+}
+
+@media (width < 48rem) {
+  .navigation {
+    padding-inline: 1rem;
+  }
 }

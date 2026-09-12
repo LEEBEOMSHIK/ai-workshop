@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ai_workshop.config import Settings
 from ai_workshop.labs.rag.configurations.domain import (
     AnswerPolicyVersion,
+    EvaluationAcceptanceResult,
     SavedRagConfiguration,
 )
 from ai_workshop.labs.rag.configurations.models import (
@@ -36,6 +37,7 @@ from ai_workshop.labs.rag.evaluation.domain import (
     PromotionEvidence,
 )
 from ai_workshop.labs.rag.evaluation.models import (
+    EvaluationDatasetRecord,
     EvaluationPolicyRecord,
     EvaluationRunConfigurationRecord,
     EvaluationRunRecord,
@@ -84,6 +86,7 @@ from ai_workshop.platform.workspaces.models import (
     WorkspaceMembershipRecord,
     WorkspaceRecord,
 )
+from ai_workshop.platform.workspaces.permissions import workspace_read_allowed
 from ai_workshop.platform.workspaces.repository import workspace_is_active
 from ai_workshop.shared.errors import AppError
 
@@ -123,6 +126,69 @@ def _model_to_domain(record: ModelDefinitionRecord) -> ModelDefinition:
         version=record.version,
         config=frozen,
     )
+
+
+def _evaluation_policy_evidence(
+    configuration_version_id: UUID,
+    candidate: EvaluationRunConfigurationRecord,
+    run: EvaluationRunRecord,
+    policy_record: EvaluationPolicyRecord,
+) -> tuple[EvaluationPolicy, PromotionEvidence]:
+    metric_values = (
+        candidate.recall_at_k,
+        candidate.mrr,
+        candidate.ndcg,
+        candidate.supported_precision,
+        candidate.false_grounding_rate,
+        candidate.highlight_iou,
+        candidate.p50_latency_ms,
+        candidate.p95_latency_ms,
+        candidate.access_leaks,
+        candidate.reproducibility,
+    )
+    metrics = None
+    if all(value is not None for value in metric_values):
+        metrics = EvaluationMetrics(
+            recall_at_k=cast(float, candidate.recall_at_k),
+            mrr=cast(float, candidate.mrr),
+            ndcg=cast(float, candidate.ndcg),
+            supported_precision=cast(float, candidate.supported_precision),
+            false_grounding_rate=cast(float, candidate.false_grounding_rate),
+            highlight_iou=cast(float, candidate.highlight_iou),
+            p50_latency_ms=cast(float, candidate.p50_latency_ms),
+            p95_latency_ms=cast(float, candidate.p95_latency_ms),
+            access_leaks=cast(int, candidate.access_leaks),
+            reproducibility=cast(float, candidate.reproducibility),
+        )
+    policy = EvaluationPolicy(
+        id=policy_record.id,
+        owner_id=policy_record.owner_id,
+        dataset_snapshot_id=policy_record.dataset_snapshot_id,
+        version=policy_record.version,
+        metric_definition_version=policy_record.metric_definition_version,
+        retrieval_k=policy_record.retrieval_k,
+        recall_at_k=policy_record.min_recall_at_k,
+        mrr=policy_record.min_mrr,
+        ndcg=policy_record.min_ndcg,
+        supported_precision=policy_record.min_supported_precision,
+        max_false_grounding_rate=policy_record.max_false_grounding_rate,
+        min_highlight_iou=policy_record.min_highlight_iou,
+        max_p50_latency_ms=policy_record.max_p50_latency_ms,
+        max_p95_latency_ms=policy_record.max_p95_latency_ms,
+        max_access_leaks=policy_record.max_access_leaks,
+        required_reproducibility=policy_record.required_reproducibility,
+    ).validate()
+    evidence = PromotionEvidence(
+        configuration_version_id=configuration_version_id,
+        evaluated_configuration_version_id=candidate.configuration_version_id,
+        metric_definition_version=run.metric_definition_version,
+        retrieval_k=run.retrieval_k,
+        run_status=EvaluationRunStatus(run.status),
+        candidate_status=CandidateStatus(candidate.status),
+        failure=candidate.failure,
+        metrics=metrics,
+    )
+    return policy, evidence
 
 
 class SqlAlchemyRagConfigurationRepository:
@@ -193,6 +259,7 @@ class SqlAlchemyRagConfigurationRepository:
                 )
                 .where(
                     WorkspaceRecord.id.in_(workspace_ids),
+                    workspace_read_allowed(owner_id),
                     workspace_is_active(),
                     or_(
                         WorkspaceRecord.kind != WorkspaceKind.PERSONAL,
@@ -215,6 +282,7 @@ class SqlAlchemyRagConfigurationRepository:
             )
             .where(
                 workspace_is_active(),
+                workspace_read_allowed(actor_id),
                 or_(
                     WorkspaceRecord.kind != WorkspaceKind.PERSONAL,
                     WorkspaceRecord.created_by == actor_id,
@@ -354,8 +422,7 @@ class SqlAlchemyRagConfigurationRepository:
                     or_(
                         *(
                             and_(
-                                RagIndexBuildRecord.document_processing_profile_id
-                                == processing_id,
+                                RagIndexBuildRecord.document_processing_profile_id == processing_id,
                                 RagIndexBuildRecord.indexing_profile_id == indexing_id,
                             )
                             for processing_id, indexing_id in profile_ids
@@ -373,9 +440,7 @@ class SqlAlchemyRagConfigurationRepository:
         ).all()
         dimensions_by_profile: dict[tuple[UUID, UUID], set[int | None]] = {}
         for processing_id, indexing_id, dimension in rows:
-            dimensions_by_profile.setdefault(
-                (processing_id, indexing_id), set()
-            ).add(dimension)
+            dimensions_by_profile.setdefault((processing_id, indexing_id), set()).add(dimension)
         return frozenset(
             profile_id
             for profile_id, dimensions in dimensions_by_profile.items()
@@ -417,6 +482,25 @@ class SqlAlchemyRagConfigurationRepository:
                         RagConfigurationRecord.owner_id == actor_id,
                     ),
                 )
+            )
+        ).one_or_none()
+        if row is None:
+            return None
+        return await self._from_version(row[0], row[1])
+
+    async def find_server_bound_version(
+        self,
+        configuration_version_id: UUID,
+    ) -> SavedRagConfiguration | None:
+        """Resolve an exact version for a separately authorized server-side binding."""
+        row = (
+            await self.session.execute(
+                select(RagConfigurationRecord, RagConfigurationVersionRecord)
+                .join(
+                    RagConfigurationVersionRecord,
+                    RagConfigurationVersionRecord.configuration_id == RagConfigurationRecord.id,
+                )
+                .where(RagConfigurationVersionRecord.id == configuration_version_id)
             )
         ).one_or_none()
         if row is None:
@@ -478,59 +562,8 @@ class SqlAlchemyRagConfigurationRepository:
         current = await self._from_version(identity, version)
         promoted: SavedRagConfiguration | None = None
         for candidate, run, policy_record in evidence_rows:
-            metric_values = (
-                candidate.recall_at_k,
-                candidate.mrr,
-                candidate.ndcg,
-                candidate.supported_precision,
-                candidate.false_grounding_rate,
-                candidate.highlight_iou,
-                candidate.p50_latency_ms,
-                candidate.p95_latency_ms,
-                candidate.access_leaks,
-                candidate.reproducibility,
-            )
-            metrics = None
-            if all(value is not None for value in metric_values):
-                metrics = EvaluationMetrics(
-                    recall_at_k=cast(float, candidate.recall_at_k),
-                    mrr=cast(float, candidate.mrr),
-                    ndcg=cast(float, candidate.ndcg),
-                    supported_precision=cast(float, candidate.supported_precision),
-                    false_grounding_rate=cast(float, candidate.false_grounding_rate),
-                    highlight_iou=cast(float, candidate.highlight_iou),
-                    p50_latency_ms=cast(float, candidate.p50_latency_ms),
-                    p95_latency_ms=cast(float, candidate.p95_latency_ms),
-                    access_leaks=cast(int, candidate.access_leaks),
-                    reproducibility=cast(float, candidate.reproducibility),
-                )
-            policy = EvaluationPolicy(
-                id=policy_record.id,
-                owner_id=policy_record.owner_id,
-                dataset_snapshot_id=policy_record.dataset_snapshot_id,
-                version=policy_record.version,
-                metric_definition_version=policy_record.metric_definition_version,
-                retrieval_k=policy_record.retrieval_k,
-                recall_at_k=policy_record.min_recall_at_k,
-                mrr=policy_record.min_mrr,
-                ndcg=policy_record.min_ndcg,
-                supported_precision=policy_record.min_supported_precision,
-                max_false_grounding_rate=policy_record.max_false_grounding_rate,
-                min_highlight_iou=policy_record.min_highlight_iou,
-                max_p50_latency_ms=policy_record.max_p50_latency_ms,
-                max_p95_latency_ms=policy_record.max_p95_latency_ms,
-                max_access_leaks=policy_record.max_access_leaks,
-                required_reproducibility=policy_record.required_reproducibility,
-            ).validate()
-            evidence = PromotionEvidence(
-                configuration_version_id=version.id,
-                evaluated_configuration_version_id=candidate.configuration_version_id,
-                metric_definition_version=run.metric_definition_version,
-                retrieval_k=run.retrieval_k,
-                run_status=EvaluationRunStatus(run.status),
-                candidate_status=CandidateStatus(candidate.status),
-                failure=candidate.failure,
-                metrics=metrics,
+            policy, evidence = _evaluation_policy_evidence(
+                version.id, candidate, run, policy_record
             )
             try:
                 promoted = current.as_default(policy=policy, evidence=evidence)
@@ -555,6 +588,94 @@ class SqlAlchemyRagConfigurationRepository:
         version.is_default = True
         await self.session.flush()
         return promoted
+
+    async def accept_evaluation(
+        self,
+        configuration_id: UUID,
+        version_id: UUID,
+        evaluation_run_id: UUID,
+        actor_id: UUID,
+    ) -> EvaluationAcceptanceResult:
+        identity = await self.session.scalar(
+            select(RagConfigurationRecord)
+            .where(
+                RagConfigurationRecord.id == configuration_id,
+                RagConfigurationRecord.owner_id == actor_id,
+            )
+            .with_for_update()
+        )
+        if identity is None:
+            raise AppError("not_found", "The requested resource was not found.", 404)
+        version = await self.session.scalar(
+            select(RagConfigurationVersionRecord)
+            .where(
+                RagConfigurationVersionRecord.id == version_id,
+                RagConfigurationVersionRecord.configuration_id == identity.id,
+            )
+            .with_for_update()
+        )
+        if version is None:
+            raise AppError("not_found", "The requested resource was not found.", 404)
+        row = (
+            await self.session.execute(
+                select(
+                    EvaluationRunConfigurationRecord, EvaluationRunRecord, EvaluationPolicyRecord
+                )
+                .join(
+                    EvaluationRunRecord,
+                    EvaluationRunRecord.id == EvaluationRunConfigurationRecord.run_id,
+                )
+                .join(
+                    EvaluationPolicyRecord,
+                    EvaluationPolicyRecord.id == EvaluationRunRecord.evaluation_policy_version_id,
+                )
+                .join(
+                    EvaluationDatasetRecord,
+                    EvaluationDatasetRecord.id == EvaluationRunRecord.dataset_snapshot_id,
+                )
+                .where(
+                    EvaluationRunRecord.id == evaluation_run_id,
+                    EvaluationRunRecord.owner_id == actor_id,
+                    EvaluationRunRecord.failure.is_(None),
+                    EvaluationPolicyRecord.owner_id == actor_id,
+                    EvaluationDatasetRecord.owner_id == actor_id,
+                    EvaluationPolicyRecord.dataset_snapshot_id == EvaluationDatasetRecord.id,
+                    EvaluationRunRecord.fixture_sha256 == EvaluationDatasetRecord.fixture_sha256,
+                    EvaluationRunRecord.document_snapshot_sha256
+                    == EvaluationDatasetRecord.document_snapshot_sha256,
+                    EvaluationRunRecord.query_set_sha256
+                    == EvaluationDatasetRecord.query_set_sha256,
+                    EvaluationRunConfigurationRecord.configuration_version_id == version.id,
+                    EvaluationRunConfigurationRecord.indexing_profile_id
+                    == version.indexing_profile_id,
+                    EvaluationRunConfigurationRecord.retrieval_profile_id
+                    == version.retrieval_profile_id,
+                    EvaluationRunConfigurationRecord.answer_policy_version_id
+                    == version.answer_policy_version_id,
+                    EvaluationRunConfigurationRecord.generation_profile_id.is_not_distinct_from(
+                        version.generation_profile_id
+                    ),
+                )
+            )
+        ).one_or_none()
+        if row is None:
+            raise AppError(
+                "evaluation_policy_required", "The selected evaluation must qualify.", 409
+            )
+        candidate, run, policy_record = row
+        current = await self._from_version(identity, version)
+        try:
+            policy, evidence = _evaluation_policy_evidence(
+                version.id, candidate, run, policy_record
+            )
+            accepted = current.with_passed_evaluation(policy=policy, evidence=evidence)
+        except (TypeError, ValueError) as exc:
+            raise AppError(
+                "evaluation_policy_required", "The selected evaluation must qualify.", 409
+            ) from exc
+        version.evaluation_state = EvaluationState.PASSED
+        await self.session.flush()
+        return EvaluationAcceptanceResult(accepted, run.id, policy_record.id)
 
     async def _latest(
         self,
@@ -945,9 +1066,7 @@ class SqlAlchemySearchConfigurationResolver:
                     "The selected configuration has an incomplete active index identity.",
                     409,
                 )
-            actual_names = {
-                build.index_name for build in builds if build.index_name is not None
-            }
+            actual_names = {build.index_name for build in builds if build.index_name is not None}
             legacy_prefix = descriptor.active_alias(
                 self.settings.elasticsearch_index_prefix,
                 indexing.id,

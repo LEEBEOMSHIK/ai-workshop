@@ -19,6 +19,18 @@ from ai_workshop.labs.rag.models.document_processing import (
 from ai_workshop.labs.rag.models.domain import EvaluationState
 
 
+class EvaluationAcceptanceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    evaluation_run_id: UUID
+
+
+class EvaluationAcceptanceResponse(BaseModel):
+    configuration: "SavedRagConfigurationResponse"
+    evaluation_run_id: UUID
+    evaluation_policy_version_id: UUID
+
+
 class AnswerPolicyCreate(BaseModel):
     mode: Literal["extractive", "generative"] = "extractive"
     min_semantic_score: float = Field(ge=0.0, le=1.0)
@@ -114,9 +126,7 @@ class SavedRagConfigurationResponse(BaseModel):
             owner_id=configuration.owner_id,
             name=configuration.name,
             version=configuration.version,
-            document_processing_profile_id=(
-                configuration.document_processing_profile_id
-            ),
+            document_processing_profile_id=(configuration.document_processing_profile_id),
             indexing_profile_id=configuration.indexing_profile_id,
             retrieval_profile_id=configuration.retrieval_profile_id,
             generation_profile_id=configuration.generation_profile_id,
@@ -134,9 +144,7 @@ class SavedRagConfigurationResponse(BaseModel):
             search_reasons=list(search_reasons),
             answer_reasons=list(answer_reasons),
             generation_execution_preview=(
-                GenerationExecutionPreviewResponse.from_domain(
-                    generation_execution_preview
-                )
+                GenerationExecutionPreviewResponse.from_domain(generation_execution_preview)
                 if generation_execution_preview is not None
                 else None
             ),
@@ -151,6 +159,10 @@ class GenerationExecutionPreviewResponse(BaseModel):
     location: ExecutionLocation
     external_transfer: bool
     disclosure: str
+    disclosure_version: str
+    requested_provider_model_id: str | None = None
+    observed_provider_model_id: str | None = None
+    model_identity_status: Literal["unknown", "verified", "mismatch"] | None = None
 
     @classmethod
     def from_domain(cls, preview: GenerationExecutionSnapshot) -> Self:
@@ -162,4 +174,8 @@ class GenerationExecutionPreviewResponse(BaseModel):
             location=preview.location,
             external_transfer=preview.external_transfer,
             disclosure=preview.disclosure,
+            disclosure_version=preview.disclosure_version,
+            requested_provider_model_id=preview.requested_provider_model_id,
+            observed_provider_model_id=preview.observed_provider_model_id,
+            model_identity_status=preview.model_identity_status,
         )

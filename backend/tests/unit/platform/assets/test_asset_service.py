@@ -22,6 +22,12 @@ class MemoryAssetRepository(AssetRepository):
     async def has_workspace_access(self, user_id: UUID, workspace_id: UUID) -> bool:
         return self.allowed
 
+    async def require_workspace_write(
+        self, user_id: UUID, workspace_id: UUID, *, lock: bool = False
+    ) -> None:
+        if not self.allowed:
+            raise AppError("not_found", "The requested resource was not found.", 404)
+
     async def save(self, document: Document) -> Document:
         self.saved = document
         return document

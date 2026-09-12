@@ -12,7 +12,6 @@ from ai_workshop.labs.rag.deployments.domain import (
 )
 from ai_workshop.labs.rag.deployments.repository import DeploymentCatalogEntry
 from ai_workshop.labs.rag.generation.domain import (
-    EXTERNAL_GENERATION_DISCLOSURE_VERSION,
     ExternalGenerationDisclosureVersion,
     NonExternalGenerationDisclosureVersion,
     generation_disclosure,
@@ -32,14 +31,13 @@ class DeploymentVersionCreate(BaseModel):
     location: ExecutionLocation
     allowed_environments: list[DeploymentEnvironment] = Field(min_length=1)
     provider_model_id: str = Field(min_length=1, max_length=180)
-    endpoint_ref: str = Field(min_length=1, max_length=120)
+    endpoint_ref: str | None = Field(min_length=1, max_length=120)
+    runner_ref: str | None = Field(default=None, min_length=1, max_length=120)
     secret_ref: str | None = Field(default=None, min_length=1, max_length=120)
     capabilities: set[DeploymentCapability] = Field(min_length=1)
     external_transfer: bool
     transmitted_data_categories: list[str] = Field(default_factory=list)
-    data_processing_notice_ref: str | None = Field(
-        default=None, min_length=1, max_length=180
-    )
+    data_processing_notice_ref: str | None = Field(default=None, min_length=1, max_length=180)
     timeout_seconds: float = Field(gt=0)
     max_retries: int = Field(ge=0)
     retry_backoff_seconds: float = Field(ge=0)
@@ -113,11 +111,10 @@ class DeploymentAdminResponse(BaseModel):
     secret_configured: bool
     readiness: DeploymentReadinessResponse
     latest_health: DeploymentLatestHealthResponse | None
+    runner_ref: str | None = None
 
     @classmethod
-    def from_entry(
-        cls, entry: DeploymentCatalogEntry, *, secret_configured: bool
-    ) -> Self:
+    def from_entry(cls, entry: DeploymentCatalogEntry, *, secret_configured: bool) -> Self:
         deployment = entry.deployment
         return cls(
             deployment_id=deployment.deployment_id,
@@ -136,6 +133,11 @@ class DeploymentAdminResponse(BaseModel):
             secret_configured=secret_configured,
             readiness=_readiness(entry),
             latest_health=_latest_health(entry),
+            runner_ref=(
+                deployment.runner_ref
+                if deployment.provider is ProviderKind.DEVELOPMENT_CODEX_EXEC
+                else None
+            ),
         )
 
 
@@ -152,6 +154,7 @@ class DeploymentOptionResponse(BaseModel):
     capabilities: list[DeploymentCapability]
     readiness: DeploymentReadinessResponse
     approval: DeploymentApprovalResponse | DeploymentNoApprovalResponse
+    runner_ref: str | None = None
 
     @classmethod
     def from_entry(cls, entry: DeploymentCatalogEntry) -> Self:
@@ -161,11 +164,9 @@ class DeploymentOptionResponse(BaseModel):
         if disclosure.required:
             approval = DeploymentApprovalResponse(
                 required=True,
-                disclosure_version=EXTERNAL_GENERATION_DISCLOSURE_VERSION,
+                disclosure_version=cast(ExternalGenerationDisclosureVersion, disclosure.version),
                 disclosure=disclosure.text,
-                transmitted_data_categories=list(
-                    disclosure.transmitted_data_categories
-                ),
+                transmitted_data_categories=list(disclosure.transmitted_data_categories),
             )
         else:
             approval = DeploymentNoApprovalResponse(
@@ -190,6 +191,11 @@ class DeploymentOptionResponse(BaseModel):
             capabilities=sorted(deployment.capabilities, key=lambda item: item.value),
             readiness=_readiness(entry),
             approval=approval,
+            runner_ref=(
+                deployment.runner_ref
+                if deployment.provider is ProviderKind.DEVELOPMENT_CODEX_EXEC
+                else None
+            ),
         )
 
 
@@ -209,6 +215,8 @@ def _latest_health(
 
 
 def _readiness(entry: DeploymentCatalogEntry) -> DeploymentReadinessResponse:
+    if entry.deployment.provider is ProviderKind.DEVELOPMENT_CODEX_EXEC:
+        return DeploymentReadinessResponse(ready=False, reason_codes=["deployment_not_ready"])
     health = entry.latest_health
     ready = bool(
         health is not None

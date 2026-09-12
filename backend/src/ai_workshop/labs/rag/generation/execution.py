@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -8,7 +9,7 @@ from ai_workshop.labs.rag.deployments.domain import (
     ModelDeploymentVersion,
     ProviderKind,
 )
-from ai_workshop.labs.rag.generation.domain import StructuredGeneration
+from ai_workshop.labs.rag.generation.domain import GenerationStatus, StructuredGeneration
 
 if TYPE_CHECKING:
     from ai_workshop.labs.rag.generation.contracts import GenerationRuntimePort
@@ -29,8 +30,15 @@ class ProviderExecutionMetadata:
     input_tokens: int | None
     output_tokens: int | None
     latency_ms: int
+    observed_provider_model_id: str | None = None
 
     def __post_init__(self) -> None:
+        if self.observed_provider_model_id is not None and (
+            type(self.observed_provider_model_id) is not str
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}", self.observed_provider_model_id)
+            is None
+        ):
+            raise ValueError("Invalid observed Provider model ID.")
         if not isinstance(self.provider, ProviderKind):
             raise ValueError("Execution metadata requires a named Provider.")
         if not self.provider_model_id.strip():
@@ -57,8 +65,19 @@ class ProviderContextualizationResult:
 
 @dataclass(frozen=True, slots=True)
 class ProviderGenerationResult:
-    generation: StructuredGeneration
+    generation: StructuredGeneration | None
     execution: ProviderExecutionMetadata
+    status: GenerationStatus = GenerationStatus.ANSWERED
+
+    def __post_init__(self) -> None:
+        if self.status is GenerationStatus.ANSWERED:
+            if not isinstance(self.generation, StructuredGeneration) or not self.generation.claims:
+                raise ValueError("Invalid provider generation result.")
+        elif self.status is GenerationStatus.INSUFFICIENT_EVIDENCE:
+            if self.generation is not None:
+                raise ValueError("Invalid provider generation result.")
+        else:
+            raise ValueError("Invalid provider generation result.")
 
 
 @dataclass(frozen=True, slots=True)

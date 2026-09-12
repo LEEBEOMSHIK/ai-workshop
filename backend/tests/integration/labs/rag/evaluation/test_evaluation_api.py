@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -21,6 +22,7 @@ from ai_workshop.platform.identity.domain import User, UserRole
 
 ACTOR_ID = UUID("10000000-0000-0000-0000-000000000001")
 MEMBER_ID = UUID("10000000-0000-0000-0000-000000000002")
+RUN_CREATED_AT = datetime(2019, 3, 4, 5, 6, 7, 890000, tzinfo=UTC)
 REPOSITORY_ROOT = Path(__file__).resolve().parents[6]
 FIXTURE = REPOSITORY_ROOT / "sample-data/public/rag/evaluation/search-v1.json"
 
@@ -95,6 +97,7 @@ class FakeEvaluationService:
         self.run = EvaluationRunView(
             id=uuid4(),
             owner_id=ACTOR_ID,
+            created_at=RUN_CREATED_AT,
             dataset_snapshot_id=self.dataset_id,
             evaluation_policy_version_id=self.policy.id,
             status=EvaluationRunStatus.COMPLETED,
@@ -216,7 +219,13 @@ def test_run_create_detail_and_list_keep_candidate_identity_and_round_only_respo
     assert created.status_code == 202
     assert detail.status_code == 200
     assert listed.status_code == 200
+    created_payload = created.json()
     payload = detail.json()
+    listed_payload = listed.json()
+    expected_created_at = "2019-03-04T05:06:07.890000Z"
+    assert created_payload["created_at"] == expected_created_at
+    assert payload["created_at"] == expected_created_at
+    assert listed_payload[0]["created_at"] == expected_created_at
     assert payload["candidates"][0]["ordinal"] == 0
     assert payload["candidates"][0]["configuration_version_id"] == str(
         service.candidate.configuration_version_id
@@ -229,7 +238,7 @@ def test_run_create_detail_and_list_keep_candidate_identity_and_round_only_respo
     assert payload["worker_runtime_environment"]["execution_role"] == "celery-worker"
     assert service.candidate.metrics is not None
     assert service.candidate.metrics.recall_at_k == 1 / 3
-    assert len(listed.json()) == 1
+    assert len(listed_payload) == 1
 
 
 def test_member_cannot_create_evaluation_policy_or_start_run() -> None:

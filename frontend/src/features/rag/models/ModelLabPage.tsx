@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 
 import {
   type ModelAdministrationData,
@@ -13,8 +13,9 @@ import {
   registerModelVersion,
   registerYamlProfile,
 } from "./api";
-import { DataPolicyPanel } from "./DataPolicyPanel";
-import { DeploymentRegistry } from "./DeploymentRegistry";
+import { ModelAdminWorkspace } from "./ModelAdminWorkspace";
+import { modelKinds, profileKinds, profileLabels } from "./registryCatalog";
+import styles from "./ModelAdmin.module.css";
 
 interface ModelLabPageProps {
   initialModels?: ModelDefinitionSummary[];
@@ -36,12 +37,6 @@ const modelLabels: Record<ModelKind, string> = {
   ocr_table_cells_wired: "OCR 유선 표 셀 감지 모델",
   ocr_table_cells_wireless: "OCR 무선 표 셀 감지 모델",
   ocr_table_orientation: "OCR 표 방향 분류 모델",
-};
-const profileLabels: Record<ProfileKind, string> = {
-  indexing: "색인 프로파일",
-  retrieval: "검색 프로파일",
-  generation: "생성 프로파일",
-  document_processing: "문서 처리 프로파일",
 };
 const evaluationLabels: Record<ProfileSummary["evaluation_state"], string> = {
   draft: "초안",
@@ -138,20 +133,10 @@ export function ModelLabPage({
   }
 
   const Title = embedded ? "h2" : "h1";
-  const content = (
-    <>
-      <header className="model-lab-header">
-        <div>
-          <p className="eyebrow">RAG MODEL REGISTRY</p>
-          <Title className="model-lab-title">모델 레지스트리</Title>
-          <p>실행 전, 변경할 수 없는 모델·프로파일 버전과 평가 상태를 관리합니다.</p>
-        </div>
-      </header>
-
-      <section className="registry-group" aria-labelledby="model-registry-title">
+  const modelRegistry = (<section className="registry-group" aria-labelledby="model-registry-title">
         <h2 id="model-registry-title">모델 정의</h2>
         <div className="registry-grid">
-          {(Object.keys(modelLabels) as ModelKind[]).map((kind) => (
+          {modelKinds.map((kind) => (
             <RegistryTable
               key={kind}
               heading={modelLabels[kind]}
@@ -165,46 +150,9 @@ export function ModelLabPage({
             />
           ))}
         </div>
-      </section>
-
-      <section className="registry-group" aria-labelledby="profile-registry-title">
-        <h2 id="profile-registry-title">파이프라인 프로파일</h2>
-        <div className="registry-grid">
-          {(Object.keys(profileLabels) as ProfileKind[]).map((kind) => (
-            <RegistryTable
-              key={kind}
-              heading={profileLabels[kind]}
-              rows={profiles.filter((item) => item.kind === kind).map((item) => ({
-                id: item.id,
-                name: item.name,
-                version: item.version,
-                state: item.is_default ? "기본 사용" : evaluationLabels[item.evaluation_state],
-                details: "등록된 불변 프로파일",
-              }))}
-            />
-          ))}
-        </div>
-      </section>
-
-      {!embedded ? (
-        <section className="model-administration" aria-label="모델 실행 및 데이터 정책">
-          {administrationLoading ? <p role="status">실행 배포와 정책을 불러오는 중…</p> : null}
-          {administrationError ? <p className="form-error" role="alert">{administrationError}</p> : null}
-          {administration ? (
-            <>
-              <DeploymentRegistry deployments={administration.deployments} />
-              <DataPolicyPanel
-                installationPolicy={administration.installationPolicy}
-                workspaces={administration.workspaces}
-                workspacePolicies={administration.workspacePolicies}
-              />
-            </>
-          ) : null}
-        </section>
-      ) : null}
-
-      {!embedded ? <section className="version-forms" aria-label="새 버전 등록">
-        <form className="version-form" onSubmit={handleModelSubmit}>
+      </section>);
+  const profileRegistry = <ProfileRegistry profiles={profiles} embedded={embedded} />;
+  const modelForm = (<form className="version-form" onSubmit={handleModelSubmit}>
           <h2>새 모델 버전</h2>
           <fieldset disabled={modelSaving}>
             <label>종류<select name="kind" defaultValue="embedding">
@@ -229,14 +177,12 @@ export function ModelLabPage({
           <button type="submit" disabled={modelSaving}>
             {modelSaving ? "등록 중…" : "모델 버전 등록"}
           </button>
-        </form>
-        <form className="version-form" onSubmit={handleProfileSubmit}>
+        </form>);
+  const profileForm = (<form className="version-form" onSubmit={handleProfileSubmit}>
           <h2>새 프로파일 버전</h2>
           <fieldset disabled={profileSaving}>
             <label>종류<select name="kind" defaultValue="retrieval">
-              <option value="indexing">색인</option><option value="retrieval">검색</option>
-              <option value="generation">생성</option>
-              <option value="document_processing">문서 처리</option>
+              {profileKinds.map((kind) => <option key={kind} value={kind}>{profileLabels[kind]}</option>)}
             </select></label>
             <label>프로파일 YAML<textarea name="content" rows={10} defaultValue={"kind: retrieval\nname: bm25-baseline\nversion: 1\nconfig:\n  bm25: {}\nbindings: []"} required /></label>
           </fieldset>
@@ -244,18 +190,54 @@ export function ModelLabPage({
           <button type="submit" disabled={profileSaving}>
             {profileSaving ? "등록 중…" : "YAML 프로파일 등록"}
           </button>
-        </form>
-      </section> : null}
-    </>
-  );
+        </form>);
+  const content = <>
+    <header className="model-lab-header">
+      <div><p className="eyebrow">RAG MODEL REGISTRY</p><Title className="model-lab-title">모델 레지스트리</Title>
+      <p>변경할 수 없는 모델·프로파일 버전을 등록하고, 저장 구성에서 연결을 확인합니다.</p></div>
+    </header>
+    {embedded ? <>{modelRegistry}{profileRegistry}</> : <>
+      {administrationLoading ? <p role="status">실행 배포와 정책을 불러오는 중…</p> : null}
+      {administrationError ? <p className="form-error" role="alert">{administrationError}</p> : null}
+      <ModelAdminWorkspace models={models} administration={administration}
+        modelRegistry={modelRegistry} profileRegistry={profileRegistry}
+        workflowProfiles={<ProfileRegistry profiles={profiles} />}
+        modelForm={modelForm} profileForm={profileForm}
+        onModelSaved={(model) => setModels((current) => [...current, model])}
+        onDeploymentSaved={(deployment) => setAdministration((current) => current ? { ...current, deployments: [...current.deployments, deployment] } : current)}
+        onProfileSaved={(profile) => setProfiles((current) => [...current, profile])} />
+    </>}
+  </>;
 
   return embedded ? (
     <section className="model-lab-embedded" aria-label="모델 레지스트리">
       {content}
     </section>
   ) : (
-    <main className="model-lab-shell">{content}</main>
+    <main className={`model-lab-shell ${styles.admin}`}>{content}</main>
   );
+}
+
+function ProfileRegistry({ profiles, embedded = false }: { profiles: ProfileSummary[]; embedded?: boolean }) {
+  const titleId = useId();
+  return (<section className="registry-group" aria-labelledby={titleId}>
+        <h2 id={titleId}>파이프라인 프로파일</h2>
+        <div className="registry-grid">
+          {profileKinds.map((kind) => (
+            <RegistryTable
+              key={kind}
+              heading={profileLabels[kind]}
+              rows={profiles.filter((item) => item.kind === kind).map((item) => ({
+                id: item.id,
+                name: item.name,
+                version: item.version,
+                state: item.is_default ? (embedded ? "기본 사용" : "등록 기본값") : evaluationLabels[item.evaluation_state],
+                details: "등록된 불변 프로파일",
+              }))}
+            />
+          ))}
+        </div>
+      </section>);
 }
 
 function RegistryTable({
@@ -310,7 +292,7 @@ function isSupportedModel(model: ModelDefinitionSummary): boolean {
 
 function modelDetails(model: ModelDefinitionSummary): string {
   const details: string[] = [];
-  for (const key of ["repo_id", "revision", "device", "data_policy"] as const) {
+  for (const key of ["repo_id", "revision", "device", "data_policy", "model_identifier"] as const) {
     const value = model.config[key];
     if (typeof value === "string") details.push(`${key}=${value}`);
   }

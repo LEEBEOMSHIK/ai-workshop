@@ -1,0 +1,413 @@
+.root {
+  --access-page-background: #0a0e13;
+  --access-text: #e9edf3;
+  --access-muted-text: #aebbc8;
+  --access-accent-border: #4c8a83;
+  --access-inset-surface: #101821;
+  --access-surface: #10171f;
+  --access-border: #2b3944;
+  --access-pill-background: #1b2934;
+  --access-pill-text: #b9c8d5;
+  --access-success-text: #98ebc1;
+  --access-danger-text: #ffc1bb;
+  --access-control-background: #0d141b;
+  --access-secondary-text: #94a4b3;
+  --access-interactive-border: #5aa89f;
+  --access-selected-background: #142621;
+  --access-inactive-border: #be6a62;
+  --access-primary-background: #22564f;
+  --access-primary-text: #f5fffd;
+  --access-secondary-border: #40515f;
+  --access-secondary-button-text: #c3d0dc;
+  --access-warning-border: #c79b52;
+  --access-success-border: #3e756d;
+  --access-notice-text: #a7eadf;
+  --access-danger-border: #7d4945;
+  --access-time-text: #8fa0ae;
+  --access-control-accent: #68c8bc;
+  --access-dialog-border: #4c665f;
+}
+
+.shell {
+  min-height: calc(100vh - 8rem);
+  padding: clamp(1.5rem, 4vw, 3rem);
+  background: var(--access-page-background);
+  color: var(--access-text);
+}
+
+.hero,
+.layout,
+.alert,
+.notice {
+  width: min(100%, 90rem);
+  margin-inline: auto;
+}
+
+.hero h1,
+.sectionHeading h2,
+.sectionHeading h3,
+.detailHeading h2 {
+  margin: 0;
+}
+
+.hero > p,
+.sectionHeading p,
+.detailHeading p,
+.accountControls p,
+.technology p,
+.audit p {
+  color: var(--access-muted-text);
+  line-height: 1.55;
+}
+
+.eyebrow {
+  margin: 0 0 0.35rem;
+  color: var(--color-accent-text);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.boundary,
+.inactiveNote,
+.protection,
+.preparing,
+.inheritedNote {
+  padding: 0.8rem 1rem;
+  border-left: 3px solid var(--access-accent-border);
+  background: var(--access-inset-surface);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(15rem, 22rem) minmax(0, 1fr);
+  gap: 1rem;
+  margin-top: 1.5rem;
+  align-items: start;
+}
+
+.directory,
+.detail,
+.alert,
+.notice {
+  border: 1px solid var(--access-border);
+  border-radius: 0.9rem;
+  background: var(--access-surface);
+}
+
+.directory,
+.detail {
+  min-width: 0;
+  padding: 1rem;
+}
+
+.directory {
+  position: sticky;
+  top: 1rem;
+}
+
+.sectionHeading,
+.detailHeading,
+.accountControls {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: start;
+}
+
+.sectionHeading > span,
+.active,
+.inactive,
+.inherited,
+.technologyMeta span {
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  background: var(--access-pill-background);
+  color: var(--access-pill-text);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.active {
+  color: var(--access-success-text);
+}
+
+.inactive {
+  color: var(--access-danger-text);
+}
+
+.userList,
+.audit ol,
+.changeList {
+  margin: 1rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.userList li + li {
+  margin-top: 0.5rem;
+}
+
+.userList button {
+  display: grid;
+  width: 100%;
+  gap: 0.25rem;
+  padding: 0.8rem;
+  border: 1px solid var(--access-border);
+  border-radius: 0.7rem;
+  background: var(--access-control-background);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.userList button span {
+  color: var(--access-secondary-text);
+  overflow-wrap: anywhere;
+}
+
+.userList button:hover:not(:disabled),
+.selectedUser {
+  border-color: var(--access-interactive-border) !important;
+  background: var(--access-selected-background) !important;
+}
+
+.detailHeading {
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.inactiveNote {
+  margin-block: 1rem;
+  border-color: var(--access-inactive-border);
+}
+
+.inactiveNote p {
+  margin-bottom: 0;
+}
+
+.accountControls {
+  margin-block: 1rem;
+  padding-block: 1rem;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.accountControls h3,
+.accountControls p {
+  margin: 0;
+}
+
+.buttonRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.buttonRow button,
+.secondaryButton,
+.alert button,
+.alert a {
+  min-height: 2.6rem;
+  padding: 0.65rem 0.9rem;
+  border: 1px solid var(--access-interactive-border);
+  border-radius: 0.55rem;
+  background: var(--access-primary-background);
+  color: var(--access-primary-text);
+  font: inherit;
+  font-weight: 750;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.buttonRow button:disabled,
+.secondaryButton:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.secondaryButton {
+  border-color: var(--access-secondary-border) !important;
+  background: transparent !important;
+  color: var(--access-secondary-button-text) !important;
+}
+
+.protection {
+  flex-basis: 100%;
+  border-color: var(--access-warning-border);
+}
+
+.technologyList {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: 0.8rem;
+}
+
+.technology {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--access-border);
+  border-radius: 0.8rem;
+}
+
+.technology legend {
+  padding-inline: 0.35rem;
+  font-weight: 800;
+}
+
+.technologyMeta,
+.checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.checkboxes {
+  margin-top: 1rem;
+}
+
+.checkboxes label {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.checkboxes input {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: var(--access-control-accent);
+}
+
+.preparing {
+  border-color: var(--access-warning-border);
+  font-size: 0.9rem;
+}
+
+.inlineError,
+.alert {
+  color: var(--access-danger-text);
+}
+
+.alert,
+.notice {
+  margin-top: 1rem;
+  padding: 0.9rem 1rem;
+}
+
+.alert {
+  border-color: var(--access-danger-border);
+}
+
+.alert p {
+  margin-top: 0;
+}
+
+.notice {
+  border-color: var(--access-success-border);
+  color: var(--access-notice-text);
+}
+
+.empty {
+  padding: 1rem;
+  border: 1px dashed var(--access-secondary-border);
+  border-radius: 0.65rem;
+  color: var(--access-secondary-text);
+}
+
+.audit {
+  margin-top: 2rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.audit li {
+  padding: 0.8rem;
+  border: 1px solid var(--access-border);
+  border-radius: 0.65rem;
+}
+
+.audit li + li {
+  margin-top: 0.6rem;
+}
+
+.audit li > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.audit time {
+  color: var(--access-time-text);
+  font-size: 0.8rem;
+}
+
+.audit li p {
+  margin-bottom: 0;
+  overflow-wrap: anywhere;
+}
+
+.changeList li {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.7rem;
+  border: 1px solid var(--access-border);
+  border-radius: 0.55rem;
+}
+
+.dialogBackdrop {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(0 0 0 / 72%);
+}
+
+.dialog {
+  width: min(100%, 38rem);
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+  padding: 1.25rem;
+  border: 1px solid var(--access-dialog-border);
+  border-radius: 0.9rem;
+  background: var(--access-inset-surface);
+  box-shadow: 0 1.5rem 5rem rgb(0 0 0 / 50%);
+}
+
+.dialog h2 {
+  margin-top: 0;
+}
+
+.root button:focus-visible,
+.root a:focus-visible,
+.root input:focus-visible {
+  outline: 2px solid var(--color-accent-text);
+  outline-offset: 0.2rem;
+}
+
+@media (max-width: 56rem) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .directory {
+    position: static;
+  }
+}
+
+@media (max-width: 40rem) {
+  .sectionHeading,
+  .detailHeading,
+  .accountControls,
+  .audit li > div {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .buttonRow button,
+  .secondaryButton {
+    flex: 1 1 100%;
+  }
+}

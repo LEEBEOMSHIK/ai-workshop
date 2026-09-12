@@ -21,7 +21,6 @@ from sqlalchemy.exc import OperationalError
 
 from ai_workshop.config import Settings, get_settings
 from ai_workshop.infrastructure.object_store.local import LocalObjectStore
-from ai_workshop.infrastructure.search.elasticsearch import create_elasticsearch
 from ai_workshop.labs.rag.chunking import StructuralChunker
 from ai_workshop.labs.rag.documents.domain import ProjectionStatus
 from ai_workshop.labs.rag.documents.models import RagIndexBuildRecord, RagProjectionRecord
@@ -67,6 +66,12 @@ from ai_workshop.platform.jobs.domain import JobStatus
 from ai_workshop.platform.jobs.models import JobRecord
 from ai_workshop.platform.workspaces.models import WorkspaceMembershipRecord, WorkspaceRecord
 from ai_workshop.shared.db import create_engine, create_session_factory
+from tests.integration.rag_isolation_support import (
+    create_isolated_elasticsearch as create_elasticsearch,
+)
+from tests.integration.rag_isolation_support import (
+    isolated_rag_resources,  # noqa: F401
+)
 
 pytestmark = pytest.mark.integration
 
@@ -400,7 +405,9 @@ async def test_corrupt_persisted_embedding_metadata_rejects_before_es_factory(
     error_code: str,
 ) -> None:
     settings = get_settings().model_copy(
-        update={"elasticsearch_index_prefix": f"rag-task7-corrupt-{uuid4().hex}"}
+        update={
+            "elasticsearch_index_prefix": f"{get_settings().elasticsearch_index_prefix}-corrupt"
+        }
     )
     owner_id, profile_id, job_ids, source_keys, inserted_model = await seed_two_jobs(
         settings
@@ -466,7 +473,7 @@ async def test_corrupt_persisted_embedding_metadata_rejects_before_es_factory(
 @pytest.mark.asyncio
 async def test_production_readiness_rejects_a_non_current_asset_version() -> None:
     base = get_settings()
-    prefix = f"rag-task14a-inactive-{uuid4().hex}"
+    prefix = f"{base.elasticsearch_index_prefix}-inactive"
     settings = base.model_copy(update={"elasticsearch_index_prefix": prefix})
     owner_id, profile_id, job_ids, source_keys, inserted_model = await seed_two_jobs(
         settings
@@ -565,7 +572,7 @@ async def test_production_readiness_rejects_invalid_projection_status_before_ali
     invalid_status: ProjectionStatus,
 ) -> None:
     base = get_settings()
-    prefix = f"rag-task14a-status-{uuid4().hex}"
+    prefix = f"{base.elasticsearch_index_prefix}-status"
     settings = base.model_copy(update={"elasticsearch_index_prefix": prefix})
     owner_id, profile_id, job_ids, source_keys, inserted_model = await seed_two_jobs(
         settings
@@ -651,7 +658,7 @@ async def test_competing_builds_preserve_errors_and_retryable_paths_converge(
     failure_mode: str,
 ) -> None:
     base = get_settings()
-    prefix = f"rag-task7-{uuid4().hex}"
+    prefix = f"{base.elasticsearch_index_prefix}-indexing"
     settings = base.model_copy(update={"elasticsearch_index_prefix": prefix})
     owner_id, profile_id, job_ids, source_keys, inserted_model = await seed_two_jobs(
         settings
@@ -845,7 +852,7 @@ async def test_competing_builds_preserve_errors_and_retryable_paths_converge(
 @pytest.mark.asyncio
 async def test_replacement_version_retains_other_document_and_isolates_other_profile() -> None:
     base = get_settings()
-    prefix = f"rag-task14a-replacement-{uuid4().hex}"
+    prefix = f"{base.elasticsearch_index_prefix}-replacement"
     settings = base.model_copy(update={"elasticsearch_index_prefix": prefix})
     owner_id, profile_id, job_ids, source_keys, inserted_model = await seed_two_jobs(
         settings
@@ -1099,7 +1106,7 @@ async def test_replacement_version_retains_other_document_and_isolates_other_pro
 @pytest.mark.asyncio
 async def test_alias_success_then_database_commit_failure_reuses_build_and_converges() -> None:
     base = get_settings()
-    prefix = f"rag-task7-commit-{uuid4().hex}"
+    prefix = f"{base.elasticsearch_index_prefix}-commit"
     settings = base.model_copy(update={"elasticsearch_index_prefix": prefix})
     owner_id, profile_id, job_ids, source_keys, inserted_model = await seed_two_jobs(
         settings

@@ -46,6 +46,50 @@ def create_deployment(**overrides: object) -> ModelDeploymentVersion:
     return ModelDeploymentVersion.create(**values)
 
 
+def codex_deployment(**overrides: object) -> ModelDeploymentVersion:
+    values: dict[str, object] = {
+        "provider": ProviderKind("development_codex_exec"),
+        "endpoint_ref": None,
+        "runner_ref": "personal-codex-v1",
+        "secret_ref": None,
+        "development_only": True,
+        "allowed_environments": (DeploymentEnvironment.DEVELOPMENT,),
+        "max_retries": 0,
+        "retry_backoff_seconds": 0,
+        "healthcheck_enabled": False,
+    }
+    values.update(overrides)
+    return create_deployment(**values)
+
+
+def test_codex_uses_runner_not_http_endpoint() -> None:
+    deployment = codex_deployment()
+    assert deployment.endpoint_ref is None
+    assert deployment.runner_ref == "personal-codex-v1"
+
+
+@pytest.mark.parametrize("overrides", [
+    {"endpoint_ref": "openai-responses"}, {"runner_ref": None},
+    {"runner_ref": "C:/codex.exe"}, {"runner_ref": "https://example.test"},
+    {"runner_ref": "codex exec"}, {"runner_ref": "secret-token"},
+    {"runner_ref": "a-" + "x" * 120}, {"runner_ref": ""},
+    {"secret_ref": "openai-primary"}, {"development_only": False},
+    {"allowed_environments": (DeploymentEnvironment.PRODUCTION,)},
+    {"location": ExecutionLocation.LOCAL}, {"external_transfer": False},
+    {"max_retries": 1}, {"retry_backoff_seconds": 0.5},
+    {"healthcheck_enabled": True}, {"transmitted_data_categories": ()},
+    {"data_processing_notice_ref": None},
+])
+def test_codex_rejects_invalid_execution_contract(overrides: dict[str, object]) -> None:
+    with pytest.raises(DeploymentValidationError):
+        codex_deployment(**overrides)
+
+
+def test_http_rejects_runner_reference() -> None:
+    with pytest.raises(DeploymentValidationError):
+        create_deployment(runner_ref="personal-codex-v1")
+
+
 def test_create_returns_an_immutable_version_with_a_uuid_identity() -> None:
     deployment = create_deployment(display_name="  OpenAI financial answers  ")
 

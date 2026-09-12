@@ -87,11 +87,7 @@ def _active_alias(profile_id: UUID | None = None) -> ActiveIndexAlias:
 
 def _exception_leaves(error: BaseException) -> tuple[BaseException, ...]:
     if isinstance(error, BaseExceptionGroup):
-        return tuple(
-            leaf
-            for nested in error.exceptions
-            for leaf in _exception_leaves(nested)
-        )
+        return tuple(leaf for nested in error.exceptions for leaf in _exception_leaves(nested))
     return (error,)
 
 
@@ -114,6 +110,7 @@ class RecordingScopeResolver:
             )
         )
         self.indexing_profile_ids: list[UUID | None] = []
+        self.document_scopes: list[tuple[tuple[UUID, ...] | None, UUID | None]] = []
 
     async def resolve(
         self,
@@ -122,9 +119,12 @@ class RecordingScopeResolver:
         workspace_ids: tuple[UUID, ...],
         folder_ids: tuple[UUID, ...],
         indexing_profile_id: UUID | None = None,
+        document_ids: tuple[UUID, ...] | None = None,
+        document_processing_profile_id: UUID | None = None,
     ) -> ResolvedSearchScope:
         del actor_id, workspace_ids, folder_ids
         self.indexing_profile_ids.append(indexing_profile_id)
+        self.document_scopes.append((document_ids, document_processing_profile_id))
         self.events.append("scope")
         return self.scope
 
@@ -342,13 +342,61 @@ async def test_hybrid_resolves_scope_and_embedding_before_concurrent_branches() 
         result_limit=10,
     )
 
-    assert events[:2] == ["scope", "embedding"]
-    assert set(events[2:]) == {"sparse", "dense"}
+    assert events[:3] == ["scope", "embedding", "scope"]
+    assert set(events[3:]) == {"sparse", "dense"}
     assert sparse.scope is scope
     assert dense.scope is scope
-    assert scope_resolver.indexing_profile_ids == [INDEXING_PROFILE_ID]
+    assert scope_resolver.indexing_profile_ids == [INDEXING_PROFILE_ID, INDEXING_PROFILE_ID]
     assert result[0].chunk_id == duplicate.chunk_id
     assert result[0].chunk == duplicate
+
+
+@pytest.mark.asyncio
+async def test_selected_scope_reaches_bm25_and_dense_with_identical_exact_filters() -> None:
+    events: list[str] = []
+    document_id, processing_profile_id = uuid4(), uuid4()
+    scope = ResolvedSearchScope(
+        (uuid4(),),
+        (),
+        asset_version_ids=(uuid4(),),
+        index_build_ids=(uuid4(),),
+        document_ids=(document_id,),
+    )
+    sparse = RecordingSparseRetriever(events, ())
+    dense = RecordingDenseRetriever(events, ())
+    scope_resolver = RecordingScopeResolver(events, scope)
+
+    await HybridRetrievalService(
+        scope_resolver=scope_resolver,
+        embedding=RecordingEmbedding(events),
+        sparse_retriever=sparse,
+        dense_retriever=dense,
+    ).search(
+        actor_id=uuid4(),
+        query="query",
+        workspace_ids=scope.workspace_ids,
+        folder_ids=(),
+        indexing_profile_id=INDEXING_PROFILE_ID,
+        retrieval_profile=_hybrid_profile(),
+        index_alias=ActiveIndexAlias(
+            IndexDescriptor(2, "cosine"),
+            "ai-workshop-rag",
+            INDEXING_PROFILE_ID,
+            processing_profile_id,
+        ),
+        result_limit=10,
+        document_ids=(document_id,),
+        document_processing_profile_id=processing_profile_id,
+    )
+
+    assert scope_resolver.document_scopes == [
+        ((document_id,), processing_profile_id),
+        ((document_id,), processing_profile_id),
+    ]
+    assert sparse.scope is scope
+    assert dense.scope is scope
+    assert sparse.scope.asset_version_ids == scope.asset_version_ids
+    assert dense.scope.index_build_ids == scope.index_build_ids
 
 
 @pytest.mark.asyncio

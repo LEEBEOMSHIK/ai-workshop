@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_workshop.platform.identity.domain import User
 from ai_workshop.platform.workspaces.domain import Workspace, WorkspaceKind
+from ai_workshop.platform.workspaces.member_repository import SqlAlchemyWorkspaceMemberRepository
 from ai_workshop.platform.workspaces.repository import (
     SqlAlchemyWorkspaceRepository,
     WorkspaceRepository,
@@ -44,3 +45,9 @@ def get_workspace_service(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> WorkspaceService:
     return WorkspaceService(SqlAlchemyWorkspaceRepository(session))
+
+
+def get_workspace_member_repository(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> SqlAlchemyWorkspaceMemberRepository:
+    return SqlAlchemyWorkspaceMemberRepository(session)

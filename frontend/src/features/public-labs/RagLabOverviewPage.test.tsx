@@ -1,9 +1,10 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import { loginPath, routes } from "../../shared/routing/routes";
+import { routes } from "../../shared/routing/routes";
 import { listRagLabAgents } from "./rag-lab-agents";
 import { RagLabOverviewPage } from "./RagLabOverviewPage";
+import { studySnapshot } from "../publishing/test-fixtures";
 
 describe("RagLabOverviewPage", () => {
   it("shows the RAG chief and six implemented workers in pipeline order", () => {
@@ -35,8 +36,9 @@ describe("RagLabOverviewPage", () => {
       within(pipeline).queryByRole("button", { name: /생성|LLM|리랭커/u }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: "로그인하고 현재 검색 기능 사용하기" }),
-    ).toHaveAttribute("href", loginPath(routes.workshopRagSearch));
+      screen.getByRole("link", { name: "현재 검색 기능 사용하기" }),
+    ).toHaveAttribute("href", routes.workshopRagSearch);
+    expect(screen.getByRole("link", { name: /사장실.*로비로 돌아가기/ })).toHaveAttribute("href", "/");
     expect(
       within(pipeline).getByText(
         "화면의 캐릭터는 각 기술 책임을 설명하며, 실제 처리는 검증된 서비스와 worker가 수행합니다.",
@@ -69,6 +71,22 @@ describe("RagLabOverviewPage", () => {
       last!.handoff,
     );
   });
+  it("gives every registered worker a keyboard reachable desk and keeps its explanation intact", async () => {
+    const user = userEvent.setup();
+    render(<RagLabOverviewPage />);
+    for (const agent of listRagLabAgents()) {
+      const trigger = screen.getByRole("button", { name: `${agent.name}에게 말 걸기` });
+      expect(trigger.querySelector("svg")).not.toBeNull();
+      trigger.focus();
+      await user.keyboard("{Enter}");
+      const dialog = screen.getByRole("dialog", { name: `${agent.name} 소개` });
+      expect(dialog).toHaveTextContent(agent.currentWork);
+      expect(dialog).toHaveTextContent(agent.inputOutput);
+      expect(dialog).toHaveTextContent(agent.handoff);
+      await user.keyboard("{Escape}");
+      expect(trigger).toHaveFocus();
+    }
+  });
 
   it("keeps verified RAG capability visible without presenting the page as a demo", () => {
     render(<RagLabOverviewPage />);
@@ -78,5 +96,22 @@ describe("RagLabOverviewPage", () => {
       screen.getByText("정확 일치와 의미 일치를 구분한 원문 하이라이트"),
     ).toBeVisible();
     expect(screen.queryByText(/데모/u)).not.toBeInTheDocument();
+  });
+
+  it("links the public study index and filters worker links by topic", async () => {
+    const user = userEvent.setup();
+    render(
+      <RagLabOverviewPage
+        studies={[
+          studySnapshot({ slug: "retrieval-result", title: "검색 융합 기록", topic_keys: ["retrieval"] }),
+          studySnapshot({ slug: "parsing-result", title: "문서 파싱 기록", topic_keys: ["parsing"] }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: "공개 연구 기록" })).toHaveAttribute("href", routes.ragStudies);
+    await user.click(screen.getByRole("button", { name: "검색 조율자 리프에게 말 걸기" }));
+    expect(screen.getByRole("link", { name: "검색 융합 기록" })).toBeVisible();
+    expect(screen.queryByRole("link", { name: "문서 파싱 기록" })).not.toBeInTheDocument();
   });
 });

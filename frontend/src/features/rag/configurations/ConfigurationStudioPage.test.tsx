@@ -1,15 +1,63 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, vi } from "vitest";
 
 import { ConfigurationStudioPage } from "./ConfigurationStudioPage";
-import type { ConfigurationStudioData, SavedConfiguration } from "./api";
+import type { ConfigurationStudioData, SavedConfiguration, EvaluationRun } from "./api";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe("ConfigurationStudioPage", () => {
+  it.each(["latest-only", "failed"])("clears the old version default after promotion with %s refresh", async (refresh) => {
+    const user = userEvent.setup();
+    const old = savedConfiguration({ is_default: true, evaluation_state: "passed", experimental: false });
+    const latest = savedConfiguration({ version_id: "new-version", version: 2 });
+    const promoted = { ...latest, is_default: true, evaluation_state: "passed" as const, experimental: false };
+    const data = studioData(); data.configurations = [old, latest]; data.runs = [versionRun(latest.version_id)];
+    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => init?.method === "POST" ? jsonResponse(promoted) : jsonResponse([promoted], refresh === "failed" ? 500 : 200)));
+    render(<ConfigurationStudioPage initialData={data} />);
+    await user.click(screen.getByRole("tab", { name: "비교 실험" }));
+    await user.click(screen.getByRole("button", { name: "전체 기본값으로 지정" }));
+    await screen.findByText("평가 상태: passed");
+    await user.click(screen.getByRole("tab", { name: "RAG 구성" }));
+    const cards = screen.getAllByRole("article");
+    const first = cards.find((card) => within(card).queryByText("v1"))!;
+    const second = cards.find((card) => within(card).queryByText("v2"))!;
+    expect(within(first).queryByText("운영 기본값")).not.toBeInTheDocument();
+    expect(within(second).getByText("운영 기본값")).toBeInTheDocument();
+    expect(within(first).getByText("평가 통과")).toBeInTheDocument();
+    expect(within(first).getByText("실험")).toBeInTheDocument();
+    expect(within(second).queryByText("실험")).not.toBeInTheDocument();
+  });
+  it("accepts an exact old version without changing any default flags", async () => {
+    const user = userEvent.setup(); const old = savedConfiguration();
+    const latest = savedConfiguration({ version_id: "new-version", version: 2, is_default: true, evaluation_state: "passed", experimental: false });
+    const data = studioData(); data.configurations = [old, latest]; data.runs = [versionRun(old.version_id)];
+    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => init?.method === "POST" ? jsonResponse({ configuration: { ...old, evaluation_state: "passed" } }) : jsonResponse([latest])));
+    render(<ConfigurationStudioPage initialData={data} />);
+    await user.click(screen.getByRole("tab", { name: "비교 실험" }));
+    await user.click(screen.getByRole("button", { name: "이 버전의 평가 통과 반영" }));
+    await screen.findByText(/검색 평가 통과를 반영했습니다/);
+    await user.click(screen.getByRole("tab", { name: "RAG 구성" }));
+    const cards = screen.getAllByRole("article");
+    expect(within(cards.find((card) => within(card).queryByText("v1"))!).queryByText("운영 기본값")).not.toBeInTheDocument();
+    expect(within(cards.find((card) => within(card).queryByText("v2"))!).getByText("운영 기본값")).toBeInTheDocument();
+  });
+  it("retains evaluation selection and draft while switching studio tabs without requests", async () => {
+    const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
+    const user = userEvent.setup(); render(<ConfigurationStudioPage initialData={studioData()} />);
+    await user.click(screen.getByRole("tab", { name: "비교 실험" }));
+    await user.click(screen.getByRole("checkbox", { name: "전사 지식" }));
+    await user.click(screen.getByText("기존 스냅샷으로 비교 (고급)"));
+    await user.type(screen.getByRole("textbox", { name: "데이터셋 스냅샷 ID" }), "draft-snapshot");
+    await user.click(screen.getByRole("tab", { name: "모델 레지스트리" }));
+    await user.click(screen.getByRole("tab", { name: "비교 실험" }));
+    expect(screen.getByRole("checkbox", { name: "전사 지식" })).toBeChecked();
+    expect(screen.getByRole("textbox", { name: "데이터셋 스냅샷 ID" })).toHaveValue("draft-snapshot");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
   it("saves a generative package with the selected versioned LLM profile", async () => {
     const data = studioData();
     data.profiles.push({
@@ -823,12 +871,60 @@ function savedConfiguration(overrides: Partial<SavedConfiguration> = {}): SavedC
   };
 }
 
+function versionRun(versionId: string): EvaluationRun {
+  return {
+    id: "version-run", owner_id: "owner-1", created_at: "2019-03-04T05:06:07Z",
+    dataset_snapshot_id: "snapshot", evaluation_policy_version_id: "policy", status: "completed",
+    fixture_sha256: "fixture", document_snapshot_sha256: "documents", query_set_sha256: "queries",
+    execution_snapshot_sha256: "execution", runtime_environment: {}, worker_runtime_environment: null,
+    metric_definition_version: 1, retrieval_k: 10, repetition_count: 2, failure: null,
+    candidates: [{ id: "candidate", configuration_version_id: versionId, ordinal: 0, status: "completed", failure: null, metrics: null, case_results: [] }],
+  };
+}
+
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "content-type": "application/json" },
   });
 }
+
+it("allows unverified Codex draft save only with matching server runner preflight", async () => {
+  const data = studioData();
+  data.profiles.push(generationProfile("codex-profile", "codex-version", "Codex draft"));
+  let saved: unknown;
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (input === "/api/v1/rag/deployments/options") return jsonResponse([deploymentOption({ deployment_version_id: "codex-version", provider: "development_codex_exec", runner_ref: "runner-one", readiness: { ready: false, reason_codes: ["deployment_not_ready"] }, approval: { required: true, disclosure_version: "codex-external-generation-v1", disclosure: "Codex external notice", transmitted_data_categories: ["question"] } })]);
+    if (input === "/api/v1/admin/rag/codex-runners") return jsonResponse([{ runner_ref: "runner-one", local_preflight_passed: true, prompt_options: [] }]);
+    saved = JSON.parse(String(init?.body)); return jsonResponse(savedConfiguration());
+  }));
+  render(<ConfigurationStudioPage initialData={data} />);
+  const user = userEvent.setup();
+  await user.selectOptions(screen.getByLabelText("답변 방식"), "generative");
+  const select = await screen.findByLabelText("생성 구성");
+  await waitFor(() => expect(within(select).getByRole("option", { name: /Codex draft/ })).toBeEnabled());
+  await user.type(screen.getByLabelText("구성 이름"), "Codex draft package");
+  await user.click(screen.getByRole("checkbox", { name: "전사 지식" }));
+  await user.click(screen.getByRole("checkbox", { name: /개발용 Codex CLI에/ }));
+  await user.click(screen.getByRole("button", { name: "저장" }));
+  expect(saved).toMatchObject({ generation_profile_id: "codex-profile", external_transfer_approval: { disclosure_version: "codex-external-generation-v1", confirmed: true } });
+});
+
+it("keeps HTTP generation selectable if the optional Codex catalog is unavailable", async () => {
+  const data = studioData();
+  data.profiles.push(generationProfile("http-profile", "http-version", "HTTP ready"));
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    if (input === "/api/v1/rag/deployments/options") return jsonResponse([
+      deploymentOption({ deployment_version_id: "http-version" }),
+      deploymentOption({ deployment_version_id: "codex-version", provider: "development_codex_exec", runner_ref: "runner-one", readiness: { ready: false, reason_codes: ["deployment_not_ready"] } }),
+    ]);
+    throw new Error("Codex catalog unavailable");
+  }));
+  render(<ConfigurationStudioPage initialData={data} />);
+  const user = userEvent.setup();
+  await user.selectOptions(screen.getByLabelText("답변 방식"), "generative");
+  await waitFor(() => expect(screen.getByRole("option", { name: /HTTP ready/ })).toBeEnabled());
+});
 
 function generationProfile(id: string, deploymentVersionId: string, name: string) {
   return {

@@ -10,6 +10,10 @@ export function DocumentProcessingDetails({
   if (!profile) return null;
   const ocr = objectValue(profile.config.ocr);
   const enabled = ocr?.enabled === true;
+  const routes = objectValue(objectValue(profile.config.parser_policy)?.routes);
+  const pdf = objectValue(routes?.["application/pdf"]);
+  const pdfOptions = objectValue(pdf?.options);
+  const scannedPdf = enabled && pdf?.name === "pymupdf-ocr";
   const roles = [
     ["레이아웃 감지", "ocr_layout_detection"],
     ["텍스트 감지", "ocr_text_detection"],
@@ -29,6 +33,17 @@ export function DocumentProcessingDetails({
         <Detail label="프로파일" value={`${profile.name} v${profile.version}`} />
         <Detail label="평가 상태" value={profile.evaluation_state} />
         <Detail label="OCR" value={enabled ? "사용" : "사용 안 함"} />
+        <Detail label="PDF 파서" value={pdf
+          ? `${stringValue(pdf.name) || "이름 미지정"} v${stringValue(pdf.version) || "버전 미지정"}`
+          : "PDF 파서 미설정"} />
+        <Detail label="PDF OCR 범위" value={pdfOcrScope(scannedPdf, pdf?.version)} />
+        {scannedPdf ? (
+          <>
+            <Detail label="PDF 렌더 해상도" value={numericSetting(pdfOptions?.raster_dpi, "DPI")} />
+            <Detail label="PDF 페이지당 최대 픽셀" value={numericSetting(pdfOptions?.max_page_pixels, "픽셀")} />
+            <Detail label="PDF 최대 페이지 수" value={numericSetting(pdfOptions?.max_pages, "페이지")} />
+          </>
+        ) : null}
         {enabled ? (
           <>
             <Detail label="파이프라인" value={`${stringValue(ocr?.pipeline_name)} ${stringValue(ocr?.pipeline_version)}`} />
@@ -51,6 +66,17 @@ function Detail({ label, value }: { label: string; value: string }) {
   return <div><dt>{label}</dt><dd>{value || "정보 없음"}</dd></div>;
 }
 
+function pdfOcrScope(enabled: boolean, version: unknown): string {
+  if (!enabled) return "스캔 PDF OCR 미설정";
+  if (version === "1") {
+    return "텍스트가 없는 페이지만 OCR · 같은 페이지의 텍스트와 이미지 동시 OCR은 지원하지 않음";
+  }
+  if (version === "2") {
+    return "본문 텍스트 추출 + 이미지 영역 OCR · 텍스트가 없는 페이지는 전체 OCR · 같은 위치의 중복 근거 제거 · 원문 좌표 보존";
+  }
+  return "PDF OCR 범위 확인 필요 · 저장된 파서 버전의 처리 범위를 확인할 수 없음";
+}
+
 function objectValue(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -59,6 +85,12 @@ function objectValue(value: unknown): Record<string, unknown> | null {
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+function numericSetting(value: unknown, unit: string): string {
+  return typeof value === "number" && Number.isFinite(value)
+    ? `${value} ${unit}`
+    : "미지정";
 }
 
 function arrayValue(value: unknown): string[] {

@@ -30,6 +30,7 @@ interface InteractiveAgentCharacterProps {
   profile: InteractiveAgentProfile;
   variant: "roaming" | "working";
   children: ReactNode;
+  visual?: ReactNode;
   action?: {
     href: string;
     label: string;
@@ -50,6 +51,7 @@ export function InteractiveAgentCharacter({
   variant,
   children,
   action,
+  visual,
 }: InteractiveAgentCharacterProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [placement, setPlacement] = useState<DialogPlacement | null>(null);
@@ -179,7 +181,7 @@ export function InteractiveAgentCharacter({
         }}
       >
         <span className={`${styles.characterVisual} ${styles[variant]}`}>
-          <span className={styles.avatar} aria-hidden="true">
+          {visual ?? <span className={styles.avatar} aria-hidden="true">
             <span className={styles.antenna} />
             <span className={styles.head}>
               <span className={styles.faceLight} />
@@ -189,7 +191,7 @@ export function InteractiveAgentCharacter({
               <span className={styles.statusLight} />
             </span>
             <span className={styles.tool} />
-          </span>
+          </span>}
           <span className={styles.identity}>
             <span className={styles.role}>{profile.role}</span>
             <strong>{profile.name}</strong>

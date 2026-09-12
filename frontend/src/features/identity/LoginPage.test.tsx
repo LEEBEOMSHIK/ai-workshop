@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, vi } from "vitest";
 
@@ -14,6 +14,24 @@ vi.mock("next/navigation", () => ({
 beforeEach(() => replace.mockClear());
 
 describe("LoginPage", () => {
+  it("announces a failed login after exposing the pending state", async () => {
+    let rejectLogin!: (reason: Error) => void;
+    const pending = new Promise<never>((_resolve, reject) => { rejectLogin = reject; });
+    const user = userEvent.setup();
+    render(<LoginPage authenticate={() => pending} />);
+
+    await user.type(screen.getByLabelText("이메일"), "owner@example.test");
+    await user.type(screen.getByLabelText("비밀번호"), "incorrect-password");
+    await user.click(screen.getByRole("button", { name: "작업소 입장" }));
+    expect(screen.getByRole("button", { name: "확인 중…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "확인 중…" }).closest("form")).toHaveAttribute("aria-busy", "true");
+
+    await act(async () => rejectLogin(new Error("invalid_credentials")));
+    expect(screen.getByRole("alert")).toHaveTextContent("이메일 또는 비밀번호를 확인해 주세요.");
+    expect(screen.getByRole("button", { name: "작업소 입장" })).toBeEnabled();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
   it("opens the workshop home when no protected return path was requested", async () => {
     const user = userEvent.setup();
     render(

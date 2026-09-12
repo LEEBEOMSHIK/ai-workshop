@@ -1,3 +1,4 @@
+import pytest
 import pytest_asyncio
 
 from ai_workshop.config import get_settings
@@ -8,8 +9,15 @@ from ai_workshop.labs.rag.models.models import ProfileRecord
 from ai_workshop.shared.db import create_engine, create_session_factory
 
 
+@pytest.fixture
+def rag_isolation_ready(request: pytest.FixtureRequest) -> None:
+    """Complete synchronous provisioning before the async legacy seed starts."""
+    if "isolated_rag_resources" in request.fixturenames:
+        request.getfixturevalue("isolated_rag_resources")
+
+
 @pytest_asyncio.fixture(autouse=True)
-async def ensure_legacy_document_processing_profile() -> None:
+async def ensure_legacy_document_processing_profile(rag_isolation_ready: None) -> None:
     """Mirror the migration seed for metadata-created integration databases."""
     settings = get_settings()
     engine = create_engine(settings)

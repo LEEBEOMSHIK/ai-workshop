@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 
 import { listRagLabAgents } from "./rag-lab-agents";
 import { RagWorkerCharacter } from "./RagWorkerCharacter";
+import { studySnapshot } from "../publishing/test-fixtures";
 
 describe("RagWorkerCharacter", () => {
   it("explains the selected worker's current task, input/output and handoff", async () => {
@@ -41,6 +42,17 @@ describe("RagWorkerCharacter", () => {
     await user.click(closeButton);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
+  });
+
+  it("shows only the published studies supplied for this worker", async () => {
+    const user = userEvent.setup();
+    const agent = listRagLabAgents()[0];
+    expect(agent).toBeDefined();
+
+    render(<RagWorkerCharacter agent={agent!} relatedStudies={[studySnapshot({ slug: "parsing-note", title: "파싱 기록" })]} />);
+    await user.click(screen.getByRole("button", { name: "구조 분석가 루미에게 말 걸기" }));
+
+    expect(screen.getByRole("link", { name: "파싱 기록" })).toHaveAttribute("href", "/studies/parsing-note");
   });
 
   it("closes with Escape and restores the previous body overflow", async () => {

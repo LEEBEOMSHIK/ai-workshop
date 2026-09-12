@@ -25,11 +25,13 @@ def test_database_role_string_is_normalized_to_user_role() -> None:
 
 
 @pytest.mark.asyncio
-async def test_owner_setup_lock_serializes_the_users_table() -> None:
+async def test_owner_setup_lock_serializes_on_the_authorization_singleton() -> None:
     session = AsyncMock()
+    session.scalar.return_value = False
     repository = SqlAlchemyUserRepository(session)
 
     await repository.lock_owner_setup()
 
-    statement = session.execute.await_args.args[0]
-    assert str(statement) == "LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE"
+    statement = session.scalar.await_args.args[0]
+    assert "authorization_state" in str(statement)
+    assert "FOR UPDATE" in str(statement)

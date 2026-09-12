@@ -15,15 +15,20 @@
     "api:generate": "node openapi-ts.config.mjs",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest",
+    "test:office": "playwright test --config playwright.office.config.ts",
     "typecheck": "tsc --noEmit --pretty false"
   },
   "dependencies": {
     "@next/env": "16.3.4",
     "next": "16.3.4",
+    "phaser": "4.2.1",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "zustand": "5.0.15"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@tailwindcss/postcss": "4.3.3",
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/react": "16.3.3",
     "@testing-library/user-event": "14.6.6",
@@ -35,6 +40,7 @@
     "eslint-plugin-react-hooks": "7.1.1",
     "jsdom": "30.0.1",
     "openapi-typescript": "7.13.0",
+    "tailwindcss": "4.3.3",
     "typescript": "5.9.3",
     "vitest": "4.1.11"
   }

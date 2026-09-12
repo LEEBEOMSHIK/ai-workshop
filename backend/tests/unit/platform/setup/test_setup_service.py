@@ -11,9 +11,21 @@ from ai_workshop.shared.errors import AppError
 
 
 class MemoryOwnerSetupRepository:
-    def __init__(self, owner: User | None = None) -> None:
+    def __init__(
+        self,
+        owner: User | None = None,
+        *,
+        state_exists: bool = True,
+        initialized: bool | None = None,
+    ) -> None:
         self.owner = owner
+        self.state_exists = state_exists
+        self.initialized = owner is not None if initialized is None else initialized
         self.locked = False
+        self.bootstrap_audited = False
+
+    async def owner_setup_required(self) -> bool:
+        return self.state_exists and not self.initialized
 
     async def lock_owner_setup(self) -> None:
         self.locked = True
@@ -25,6 +37,12 @@ class MemoryOwnerSetupRepository:
         assert self.locked
         self.owner = user
         return user
+
+    async def complete_owner_setup(self, owner_id: UUID) -> None:
+        assert self.locked
+        assert self.owner is not None and self.owner.id == owner_id
+        self.initialized = True
+        self.bootstrap_audited = True
 
 
 class MemoryWorkspaceRepository:
@@ -90,6 +108,8 @@ async def test_setup_creates_one_owner_and_both_default_workspaces() -> None:
 
     assert users.locked is True
     assert users.owner == owner
+    assert users.initialized is True
+    assert users.bootstrap_audited is True
     assert owner.password_hash == "hashed::correct-password"
     assert token == f"session::{owner.id}"
     assert [(item.name, item.kind) for item in workspaces.workspaces] == [
@@ -148,3 +168,40 @@ async def test_setup_rejects_mismatched_password_confirmation_before_locking() -
 
     assert users.locked is False
     assert exc_info.value.code == "password_confirmation_mismatch"
+
+
+@pytest.mark.asyncio
+async def test_setup_status_fails_closed_when_authorization_singleton_is_missing() -> None:
+    users = MemoryOwnerSetupRepository(state_exists=False, initialized=False)
+    service = SystemSetupService(
+        users,
+        WorkspaceService(MemoryWorkspaceRepository()),
+        RecordingPasswordHasher(),
+        RecordingTokens(),
+        local_settings(),
+    )
+
+    assert await service.setup_required() is False
+
+
+@pytest.mark.asyncio
+async def test_completed_setup_never_reopens_when_user_rows_are_corrupted() -> None:
+    users = MemoryOwnerSetupRepository(initialized=False)
+    service = SystemSetupService(
+        users,
+        WorkspaceService(MemoryWorkspaceRepository()),
+        RecordingPasswordHasher(),
+        RecordingTokens(),
+        local_settings(),
+    )
+    owner, _ = await service.create_owner(
+        display_name="Workshop Owner",
+        email="owner@example.test",
+        password="correct-password",
+        password_confirmation="correct-password",
+    )
+    assert users.owner == owner
+
+    users.owner = None
+
+    assert await service.setup_required() is False

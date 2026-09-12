@@ -43,7 +43,10 @@ class AssetService:
         media_type: str,
         content: AsyncIterator[bytes],
     ) -> Document:
-        if not await self.repository.has_workspace_access(user.id, workspace_id):
+        await self.repository.require_workspace_write(user.id, workspace_id)
+        if folder_id is not None and not await self.repository.folder_belongs_to(
+            folder_id, workspace_id
+        ):
             raise AppError("not_found", "The requested resource was not found.", 404)
         suffix = Path(filename).suffix.casefold()
         if suffix not in ALLOWED_EXTENSIONS:
@@ -62,6 +65,7 @@ class AssetService:
 
         stored = await self.object_store.put(object_key, bounded_content())
         try:
+            await self.repository.require_workspace_write(user.id, workspace_id, lock=True)
             if await self.repository.workspace_contains_sha256(workspace_id, stored.sha256):
                 raise AppError(
                     "duplicate_document_content",
@@ -103,11 +107,13 @@ class AssetService:
         parent_id: UUID | None,
         name: str,
     ) -> Folder:
-        if not await self.repository.has_workspace_access(user.id, workspace_id):
-            raise AppError("not_found", "The requested resource was not found.", 404)
+        await self.repository.require_workspace_write(user.id, workspace_id, lock=True)
         clean_name = name.strip()
+        if not 1 <= len(clean_name) <= 180:
+            raise AppError("invalid_folder_name", "The folder name is invalid.", 422)
         if parent_id and not await self.repository.folder_belongs_to(parent_id, workspace_id):
             raise AppError("not_found", "The requested resource was not found.", 404)
+        await self.repository.lock_folder_siblings(workspace_id, parent_id)
         if await self.repository.folder_name_exists(workspace_id, parent_id, clean_name):
             raise AppError("folder_exists", "A folder with this name already exists.", 409)
         return await self.repository.add_folder(
@@ -126,6 +132,7 @@ class AssetService:
         document = await self.repository.find_document_for_user(user.id, document_id)
         if document is None:
             raise AppError("not_found", "The requested resource was not found.", 404)
+        await self.repository.require_workspace_write(user.id, document.workspace_id)
         suffix = Path(filename).suffix.casefold()
         if suffix not in ALLOWED_EXTENSIONS:
             raise AppError("unsupported_document", "This document format is not supported.", 422)
@@ -141,6 +148,7 @@ class AssetService:
 
         stored = await self.object_store.put(object_key, bounded_content())
         try:
+            await self.repository.require_workspace_write(user.id, document.workspace_id, lock=True)
             if await self.repository.workspace_contains_sha256(
                 document.workspace_id,
                 stored.sha256,

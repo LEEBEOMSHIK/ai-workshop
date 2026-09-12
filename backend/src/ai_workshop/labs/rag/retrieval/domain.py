@@ -117,6 +117,14 @@ type SearchIndexTarget = ActiveIndexAlias | FrozenIndexTarget
 
 
 @dataclass(frozen=True, slots=True)
+class SelectedDocumentIdentity:
+    document_id: UUID
+    asset_version_id: UUID
+    projection_id: UUID
+    index_build_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedSearchScope:
     workspace_ids: tuple[UUID, ...]
     folder_ids: tuple[UUID, ...]
@@ -124,6 +132,9 @@ class ResolvedSearchScope:
     ready_only: bool = True
     asset_version_ids: tuple[UUID, ...] = ()
     index_build_ids: tuple[UUID, ...] = ()
+    document_ids: tuple[UUID, ...] | None = None
+    selected_documents: tuple[SelectedDocumentIdentity, ...] = ()
+    scope_fingerprint: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

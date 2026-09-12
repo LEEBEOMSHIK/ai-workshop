@@ -47,6 +47,7 @@ from ai_workshop.labs.rag.ingestion.tasks import create_rag_ingestion_workflow
 from ai_workshop.labs.rag.models.document_processing import (
     LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
 )
+from ai_workshop.labs.rag.ocr.contracts import OcrRuntimeError
 from ai_workshop.labs.rag.parsing.contracts import ParsingError
 from ai_workshop.platform.assets.dispatch import (
     AssetVerificationDispatchReconciler,
@@ -525,7 +526,7 @@ async def _reconcile_evaluation_dispatches(
 def _rag_error(exc: Exception) -> tuple[str, bool]:
     if isinstance(exc, RagIngestionError):
         return exc.code, exc.retryable
-    if isinstance(exc, ParsingError):
+    if isinstance(exc, (ParsingError, OcrRuntimeError)):
         return exc.code, False
     if isinstance(exc, (OperationalError, TimeoutError, DisconnectionError)):
         return "database_transient", True

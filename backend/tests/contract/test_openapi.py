@@ -8,6 +8,14 @@ from ai_workshop.main import create_app
 
 HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 EXPECTED_PATHS = {
+    "/api/v1/rag/evidence-approval-requests",
+    "/api/v1/admin/rag/evidence-approval-requests",
+    "/api/v1/admin/rag/evidence-approval-requests/{id}/decision",
+    "/api/v1/admin/rag/codex-runners",
+    "/api/v1/admin/rag/codex-evidence",
+    "/api/v1/admin/rag/codex-evidence/{revision_id}/approval",
+    "/api/v1/admin/rag/configuration-versions/{version_id}/codex-verify",
+    "/api/v1/admin/rag/configuration-versions/{version_id}/codex-status",
     "/api/v1/admin/system/runtime-topology",
     "/api/v1/admin/rag/data-policies/installation",
     "/api/v1/admin/rag/data-policies/installation/versions",
@@ -16,10 +24,21 @@ EXPECTED_PATHS = {
     "/api/v1/admin/rag/deployment-versions/{version_id}/health-check",
     "/api/v1/admin/rag/deployments",
     "/api/v1/admin/rag/deployments/{deployment_id}/versions",
+    "/api/v1/admin/rag/domains",
+    "/api/v1/admin/rag/domains/{domain_id}",
+    "/api/v1/admin/rag/domains/{domain_id}/connections",
+    "/api/v1/admin/rag/domains/{domain_id}/connections/{connection_version_id}/activate",
+    "/api/v1/admin/rag/domains/{domain_id}/deactivate",
     "/api/v1/admin/rag/models",
     "/api/v1/admin/rag/profiles/{kind}",
     "/api/v1/admin/rag/profiles/{kind}/yaml",
     "/api/v1/admin/rag/profiles/{profile_id}/default",
+    "/api/v1/admin/publishing/personas",
+    "/api/v1/admin/publishing/studies",
+    "/api/v1/admin/publishing/studies/{slug}",
+    "/api/v1/admin/publishing/studies/{slug}/preview",
+    "/api/v1/admin/publishing/studies/{slug}/publish",
+    "/api/v1/admin/publishing/studies/{slug}/withdraw",
     "/api/v1/auth/login",
     "/api/v1/auth/logout",
     "/api/v1/auth/me",
@@ -28,11 +47,23 @@ EXPECTED_PATHS = {
     "/api/v1/documents/{document_id}/versions",
     "/api/v1/health",
     "/api/v1/jobs/{job_id}",
+    "/api/v1/learning/records",
+    "/api/v1/learning/records/{record_id}",
+    "/api/v1/learning/records/{record_id}/archive",
+    "/api/v1/learning/records/{record_id}/restore",
+    "/api/v1/learning/records/{record_id}/revisions/{revision}",
+    "/api/v1/learning/topics",
     "/api/v1/rag/models",
     "/api/v1/rag/configurations",
     "/api/v1/rag/configurations/{configuration_id}",
     "/api/v1/rag/configurations/{configuration_id}/default",
     "/api/v1/rag/deployments/options",
+    "/api/v1/rag/domains",
+    "/api/v1/rag/domains/{slug}",
+    "/api/v1/rag/domains/{slug}/library",
+    "/api/v1/rag/domains/{slug}/library/workspaces/{workspace_id}",
+    "/api/v1/rag/domains/{slug}/library/workspaces/{workspace_id}/documents/{document_id}",
+    "/api/v1/rag/domains/{slug}/search",
     "/api/v1/rag/evaluation-policies",
     "/api/v1/rag/evaluation-runs",
     "/api/v1/rag/evaluation-runs/{run_id}",
@@ -92,9 +123,9 @@ def test_openapi_documents_common_errors_and_cookie_security() -> None:
 
     for path, operation in operations(schema):
         for status in COMMON_ERROR_STATUSES:
-            assert operation["responses"][status]["content"]["application/json"][
-                "schema"
-            ] == {"$ref": "#/components/schemas/ErrorEnvelope"}
+            assert operation["responses"][status]["content"]["application/json"]["schema"] == {
+                "$ref": "#/components/schemas/ErrorEnvelope"
+            }
         if path not in PUBLIC_PATHS:
             assert operation["security"] == [{"SessionCookie": []}]
 
@@ -153,9 +184,9 @@ def test_rag_search_contract_uses_authenticated_actor_and_distinct_highlights() 
         assert projection["in"] == "query"
         assert projection["required"] is True
 
-    pdf_success = schema["paths"][
-        "/api/v1/rag/sources/{asset_version_id}/pdf/pages/{page_number}"
-    ]["get"]["responses"]["200"]
+    pdf_success = schema["paths"]["/api/v1/rag/sources/{asset_version_id}/pdf/pages/{page_number}"][
+        "get"
+    ]["responses"]["200"]
     assert pdf_success["content"]["image/png"]["schema"] == {
         "format": "binary",
         "type": "string",
@@ -170,9 +201,9 @@ def test_rag_search_contract_uses_authenticated_actor_and_distinct_highlights() 
         for media in docx_success["content"].values()
     )
 
-    normalized_failure = schema["paths"][
-        "/api/v1/rag/sources/{asset_version_id}/normalized-text"
-    ]["get"]["responses"]["503"]
+    normalized_failure = schema["paths"]["/api/v1/rag/sources/{asset_version_id}/normalized-text"][
+        "get"
+    ]["responses"]["503"]
     assert normalized_failure["content"]["application/json"]["schema"] == {
         "$ref": "#/components/schemas/ErrorEnvelope"
     }
@@ -219,8 +250,13 @@ def test_saved_rag_configuration_contract_is_versioned_and_experimental() -> Non
         "location",
         "external_transfer",
         "disclosure",
+        "disclosure_version",
     }
-    assert set(preview["properties"]) == safe_preview_fields
+    assert set(preview["properties"]) == safe_preview_fields | {
+        "requested_provider_model_id",
+        "observed_provider_model_id",
+        "model_identity_status",
+    }
     assert set(preview["required"]) == safe_preview_fields
     assert not {
         "deployment_version_id",
@@ -229,7 +265,6 @@ def test_saved_rag_configuration_contract_is_versioned_and_experimental() -> Non
         "provider_model_id",
         "endpoint_ref",
         "secret_ref",
-        "observed_provider_model_id",
         "internal_reference",
     }.intersection(preview["properties"])
     assert "experimental" in components["SearchResponse"]["required"]
@@ -248,7 +283,11 @@ def test_public_generation_execution_schema_excludes_internal_references() -> No
         "disclosure",
     }
 
-    assert set(execution["properties"]) == public_fields
+    assert set(execution["properties"]) == public_fields | {
+        "requested_provider_model_id",
+        "observed_provider_model_id",
+        "model_identity_status",
+    }
     assert set(execution["required"]) == public_fields
     assert not {
         "endpoint_ref",
@@ -268,7 +307,8 @@ def test_evaluation_contract_requires_exact_security_and_reproducibility_thresho
     assert policy["properties"]["required_reproducibility"]["maximum"] == 1.0
     run = components["EvaluationRunCreate"]
     assert "configuration_version_ids" not in run["required"]
-    assert "automatic system BM25 baseline" in run["properties"][
-        "configuration_version_ids"
-    ]["description"]
+    assert (
+        "automatic system BM25 baseline"
+        in run["properties"]["configuration_version_ids"]["description"]
+    )
     assert run["properties"]["repetition_count"]["minimum"] == 2

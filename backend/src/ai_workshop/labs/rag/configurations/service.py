@@ -10,6 +10,7 @@ from ai_workshop.labs.rag.configurations.domain import (
     BM25_BASELINE_NAME,
     AnswerPolicyVersion,
     ConfigurationValidationError,
+    EvaluationAcceptanceResult,
     ExternalTransferApprovalConfirmation,
     SavedRagConfiguration,
     validate_v1_retrieval_profile,
@@ -21,6 +22,7 @@ from ai_workshop.labs.rag.deployments.domain import (
 )
 from ai_workshop.labs.rag.generation.domain import (
     GenerationExecutionSnapshot,
+    generation_disclosure,
     generation_execution_snapshot,
 )
 from ai_workshop.labs.rag.generation.profile import resolve_generation_profile
@@ -67,13 +69,19 @@ class RagConfigurationRepository(Protocol):
         configuration: SavedRagConfiguration,
     ) -> SavedRagConfiguration: ...
 
+    async def accept_evaluation(
+        self,
+        configuration_id: UUID,
+        version_id: UUID,
+        evaluation_run_id: UUID,
+        actor_id: UUID,
+    ) -> EvaluationAcceptanceResult: ...
+
     async def get_deployment_version(
         self, deployment_version_id: UUID
     ) -> ModelDeploymentVersion | None: ...
 
-    async def get_model_definition(
-        self, model_definition_id: UUID
-    ) -> ModelDefinition | None: ...
+    async def get_model_definition(self, model_definition_id: UUID) -> ModelDefinition | None: ...
 
     async def lock_external_execution_policy(self) -> None: ...
 
@@ -121,7 +129,7 @@ class IngestionJobCreatorPort(Protocol):
 
 
 class GenerationReadinessPort(Protocol):
-    async def is_ready(self, profile_id: UUID) -> bool: ...
+    async def is_ready(self, profile_id: UUID, *, configuration_version_id: UUID) -> bool: ...
 
 
 async def _no_op_commit() -> None:
@@ -222,9 +230,7 @@ class RagConfigurationService:
                 422,
             )
 
-        document_processing = await self.repository.find_profile(
-            document_processing_profile_id
-        )
+        document_processing = await self.repository.find_profile(document_processing_profile_id)
         indexing = await self.repository.find_profile(indexing_profile_id)
         retrieval = await self.repository.find_profile(retrieval_profile_id)
         if (
@@ -274,6 +280,15 @@ class RagConfigurationService:
                     raise AppError(
                         "external_transfer_approval_required",
                         "External generation requires current owner approval.",
+                        422,
+                    )
+                if (
+                    external_transfer_approval.disclosure_version
+                    != generation_disclosure(deployment).version
+                ):
+                    raise AppError(
+                        "external_transfer_disclosure_mismatch",
+                        "External generation disclosure does not match this deployment.",
                         422,
                     )
             elif external_transfer_approval is not None:
@@ -366,9 +381,7 @@ class RagConfigurationService:
                 id=uuid4(),
                 configuration_version_id=saved.version_id,
                 deployment_version_id=deployment.id,
-                installation_policy_version_id=(
-                    policy_decision.installation_policy_version_id
-                ),
+                installation_policy_version_id=(policy_decision.installation_policy_version_id),
                 approved_by=owner_id,
                 disclosure_version=external_transfer_approval.disclosure_version,
                 workspace_policies=tuple(
@@ -420,9 +433,7 @@ class RagConfigurationService:
                 for item in configurations
             )
         )
-        ready_profile_ids = (
-            await self.repository.ready_processing_indexing_profile_ids(profile_ids)
-        )
+        ready_profile_ids = await self.repository.ready_processing_indexing_profile_ids(profile_ids)
         return {
             item.version_id: (
                 item.document_processing_profile_id,
@@ -450,7 +461,8 @@ class RagConfigurationService:
                 resolved_execution is None
                 or self.generation_readiness is None
                 or not await self.generation_readiness.is_ready(
-                    item.generation_profile_id
+                    item.generation_profile_id,
+                    configuration_version_id=item.version_id,
                 )
             ):
                 answer_reasons = ("deployment_not_ready",)
@@ -469,19 +481,13 @@ class RagConfigurationService:
                         else "provider_not_allowed",
                     )
                 else:
-                    approval = (
-                        await self.repository.get_external_approval_for_configuration(
-                            item.version_id
-                        )
+                    approval = await self.repository.get_external_approval_for_configuration(
+                        item.version_id
                     )
                     answer_ready = approval is not None and (
                         exact_external_approval_is_current(
-                            approval_configuration_version_id=(
-                                approval.configuration_version_id
-                            ),
-                            approval_deployment_version_id=(
-                                approval.deployment_version_id
-                            ),
+                            approval_configuration_version_id=(approval.configuration_version_id),
+                            approval_deployment_version_id=(approval.deployment_version_id),
                             approval_installation_policy_version_id=(
                                 approval.installation_policy_version_id
                             ),
@@ -494,12 +500,10 @@ class RagConfigurationService:
                             deployment_version_id=resolved_execution.deployment.id,
                             workspace_ids=item.workspace_ids,
                             policy=policy,
-                            disclosure_version=(
-                                resolved_execution.snapshot.disclosure_version
-                            ),
+                            disclosure_version=(resolved_execution.snapshot.disclosure_version),
                         )
                     )
-                    answer_reasons = (() if answer_ready else ("deployment_not_ready",))
+                    answer_reasons = () if answer_ready else ("deployment_not_ready",)
             result[item.version_id] = ConfigurationReadiness(
                 search_ready=search_ready,
                 answer_ready=answer_ready,
@@ -507,9 +511,7 @@ class RagConfigurationService:
                 search_reasons=(() if search_ready else ("active_index_unavailable",)),
                 answer_reasons=answer_reasons,
                 generation_execution_preview=(
-                    resolved_execution.snapshot
-                    if resolved_execution is not None
-                    else None
+                    resolved_execution.snapshot if resolved_execution is not None else None
                 ),
             )
         return result
@@ -520,9 +522,7 @@ class RagConfigurationService:
     ) -> _ResolvedGenerationExecution | None:
         if configuration.generation_profile_id is None:
             return None
-        profile = await self.repository.find_profile(
-            configuration.generation_profile_id
-        )
+        profile = await self.repository.find_profile(configuration.generation_profile_id)
         if (
             profile is None
             or profile.kind is not ProfileKind.GENERATION
@@ -530,14 +530,10 @@ class RagConfigurationService:
             or profile.bindings
         ):
             return None
-        deployment = await self.repository.get_deployment_version(
-            profile.deployment_version_id
-        )
+        deployment = await self.repository.get_deployment_version(profile.deployment_version_id)
         if deployment is None:
             return None
-        model = await self.repository.get_model_definition(
-            deployment.model_definition_id
-        )
+        model = await self.repository.get_model_definition(deployment.model_definition_id)
         if model is None:
             return None
         try:
@@ -567,6 +563,19 @@ class RagConfigurationService:
         promoted = await self.repository.promote_default(configuration_id, actor_id)
         await self.commit()
         return promoted
+
+    async def accept_evaluation(
+        self,
+        configuration_id: UUID,
+        version_id: UUID,
+        evaluation_run_id: UUID,
+        actor_id: UUID,
+    ) -> EvaluationAcceptanceResult:
+        accepted = await self.repository.accept_evaluation(
+            configuration_id, version_id, evaluation_run_id, actor_id
+        )
+        await self.commit()
+        return accepted
 
 
 def _deployment_environment(environment: str) -> DeploymentEnvironment:

@@ -1,6 +1,9 @@
+from dataclasses import replace
 from pathlib import Path
 from types import MappingProxyType
 from uuid import uuid4
+
+import pytest
 
 from ai_workshop.config import Settings
 from ai_workshop.labs.rag.ingestion.tasks import _profile_parser
@@ -8,8 +11,9 @@ from ai_workshop.labs.rag.models.document_processing import (
     DocumentOcrSpec,
     DocumentProcessingSpec,
     OcrModelSpec,
+    ParserRouteSpec,
 )
-from ai_workshop.labs.rag.models.domain import PP_STRUCTURE_V3_MODEL_KINDS, ModelKind
+from ai_workshop.labs.rag.models.domain import PP_STRUCTURE_V3_MODEL_KINDS, ModelKind, PdfRasterSpec
 from ai_workshop.labs.rag.parsing.docx import DOCX_MEDIA_TYPE
 
 MODEL_NAMES = {
@@ -26,8 +30,12 @@ MODEL_NAMES = {
 }
 
 
+@pytest.mark.parametrize("media_type", [DOCX_MEDIA_TYPE, "application/pdf"])
+@pytest.mark.parametrize("parser_version", ["1", "2"])
 def test_profile_parser_maps_every_pp_structure_model_to_an_immutable_cache_path(
     tmp_path: Path,
+    media_type: str,
+    parser_version: str,
 ) -> None:
     models = {
         kind: OcrModelSpec(
@@ -46,7 +54,13 @@ def test_profile_parser_maps_every_pp_structure_model_to_an_immutable_cache_path
         profile_id=uuid4(),
         name="pp-structure-v3-docx",
         version=1,
-        parser_routes=MappingProxyType({}),
+        parser_routes=MappingProxyType(
+            {
+                "application/pdf": ParserRouteSpec(
+                    "pymupdf-ocr", parser_version, PdfRasterSpec(144, 16000000, 200)
+                )
+            }
+        ),
         ocr=DocumentOcrSpec(
             pipeline_name="PP-StructureV3",
             pipeline_version="3.7.0",
@@ -61,7 +75,7 @@ def test_profile_parser_maps_every_pp_structure_model_to_an_immutable_cache_path
         model_cache_root=tmp_path / "models",
     )
 
-    parser = _profile_parser(DOCX_MEDIA_TYPE, processing, settings)
+    parser = _profile_parser(media_type, processing, settings)
 
     assert parser is not None
     assert parser.ocr_profile is not None
@@ -73,9 +87,13 @@ def test_profile_parser_maps_every_pp_structure_model_to_an_immutable_cache_path
             if name == parser.ocr_profile.model_names[runtime_role]
         )
         assert directory == (
-            tmp_path
-            / "models"
-            / "ocr"
-            / kind.value
-            / models[kind].artifact_sha256
+            tmp_path / "models" / "ocr" / kind.value / models[kind].artifact_sha256
         )
+    if media_type == "application/pdf":
+        assert parser.parser_name == "pymupdf-ocr"
+        assert parser.parser_version == parser_version
+        legacy = replace(
+            processing,
+            parser_routes={"application/pdf": ParserRouteSpec("pymupdf", "legacy-per-element")},
+        )
+        assert _profile_parser(media_type, legacy, settings) is None

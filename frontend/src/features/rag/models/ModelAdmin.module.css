@@ -1,0 +1,182 @@
+.admin {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.admin section,
+.admin article,
+.admin form,
+.admin fieldset,
+.admin label,
+.admin details,
+.admin :global(.control-help) {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.admin :global(.registry-grid) {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+}
+
+.admin :global(.deployment-grid),
+.admin :global(.workspace-policy-grid) {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+  align-items: start;
+}
+
+.admin :global(.version-forms) {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+  align-items: start;
+}
+
+.admin :global(.version-form),
+.admin :global(.policy-card) {
+  align-self: start;
+  align-content: start;
+  grid-auto-rows: max-content;
+}
+
+.admin table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.admin th,
+.admin td {
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+
+.admin :global(.registry-panel) th:nth-child(1) {
+  width: 25%;
+}
+
+.admin :global(.registry-panel) th:nth-child(2) {
+  width: 10%;
+}
+
+.admin :global(.registry-panel) th:nth-child(3) {
+  width: 15%;
+}
+
+.admin :global(.registry-panel) th:nth-child(4) {
+  width: 50%;
+}
+
+.admin pre {
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.admin label {
+  display: grid;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+}
+
+.admin input:not([type="checkbox"]),
+.admin select,
+.admin textarea {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  padding: 0.7rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 0.55rem;
+  color: inherit;
+  background: #0c1218;
+  font: inherit;
+}
+
+.admin select {
+  text-overflow: ellipsis;
+}
+
+.admin input[type="checkbox"] {
+  width: auto;
+  max-width: 100%;
+  padding: 0;
+  accent-color: var(--color-accent-text);
+}
+
+.admin label:has(> input[type="checkbox"]) {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+}
+
+.admin button {
+  align-self: start;
+  justify-self: start;
+  width: fit-content;
+  max-width: 100%;
+  height: fit-content;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--color-accent-text);
+  border-radius: 0.6rem;
+  color: #07100f;
+  background: var(--color-accent-text);
+  font: inherit;
+  font-weight: 750;
+  white-space: normal;
+  cursor: pointer;
+}
+
+.admin button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.admin :is(input, select, textarea, button):focus-visible {
+  outline: 2px solid var(--color-accent-text);
+  outline-offset: 0.2rem;
+}
+
+.admin :global(.registry-panel) > button,
+.admin :global(.registry-panel) > article {
+  margin-top: 0.9rem;
+}
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-block: 1.5rem;
+}
+
+.admin .tabs button {
+  flex: 1 1 10rem;
+  background: #18222e;
+  color: #dbe4ed;
+}
+
+.admin .tabs button[aria-selected="true"] {
+  background: #bed3d0;
+  color: #14282a;
+}
+
+.tabPanel { display: grid; gap: 1.5rem; }
+.admin [hidden] { display: none; }
+
+.admin .actionLink,
+.admin .actionLink:visited {
+  display: inline-block;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--color-accent-text);
+  border-radius: 0.6rem;
+  background: var(--color-accent-text);
+  color: #07100f;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.admin a:focus-visible,
+.admin summary:focus-visible,
+.tabPanel:focus-visible {
+  outline: 2px solid var(--color-accent-text);
+  outline-offset: 0.2rem;
+}
+
+.tabPanel > div { display: grid; gap: 1rem; min-width: 0; }
+.admin summary { cursor: pointer; padding-block: 0.8rem; color: var(--color-accent-text); }

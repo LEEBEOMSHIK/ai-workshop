@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from time import perf_counter
@@ -10,6 +11,7 @@ from ai_workshop.labs.rag.deployments.domain import (
     DeploymentCapability,
     ExecutionLocation,
     ModelDeploymentVersion,
+    ProviderKind,
 )
 from ai_workshop.labs.rag.embeddings.contracts import EmbeddingRuntimeUnavailableError
 from ai_workshop.labs.rag.generation.audit import (
@@ -17,12 +19,19 @@ from ai_workshop.labs.rag.generation.audit import (
     WorkspacePolicyAuditSnapshot,
 )
 from ai_workshop.labs.rag.generation.citation_validation import CitationValidator
+from ai_workshop.labs.rag.generation.codex_authorization import (
+    CodexAuthorizationErrorCode,
+    CodexCallOperation,
+    EvidenceClassification,
+)
+from ai_workshop.labs.rag.generation.codex_request import CodexRequestContext
 from ai_workshop.labs.rag.generation.contracts import (
     GenerationRuntimePort,
     GenerationRuntimeResponseError,
     GenerationRuntimeUnavailableError,
 )
 from ai_workshop.labs.rag.generation.domain import (
+    CODEX_GENERATION_DISCLOSURE_VERSION,
     ContextualizationRequest,
     ConversationRole,
     ConversationTurn,
@@ -39,7 +48,11 @@ from ai_workshop.labs.rag.generation.execution import (
     ProviderExecutionMetadata,
     ResolvedGenerationRuntime,
 )
-from ai_workshop.labs.rag.generation.integrity import ConversationTurnSigner
+from ai_workshop.labs.rag.generation.integrity import (
+    ConversationScopeBinding,
+    ConversationTurnSigner,
+    ScopedTurnVerification,
+)
 from ai_workshop.labs.rag.generation.prompts import (
     PromptNotFoundError,
     prompt_reference_version,
@@ -53,7 +66,11 @@ from ai_workshop.labs.rag.policies.domain import (
     PolicyDecision,
     exact_external_approval_is_current,
 )
-from ai_workshop.labs.rag.retrieval.domain import FusedHit, ResolvedSearchScope
+from ai_workshop.labs.rag.retrieval.domain import (
+    FusedHit,
+    ResolvedSearchScope,
+    SelectedDocumentIdentity,
+)
 from ai_workshop.labs.rag.retrieval.service import (
     DenseRetrieverPort,
     HybridRetrievalService,
@@ -94,6 +111,12 @@ class GenerationAuditRepositoryPort(Protocol):
     async def commit(self) -> None: ...
 
 
+class CodexSearchRuntimeFactory(Protocol):
+    def create(
+        self, *, context: CodexRequestContext, profile: GenerationProfile
+    ) -> GenerationRuntimePort: ...
+
+
 @dataclass(frozen=True, slots=True)
 class PreparedGeneration:
     runtime: GenerationRuntimePort
@@ -117,15 +140,24 @@ class RelatedSource:
 
 
 @dataclass(frozen=True, slots=True)
+class SelectedSearchScope:
+    identities: tuple[SelectedDocumentIdentity, ...]
+    fingerprint: str
+
+    def __post_init__(self) -> None:
+        if not self.identities or not self.fingerprint:
+            raise ValueError("A selected search scope requires identities and a fingerprint.")
+
+
+@dataclass(frozen=True, slots=True)
 class SearchResult:
     selection: EvidenceSelection
     configuration: ResolvedSearchConfiguration
     related_sources: tuple[RelatedSource, ...]
     retrieved_evidence_ids: tuple[UUID, ...] = ()
     resolved_query: str = ""
-    generation: GenerationOutcome = GenerationOutcome(
-        status=GenerationStatus.NOT_REQUESTED
-    )
+    generation: GenerationOutcome = GenerationOutcome(status=GenerationStatus.NOT_REQUESTED)
+    selected_scope: SelectedSearchScope | None = None
 
 
 class SearchApplicationService:
@@ -141,6 +173,7 @@ class SearchApplicationService:
         generation_policy_resolver: GenerationPolicyResolverPort | None = None,
         generation_runtime_resolver: GenerationRuntimeResolverPort | None = None,
         generation_audit_repository: GenerationAuditRepositoryPort | None = None,
+        codex_runtime_factory: CodexSearchRuntimeFactory | None = None,
     ) -> None:
         self.configuration_resolver = configuration_resolver
         self.scope_resolver = scope_resolver
@@ -151,13 +184,19 @@ class SearchApplicationService:
         self.generation_policy_resolver = generation_policy_resolver
         self.generation_runtime_resolver = generation_runtime_resolver
         self.generation_audit_repository = generation_audit_repository
+        self.codex_runtime_factory = codex_runtime_factory
 
     async def search(self, *, actor_id: UUID, request: SearchRequest) -> SearchResult:
         configuration = await self.configuration_resolver.resolve(
             request.configuration_id,
             actor_id,
         )
-        return await self._search(actor_id=actor_id, request=request, configuration=configuration)
+        return await self._search(
+            actor_id=actor_id,
+            request=request,
+            configuration=configuration,
+            conversation_scope=None,
+        )
 
     async def search_exact(
         self,
@@ -172,7 +211,30 @@ class SearchApplicationService:
         )
         if request.configuration_id != configuration.configuration_id:
             raise AppError("not_found", "The requested resource was not found.", 404)
-        return await self._search(actor_id=actor_id, request=request, configuration=configuration)
+        return await self._search(
+            actor_id=actor_id,
+            request=request,
+            configuration=configuration,
+            conversation_scope=None,
+        )
+
+    async def search_resolved(
+        self,
+        *,
+        actor_id: UUID,
+        request: SearchRequest,
+        configuration: ResolvedSearchConfiguration,
+        conversation_scope: ConversationScopeBinding,
+    ) -> SearchResult:
+        """Search an exact configuration after a domain boundary authorized it."""
+        if request.configuration_id != configuration.configuration_id:
+            raise AppError("not_found", "The requested resource was not found.", 404)
+        return await self._search(
+            actor_id=actor_id,
+            request=request,
+            configuration=configuration,
+            conversation_scope=conversation_scope,
+        )
 
     async def _search(
         self,
@@ -180,6 +242,7 @@ class SearchApplicationService:
         actor_id: UUID,
         request: SearchRequest,
         configuration: ResolvedSearchConfiguration,
+        conversation_scope: ConversationScopeBinding | None,
     ) -> SearchResult:
         if configuration.experimental and not request.experimental:
             raise AppError(
@@ -204,12 +267,43 @@ class SearchApplicationService:
             workspace_ids=requested_workspace_ids,
             folder_ids=requested_folder_ids,
             indexing_profile_id=configuration.indexing_profile_id,
+            document_ids=(
+                tuple(request.document_ids) if request.document_ids is not None else None
+            ),
+            document_processing_profile_id=(
+                configuration.active_index_alias.document_processing_profile_id
+            ),
         )
+        resolved_conversation_scope = self._resolved_conversation_scope(
+            conversation_scope,
+            resolved_scope,
+        )
+
+        async def revalidate_access() -> None:
+            # Re-read DB authorization; keep the prepared source snapshot immutable.
+            await self.scope_resolver.resolve(
+                actor_id=actor_id,
+                workspace_ids=requested_workspace_ids,
+                folder_ids=requested_folder_ids,
+                indexing_profile_id=configuration.indexing_profile_id,
+                document_ids=resolved_scope.document_ids,
+                document_processing_profile_id=(
+                    configuration.active_index_alias.document_processing_profile_id
+                ),
+            )
+
+        if request.document_ids is not None and conversation_scope is None and request.history:
+            raise AppError(
+                "conversation_scope_changed",
+                "The selected document scope requires a new conversation context.",
+                409,
+            )
         generation_profile = configuration.generation_profile
         history = self._validated_history(
             request=request,
             actor_id=actor_id,
             configuration=configuration,
+            conversation_scope=resolved_conversation_scope,
         )
         bounded_history = history
         if generation_profile is not None:
@@ -219,6 +313,7 @@ class SearchApplicationService:
             )
         prepared_generation = await self._prepare_generation(
             actor_id=actor_id,
+            request=request,
             configuration=configuration,
             workspace_ids=tuple(dict.fromkeys(configuration.workspace_ids)),
             requires_contextualization=bool(bounded_history),
@@ -285,13 +380,16 @@ class SearchApplicationService:
                     provider_execution=generation_health.execution,
                 )
                 raise _safe_generation_error("deployment_not_ready")
-            if (
-                not _execution_is_exact(
-                    generation_health.execution,
-                    generation_profile.deployment,
-                )
-                or generation_health.observed_provider_model_id
+            if not _execution_is_exact(
+                generation_health.execution,
+                generation_profile.deployment,
+            ) or (
+                generation_health.observed_provider_model_id
                 != generation_profile.deployment.provider_model_id
+                and not (
+                    generation_profile.deployment.provider is ProviderKind.DEVELOPMENT_CODEX_EXEC
+                    and generation_health.observed_provider_model_id is None
+                )
             ):
                 await self._record_audit(
                     actor_id=actor_id,
@@ -307,6 +405,7 @@ class SearchApplicationService:
         if generation_profile is not None and bounded_history:
             assert prepared_generation is not None
             assert generation_runtime is not None
+            await revalidate_access()
             try:
                 contextualization = await generation_runtime.contextualize(
                     ContextualizationRequest(
@@ -364,7 +463,7 @@ class SearchApplicationService:
 
         try:
             retrieval = HybridRetrievalService(
-                scope_resolver=_ResolvedScopeResolver(resolved_scope),
+                scope_resolver=_ResolvedScopeResolver(resolved_scope, revalidate_access),
                 embedding=configuration.embedding,
                 sparse_retriever=self.sparse_retriever,
                 dense_retriever=self.dense_retriever,
@@ -379,6 +478,10 @@ class SearchApplicationService:
                 index_alias=configuration.active_index_alias,
                 result_limit=request.top_k,
                 query_max_tokens=configuration.query_max_tokens,
+                document_ids=resolved_scope.document_ids,
+                document_processing_profile_id=(
+                    configuration.active_index_alias.document_processing_profile_id
+                ),
             )
             sources = await self.source_resolver.resolve(
                 actor_id=actor_id,
@@ -421,6 +524,7 @@ class SearchApplicationService:
                     provider_execution=contextualization_execution,
                 )
             raise
+        await revalidate_access()
         generation = await self._generate(
             actor_id=actor_id,
             original_query=request.query.strip(),
@@ -430,18 +534,39 @@ class SearchApplicationService:
             selection=selection,
             prepared_generation=prepared_generation,
             contextualization_execution=contextualization_execution,
+            conversation_scope=resolved_conversation_scope,
         )
         return SearchResult(
             selection=selection,
             configuration=configuration,
             related_sources=_related_sources(sources, selection),
             retrieved_evidence_ids=tuple(
-                evidence.id
-                for source in sources
-                for evidence in source.chunk.evidence_units
+                evidence.id for source in sources for evidence in source.chunk.evidence_units
             ),
             resolved_query=resolved_query,
             generation=generation,
+            selected_scope=(
+                SelectedSearchScope(
+                    identities=resolved_scope.selected_documents,
+                    fingerprint=resolved_scope.scope_fingerprint,
+                )
+                if resolved_scope.document_ids is not None
+                and resolved_scope.scope_fingerprint is not None
+                else None
+            ),
+        )
+
+    @staticmethod
+    def _resolved_conversation_scope(
+        conversation_scope: ConversationScopeBinding | None,
+        resolved_scope: ResolvedSearchScope,
+    ) -> ConversationScopeBinding | None:
+        if conversation_scope is None:
+            return None
+        return replace(
+            conversation_scope,
+            document_ids=resolved_scope.document_ids,
+            scope_fingerprint=resolved_scope.scope_fingerprint,
         )
 
     def _validated_history(
@@ -450,6 +575,7 @@ class SearchApplicationService:
         request: SearchRequest,
         actor_id: UUID,
         configuration: ResolvedSearchConfiguration,
+        conversation_scope: ConversationScopeBinding | None = None,
     ) -> tuple[ConversationTurn, ...]:
         history: list[ConversationTurn] = []
         for item in request.history:
@@ -467,11 +593,29 @@ class SearchApplicationService:
                     422,
                 ) from exc
             if turn.role is ConversationRole.ASSISTANT:
-                if self.turn_signer is None or not self.turn_signer.verify(
-                    turn,
-                    actor_id=actor_id,
-                    configuration_version_id=configuration.configuration_version_id,
-                ):
+                valid = False
+                if self.turn_signer is not None:
+                    if conversation_scope is None:
+                        valid = self.turn_signer.verify(
+                            turn,
+                            actor_id=actor_id,
+                            configuration_version_id=(configuration.configuration_version_id),
+                        )
+                    else:
+                        verification = self.turn_signer.verify_scoped_status(
+                            turn,
+                            actor_id=actor_id,
+                            configuration_version_id=(configuration.configuration_version_id),
+                            scope=conversation_scope,
+                        )
+                        if verification is ScopedTurnVerification.SCOPE_CHANGED:
+                            raise AppError(
+                                "conversation_scope_changed",
+                                "The conversation scope changed. Start a new context.",
+                                409,
+                            )
+                        valid = verification is ScopedTurnVerification.VALID
+                if not valid:
                     raise AppError(
                         "conversation_history_invalid",
                         "Conversation history is invalid.",
@@ -490,6 +634,7 @@ class SearchApplicationService:
         self,
         *,
         actor_id: UUID,
+        request: SearchRequest,
         configuration: ResolvedSearchConfiguration,
         workspace_ids: tuple[UUID, ...],
         requires_contextualization: bool,
@@ -531,13 +676,9 @@ class SearchApplicationService:
         if deployment.location is ExecutionLocation.EXTERNAL and (
             approval is None
             or not exact_external_approval_is_current(
-                approval_configuration_version_id=(
-                    approval.configuration_version_id
-                ),
+                approval_configuration_version_id=(approval.configuration_version_id),
                 approval_deployment_version_id=approval.deployment_version_id,
-                approval_installation_policy_version_id=(
-                    approval.installation_policy_version_id
-                ),
+                approval_installation_policy_version_id=(approval.installation_policy_version_id),
                 approval_disclosure_version=approval.disclosure_version,
                 approval_workspace_policy_snapshots=tuple(
                     (snapshot.workspace_id, snapshot.policy_version_id)
@@ -574,7 +715,37 @@ class SearchApplicationService:
             )
             raise _safe_generation_error("deployment_not_ready")
 
-        if configuration.generation_runtime is not None:
+        if deployment.provider is ProviderKind.DEVELOPMENT_CODEX_EXEC:
+            approval_input = request.codex_input_approval
+            if (
+                approval_input is None
+                or approval_input.consented is not True
+                or approval_input.classification not in {"public", "synthetic"}
+                or approval_input.disclosure_version != CODEX_GENERATION_DISCLOSURE_VERSION
+            ):
+                raise _safe_generation_error("codex_input_approval_required")
+            if self.codex_runtime_factory is None:
+                raise _safe_generation_error("codex_runtime_unavailable")
+            context = CodexRequestContext(
+                actor_id,
+                uuid4(),
+                CodexCallOperation.SEARCH,
+                configuration.configuration_version_id,
+                tuple(sorted(set(request.workspace_ids))),
+                EvidenceClassification(approval_input.classification),
+                True,
+                approval_input.disclosure_version,
+            )
+            factory_error: str | None = None
+            try:
+                runtime = self.codex_runtime_factory.create(context=context, profile=profile)
+            except GenerationProviderError as exc:
+                factory_error = _approved_provider_code(exc.code)
+            except Exception:
+                factory_error = "codex_runtime_unavailable"
+            if factory_error is not None:
+                raise _safe_generation_error(factory_error)
+        elif configuration.generation_runtime is not None:
             runtime = configuration.generation_runtime
         else:
             if self.generation_runtime_resolver is None:
@@ -614,6 +785,7 @@ class SearchApplicationService:
         selection: EvidenceSelection,
         prepared_generation: PreparedGeneration | None,
         contextualization_execution: ProviderExecutionMetadata | None,
+        conversation_scope: ConversationScopeBinding | None,
     ) -> GenerationOutcome:
         profile = configuration.generation_profile
         if profile is None:
@@ -701,6 +873,32 @@ class SearchApplicationService:
                 latency_ms=_elapsed_ms(generation_started),
             )
             raise _safe_generation_error("provider_invalid_response") from None
+        actual_execution = prepared_generation.execution
+        if generation_result.execution.provider is ProviderKind.DEVELOPMENT_CODEX_EXEC:
+            observed = generation_result.execution.observed_provider_model_id
+            actual_execution = replace(
+                actual_execution,
+                observed_provider_model_id=observed,
+                model_identity_status="verified" if observed is not None else "unknown",
+            )
+        if generation_result.status is GenerationStatus.INSUFFICIENT_EVIDENCE:
+            await self._record_audit(
+                actor_id=actor_id,
+                configuration=configuration,
+                policy=prepared_generation.policy,
+                evidence_ids=tuple(item.evidence_id for item in evidence),
+                status="allowed",
+                safe_error_code=None,
+                provider_execution=_combine_execution(
+                    contextualization_execution,
+                    generation_result.execution,
+                ),
+            )
+            return GenerationOutcome(
+                status=GenerationStatus.INSUFFICIENT_EVIDENCE,
+                execution=actual_execution,
+            )
+        assert draft is not None
         outcome = CitationValidator().validate(draft, allowed_evidence=evidence)
         if outcome.status is not GenerationStatus.ANSWERED or outcome.text is None:
             await self._record_audit(
@@ -718,16 +916,26 @@ class SearchApplicationService:
             )
             raise _safe_generation_error("citation_validation_failed")
         turn_id = uuid4()
-        answered = replace(
-            outcome,
-            turn_id=turn_id,
-            validation_token=self.turn_signer.sign(
+        if conversation_scope is None:
+            validation_token = self.turn_signer.sign(
                 content=outcome.text,
                 actor_id=actor_id,
                 turn_id=turn_id,
                 configuration_version_id=configuration.configuration_version_id,
-            ),
-            execution=prepared_generation.execution,
+            )
+        else:
+            validation_token = self.turn_signer.sign_scoped(
+                content=outcome.text,
+                actor_id=actor_id,
+                turn_id=turn_id,
+                configuration_version_id=configuration.configuration_version_id,
+                scope=conversation_scope,
+            )
+        answered = replace(
+            outcome,
+            turn_id=turn_id,
+            validation_token=validation_token,
+            execution=actual_execution,
         )
         await self._record_audit(
             actor_id=actor_id,
@@ -794,25 +1002,17 @@ class SearchApplicationService:
                 prompt_version=prompt_reference_version(profile.prompt_ref),
                 evidence_ids=evidence_ids,
                 input_tokens=(
-                    provider_execution.input_tokens
-                    if provider_execution is not None
-                    else None
+                    provider_execution.input_tokens if provider_execution is not None else None
                 ),
                 output_tokens=(
-                    provider_execution.output_tokens
-                    if provider_execution is not None
-                    else None
+                    provider_execution.output_tokens if provider_execution is not None else None
                 ),
                 latency_ms=execution_latency,
                 provider_reported_input_tokens=(
-                    provider_execution.input_tokens
-                    if provider_execution is not None
-                    else None
+                    provider_execution.input_tokens if provider_execution is not None else None
                 ),
                 provider_reported_output_tokens=(
-                    provider_execution.output_tokens
-                    if provider_execution is not None
-                    else None
+                    provider_execution.output_tokens if provider_execution is not None else None
                 ),
                 cost_basis_version=None,
                 estimated_cost_microunits=None,
@@ -832,8 +1032,11 @@ class SearchApplicationService:
 
 
 class _ResolvedScopeResolver:
-    def __init__(self, scope: ResolvedSearchScope) -> None:
+    def __init__(
+        self, scope: ResolvedSearchScope, revalidate: Callable[[], Awaitable[None]]
+    ) -> None:
         self._scope = scope
+        self._revalidate = revalidate
 
     async def resolve(
         self,
@@ -842,17 +1045,50 @@ class _ResolvedScopeResolver:
         workspace_ids: tuple[UUID, ...],
         folder_ids: tuple[UUID, ...],
         indexing_profile_id: UUID,
+        document_ids: tuple[UUID, ...] | None = None,
+        document_processing_profile_id: UUID | None = None,
     ) -> ResolvedSearchScope:
         del actor_id, indexing_profile_id
         if (
             workspace_ids != self._scope.workspace_ids
             or folder_ids != self._scope.folder_ids
+            or document_ids != self._scope.document_ids
+            or (document_ids is not None and document_processing_profile_id is None)
         ):
             raise ValueError("The authorized search scope changed unexpectedly.")
+        await self._revalidate()
         return self._scope
 
 
 _SAFE_GENERATION_ERRORS: dict[str, tuple[str, int]] = {
+    **{
+        "codex_authorization_" + code.value: ("Codex authorization was denied.", 403)
+        for code in CodexAuthorizationErrorCode
+    },
+    **{
+        code: ("Codex execution could not complete safely.", 503)
+        for code in (
+            "codex_audit_required",
+            "codex_capacity_exhausted",
+            "codex_workspace_cleanup_failed",
+            "codex_workspace_failed",
+            "codex_request_invalid",
+            "codex_binding_mismatch",
+            "codex_execution_failed",
+            "codex_slot_invalid_input",
+            "codex_slot_settings_mismatch",
+            "codex_slot_lease_mismatch",
+            "codex_slot_source_unavailable",
+            "codex_verification_unavailable",
+        )
+    },
+    "provider_model_mismatch": ("The observed model did not match the selected model.", 502),
+    "provider_request_failed": ("The selected provider request failed.", 502),
+    "codex_input_approval_required": (
+        "Exact public/synthetic Codex input consent is required.",
+        422,
+    ),
+    "codex_runtime_unavailable": ("The request-scoped Codex runtime is unavailable.", 503),
     "deployment_not_allowed_in_environment": (
         "현재 환경에서는 선택한 생성 실행을 사용할 수 없습니다.",
         409,

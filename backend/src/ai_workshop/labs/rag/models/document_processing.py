@@ -7,13 +7,14 @@ from ai_workshop.labs.rag.models.domain import (
     FrozenJsonValue,
     ModelDefinition,
     ModelKind,
+    PdfRasterSpec,
     Profile,
     ProfileKind,
+    ProfileValidationError,
+    resolve_pdf_raster_spec,
 )
 
-LEGACY_DOCUMENT_PROCESSING_PROFILE_ID = UUID(
-    "00000000-0000-0000-0000-000000000207"
-)
+LEGACY_DOCUMENT_PROCESSING_PROFILE_ID = UUID("00000000-0000-0000-0000-000000000207")
 
 
 def index_namespace_document_processing_profile_id(profile_id: UUID) -> UUID | None:
@@ -31,6 +32,7 @@ class DocumentProcessingResolutionError(ValueError):
 class ParserRouteSpec:
     name: str
     version: str
+    pdf_raster: PdfRasterSpec | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,14 +76,15 @@ def resolve_document_processing_spec(
         )
     parser_policy = _mapping(profile.config.get("parser_policy"))
     route_values = _mapping(parser_policy.get("routes"))
+    ocr_value = _mapping(profile.config.get("ocr"))
     routes = {
         media_type: ParserRouteSpec(
             name=_string(_mapping(value).get("name")),
             version=_string(_mapping(value).get("version")),
+            pdf_raster=_pdf_raster(media_type, _mapping(value), ocr_value),
         )
         for media_type, value in route_values.items()
     }
-    ocr_value = _mapping(profile.config.get("ocr"))
     ocr = _resolve_ocr(profile, models, ocr_value) if ocr_value.get("enabled") else None
     return DocumentProcessingSpec(
         profile_id=profile.id,
@@ -90,6 +93,17 @@ def resolve_document_processing_spec(
         parser_routes=MappingProxyType(routes),
         ocr=ocr,
     )
+
+
+def _pdf_raster(
+    media_type: str,
+    route: Mapping[str, FrozenJsonValue],
+    ocr: Mapping[str, FrozenJsonValue],
+) -> PdfRasterSpec | None:
+    try:
+        return resolve_pdf_raster_spec(media_type, route, ocr_enabled=ocr.get("enabled") is True)
+    except ProfileValidationError as exc:
+        raise DocumentProcessingResolutionError(str(exc)) from exc
 
 
 def _resolve_ocr(

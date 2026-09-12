@@ -10,7 +10,9 @@ from ai_workshop.labs.rag.deployments.domain import (
     ProviderKind,
 )
 
-type ExternalGenerationDisclosureVersion = Literal["external-generation-v1"]
+type ExternalGenerationDisclosureVersion = Literal[
+    "external-generation-v1", "codex-external-generation-v1"
+]
 type NonExternalGenerationDisclosureVersion = Literal[
     "local-generation-v1", "on-premise-generation-v1"
 ]
@@ -20,6 +22,9 @@ type GenerationDisclosureVersion = (
 
 EXTERNAL_GENERATION_DISCLOSURE_VERSION: ExternalGenerationDisclosureVersion = (
     "external-generation-v1"
+)
+CODEX_GENERATION_DISCLOSURE_VERSION: ExternalGenerationDisclosureVersion = (
+    "codex-external-generation-v1"
 )
 
 _DISCLOSURES: dict[ExecutionLocation, tuple[GenerationDisclosureVersion, str]] = {
@@ -68,6 +73,9 @@ class GenerationExecutionSnapshot:
     external_transfer: bool
     disclosure: str
     disclosure_version: str
+    requested_provider_model_id: str | None = None
+    observed_provider_model_id: str | None = None
+    model_identity_status: Literal["unknown", "verified", "mismatch"] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,20 +256,42 @@ def generation_execution_snapshot(
         external_transfer=deployment.external_transfer,
         disclosure=disclosure.text,
         disclosure_version=disclosure.version,
+        requested_provider_model_id=(
+            deployment.provider_model_id
+            if deployment.provider is ProviderKind.DEVELOPMENT_CODEX_EXEC
+            else None
+        ),
+        model_identity_status=(
+            "unknown" if deployment.provider is ProviderKind.DEVELOPMENT_CODEX_EXEC else None
+        ),
     )
 
 
 def generation_disclosure(
     deployment: ModelDeploymentVersion,
 ) -> GenerationDisclosure:
+    if deployment.provider is ProviderKind.DEVELOPMENT_CODEX_EXEC:
+        return GenerationDisclosure(
+            required=True,
+            version=CODEX_GENERATION_DISCLOSURE_VERSION,
+            text=(
+                "Codex CLI는 이 PC에서 실행되지만 질문·제한된 대화·선별 근거와 서비스 지침은 "
+                "OpenAI로 전송되며 연결 계정의 사용량을 사용합니다. "
+                "소유자 전용 개인 개발용 제한 실행이며 완전한 호스트 격리가 아닙니다."
+            ),
+            transmitted_data_categories=(
+                "question",
+                "bounded_history",
+                "selected_evidence",
+                "service_instructions",
+            ),
+        )
     version, text = _DISCLOSURES[deployment.location]
     return GenerationDisclosure(
         required=deployment.external_transfer,
         version=version,
         text=text,
         transmitted_data_categories=(
-            deployment.transmitted_data_categories
-            if deployment.external_transfer
-            else ()
+            deployment.transmitted_data_categories if deployment.external_transfer else ()
         ),
     )

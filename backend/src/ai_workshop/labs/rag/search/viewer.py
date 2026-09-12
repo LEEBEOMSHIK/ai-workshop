@@ -3,12 +3,17 @@ import mimetypes
 from dataclasses import dataclass
 from hashlib import sha256
 from io import BytesIO
-from typing import Any, NoReturn, Protocol, cast
+from typing import NoReturn, Protocol
 from uuid import UUID
 from zipfile import BadZipFile, ZipFile
 
-import pymupdf
+import pymupdf  # noqa: F401  # Preserved as a compatibility seam for viewer tests.
 
+from ai_workshop.infrastructure.document_formats.pdf_preview import (
+    PdfInvalidError,
+    PdfPageError,
+    render_pdf_page_bytes,
+)
 from ai_workshop.labs.rag.documents.domain import ParsedDocument, SourceKind
 from ai_workshop.labs.rag.ingestion.serialization import deserialize_parsed_document
 from ai_workshop.platform.assets.storage import ObjectStore
@@ -24,12 +29,6 @@ NORMALIZED_VIEWER_MEDIA_TYPES = frozenset(
     }
 )
 DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-_PDF_OPERATIONAL_ERRORS = (
-    pymupdf.FileDataError,
-    pymupdf.EmptyFileError,
-    RuntimeError,
-    OSError,
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,26 +224,13 @@ class ViewerService:
 
 
 def _render_pdf_page(content: bytes, page_number: int) -> bytes:
-    document: Any | None = None
     try:
-        document = cast(
-            Any,
-            pymupdf.open(  # type: ignore[no-untyped-call]
-                stream=content,
-                filetype="pdf",
-            ),
-        )
-        if page_number > document.page_count:
-            raise AppError("not_found", "The requested resource was not found.", 404)
-        page = document.load_page(page_number - 1)
-        pixmap = page.get_pixmap(alpha=False)
-        return bytes(pixmap.tobytes("png"))
-    except _PDF_OPERATIONAL_ERRORS as exc:
+        return render_pdf_page_bytes(content, page_number)
+    except PdfPageError as exc:
+        raise AppError("not_found", "The requested resource was not found.", 404) from exc
+    except PdfInvalidError as exc:
         raise AppError(
             "source_artifact_invalid",
             "The PDF source artifact could not be rendered.",
             503,
         ) from exc
-    finally:
-        if document is not None:
-            document.close()

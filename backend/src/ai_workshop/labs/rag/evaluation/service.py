@@ -5,6 +5,7 @@ import platform
 import sys
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from hashlib import sha256
 from importlib import import_module
 from importlib.metadata import PackageNotFoundError, version
@@ -150,6 +151,7 @@ class EvaluationCandidateView:
 class EvaluationRunView:
     id: UUID
     owner_id: UUID
+    created_at: datetime
     dataset_snapshot_id: UUID
     evaluation_policy_version_id: UUID | None
     status: EvaluationRunStatus
@@ -372,6 +374,7 @@ class EvaluationApplicationService:
         metric_definition_version: int,
         retrieval_k: int,
         repetition_count: int,
+        before_commit: Callable[[EvaluationRunView], Awaitable[None]] | None = None,
     ) -> EvaluationRunView:
         dataset: EvaluationDataset
         if dataset_fixture is not None:
@@ -409,6 +412,8 @@ class EvaluationApplicationService:
             repetition_count=repetition_count,
             runtime_environment=runtime,
         )
+        if before_commit is not None:
+            await before_commit(run)
         await self.commit()
         return run
 

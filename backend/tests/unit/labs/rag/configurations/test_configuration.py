@@ -468,7 +468,7 @@ class GenerationReadiness:
         self.ready_profile_ids = ready_profile_ids
         self.checked_profile_ids: list[UUID] = []
 
-    async def is_ready(self, profile_id: UUID) -> bool:
+    async def is_ready(self, profile_id: UUID, *, configuration_version_id: UUID) -> bool:
         self.checked_profile_ids.append(profile_id)
         return profile_id in self.ready_profile_ids
 

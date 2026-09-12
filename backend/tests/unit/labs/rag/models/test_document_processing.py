@@ -1,3 +1,5 @@
+from dataclasses import replace
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -14,6 +16,9 @@ from ai_workshop.labs.rag.models.domain import (
     Profile,
     ProfileKind,
     ProfileModelBinding,
+    ProfileValidationError,
+    freeze_json,
+    thaw_json,
 )
 
 
@@ -58,9 +63,7 @@ def _profile(models: tuple[ModelDefinition, ...]) -> Profile:
                 "data_policy": "local_only",
             },
         },
-        bindings=tuple(
-            ProfileModelBinding(role=model.kind, model_id=model.id) for model in models
-        ),
+        bindings=tuple(ProfileModelBinding(role=model.kind, model_id=model.id) for model in models),
     )
 
 
@@ -96,12 +99,8 @@ def test_resolver_returns_typed_parser_and_ocr_model_details() -> None:
     assert resolved.ocr.models[ModelKind.OCR_TEXT_RECOGNITION].name == (
         "korean_PP-OCRv5_mobile_rec"
     )
-    assert resolved.ocr.models[ModelKind.OCR_LAYOUT_DETECTION].name == (
-        "PP-DocLayout_plus-L"
-    )
-    assert resolved.ocr.models[ModelKind.OCR_TABLE_STRUCTURE_WIRED].name == (
-        "SLANeXt_wired"
-    )
+    assert resolved.ocr.models[ModelKind.OCR_LAYOUT_DETECTION].name == ("PP-DocLayout_plus-L")
+    assert resolved.ocr.models[ModelKind.OCR_TABLE_STRUCTURE_WIRED].name == ("SLANeXt_wired")
 
 
 def test_resolver_rejects_an_unresolved_model_binding() -> None:
@@ -126,10 +125,107 @@ def test_resolver_rejects_an_unresolved_model_binding() -> None:
 
 def test_legacy_processing_profile_keeps_legacy_index_namespace() -> None:
     assert (
-        index_namespace_document_processing_profile_id(
-            LEGACY_DOCUMENT_PROCESSING_PROFILE_ID
-        )
+        index_namespace_document_processing_profile_id(LEGACY_DOCUMENT_PROCESSING_PROFILE_ID)
         is None
     )
     ocr_profile_id = uuid4()
     assert index_namespace_document_processing_profile_id(ocr_profile_id) == ocr_profile_id
+
+
+def _pdf_profile_config(models: tuple[ModelDefinition, ...]) -> dict[str, Any]:
+    config = thaw_json(_profile(models).config)
+    assert isinstance(config, dict)
+    policy = config["parser_policy"]
+    assert isinstance(policy, dict)
+    routes = policy["routes"]
+    assert isinstance(routes, dict)
+    routes["application/pdf"] = {
+        "name": "pymupdf-ocr",
+        "version": "1",
+        "options": {"raster_dpi": 144, "max_page_pixels": 16000000, "max_pages": 200},
+    }
+    return config
+
+
+def _pdf_profile(config: dict[str, Any], models: tuple[ModelDefinition, ...]) -> Profile:
+    return Profile.create(
+        kind=ProfileKind.DOCUMENT_PROCESSING,
+        name="pdf-ocr",
+        version=1,
+        config=config,
+        bindings=_profile(models).bindings,
+    )
+
+
+@pytest.mark.parametrize("parser_version", ["1", "2"])
+def test_pdf_ocr_resolver_preserves_raster_limits_for_worker(parser_version: str) -> None:
+    models = _models()
+    config = _pdf_profile_config(models)
+    config["parser_policy"]["routes"]["application/pdf"]["version"] = parser_version
+    spec = resolve_document_processing_spec(
+        _pdf_profile(config, models), models
+    )
+    assert spec.parser_routes["application/pdf"].version == parser_version
+    raster = spec.parser_routes["application/pdf"].pdf_raster
+    assert raster is not None
+    assert (raster.raster_dpi, raster.max_page_pixels, raster.max_pages) == (144, 16000000, 200)
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("raster_dpi", True),
+        ("raster_dpi", 0),
+        ("raster_dpi", 601),
+        ("raster_dpi", 144.5),
+        ("raster_dpi", float("inf")),
+        ("max_page_pixels", 0),
+        ("max_page_pixels", 100000001),
+        ("max_pages", 0),
+        ("max_pages", 2001),
+        ("max_pages", "200"),
+    ],
+)
+@pytest.mark.parametrize("parser_version", ["1", "2"])
+def test_pdf_ocr_profile_rejects_unsafe_raster_options(
+    key: str, value: Any, parser_version: str
+) -> None:
+    models = _models()
+    config = _pdf_profile_config(models)
+    config["parser_policy"]["routes"]["application/pdf"]["version"] = parser_version
+    config["parser_policy"]["routes"]["application/pdf"]["options"][key] = value
+    with pytest.raises(ProfileValidationError, match="PDF OCR"):
+        _pdf_profile(config, models)
+
+
+@pytest.mark.parametrize("mutation", ["version", "missing_options", "disabled", "media"])
+@pytest.mark.parametrize("parser_version", ["1", "2"])
+def test_pdf_ocr_profile_fails_closed_for_invalid_route(mutation: str, parser_version: str) -> None:
+    models = _models()
+    config = _pdf_profile_config(models)
+    routes = config["parser_policy"]["routes"]
+    routes["application/pdf"]["version"] = parser_version
+    if mutation == "version":
+        routes["application/pdf"]["version"] = "3"
+    elif mutation == "missing_options":
+        del routes["application/pdf"]["options"]
+    elif mutation == "disabled":
+        config["ocr"]["enabled"] = False
+    else:
+        routes["text/plain"] = routes.pop("application/pdf")
+    with pytest.raises(ProfileValidationError, match="PDF OCR"):
+        _pdf_profile(config, models)
+
+
+def test_saved_pdf_route_is_validated_when_resolving_an_existing_profile() -> None:
+    models = _models()
+    profile = _profile(models)
+    config = _pdf_profile_config(models)
+    config["parser_policy"]["routes"]["application/pdf"]["version"] = "future"
+    frozen = freeze_json(config)
+    from collections.abc import Mapping
+
+    assert isinstance(frozen, Mapping)
+    persisted = replace(profile, config=frozen)
+    with pytest.raises(DocumentProcessingResolutionError, match="PDF OCR"):
+        resolve_document_processing_spec(persisted, models)

@@ -2,13 +2,19 @@ from collections.abc import AsyncIterator
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Path, Query, Response
+from fastapi import APIRouter, Depends, Path, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_workshop.config import Settings, get_settings
 from ai_workshop.infrastructure.object_store.local import LocalObjectStore
 from ai_workshop.infrastructure.search.elasticsearch import create_elasticsearch
 from ai_workshop.labs.rag.generation.audit import SqlAlchemyGenerationAuditRepository
+from ai_workshop.labs.rag.generation.codex_admin_api import (
+    get_codex_services,
+    require_codex_mutation,
+)
+from ai_workshop.labs.rag.generation.codex_composition import CodexServices
+from ai_workshop.labs.rag.generation.codex_http_lifecycle import run_until_disconnect
 from ai_workshop.labs.rag.generation.integrity import ConversationTurnSigner
 from ai_workshop.labs.rag.generation.runtime_resolver import (
     GenerationRuntimeResolver,
@@ -66,12 +72,16 @@ async def get_search_service(
         SearchConfigurationResolverPort,
         Depends(get_search_configuration_resolver),
     ],
+    codex: Annotated[CodexServices, Depends(get_codex_services)],
 ) -> AsyncIterator[SearchApplicationService]:
     client = create_elasticsearch(settings)
     try:
         yield SearchApplicationService(
             configuration_resolver=configuration_resolver,
-            scope_resolver=SearchScopeResolver(SqlAlchemySearchScopeRepository(session)),
+            scope_resolver=SearchScopeResolver(
+                SqlAlchemySearchScopeRepository(session),
+                selected_documents_max_count=settings.rag_selected_documents_max_count,
+            ),
             sparse_retriever=ElasticsearchSparseRetriever(client),
             dense_retriever=ElasticsearchDenseRetriever(client),
             source_resolver=SqlAlchemySearchSourceResolver(session),
@@ -88,6 +98,7 @@ async def get_search_service(
                 factories=builtin_generation_runtime_factories(),
             ),
             generation_audit_repository=SqlAlchemyGenerationAuditRepository(session),
+            codex_runtime_factory=codex.runtime_factory,
         )
     finally:
         await client.close()
@@ -110,10 +121,16 @@ def get_viewer_service(
 )
 async def search(
     request: SearchRequest,
+    transport: Request,
     user: Annotated[User, Depends(get_current_user)],
     service: Annotated[SearchApplicationService, Depends(get_search_service)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> SearchResponse:
-    return SearchResponse.from_domain(await service.search(actor_id=user.id, request=request))
+    if request.codex_input_approval is not None:
+        require_codex_mutation(transport, settings)
+    return SearchResponse.from_domain(
+        await run_until_disconnect(transport, service.search(actor_id=user.id, request=request))
+    )
 
 
 @router.get(

@@ -27,6 +27,10 @@ from ai_workshop.labs.rag.deployments.secrets import (
     SecretReferenceError,
     SecretReferenceResolver,
 )
+from ai_workshop.labs.rag.generation.codex_composition import (
+    codex_registry as configured_codex_registry,
+)
+from ai_workshop.labs.rag.generation.codex_runner_registry import CodexRunnerRegistry
 from ai_workshop.labs.rag.generation.execution import (
     GenerationProviderError,
     ResolvedGenerationRuntime,
@@ -50,9 +54,7 @@ class DeploymentRepository(Protocol):
         self, deployment_id: UUID, *, created_by: UUID, created_at: datetime
     ) -> None: ...
 
-    async def identity_exists(
-        self, deployment_id: UUID, *, for_update: bool
-    ) -> bool: ...
+    async def identity_exists(self, deployment_id: UUID, *, for_update: bool) -> bool: ...
 
     async def next_version(self, deployment_id: UUID) -> int: ...
 
@@ -64,9 +66,7 @@ class DeploymentRepository(Protocol):
         created_at: datetime,
     ) -> None: ...
 
-    async def add_version(
-        self, deployment: ModelDeploymentVersion
-    ) -> ModelDeploymentVersion: ...
+    async def add_version(self, deployment: ModelDeploymentVersion) -> ModelDeploymentVersion: ...
 
     async def list_versions(self) -> list[DeploymentCatalogEntry]: ...
 
@@ -127,6 +127,17 @@ class DeploymentHealthService:
         deployment = await self._repository.get_version(version_id)
         if deployment is None:
             raise AppError("not_found", "The requested resource was not found.", 404)
+        if deployment.provider is ProviderKind.DEVELOPMENT_CODEX_EXEC:
+            # No exact saved configuration is supplied here, so no proof can apply.
+            return DeploymentHealthResult(
+                "pending",
+                "codex_configuration_verification_required",
+                deployment.provider,
+                deployment.provider_model_id,
+                None,
+                0,
+                datetime.now(UTC),
+            )
         started = monotonic()
         if not deployment.healthcheck_enabled:
             return await self._record_failure(
@@ -147,8 +158,7 @@ class DeploymentHealthService:
                 or health.execution.provider is not deployment.provider
                 or health.execution.provider_model_id != deployment.provider_model_id
                 or health.ready
-                and health.observed_provider_model_id
-                != deployment.provider_model_id
+                and health.observed_provider_model_id != deployment.provider_model_id
             ):
                 raise GenerationProviderError(
                     "provider_invalid_response",
@@ -226,10 +236,13 @@ class DeploymentRegistryService:
         *,
         endpoint_refs: Mapping[str, str],
         secret_refs: Mapping[str, SecretStr],
+        codex_registry: CodexRunnerRegistry | None = None,
+        environment: str = "production",
     ) -> None:
         self._repository = repository
         self._endpoint_resolver = EndpointReferenceResolver(endpoint_refs)
         self._secret_resolver = SecretReferenceResolver(secret_refs)
+        self._codex_registry, self._environment = codex_registry, environment
 
     async def create_identity(
         self, request: DeploymentVersionCreate, *, actor_id: UUID
@@ -302,6 +315,22 @@ class DeploymentRegistryService:
         return True
 
     def _validate_references(self, request: DeploymentVersionCreate) -> None:
+        if request.provider is ProviderKind.DEVELOPMENT_CODEX_EXEC:
+            try:
+                if (
+                    self._environment in {"local", "test"}
+                    and self._codex_registry is not None
+                    and request.runner_ref is not None
+                ):
+                    self._codex_registry.resolve(request.runner_ref)
+                    return
+            except Exception:
+                pass
+            raise AppError("deployment_not_ready", "The deployment is not ready.", 422)
+        if request.endpoint_ref is None:
+            raise AppError(
+                "unknown_endpoint_reference", "The endpoint reference is not configured.", 422
+            )
         try:
             self._endpoint_resolver.resolve(request.endpoint_ref)
         except SecretReferenceError as exc:
@@ -365,6 +394,7 @@ class DeploymentRegistryService:
                 allowed_environments=request.allowed_environments,
                 provider_model_id=request.provider_model_id,
                 endpoint_ref=request.endpoint_ref,
+                runner_ref=request.runner_ref,
                 secret_ref=request.secret_ref,
                 capabilities=request.capabilities,
                 external_transfer=request.external_transfer,
@@ -389,6 +419,8 @@ def get_deployment_registry_service(
         SqlAlchemyDeploymentRepository(session),
         endpoint_refs=settings.provider_endpoint_refs,
         secret_refs=settings.provider_secret_refs,
+        codex_registry=configured_codex_registry(settings),
+        environment=settings.environment,
     )
 
 

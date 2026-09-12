@@ -2,12 +2,14 @@ from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
+from re import fullmatch
 from uuid import UUID, uuid4
 
 
 class ProviderKind(StrEnum):
     LOCAL_OPENAI_COMPATIBLE = "local_openai_compatible"
     OPENAI_RESPONSES = "openai_responses"
+    DEVELOPMENT_CODEX_EXEC = "development_codex_exec"
 
 
 class ExecutionLocation(StrEnum):
@@ -44,7 +46,7 @@ class ModelDeploymentVersion:
     location: ExecutionLocation
     allowed_environments: tuple[DeploymentEnvironment, ...]
     provider_model_id: str
-    endpoint_ref: str
+    endpoint_ref: str | None
     secret_ref: str | None
     capabilities: frozenset[DeploymentCapability]
     external_transfer: bool
@@ -57,6 +59,7 @@ class ModelDeploymentVersion:
     development_only: bool
     created_by: UUID
     created_at: datetime
+    runner_ref: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.provider, ProviderKind):
@@ -107,9 +110,34 @@ class ModelDeploymentVersion:
         clean_model_id = _clean_required_reference(
             self.provider_model_id, "Provider model ID"
         )
-        clean_endpoint_ref = _clean_required_reference(
-            self.endpoint_ref, "deployment endpoint reference"
-        )
+        clean_runner_ref = None
+        if self.provider is ProviderKind.DEVELOPMENT_CODEX_EXEC:
+            clean_endpoint_ref = None
+            clean_runner_ref = _clean_required_reference(self.runner_ref, "runner reference")
+            if (
+                self.endpoint_ref is not None
+                or len(clean_runner_ref) > 120
+                or fullmatch(r"[a-z][a-z0-9]*-[a-z0-9]+(?:-[a-z0-9]+)*", clean_runner_ref)
+                is None
+                or clean_runner_ref.startswith(("sk-", "sess-", "key-", "token-", "secret-"))
+                or not self.external_transfer
+                or self.location is not ExecutionLocation.EXTERNAL
+                or not self.development_only
+                or environments != (DeploymentEnvironment.DEVELOPMENT,)
+                or self.secret_ref is not None
+                or self.max_retries != 0
+                or self.retry_backoff_seconds != 0
+                or self.healthcheck_enabled
+            ):
+                raise DeploymentValidationError("Invalid development Codex runner contract.")
+        else:
+            clean_endpoint_ref = _clean_required_reference(
+                self.endpoint_ref, "deployment endpoint reference"
+            )
+            if self.runner_ref is not None:
+                raise DeploymentValidationError(
+                    "An HTTP deployment cannot declare a runner reference."
+                )
 
         clean_secret_ref = _clean_optional_reference(self.secret_ref, "secret")
         clean_notice_ref = _clean_optional_reference(
@@ -164,6 +192,7 @@ class ModelDeploymentVersion:
         object.__setattr__(self, "allowed_environments", environments)
         object.__setattr__(self, "provider_model_id", clean_model_id)
         object.__setattr__(self, "endpoint_ref", clean_endpoint_ref)
+        object.__setattr__(self, "runner_ref", clean_runner_ref)
         object.__setattr__(self, "secret_ref", clean_secret_ref)
         object.__setattr__(self, "capabilities", capabilities)
         object.__setattr__(self, "transmitted_data_categories", categories)
@@ -182,7 +211,7 @@ class ModelDeploymentVersion:
         location: ExecutionLocation,
         allowed_environments: Collection[DeploymentEnvironment],
         provider_model_id: str,
-        endpoint_ref: str,
+        endpoint_ref: str | None,
         secret_ref: str | None,
         capabilities: Collection[DeploymentCapability],
         external_transfer: bool,
@@ -194,6 +223,7 @@ class ModelDeploymentVersion:
         healthcheck_enabled: bool,
         development_only: bool,
         created_by: UUID,
+        runner_ref: str | None = None,
     ) -> "ModelDeploymentVersion":
         return cls(
             id=uuid4(),
@@ -207,6 +237,7 @@ class ModelDeploymentVersion:
             allowed_environments=tuple(allowed_environments),
             provider_model_id=provider_model_id,
             endpoint_ref=endpoint_ref,
+            runner_ref=runner_ref,
             secret_ref=secret_ref,
             capabilities=frozenset(capabilities),
             external_transfer=external_transfer,

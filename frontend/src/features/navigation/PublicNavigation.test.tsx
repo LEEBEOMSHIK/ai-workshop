@@ -16,7 +16,7 @@ describe("PublicNavigation", () => {
     );
     expect(screen.getByRole("link", { name: "비공개 작업소 입장" })).toHaveAttribute(
       "href",
-      "/login?next=%2Fworkshop%2Fworkspaces",
+      "/workshop/workspaces",
     );
   });
 });

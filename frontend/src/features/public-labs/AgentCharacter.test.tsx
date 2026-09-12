@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AgentCharacter } from "./AgentCharacter";
 import { listPublicLabs } from "./catalog";
+import { studySnapshot } from "../publishing/test-fixtures";
 
 function rectangle(left: number, top: number, width: number, height: number): DOMRect {
   return {
@@ -94,6 +95,28 @@ describe("AgentCharacter", () => {
     expect(screen.getByRole("link", { name: "RAG 연구실 들어가기" })).toHaveAttribute(
       "href",
       "/labs/rag",
+    );
+  });
+
+  it("keeps the chief search action and adds only supplied published study links", async () => {
+    const user = userEvent.setup();
+    const lab = listPublicLabs()[0];
+    expect(lab).toBeDefined();
+
+    render(
+      <AgentCharacter
+        lab={lab!}
+        variant="working"
+        dialogAction={{ href: "/login?next=search", label: "현재 검색 기능 사용하기" }}
+        relatedStudies={[studySnapshot()]}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "RAG 총괄에게 말 걸기" }));
+
+    expect(screen.getByRole("link", { name: "현재 검색 기능 사용하기" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "하이브리드 검색 실험" })).toHaveAttribute(
+      "href",
+      "/studies/hybrid-search",
     );
   });
 

@@ -37,8 +37,18 @@ export function ConfigurationStudioPage({ initialData }: { initialData: Configur
 
   function handleConfigurationUpdated(configuration: SavedConfiguration) {
     setConfigurations((current) => current.map((candidate) =>
-      candidate.id === configuration.id ? configuration : candidate,
+      candidate.version_id === configuration.version_id ? configuration : candidate,
     ));
+  }
+
+  function handleDefaultPromoted(promoted: SavedConfiguration, refreshed: SavedConfiguration[]) {
+    setConfigurations((current) => current.map((candidate) => {
+      const updated = candidate.version_id === promoted.version_id
+        ? promoted
+        : refreshed.find((item) => item.version_id === candidate.version_id) ?? candidate;
+      const isDefault = candidate.version_id === promoted.version_id;
+      return { ...updated, is_default: isDefault, experimental: !(updated.evaluation_state === "passed" && isDefault) };
+    }));
   }
 
   function handleTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
@@ -110,14 +120,16 @@ export function ConfigurationStudioPage({ initialData }: { initialData: Configur
         aria-labelledby="studio-tab-comparison"
         hidden={activeTab !== "comparison"}
       >
-        {activeTab === "comparison" ? (
+        {(
           <ComparisonPanel
             configurations={configurations}
             initialRuns={initialData.runs}
             initialSelectedVersionIds={compareVersionIds}
+            workspaces={initialData.workspaces}
             onConfigurationUpdated={handleConfigurationUpdated}
+            onDefaultPromoted={handleDefaultPromoted}
           />
-        ) : null}
+        )}
       </section>
 
       <section

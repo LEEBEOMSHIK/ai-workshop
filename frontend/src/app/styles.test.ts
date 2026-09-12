@@ -45,23 +45,8 @@ describe("global responsive styles", () => {
     expect(stylesheet).not.toContain("@media (max-width: 48rem)");
   });
 
-  it("connects workstations across wide, tablet and mobile pipeline layouts", () => {
-    const stylesheet = readFileSync(
-      resolve(process.cwd(), "src/features/public-labs/PublicLabScene.module.css"),
-      "utf8",
-    );
-
-    expect(stylesheet).toContain(".workerStation::after");
-    expect(stylesheet).toContain(
-      ".workerStation:nth-child(3n):not(:last-child)::after",
-    );
-    expect(stylesheet).toContain(
-      ".workerStation:nth-child(2n):not(:last-child)::after",
-    );
-    expect(stylesheet).toContain(
-      ".workerStation:nth-child(n):not(:last-child)::after",
-    );
-    expect(stylesheet).not.toContain('content: "→"');
-    expect(stylesheet).not.toContain('content: "↓"');
-  });
+  // Responsive workstation order and the connected floor markings are verified
+  // against actual 1440/960/640px browser layout in tests/office/office.e2e.ts.
+  // The former nth-child source checks only described the superseded card arrows;
+  // jsdom cannot verify media-query layout or whether stations overlap.
 });

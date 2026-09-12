@@ -1,9 +1,9 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
 
-from ai_workshop.platform.workspaces.domain import Workspace, WorkspaceKind
+from ai_workshop.platform.workspaces.domain import MembershipRole, Workspace, WorkspaceKind
 
 
 class WorkspaceCreate(BaseModel):
@@ -26,3 +26,42 @@ class WorkspaceResponse(BaseModel):
             kind=workspace.kind,
             expires_at=workspace.expires_at,
         )
+
+
+class WorkspaceCapabilitiesResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    read: bool
+    write: bool
+    delete: bool
+    manage_members: bool
+
+
+class WorkspaceMemberPut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    read: StrictBool
+    write: StrictBool
+    delete: StrictBool
+    expected_revision: StrictInt = Field(ge=0)
+
+    @model_validator(mode="after")
+    def validate_grants(self) -> "WorkspaceMemberPut":
+        if not self.read and (self.write or self.delete):
+            raise ValueError("Write and delete require read permission.")
+        return self
+
+
+class WorkspaceMemberResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    user_id: UUID
+    display_name: str
+    role: MembershipRole
+    is_active: bool
+    read: bool
+    write: bool
+    delete: bool
+    permission_revision: int
+
+
+class WorkspaceMemberPage(BaseModel):
+    items: list[WorkspaceMemberResponse]
+    next_after: UUID | None = None

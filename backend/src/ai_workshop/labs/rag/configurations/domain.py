@@ -9,6 +9,7 @@ from ai_workshop.labs.rag.evaluation.domain import (
     PromotionGate,
 )
 from ai_workshop.labs.rag.generation.domain import (
+    CODEX_GENERATION_DISCLOSURE_VERSION,
     EXTERNAL_GENERATION_DISCLOSURE_VERSION,
 )
 from ai_workshop.labs.rag.highlighting.domain import AnswerPolicy
@@ -26,12 +27,8 @@ E5_MODEL_DEFINITION_ID = UUID("00000000-0000-0000-0000-000000000101")
 E5_INDEXING_PROFILE_ID = UUID("00000000-0000-0000-0000-000000000201")
 BM25_RETRIEVAL_PROFILE_ID = UUID("00000000-0000-0000-0000-000000000202")
 BM25_BASELINE_CONFIGURATION_ID = UUID("00000000-0000-0000-0000-000000000501")
-BM25_BASELINE_ANSWER_POLICY_VERSION_ID = UUID(
-    "00000000-0000-0000-0000-000000000502"
-)
-BM25_BASELINE_CONFIGURATION_VERSION_ID = UUID(
-    "00000000-0000-0000-0000-000000000503"
-)
+BM25_BASELINE_ANSWER_POLICY_VERSION_ID = UUID("00000000-0000-0000-0000-000000000502")
+BM25_BASELINE_CONFIGURATION_VERSION_ID = UUID("00000000-0000-0000-0000-000000000503")
 BM25_BASELINE_NAME = "BM25 기준선"
 
 
@@ -45,9 +42,9 @@ class ExternalTransferApprovalConfirmation:
     disclosure_version: str
 
     def __post_init__(self) -> None:
-        if (
-            self.confirmed is not True
-            or self.disclosure_version != EXTERNAL_GENERATION_DISCLOSURE_VERSION
+        if self.confirmed is not True or self.disclosure_version not in (
+            EXTERNAL_GENERATION_DISCLOSURE_VERSION,
+            CODEX_GENERATION_DISCLOSURE_VERSION,
         ):
             raise ConfigurationValidationError(
                 "External transfer approval must use the current disclosure."
@@ -60,13 +57,9 @@ def validate_v1_retrieval_profile(profile: Profile) -> None:
             "A Saved RAG Configuration requires a retrieval profile."
         )
     if any(binding.role is ModelKind.RERANKER for binding in profile.bindings):
-        raise ConfigurationValidationError(
-            "Extractive V1 does not allow a reranker binding."
-        )
+        raise ConfigurationValidationError("Extractive V1 does not allow a reranker binding.")
     if any(key.startswith("reranker") and key != "reranker" for key in profile.config):
-        raise ConfigurationValidationError(
-            "Extractive V1 does not allow a reranker selection."
-        )
+        raise ConfigurationValidationError("Extractive V1 does not allow a reranker selection.")
     reranker = profile.config.get("reranker")
     if reranker is None:
         return
@@ -75,9 +68,7 @@ def validate_v1_retrieval_profile(profile: Profile) -> None:
         or set(reranker) != {"enabled"}
         or reranker.get("enabled") is not False
     ):
-        raise ConfigurationValidationError(
-            "Extractive V1 accepts only disabled reranker metadata."
-        )
+        raise ConfigurationValidationError("Extractive V1 accepts only disabled reranker metadata.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,9 +95,7 @@ class AnswerPolicyVersion:
         conflict_mode: str,
     ) -> "AnswerPolicyVersion":
         if version < 1:
-            raise ConfigurationValidationError(
-                "An Answer Policy version must be positive."
-            )
+            raise ConfigurationValidationError("An Answer Policy version must be positive.")
         if mode not in {"extractive", "generative"}:
             raise ConfigurationValidationError(
                 "An Answer Policy mode must be extractive or generative."
@@ -184,17 +173,11 @@ class SavedRagConfiguration:
             raise ConfigurationValidationError(
                 "The retrieval profile must reference the selected indexing profile."
             )
-        if (
-            answer_policy_version.mode == "extractive"
-            and generation_profile_id is not None
-        ):
+        if answer_policy_version.mode == "extractive" and generation_profile_id is not None:
             raise ConfigurationValidationError(
                 "Generation Profiles are not supported by extractive V1."
             )
-        if (
-            answer_policy_version.mode == "generative"
-            and generation_profile_id is None
-        ):
+        if answer_policy_version.mode == "generative" and generation_profile_id is None:
             raise ConfigurationValidationError(
                 "A generative configuration requires a Generation Profile."
             )
@@ -243,11 +226,9 @@ class SavedRagConfiguration:
 
     @property
     def experimental(self) -> bool:
-        return not (
-            self.evaluation_state is EvaluationState.PASSED and self.is_default
-        )
+        return not (self.evaluation_state is EvaluationState.PASSED and self.is_default)
 
-    def as_default(
+    def with_passed_evaluation(
         self,
         *,
         policy: EvaluationPolicy | None,
@@ -259,4 +240,21 @@ class SavedRagConfiguration:
             raise ConfigurationValidationError(
                 "An exact policy-backed passing evaluation is required for promotion."
             )
-        return replace(self, evaluation_state=EvaluationState.PASSED, is_default=True)
+        return replace(self, evaluation_state=EvaluationState.PASSED)
+
+    def as_default(
+        self,
+        *,
+        policy: EvaluationPolicy | None,
+        evidence: PromotionEvidence,
+    ) -> "SavedRagConfiguration":
+        return replace(
+            self.with_passed_evaluation(policy=policy, evidence=evidence), is_default=True
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationAcceptanceResult:
+    configuration: SavedRagConfiguration
+    evaluation_run_id: UUID
+    evaluation_policy_version_id: UUID

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, vi } from "vitest";
 
@@ -10,6 +10,171 @@ afterEach(() => {
 });
 
 describe("ComparisonPanel", () => {
+  it("marks a demoted passed version experimental in standalone promotion refresh fallback", async () => {
+    const previous = baselineConfiguration({ evaluation_state: "passed", is_default: true, experimental: false });
+    const promoted = savedConfiguration({ evaluation_state: "passed", is_default: true, experimental: false });
+    const updates = vi.fn();
+    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => jsonResponse(init?.method === "POST" ? promoted : {}, init?.method === "POST" ? 200 : 500)));
+    const user = userEvent.setup();
+    render(<ComparisonPanel configurations={[previous, savedConfiguration()]} initialRuns={[completedRun()]} onConfigurationUpdated={updates} />);
+    await user.click(within(screen.getByRole("article", { name: "내 E5 구성 평가 결과" })).getByRole("button", { name: "전체 기본값으로 지정" }));
+    await waitFor(() => expect(updates.mock.calls.map(([configuration]) => configuration)).toEqual([{ ...previous, is_default: false, experimental: true }, promoted]));
+  });
+  it.each(["guided", "advanced"] as const)("keeps the newer intent when %s execution finishes late across the two real forms", async (first) => {
+    const guided = deferred<Response>(); const advanced = deferred<Response>();
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (url, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (String(url).endsWith("/documents")) return jsonResponse({ documents: [{ document_id: "doc", asset_version_id: "asset", workspace_id: "workspace-company", title: "Source", number: 1, ready: true }], next_cursor: null });
+      if (String(url).endsWith("/preview")) return jsonResponse({ complete: true, scope: body, scope_sha256: "a".repeat(64), baseline_configuration_version_id: "version-bm25", document_processing_profile_id: "processing", indexing_profile_id: "indexing", document_count: 1, evidence_count: 1,
+        documents: [{ document_id: "doc", asset_version_id: "asset", workspace_id: "workspace-company", title: "Source", number: 1, sha256: "b".repeat(64) }], evidence: [{ id: "unit", document_id: "doc", asset_version_id: "asset", projection_id: "projection", index_build_id: "build", element_id: "element", text: "Synthetic source", start_char: 0, end_char: 16, page: null, bounding_boxes: [] }] });
+      if (String(url).endsWith("/evaluation-authoring/runs")) return guided.promise;
+      if (url === "/api/v1/rag/evaluation-runs") return advanced.promise;
+      throw new Error("Unexpected request");
+    }));
+    const user = userEvent.setup();
+    render(<ComparisonPanel configurations={[baselineConfiguration(), savedConfiguration()]} initialRuns={[]} workspaces={[{ id: "workspace-company", name: "Workspace", kind: "company", expires_at: null }]} onConfigurationUpdated={() => {}} />);
+    await user.click(screen.getByRole("checkbox", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "문서 목록 불러오기" }));
+    await user.click(await screen.findByRole("checkbox", { name: "Source v1" }));
+    await user.click(screen.getByRole("button", { name: "근거 불러오기" }));
+    await screen.findByRole("textbox", { name: "질문 1" });
+    fireEvent.change(screen.getByRole("textbox", { name: "질문 1" }), { target: { value: "Absent fact?" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "평가 이름" }), { target: { value: "Guided draft" } });
+    await user.selectOptions(screen.getByRole("combobox", { name: "기대 결과 1" }), "insufficient_evidence");
+    await user.click(screen.getByRole("checkbox", { name: /자료와 질문의 불변 보관/ }));
+    await user.click(screen.getByText("기존 스냅샷으로 비교 (고급)"));
+    fireEvent.change(screen.getByRole("textbox", { name: "데이터셋 스냅샷 ID" }), { target: { value: "advanced-snapshot" } });
+    const guidedButton = screen.getByRole("button", { name: "최초 평가 실행" });
+    const advancedButton = screen.getByRole("button", { name: "평가 실행 시작" });
+    await user.click(first === "guided" ? guidedButton : advancedButton);
+    await user.click(first === "guided" ? advancedButton : guidedButton);
+    const newest = first === "guided" ? "advanced" : "guided";
+    const respond = (id: string) => jsonResponse({ ...completedRun(), id: `${id}-run`, dataset_snapshot_id: `${id}-snapshot`, evaluation_policy_version_id: null });
+    await act(async () => (newest === "guided" ? guided : advanced).resolve(respond(newest)));
+    expect(screen.getByRole("textbox", { name: "데이터셋 스냅샷 ID" })).toHaveValue(`${newest}-snapshot`);
+    await act(async () => (first === "guided" ? guided : advanced).resolve(respond(first)));
+    expect(screen.getByRole("textbox", { name: "데이터셋 스냅샷 ID" })).toHaveValue(`${newest}-snapshot`);
+    expect(screen.getByText(new RegExp(`실행 ${newest}-run`))).toBeVisible();
+    expect(screen.queryByText(new RegExp(`실행 ${first}-run`))).not.toBeInTheDocument();
+  }, 15000);
+
+  it("retains failed authored inputs and draft identity on explicit retry without inventing supported labels", async () => {
+    const authored: Record<string, unknown>[] = [];
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (url, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (String(url).endsWith("/documents")) return jsonResponse({ documents: [{ document_id: "doc", asset_version_id: "asset", workspace_id: "workspace-company", title: "Source", number: 1, ready: true }], next_cursor: null });
+      if (String(url).endsWith("/preview")) return jsonResponse({ complete: true, scope: body, scope_sha256: "a".repeat(64), baseline_configuration_version_id: "version-bm25", document_processing_profile_id: "processing", indexing_profile_id: "indexing", document_count: 1, evidence_count: 1,
+        documents: [{ document_id: "doc", asset_version_id: "asset", workspace_id: "workspace-company", title: "Source", number: 1, sha256: "b".repeat(64) }],
+        evidence: [{ id: "unit", document_id: "doc", asset_version_id: "asset", projection_id: "projection", index_build_id: "build", element_id: "element", text: "Synthetic source", start_char: 0, end_char: 16, page: null, bounding_boxes: [] }] });
+      authored.push(body);
+      if (authored.length === 1) return jsonResponse({ error: { code: "conflict", message: "private diagnostic", correlation_id: "fake" } }, 409);
+      return jsonResponse({ ...completedRun(), evaluation_policy_version_id: null });
+    }));
+    const user = userEvent.setup();
+    render(<ComparisonPanel configurations={[baselineConfiguration(), savedConfiguration()]} initialRuns={[]} workspaces={[{ id: "workspace-company", name: "Workspace", kind: "company", expires_at: null }]} onConfigurationUpdated={() => {}} />);
+    await user.click(screen.getByRole("checkbox", { name: "Workspace" }));
+    await user.click(screen.getByRole("button", { name: "문서 목록 불러오기" }));
+    await user.click(await screen.findByRole("checkbox", { name: "Source v1" }));
+    await user.click(screen.getByRole("button", { name: "근거 불러오기" }));
+    await screen.findByRole("textbox", { name: "질문 1" });
+    fireEvent.change(screen.getByRole("textbox", { name: "평가 이름" }), { target: { value: "Retry dataset" } });
+    await user.click(screen.getByRole("button", { name: "최초 평가 실행" }));
+    expect(authored).toHaveLength(0);
+    expect(screen.getByRole("alert")).toHaveTextContent("수동 정답");
+    await user.selectOptions(screen.getByRole("combobox", { name: "기대 결과 1" }), "insufficient_evidence");
+    fireEvent.change(screen.getByRole("textbox", { name: "질문 1" }), { target: { value: "A question absent from this source" } });
+    await user.click(screen.getByRole("checkbox", { name: /자료와 질문의 불변 보관/ }));
+    await user.click(screen.getByRole("button", { name: "최초 평가 실행" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("입력과 성공한 단계는 유지");
+    expect(screen.queryByText("private diagnostic")).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "평가 이름" })).toHaveValue("Retry dataset");
+    await user.click(screen.getByRole("button", { name: "근거 불러오기" }));
+    expect(await screen.findByRole("textbox", { name: "질문 1" })).toHaveValue("A question absent from this source");
+    await user.click(screen.getByRole("button", { name: "최초 평가 실행" }));
+    await screen.findByText(/최초 실행의 자료 스냅샷이 저장되었습니다/);
+    expect(authored).toHaveLength(2);
+    expect(authored[1]).toEqual(authored[0]);
+    expect(authored[0].cases).toEqual([expect.objectContaining({ expected_answer_status: "insufficient_evidence", expected_evidence_ids: [], expected_highlight: null })]);
+  }, 15000);
+
+  it("authors manual Unicode evidence then explicitly saves policy and executes its bound run", async () => {
+    const requests: Array<{ path: string; body: Record<string, unknown> }> = [];
+    const fetcher = vi.fn<typeof fetch>(async (input, init) => {
+      const path = String(input); const body = JSON.parse(String(init?.body ?? "{}")); requests.push({ path, body });
+      if (path.endsWith("/documents")) return jsonResponse({ documents: [{ document_id: "doc", workspace_id: "workspace-company", asset_version_id: "asset", title: "Synthetic source", number: 1, ready: true }], next_cursor: null });
+      if (path.endsWith("/preview")) return jsonResponse({ complete: true, scope: body, scope_sha256: "a".repeat(64), baseline_configuration_version_id: "version-bm25", document_processing_profile_id: "processing", indexing_profile_id: "indexing", document_count: 1, evidence_count: 1,
+        documents: [{ document_id: "doc", asset_version_id: "asset", workspace_id: "workspace-company", title: "Synthetic source", number: 1, sha256: "b".repeat(64) }],
+        evidence: [{ id: "evidence-one", document_id: "doc", asset_version_id: "asset", projection_id: "projection", index_build_id: "build", element_id: "element", text: "가😀나", start_char: 10, end_char: 13, page: null, bounding_boxes: [] }] });
+      if (path.endsWith("/evaluation-authoring/runs")) return jsonResponse({ ...completedRun(), evaluation_policy_version_id: null });
+      if (path.endsWith("/evaluation-policies")) return jsonResponse({ ...body, id: "new-policy", owner_id: "owner-1", version: 1 });
+      if (path === "/api/v1/rag/evaluation-runs") return jsonResponse({ ...completedRun(), evaluation_policy_version_id: "new-policy" });
+      throw new Error("Unexpected request");
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const user = userEvent.setup();
+    render(<ComparisonPanel configurations={[baselineConfiguration(), savedConfiguration()]} initialRuns={[]}
+      workspaces={[{ id: "workspace-company", name: "Synthetic workspace", kind: "company", expires_at: null }]} onConfigurationUpdated={() => {}} />);
+    await user.click(screen.getByRole("checkbox", { name: "Synthetic workspace" }));
+    await user.click(screen.getByRole("button", { name: "문서 목록 불러오기" }));
+    await user.click(await screen.findByRole("checkbox", { name: "Synthetic source v1" }));
+    expect(requests).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "근거 불러오기" }));
+    await screen.findByRole("textbox", { name: "질문 1" });
+    await user.type(screen.getByRole("textbox", { name: "질문 1" }), "What is the marker?");
+    await user.click(screen.getByRole("checkbox", { name: "정답 근거 1" }));
+    const source = screen.getByRole("textbox", { name: "근거 원문 1" }) as HTMLTextAreaElement;
+    source.setSelectionRange(1, 3); fireEvent.select(source);
+    await user.click(screen.getByRole("button", { name: "선택 구간을 기대 하이라이트로 지정" }));
+    await user.type(screen.getByRole("textbox", { name: "평가 이름" }), "Manual dataset");
+    await user.click(screen.getByRole("checkbox", { name: /자료와 질문의 불변 보관/ }));
+    await user.click(screen.getByRole("button", { name: "최초 평가 실행" }));
+    await screen.findByText(/최초 실행의 자료 스냅샷이 저장되었습니다/);
+    const authored = requests.find((request) => request.path.endsWith("/evaluation-authoring/runs"))!.body;
+    expect(authored.cases).toEqual([expect.objectContaining({ query: "What is the marker?", expected_evidence_ids: ["evidence-one"], expected_highlight: expect.objectContaining({ evidence_unit_id: "evidence-one", spans: [[11, 12]], bboxes: [] }) })]);
+    expect(requests).toHaveLength(3);
+    for (const label of ["최소 Recall@K", "최소 MRR", "최소 nDCG", "최소 SUPPORTED 정밀도", "최대 잘못된 근거 비율", "최소 하이라이트 IoU"]) {
+      await user.type(screen.getByRole("spinbutton", { name: label }), "0.8");
+    }
+    await user.type(screen.getByRole("spinbutton", { name: "최대 P50 지연 (ms)" }), "1000");
+    await user.type(screen.getByRole("spinbutton", { name: "최대 P95 지연 (ms)" }), "2000");
+    await user.click(screen.getByRole("button", { name: "평가 정책 저장" }));
+    await screen.findByText(/평가 정책 v1 저장됨/);
+    expect(requests).toHaveLength(4);
+    await user.click(screen.getByRole("button", { name: "정책 적용 평가 실행" }));
+    await waitFor(() => expect(requests).toHaveLength(5));
+    expect(requests[4]).toEqual({ path: "/api/v1/rag/evaluation-runs", body: { dataset_snapshot_id: completedRun().dataset_snapshot_id, evaluation_policy_version_id: "new-policy", configuration_version_ids: ["version-e5"], metric_definition_version: 1, retrieval_k: 10, repetition_count: 2 } });
+  }, 15000);
+
+  it("offers guided evaluation without loading sources or writing on mount", async () => {
+    const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
+    render(<ComparisonPanel configurations={[baselineConfiguration(), savedConfiguration()]} initialRuns={[]}
+      workspaces={[{ id: "workspace-company", name: "Synthetic workspace", kind: "company", expires_at: null }]} onConfigurationUpdated={() => {}} />);
+    expect(screen.getByRole("heading", { name: "새 평가 만들기" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "문서 목록 불러오기" })).toBeVisible();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("accepts the exact displayed version without global promotion (refresh fails: %s)", async (refreshFails) => {
+    const updates = vi.fn();
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      if (String(input).endsWith("/evaluation-acceptance")) return jsonResponse({ configuration: savedConfiguration({ evaluation_state: "passed", is_default: false }), evaluation_run_id: "run-completed", evaluation_policy_version_id: "policy-1" });
+      if (input === "/api/v1/rag/configurations") return jsonResponse([baselineConfiguration(), savedConfiguration({ evaluation_state: "passed" })], refreshFails ? 500 : 200);
+      throw new Error("Unexpected request");
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const user = userEvent.setup();
+    const run = completedRun();
+    render(<ComparisonPanel configurations={[baselineConfiguration(), savedConfiguration()]} initialRuns={[run]} onConfigurationUpdated={updates} />);
+    const result = screen.getByRole("article", { name: "내 E5 구성 평가 결과" });
+    await user.click(within(result).getByRole("button", { name: "이 버전의 평가 통과 반영" }));
+    await waitFor(() => expect(updates).toHaveBeenCalled());
+    expect(fetcher.mock.calls[0][0]).toBe("/api/v1/rag/configurations/configuration-e5/versions/version-e5/evaluation-acceptance");
+    expect(JSON.parse(fetcher.mock.calls[0][1]!.body as string)).toEqual({ evaluation_run_id: run.id });
+    expect(fetcher.mock.calls.some(([url]) => String(url).endsWith("/default"))).toBe(false);
+    expect(updates).toHaveBeenCalledWith(expect.objectContaining({ version_id: "version-e5", evaluation_state: "passed", is_default: false }));
+    if (refreshFails) expect(await screen.findByText(/준비 정보 새로고침에 실패했습니다/)).toBeInTheDocument();
+  });
+
   it("fixes BM25 first, selects only exact saved versions, and never renders missing metrics as zero", async () => {
     const user = userEvent.setup();
     render(
@@ -25,7 +190,7 @@ describe("ComparisonPanel", () => {
     expect(baseline).toBeDisabled();
     expect(screen.getByText("평가 전")).toBeVisible();
     expect(screen.queryByText(/^0(?:\.0+)?$/)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /운영 기본값으로 승격/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /전체 기본값으로 지정/ })).toBeDisabled();
 
     await user.click(screen.getByRole("checkbox", { name: "내 E5 구성 v2" }));
     const savedResult = screen.getByRole("article", { name: "내 E5 구성 평가 결과" });
@@ -135,7 +300,7 @@ describe("ComparisonPanel", () => {
     expect(failedCase).toHaveAttribute("href", "#case-case-failed");
     expect(failedCase.closest("li")).toHaveTextContent("evidence-expected-1");
 
-    const promote = within(result).getByRole("button", { name: /운영 기본값으로 승격/ });
+    const promote = within(result).getByRole("button", { name: /전체 기본값으로 지정/ });
     expect(promote).toBeEnabled();
     await user.click(promote);
     await waitFor(() => expect(onConfigurationUpdated).toHaveBeenCalledTimes(3));
@@ -157,7 +322,7 @@ describe("ComparisonPanel", () => {
       />,
     );
 
-    for (const button of screen.getAllByRole("button", { name: /운영 기본값으로 승격/ })) {
+    for (const button of screen.getAllByRole("button", { name: /전체 기본값으로 지정/ })) {
       expect(button).toBeDisabled();
     }
   });
@@ -187,6 +352,7 @@ describe("ComparisonPanel", () => {
     );
 
     expect(screen.getByRole("checkbox", { name: /내 E5 구성/ })).not.toBeChecked();
+    await user.click(screen.getByText("기존 스냅샷으로 비교 (고급)"));
     expect(screen.getByText(/현재 저장 목록에 없는 과거 후보 1개/)).toBeVisible();
     await user.click(screen.getByRole("button", { name: "평가 실행 시작" }));
     expect(requestBody?.configuration_version_ids).toEqual([]);
@@ -297,7 +463,7 @@ describe("ComparisonPanel", () => {
     );
 
     const result = screen.getByRole("article", { name: /내 E5 구성 평가 결과/ });
-    await user.click(within(result).getByRole("button", { name: /운영 기본값으로 승격/ }));
+    await user.click(within(result).getByRole("button", { name: /전체 기본값으로 지정/ }));
     expect(screen.getByRole("button", { name: "승격 중…" })).toBeDisabled();
     await user.click(screen.getByRole("checkbox", { name: /내 E5 구성/ }));
     await user.click(screen.getByRole("button", { name: "평가 실행 시작" }));
@@ -333,7 +499,7 @@ describe("ComparisonPanel", () => {
     );
     await user.click(screen.getByRole("button", { name: "현재 실행 새로고침" }));
     const result = screen.getByRole("article", { name: /내 E5 구성 평가 결과/ });
-    await user.click(within(result).getByRole("button", { name: /운영 기본값으로 승격/ }));
+    await user.click(within(result).getByRole("button", { name: /전체 기본값으로 지정/ }));
     await waitFor(() => expect(signals).toHaveLength(2));
     view.unmount();
     expect(signals.every((signal) => signal.aborted)).toBe(true);
@@ -454,7 +620,7 @@ describe("ComparisonPanel", () => {
     );
 
     const result = screen.getByRole("article", { name: /내 E5 구성 평가 결과/ });
-    await user.click(within(result).getByRole("button", { name: /운영 기본값으로 승격/ }));
+    await user.click(within(result).getByRole("button", { name: /전체 기본값으로 지정/ }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
     expect(screen.queryByText(/비공개 원문|내부 스택/)).not.toBeInTheDocument();
@@ -514,6 +680,7 @@ function pendingRun(): EvaluationRun {
   return {
     id: "run-pending",
     owner_id: "owner-1",
+    created_at: "2019-03-04T05:06:07Z",
     dataset_snapshot_id: "11111111-1111-4111-8111-111111111111",
     evaluation_policy_version_id: null,
     status: "pending",

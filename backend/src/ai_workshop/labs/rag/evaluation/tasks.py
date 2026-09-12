@@ -70,8 +70,12 @@ class FrozenResolvedScope:
         workspace_ids: tuple[UUID, ...],
         folder_ids: tuple[UUID, ...],
         indexing_profile_id: UUID,
+        document_ids: tuple[UUID, ...] | None = None,
+        document_processing_profile_id: UUID | None = None,
     ) -> ResolvedSearchScope:
         del actor_id, indexing_profile_id
+        if document_ids is not None or document_processing_profile_id is not None:
+            raise RuntimeError("Frozen Evaluation scope does not accept document selection.")
         if workspace_ids != self.value.workspace_ids or folder_ids != self.value.folder_ids:
             raise RuntimeError("The resolved Evaluation Search scope changed.")
         return self.value

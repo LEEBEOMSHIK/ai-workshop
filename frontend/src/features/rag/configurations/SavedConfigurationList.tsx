@@ -1,5 +1,6 @@
 import type { ModelDefinition, Profile, SavedConfiguration } from "./api";
 import { profileIdentity, summarizeRagPackage } from "./packageSummary";
+import { CodexVerificationPanel } from "./CodexVerificationPanel";
 
 const evaluationLabels: Record<SavedConfiguration["evaluation_state"], string> = {
   draft: "초안",
@@ -92,6 +93,11 @@ export function SavedConfigurationList({
                   <div><dt>지식 공간 ID</dt><dd>{configuration.workspace_ids.join(", ") || "없음"}</dd></div>
                 </dl>
               </details>
+              {configuration.generation_execution_preview?.provider === "development_codex_exec" ? <CodexVerificationPanel
+                key={configuration.version_id} versionId={configuration.version_id}
+                disclosure={configuration.generation_execution_preview.disclosure}
+                disclosureVersion={configuration.generation_execution_preview.disclosure_version}
+                requestedModel={configuration.generation_execution_preview.requested_provider_model_id} /> : null}
             </article>
           );
         })}

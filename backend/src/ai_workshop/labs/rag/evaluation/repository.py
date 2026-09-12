@@ -76,6 +76,7 @@ from ai_workshop.platform.workspaces.models import (
     WorkspaceMembershipRecord,
     WorkspaceRecord,
 )
+from ai_workshop.platform.workspaces.permissions import workspace_read_allowed
 from ai_workshop.shared.errors import AppError
 
 
@@ -161,12 +162,8 @@ def _scenario_json(value: object) -> dict[str, object]:
         "actor": scenario.actor,
         "workspace_ids": [str(item) for item in scenario.workspace_ids],
         "folder_ids": [str(item) for item in scenario.folder_ids],
-        "authorized_source_ids": sorted(
-            str(item) for item in scenario.authorized_source_ids
-        ),
-        "forbidden_source_ids": sorted(
-            str(item) for item in scenario.forbidden_source_ids
-        ),
+        "authorized_source_ids": sorted(str(item) for item in scenario.authorized_source_ids),
+        "forbidden_source_ids": sorted(str(item) for item in scenario.forbidden_source_ids),
         "as_of": scenario.as_of,
     }
 
@@ -190,8 +187,7 @@ def _scenario_domain(value: dict[str, object]) -> PermissionScenario:
 def _observation_json(value: SearchExecutionObservation) -> dict[str, object]:
     stable = value.stable
     source_ids = {
-        (item.surface, cast(UUID, item.evidence_id)): item.source_id
-        for item in value.exposures
+        (item.surface, cast(UUID, item.evidence_id)): item.source_id for item in value.exposures
     }
     stable_payload: dict[str, object] = {
         "retrieved_evidence_ids": [str(item) for item in stable.retrieved_evidence_ids],
@@ -239,15 +235,11 @@ def _observation_json(value: SearchExecutionObservation) -> dict[str, object]:
                 "document_id": str(item.document_id),
                 "asset_version_id": str(item.asset_version_id),
                 "evidence_unit_id": str(item.evidence_unit_id),
-                "source_id": str(
-                    source_ids[(f"{item.surface}_highlight", item.evidence_unit_id)]
-                ),
+                "source_id": str(source_ids[(f"{item.surface}_highlight", item.evidence_unit_id)]),
                 "page": item.page,
                 "kind": item.kind.value,
                 "spans": [[span.start, span.end] for span in item.spans],
-                "bboxes": [
-                    [box.x0, box.y0, box.x1, box.y1] for box in item.bboxes
-                ],
+                "bboxes": [[box.x0, box.y0, box.x1, box.y1] for box in item.bboxes],
             }
             for item in stable.highlights
         ],
@@ -280,20 +272,17 @@ def _observation_domain(value: dict[str, object]) -> SearchExecutionObservation:
     return SearchExecutionObservation(
         stable=StableObservation(
             retrieved_evidence_ids=tuple(
-                UUID(item)
-                for item in cast(list[str], value["retrieved_evidence_ids"])
+                UUID(item) for item in cast(list[str], value["retrieved_evidence_ids"])
             ),
             answer_status=AnswerStatus(str(value["answer_status"])),
             answer_evidence_ids=tuple(
                 UUID(item) for item in cast(list[str], value["answer_evidence_ids"])
             ),
             conflict_evidence_ids=tuple(
-                UUID(item)
-                for item in cast(list[str], value["conflict_evidence_ids"])
+                UUID(item) for item in cast(list[str], value["conflict_evidence_ids"])
             ),
             related_evidence_ids=tuple(
-                UUID(item)
-                for item in cast(list[str], value["related_evidence_ids"])
+                UUID(item) for item in cast(list[str], value["related_evidence_ids"])
             ),
             highlight_kind=HighlightKind(str(highlight)) if highlight is not None else None,
             highlight_spans=tuple(
@@ -310,11 +299,7 @@ def _observation_domain(value: dict[str, object]) -> SearchExecutionObservation:
                     document_id=UUID(str(item["document_id"])),
                     asset_version_id=UUID(str(item["asset_version_id"])),
                     evidence_unit_id=UUID(str(item["evidence_unit_id"])),
-                    page=(
-                        int(cast(int, item["page"]))
-                        if item.get("page") is not None
-                        else None
-                    ),
+                    page=(int(cast(int, item["page"])) if item.get("page") is not None else None),
                     kind=HighlightKind(str(item["kind"])),
                     spans=tuple(
                         CharacterSpan(int(span[0]), int(span[1]))
@@ -325,9 +310,7 @@ def _observation_domain(value: dict[str, object]) -> SearchExecutionObservation:
                         for box in cast(list[list[float]], item["bboxes"])
                     ),
                 )
-                for item in cast(
-                    list[dict[str, object]], value.get("highlights", [])
-                )
+                for item in cast(list[dict[str, object]], value.get("highlights", []))
             ),
         ),
         exposures=tuple(
@@ -349,9 +332,7 @@ def _case_domain(record: EvaluationCaseResultRecord) -> CaseEvaluationResult:
         query_sha256=record.query_sha256,
         permission_scenario=_scenario_domain(record.permission_scenario),
         expected_evidence_ids=frozenset(UUID(item) for item in record.expected_evidence_ids),
-        raw_observations=tuple(
-            _observation_domain(item) for item in record.raw_observations
-        ),
+        raw_observations=tuple(_observation_domain(item) for item in record.raw_observations),
         duration_ms=record.duration_ms,
         recall_at_k=record.recall_at_k,
         reciprocal_rank=record.reciprocal_rank,
@@ -412,9 +393,7 @@ class SqlAlchemyEvaluationApplicationRepository:
         await self.session.flush()
         fixture = cast(dict[str, object], json.loads(dataset.fixture_bytes))
         raw_cases = cast(list[dict[str, object]], fixture["cases"])
-        for ordinal, (case, raw_case) in enumerate(
-            zip(dataset.cases, raw_cases, strict=True)
-        ):
+        for ordinal, (case, raw_case) in enumerate(zip(dataset.cases, raw_cases, strict=True)):
             canonical = json.dumps(
                 raw_case,
                 ensure_ascii=False,
@@ -432,20 +411,14 @@ class SqlAlchemyEvaluationApplicationRepository:
                     query_bytes=case.query.encode("utf-8"),
                     query_sha256=case.query_sha256,
                     permission_scenario=_scenario_json(case.permission_scenario),
-                    expected_evidence_ids=sorted(
-                        str(item) for item in case.expected_evidence_ids
-                    ),
+                    expected_evidence_ids=sorted(str(item) for item in case.expected_evidence_ids),
                     authorized_source_ids=sorted(
-                        str(item)
-                        for item in case.permission_scenario.authorized_source_ids
+                        str(item) for item in case.permission_scenario.authorized_source_ids
                     ),
                     forbidden_source_ids=sorted(
-                        str(item)
-                        for item in case.permission_scenario.forbidden_source_ids
+                        str(item) for item in case.permission_scenario.forbidden_source_ids
                     ),
-                    expected_highlight=cast(
-                        dict[str, object] | None, expected.get("highlight")
-                    ),
+                    expected_highlight=cast(dict[str, object] | None, expected.get("highlight")),
                 )
             )
         await self.session.flush()
@@ -460,11 +433,27 @@ class SqlAlchemyEvaluationApplicationRepository:
                 EvaluationDatasetRecord.owner_id == actor_id,
             )
         )
-        return _dataset_domain(record) if record is not None else None
+        if record is None:
+            return None
+        dataset = _dataset_domain(record)
+        return dataset if await self._dataset_readable(dataset, actor_id) else None
 
-    async def next_policy_version(
-        self, actor_id: UUID, dataset_snapshot_id: UUID
-    ) -> int:
+    async def _dataset_readable(self, dataset: EvaluationDataset, actor_id: UUID) -> bool:
+        workspace_ids = {
+            workspace_id
+            for case in dataset.cases
+            for workspace_id in case.permission_scenario.workspace_ids
+        }
+        authorized = set(
+            await self.session.scalars(
+                select(WorkspaceRecord.id).where(
+                    WorkspaceRecord.id.in_(workspace_ids), workspace_read_allowed(actor_id)
+                )
+            )
+        )
+        return authorized == workspace_ids
+
+    async def next_policy_version(self, actor_id: UUID, dataset_snapshot_id: UUID) -> int:
         latest = await self.session.scalar(
             select(func.max(EvaluationPolicyRecord.version)).where(
                 EvaluationPolicyRecord.owner_id == actor_id,
@@ -473,9 +462,7 @@ class SqlAlchemyEvaluationApplicationRepository:
         )
         return int(latest or 0) + 1
 
-    async def add_policy(
-        self, actor_id: UUID, policy: EvaluationPolicy
-    ) -> EvaluationPolicy:
+    async def add_policy(self, actor_id: UUID, policy: EvaluationPolicy) -> EvaluationPolicy:
         if policy.owner_id != actor_id:
             raise AppError("not_found", "The requested resource was not found.", 404)
         record = EvaluationPolicyRecord(
@@ -508,8 +495,7 @@ class SqlAlchemyEvaluationApplicationRepository:
                 select(RagConfigurationVersionRecord, RagConfigurationRecord)
                 .join(
                     RagConfigurationRecord,
-                    RagConfigurationRecord.id
-                    == RagConfigurationVersionRecord.configuration_id,
+                    RagConfigurationRecord.id == RagConfigurationVersionRecord.configuration_id,
                 )
                 .where(
                     RagConfigurationVersionRecord.id == version_id,
@@ -554,9 +540,7 @@ class SqlAlchemyEvaluationApplicationRepository:
                 )
             )
         )
-        policy = await self.session.get(
-            AnswerPolicyVersionRecord, version.answer_policy_version_id
-        )
+        policy = await self.session.get(AnswerPolicyVersionRecord, version.answer_policy_version_id)
         if policy is None:
             raise RuntimeError("The immutable Answer Policy is unavailable.")
         workspace_ids = tuple(
@@ -569,12 +553,8 @@ class SqlAlchemyEvaluationApplicationRepository:
                 .order_by(RagConfigurationWorkspaceSubscriptionRecord.workspace_id)
             )
         )
-        document_items = tuple(
-            cast(dict[str, object], item) for item in dataset.document_snapshot
-        )
-        asset_ids = tuple(
-            UUID(str(item["asset_version_id"])) for item in document_items
-        )
+        document_items = tuple(cast(dict[str, object], item) for item in dataset.document_snapshot)
+        asset_ids = tuple(UUID(str(item["asset_version_id"])) for item in document_items)
         index_rows = (
             await self.session.execute(
                 select(
@@ -594,10 +574,12 @@ class SqlAlchemyEvaluationApplicationRepository:
                 )
                 .where(
                     AssetVersionRecord.id.in_(asset_ids),
-                    RagProjectionRecord.indexing_profile_id
-                    == version.indexing_profile_id,
-                    RagIndexBuildRecord.indexing_profile_id
-                    == version.indexing_profile_id,
+                    RagProjectionRecord.document_processing_profile_id
+                    == version.document_processing_profile_id,
+                    RagIndexBuildRecord.document_processing_profile_id
+                    == version.document_processing_profile_id,
+                    RagProjectionRecord.indexing_profile_id == version.indexing_profile_id,
+                    RagIndexBuildRecord.indexing_profile_id == version.indexing_profile_id,
                     RagIndexBuildRecord.status == "ready",
                 )
             )
@@ -747,7 +729,10 @@ class SqlAlchemyEvaluationApplicationRepository:
         )
         authorized = set(
             await self.session.scalars(
-                select(WorkspaceMembershipRecord.workspace_id).where(
+                select(WorkspaceMembershipRecord.workspace_id)
+                .join(WorkspaceRecord, WorkspaceRecord.id == WorkspaceMembershipRecord.workspace_id)
+                .where(
+                    workspace_read_allowed(actor_id),
                     WorkspaceMembershipRecord.user_id == actor_id,
                     WorkspaceMembershipRecord.workspace_id.in_(workspace_ids),
                 )
@@ -761,8 +746,7 @@ class SqlAlchemyEvaluationApplicationRepository:
                     EvaluationPolicyRecord.id == evaluation_policy_version_id,
                     EvaluationPolicyRecord.owner_id == actor_id,
                     EvaluationPolicyRecord.dataset_snapshot_id == dataset.id,
-                    EvaluationPolicyRecord.metric_definition_version
-                    == metric_definition_version,
+                    EvaluationPolicyRecord.metric_definition_version == metric_definition_version,
                     EvaluationPolicyRecord.retrieval_k == retrieval_k,
                 )
             )
@@ -786,9 +770,7 @@ class SqlAlchemyEvaluationApplicationRepository:
             sort_keys=True,
             separators=(",", ":"),
         ).encode("utf-8")
-        execution_snapshot_sha256 = hashlib.sha256(
-            execution_snapshot_bytes
-        ).hexdigest()
+        execution_snapshot_sha256 = hashlib.sha256(execution_snapshot_bytes).hexdigest()
         run = EvaluationRunRecord(
             owner_id=actor_id,
             dataset_snapshot_id=dataset.id,
@@ -888,9 +870,7 @@ class SqlAlchemyEvaluationApplicationRepository:
         }
         for evidence in evidence_rows:
             evidence_by_chunk[evidence.retrieval_chunk_id].append(evidence)
-        folder_ids = tuple(
-            {row[4].folder_id for row in rows if row[4].folder_id is not None}
-        )
+        folder_ids = tuple({row[4].folder_id for row in rows if row[4].folder_id is not None})
         folders = {
             folder.id: folder
             for folder in await self.session.scalars(
@@ -955,19 +935,13 @@ class SqlAlchemyEvaluationApplicationRepository:
                 {
                     "case_id": str(case.id),
                     "actor_id": str(actor_id),
-                    "workspace_ids": [
-                        str(item) for item in case.permission_scenario.workspace_ids
-                    ],
-                    "folder_ids": [
-                        str(item) for item in case.permission_scenario.folder_ids
-                    ],
+                    "workspace_ids": [str(item) for item in case.permission_scenario.workspace_ids],
+                    "folder_ids": [str(item) for item in case.permission_scenario.folder_ids],
                     "authorized_source_ids": sorted(
-                        str(item)
-                        for item in case.permission_scenario.authorized_source_ids
+                        str(item) for item in case.permission_scenario.authorized_source_ids
                     ),
                     "forbidden_source_ids": sorted(
-                        str(item)
-                        for item in case.permission_scenario.forbidden_source_ids
+                        str(item) for item in case.permission_scenario.forbidden_source_ids
                     ),
                     "as_of": case.permission_scenario.as_of,
                 }
@@ -996,9 +970,7 @@ class SqlAlchemyEvaluationApplicationRepository:
             cases = list(
                 await self.session.scalars(
                     select(EvaluationCaseResultRecord)
-                    .where(
-                        EvaluationCaseResultRecord.run_configuration_id == candidate.id
-                    )
+                    .where(EvaluationCaseResultRecord.run_configuration_id == candidate.id)
                     .order_by(EvaluationCaseResultRecord.ordinal)
                 )
             )
@@ -1016,6 +988,7 @@ class SqlAlchemyEvaluationApplicationRepository:
         return EvaluationRunView(
             id=run.id,
             owner_id=run.owner_id,
+            created_at=run.created_at,
             dataset_snapshot_id=run.dataset_snapshot_id,
             evaluation_policy_version_id=run.evaluation_policy_version_id,
             status=EvaluationRunStatus(run.status),
@@ -1032,20 +1005,21 @@ class SqlAlchemyEvaluationApplicationRepository:
             candidates=tuple(candidate_views),
         )
 
-    async def detail_visible(
-        self, run_id: UUID, actor_id: UUID
-    ) -> EvaluationRunView | None:
+    async def detail_visible(self, run_id: UUID, actor_id: UUID) -> EvaluationRunView | None:
         run = await self.session.scalar(
             select(EvaluationRunRecord).where(
                 EvaluationRunRecord.id == run_id,
                 EvaluationRunRecord.owner_id == actor_id,
             )
         )
-        return await self._view(run) if run is not None else None
+        if (
+            run is None
+            or await self.find_dataset_visible(run.dataset_snapshot_id, actor_id) is None
+        ):
+            return None
+        return await self._view(run)
 
-    async def list_visible(
-        self, actor_id: UUID, limit: int
-    ) -> tuple[EvaluationRunView, ...]:
+    async def list_visible(self, actor_id: UUID, limit: int) -> tuple[EvaluationRunView, ...]:
         runs = list(
             await self.session.scalars(
                 select(EvaluationRunRecord)
@@ -1054,7 +1028,13 @@ class SqlAlchemyEvaluationApplicationRepository:
                 .limit(limit)
             )
         )
-        return tuple([await self._view(run) for run in runs])
+        return tuple(
+            [
+                await self._view(run)
+                for run in runs
+                if await self.find_dataset_visible(run.dataset_snapshot_id, actor_id) is not None
+            ]
+        )
 
 
 class SqlAlchemyEvaluationRepository:
@@ -1074,8 +1054,7 @@ class SqlAlchemyEvaluationRepository:
                         EvaluationRunRecord.status == EvaluationRunStatus.PENDING,
                         and_(
                             EvaluationRunRecord.status == EvaluationRunStatus.RUNNING,
-                            EvaluationRunRecord.claimed_at
-                            < now - timedelta(minutes=30),
+                            EvaluationRunRecord.claimed_at < now - timedelta(minutes=30),
                         ),
                     ),
                 )
@@ -1083,9 +1062,7 @@ class SqlAlchemyEvaluationRepository:
             )
             if run is None:
                 return None
-            dataset_record = await session.get(
-                EvaluationDatasetRecord, run.dataset_snapshot_id
-            )
+            dataset_record = await session.get(EvaluationDatasetRecord, run.dataset_snapshot_id)
             if dataset_record is None:
                 raise RuntimeError("The immutable Evaluation Dataset is unavailable.")
             dataset = _dataset_domain(dataset_record)
@@ -1168,12 +1145,8 @@ class SqlAlchemyEvaluationRepository:
                                 projection_id=UUID(str(build["projection_id"])),
                                 index_build_id=UUID(str(build["index_build_id"])),
                                 index_name=str(build["index_name"]),
-                                indexing_profile_id=UUID(
-                                    str(build["indexing_profile_id"])
-                                ),
-                                vector_dimension=int(
-                                    cast(int, build["vector_dimension"])
-                                ),
+                                indexing_profile_id=UUID(str(build["indexing_profile_id"])),
+                                vector_dimension=int(cast(int, build["vector_dimension"])),
                                 index_uuid=str(build["index_uuid"]),
                                 mapping_version=int(cast(int, build["mapping_version"])),
                                 active_at_snapshot=bool(build["active_at_snapshot"]),
@@ -1186,9 +1159,7 @@ class SqlAlchemyEvaluationRepository:
                         retrieval_k=run.retrieval_k,
                         workspace_ids=tuple(
                             UUID(value)
-                            for value in cast(
-                                list[str], configuration_snapshot["workspace_ids"]
-                            )
+                            for value in cast(list[str], configuration_snapshot["workspace_ids"])
                         ),
                         is_system=bool(configuration_snapshot["is_system"]),
                         component_snapshot=component_snapshot,
@@ -1218,9 +1189,7 @@ class SqlAlchemyEvaluationRepository:
                 .values(claimed_at=datetime.now(UTC))
             )
             if getattr(result, "rowcount", 0) != 1:
-                raise EvaluationRunClaimLostError(
-                    "Evaluation Run claim token is invalid."
-                )
+                raise EvaluationRunClaimLostError("Evaluation Run claim token is invalid.")
 
     async def _candidate_with_claim(
         self, session: AsyncSession, candidate_id: UUID, claim_token: UUID
@@ -1242,9 +1211,7 @@ class SqlAlchemyEvaluationRepository:
             raise EvaluationRunClaimLostError("Evaluation Run claim token is invalid.")
         return candidate
 
-    async def mark_candidate_running(
-        self, candidate_id: UUID, claim_token: UUID
-    ) -> None:
+    async def mark_candidate_running(self, candidate_id: UUID, claim_token: UUID) -> None:
         async with self.sessions.begin() as session:
             candidate = await self._candidate_with_claim(session, candidate_id, claim_token)
             if candidate.status not in (CandidateStatus.PENDING, CandidateStatus.RUNNING):
@@ -1284,8 +1251,7 @@ class SqlAlchemyEvaluationRepository:
             existing = await session.scalar(
                 select(EvaluationCaseResultRecord).where(
                     EvaluationCaseResultRecord.run_configuration_id == candidate_id,
-                    EvaluationCaseResultRecord.evaluation_case_id
-                    == result.evaluation_case_id,
+                    EvaluationCaseResultRecord.evaluation_case_id == result.evaluation_case_id,
                 )
             )
             if existing is not None:
@@ -1301,9 +1267,7 @@ class SqlAlchemyEvaluationRepository:
                     expected_evidence_ids=sorted(
                         str(item) for item in result.expected_evidence_ids
                     ),
-                    raw_observations=[
-                        _observation_json(item) for item in result.raw_observations
-                    ],
+                    raw_observations=[_observation_json(item) for item in result.raw_observations],
                     duration_ms=result.duration_ms,
                     recall_at_k=result.recall_at_k,
                     reciprocal_rank=result.reciprocal_rank,
@@ -1335,9 +1299,7 @@ class SqlAlchemyEvaluationRepository:
             candidate.reproducibility = metrics.reproducibility
             candidate.completed_at = datetime.now(UTC)
 
-    async def fail_candidate(
-        self, candidate_id: UUID, claim_token: UUID, failure: str
-    ) -> None:
+    async def fail_candidate(self, candidate_id: UUID, claim_token: UUID, failure: str) -> None:
         async with self.sessions.begin() as session:
             candidate = await self._candidate_with_claim(session, candidate_id, claim_token)
             candidate.status = CandidateStatus.FAILED
@@ -1413,12 +1375,11 @@ class SqlAlchemyEvaluationDispatchRepository:
                                 EvaluationDispatchRecord.status == "sent",
                                 EvaluationDispatchRecord.sent_at <= stale_before,
                                 or_(
-                                    EvaluationRunRecord.status
-                                    == EvaluationRunStatus.PENDING,
+                                    EvaluationRunRecord.status == EvaluationRunStatus.PENDING,
                                     EvaluationRunRecord.claimed_at <= stale_before,
                                 ),
                             ),
-                        )
+                        ),
                     )
                     .order_by(
                         EvaluationDispatchRecord.available_at,
@@ -1436,9 +1397,7 @@ class SqlAlchemyEvaluationDispatchRepository:
                 record.claim_token = token
                 record.attempt_count += 1
                 record.sent_at = None
-                claims.append(
-                    EvaluationDispatchClaim(record.run_id, token, record.attempt_count)
-                )
+                claims.append(EvaluationDispatchClaim(record.run_id, token, record.attempt_count))
             await session.flush()
         return tuple(claims)
 

@@ -90,6 +90,11 @@ class GenerationRuntimeResolver:
                 ),
                 retryable=False,
             )
+        if (
+            deployment.provider is ProviderKind.DEVELOPMENT_CODEX_EXEC
+            or deployment.endpoint_ref is None
+        ):
+            raise GenerationProviderError("deployment_not_ready", retryable=False)
         factory = self._factories.get(deployment.provider)
         if factory is None:
             raise GenerationProviderError("deployment_not_ready", retryable=False)

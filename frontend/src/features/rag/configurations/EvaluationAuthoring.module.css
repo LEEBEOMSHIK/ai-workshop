@@ -1,0 +1,13 @@
+.authoring { min-width: 0; overflow-wrap: anywhere; margin-block: 1.5rem; padding: 1.2rem; border: 1px solid var(--color-border-subtle); border-radius: 0.8rem; }
+.authoring :is(section, form, fieldset, article, label) { min-width: 0; max-width: 100%; }
+.authoring fieldset { display: grid; gap: 0.8rem; margin-block: 1rem; border: 1px solid var(--color-border-subtle); }
+.authoring label { display: grid; gap: 0.35rem; }
+.authoring label:has(input[type="checkbox"]) { display: flex; align-items: center; gap: 0.5rem; }
+.authoring :is(input:not([type="checkbox"]), textarea, select) { box-sizing: border-box; min-width: 0; width: 100%; padding: 0.65rem; border: 1px solid var(--color-border-subtle); border-radius: 0.4rem; background: transparent; color: inherit; color-scheme: dark; font: inherit; }
+.authoring input[type="checkbox"] { width: auto; }
+.authoring textarea { min-height: 5rem; resize: vertical; }
+.authoring button { width: fit-content; max-width: 100%; height: fit-content; margin: 0.3rem; padding: 0.6rem 0.8rem; color: inherit; background: transparent; border: 1px solid var(--color-accent-text); border-radius: 0.45rem; font: inherit; cursor: pointer; }
+.authoring button:disabled { opacity: 0.5; cursor: not-allowed; }
+.authoring :is(input, select, textarea, button, summary):focus-visible { outline: 2px solid var(--color-accent-text); outline-offset: 0.2rem; }
+.authoring summary { cursor: pointer; color: var(--color-accent-text); }
+.authoring article { margin-block: 1rem; }

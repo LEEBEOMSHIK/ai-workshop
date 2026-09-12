@@ -44,6 +44,7 @@ from ai_workshop.labs.rag.ocr.paddle_structure import PaddleStructureV3Adapter
 from ai_workshop.labs.rag.parsing.docx import DOCX_MEDIA_TYPE, DocxStructureParser
 from ai_workshop.labs.rag.parsing.markdown import MarkdownParser
 from ai_workshop.labs.rag.parsing.pdf import PdfParser
+from ai_workshop.labs.rag.parsing.pdf_ocr import PdfOcrParser
 from ai_workshop.labs.rag.parsing.plain_text import PlainTextParser
 from ai_workshop.labs.rag.parsing.registry import ParserRegistry
 from ai_workshop.labs.rag.parsing.service import ParsingService
@@ -168,9 +169,7 @@ class SqlAlchemyRagIngestionLifecycle:
         finally:
             await engine.dispose()
 
-    async def complete_embedding(
-        self, job_id: UUID, *, embedding_count: int
-    ) -> IngestionExecution:
+    async def complete_embedding(self, job_id: UUID, *, embedding_count: int) -> IngestionExecution:
         engine = create_engine(self.settings)
         sessions = create_session_factory(engine)
         try:
@@ -210,8 +209,7 @@ class SqlAlchemyRagIngestionLifecycle:
                     return self._require_completed_stage(rows, ProjectionStatus.READY)
                 if (
                     not verification.is_complete
-                    or verification.parsed_element_count
-                    != rows.ingestion.parsed_element_count
+                    or verification.parsed_element_count != rows.ingestion.parsed_element_count
                     or verification.chunk_count != rows.ingestion.chunk_count
                     or verification.embedding_count != rows.ingestion.embedding_count
                 ):
@@ -289,9 +287,7 @@ class SqlAlchemyRagIngestionLifecycle:
         *,
         lock: bool,
     ) -> _IngestionRows:
-        statement = select(RagIngestionJobRecord).where(
-            RagIngestionJobRecord.job_id == job_id
-        )
+        statement = select(RagIngestionJobRecord).where(RagIngestionJobRecord.job_id == job_id)
         if lock:
             statement = statement.with_for_update()
         ingestion = await session.scalar(statement)
@@ -302,11 +298,7 @@ class SqlAlchemyRagIngestionLifecycle:
                 retryable=False,
             )
         jobs = SqlAlchemyJobRepository(session)
-        job = (
-            await jobs.find_by_id_for_update(job_id)
-            if lock
-            else await jobs.find_by_id(job_id)
-        )
+        job = await jobs.find_by_id_for_update(job_id) if lock else await jobs.find_by_id(job_id)
         projection_statement = select(RagProjectionRecord).where(
             RagProjectionRecord.id == ingestion.projection_id
         )
@@ -338,9 +330,7 @@ class SqlAlchemyRagIngestionLifecycle:
         else:
             asset = await session.get(AssetVersionRecord, ingestion.asset_version_id)
             document = (
-                await session.get(DocumentRecord, asset.document_id)
-                if asset is not None
-                else None
+                await session.get(DocumentRecord, asset.document_id) if asset is not None else None
             )
         profile_statement = select(ProfileRecord).where(
             ProfileRecord.id == ingestion.indexing_profile_id
@@ -352,16 +342,9 @@ class SqlAlchemyRagIngestionLifecycle:
             ProfileRecord.id == ingestion.document_processing_profile_id
         )
         if lock:
-            processing_profile_statement = (
-                processing_profile_statement.with_for_update()
-            )
+            processing_profile_statement = processing_profile_statement.with_for_update()
         processing_profile = await session.scalar(processing_profile_statement)
-        if (
-            asset is None
-            or document is None
-            or profile is None
-            or processing_profile is None
-        ):
+        if asset is None or document is None or profile is None or processing_profile is None:
             raise RagIngestionError(
                 "ingestion_dependency_missing",
                 "A durable RAG ingestion dependency is missing.",
@@ -372,8 +355,7 @@ class SqlAlchemyRagIngestionLifecycle:
             or job.user_id != ingestion.requested_by
             or profile.kind != "indexing"
             or processing_profile.kind != "document_processing"
-            or projection.document_processing_profile_id
-            != ingestion.document_processing_profile_id
+            or projection.document_processing_profile_id != ingestion.document_processing_profile_id
         ):
             raise RagIngestionError(
                 "ingestion_command_mismatch",
@@ -453,15 +435,11 @@ class SqlAlchemyRagIngestionLifecycle:
             parsed_artifact=_artifact(
                 rows.ingestion.parsed_object_key, rows.ingestion.parsed_sha256
             ),
-            chunk_artifact=_artifact(
-                rows.ingestion.chunk_object_key, rows.ingestion.chunk_sha256
-            ),
+            chunk_artifact=_artifact(rows.ingestion.chunk_object_key, rows.ingestion.chunk_sha256),
             embedding_artifact=_artifact(
                 rows.ingestion.embedding_object_key, rows.ingestion.embedding_sha256
             ),
-            document_processing_profile_id=(
-                rows.ingestion.document_processing_profile_id
-            ),
+            document_processing_profile_id=(rows.ingestion.document_processing_profile_id),
             document_processing_spec=rows.processing_spec,
         )
 
@@ -528,9 +506,7 @@ def create_rag_ingestion_workflow(settings: Settings) -> RagIngestionWorkflow:
             ),
         ),
         ProductionChunkingStage(settings, runtime_provider),
-        ProductionEmbeddingStage(
-            settings, object_store, runtime_provider=runtime_provider
-        ),
+        ProductionEmbeddingStage(settings, object_store, runtime_provider=runtime_provider),
         ProductionIndexingStage(settings, object_store),
         ProductionReadinessVerifier(settings),
     )
@@ -540,9 +516,20 @@ def _profile_parser(
     media_type: str,
     spec: DocumentProcessingSpec,
     settings: Settings,
-) -> DocxStructureParser | None:
-    if media_type != DOCX_MEDIA_TYPE:
+) -> DocxStructureParser | PdfOcrParser | None:
+    route = spec.parser_routes.get(media_type)
+    pdf_ocr = media_type == "application/pdf" and route is not None and route.name == "pymupdf-ocr"
+    if media_type != DOCX_MEDIA_TYPE and not pdf_ocr:
         return None
+    if pdf_ocr and (
+        route is None
+        or route.version not in ("1", "2")
+        or route.pdf_raster is None
+        or spec.ocr is None
+    ):
+        raise DocumentProcessingResolutionError(
+            "PDF OCR requires supported raster and OCR settings."
+        )
     if spec.ocr is None:
         return DocxStructureParser()
     ocr = spec.ocr
@@ -566,13 +553,20 @@ def _profile_parser(
         languages=ocr.languages,
         confidence_threshold=ocr.confidence_threshold,
         artifact_directories={
-            role: settings.model_cache_root
-            / "ocr"
-            / model.kind.value
-            / model.artifact_sha256
+            role: settings.model_cache_root / "ocr" / model.kind.value / model.artifact_sha256
             for role, model in models.items()
         },
     )
+    if pdf_ocr:
+        assert route is not None and route.pdf_raster is not None
+        return PdfOcrParser(
+            parser_version=route.version,
+            ocr_runtime=PaddleStructureV3Adapter(),
+            ocr_profile=profile,
+            raster_dpi=route.pdf_raster.raster_dpi,
+            max_page_pixels=route.pdf_raster.max_page_pixels,
+            max_pages=route.pdf_raster.max_pages,
+        )
     return DocxStructureParser(
         ocr_runtime=PaddleStructureV3Adapter(),
         ocr_profile=profile,

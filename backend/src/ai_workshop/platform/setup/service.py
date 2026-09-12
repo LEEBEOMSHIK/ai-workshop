@@ -1,4 +1,5 @@
 from typing import Annotated, Protocol
+from uuid import UUID
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,11 +20,15 @@ from ai_workshop.shared.errors import AppError
 
 
 class OwnerSetupRepository(Protocol):
+    async def owner_setup_required(self) -> bool: ...
+
     async def lock_owner_setup(self) -> None: ...
 
     async def owner_exists(self) -> bool: ...
 
     async def add(self, user: User) -> User: ...
+
+    async def complete_owner_setup(self, owner_id: UUID) -> None: ...
 
 
 class SessionTokenIssuer(Protocol):
@@ -46,7 +51,7 @@ class SystemSetupService:
         self.settings = settings
 
     async def setup_required(self) -> bool:
-        return self.settings.environment == "local" and not await self.users.owner_exists()
+        return self.settings.environment == "local" and await self.users.owner_setup_required()
 
     async def create_owner(
         self,
@@ -96,6 +101,7 @@ class SystemSetupService:
             kind=WorkspaceKind.PERSONAL,
             creator=owner,
         )
+        await self.users.complete_owner_setup(owner.id)
         return owner, self.tokens.create(owner)
 
 

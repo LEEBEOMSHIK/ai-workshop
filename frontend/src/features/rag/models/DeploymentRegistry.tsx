@@ -1,14 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import { checkDeploymentHealth, type DeploymentHealth, type DeploymentSummary } from "./api";
 
-const supportedProviders = new Set(["local_openai_compatible", "openai_responses"]);
+const supportedProviders = new Set(["local_openai_compatible", "openai_responses", "development_codex_exec"]);
 
 const providerLabels: Record<string, string> = {
   local_openai_compatible: "로컬 OpenAI 호환",
   openai_responses: "OpenAI Responses API",
+  development_codex_exec: "개발용 Codex CLI (외부 처리)",
 };
 
 const locationLabels: Record<string, string> = {
@@ -40,7 +41,8 @@ const readinessLabels: Record<string, string> = {
   provider_invalid_response: "공급자 응답 확인 필요",
 };
 
-export function DeploymentRegistry({ deployments }: { deployments: DeploymentSummary[] }) {
+export function DeploymentRegistry({ deployments, readOnly = false }: { deployments: DeploymentSummary[]; readOnly?: boolean }) {
+  const titleId = useId();
   const supported = deployments.filter((item) => supportedProviders.has(item.provider));
   const [healthByVersion, setHealthByVersion] = useState<Record<string, DeploymentHealth>>({});
   const [checkingVersionId, setCheckingVersionId] = useState<string | null>(null);
@@ -63,11 +65,11 @@ export function DeploymentRegistry({ deployments }: { deployments: DeploymentSum
   }
 
   return (
-    <section className="deployment-registry" aria-labelledby="deployment-registry-title">
+    <section className="deployment-registry" aria-labelledby={titleId}>
       <div className="section-heading-row">
         <div>
           <p className="eyebrow">EXECUTABLE DEPLOYMENTS</p>
-          <h2 id="deployment-registry-title">실행 배포</h2>
+          <h2 id={titleId}>실행 배포</h2>
         </div>
         <p>모델 정의와 달리 실제 환경에서 실행되는 불변 버전입니다.</p>
       </div>
@@ -110,7 +112,7 @@ export function DeploymentRegistry({ deployments }: { deployments: DeploymentSum
                 </div>
                 <div>
                   <dt>인증정보</dt>
-                  <dd>{deployment.secret_configured ? "인증정보 구성됨" : "인증정보 확인 필요"}</dd>
+                  <dd>{deployment.provider === "development_codex_exec" ? "공식 CLI 인증 사용" : deployment.secret_configured ? "인증정보 구성됨" : "인증정보 확인 필요"}</dd>
                 </div>
                 <div>
                   <dt>준비 상태</dt>
@@ -123,7 +125,7 @@ export function DeploymentRegistry({ deployments }: { deployments: DeploymentSum
                 </p>
               ) : null}
               <HealthStatus health={checkedHealth ?? deployment.latest_health} />
-              <button
+              {readOnly ? null : deployment.provider === "development_codex_exec" ? <p>등록 완료 · 실행 준비는 <a href="/admin/rag/configurations">저장 구성별 연결 검사</a>에서 확인하세요.</p> : <button
                 type="button"
                 aria-label={checkingVersionId === deployment.version_id
                   ? "상태 확인 중…"
@@ -132,7 +134,7 @@ export function DeploymentRegistry({ deployments }: { deployments: DeploymentSum
                 onClick={() => void handleHealthCheck(deployment)}
               >
                 {checkingVersionId === deployment.version_id ? "상태 확인 중…" : "상태 확인"}
-              </button>
+              </button>}
               {healthSuccessVersionId === deployment.version_id ? (
                 <p className="form-success" role="status">상태 확인을 완료했습니다.</p>
               ) : null}

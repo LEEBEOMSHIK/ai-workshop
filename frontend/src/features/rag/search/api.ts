@@ -50,6 +50,7 @@ export function searchEvidence(request: SearchRequest, signal?: AbortSignal): Pr
   return apiRequest<SearchResult>("/api/v1/rag/search", {
     method: "POST",
     json: request,
+    ...(request.codex_input_approval ? { headers: { "x-codex-request": "1" } } : {}),
     signal,
   });
 }

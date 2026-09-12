@@ -1,0 +1,91 @@
+.page {
+  --login-bg: #0a0e13;
+  --login-surface: #101820;
+  --login-border: #2b3944;
+  --login-muted: #91a0ac;
+  --login-text: #edf4f5;
+  --login-accent: #55d9c9;
+  display: flex;
+  flex-direction: column;
+  min-height: 100svh;
+  color: var(--login-text);
+  background: var(--login-bg);
+  overflow-wrap: anywhere;
+  color-scheme: dark;
+}
+
+.page > header a:hover { color: var(--login-accent); }
+.page > header a:focus-visible { outline-color: var(--login-accent); }
+
+.shell {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  padding: clamp(1.25rem, 5vw, 4rem) 1rem;
+}
+
+.card {
+  display: grid;
+  gap: 1rem;
+  width: min(100%, 28rem);
+  padding: clamp(1.5rem, 5vw, 2.5rem);
+  border: 1px solid var(--login-border);
+  border-radius: 0.85rem;
+  background: var(--login-surface);
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--login-accent);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.title {
+  margin: 0;
+  font-family: inherit;
+  font-size: clamp(1.65rem, 5vw, 2rem);
+  line-height: 1.3;
+  letter-spacing: -0.035em;
+}
+
+.copy { margin: 0; color: var(--login-muted); font-size: 0.9rem; line-height: 1.7; }
+.form { display: grid; gap: 1.1rem; margin-block: 0.5rem; }
+.form label { display: grid; gap: 0.5rem; font-size: 0.85rem; font-weight: 600; }
+.form input {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.9rem;
+  padding: 0.75rem;
+  border: 1px solid var(--login-border);
+  border-radius: 0.5rem;
+  color: var(--login-text);
+  background: var(--login-bg);
+  font: inherit;
+  font-size: 1rem;
+}
+.form input:hover { border-color: var(--login-muted); }
+.form input:focus { border-color: var(--login-accent); }
+
+.card a, .card a:visited { color: var(--color-accent-text, #8ee6dc); font-size: 0.85rem; text-underline-offset: 0.25em; }
+.card a:hover { color: var(--login-text); }
+.form button, .card .primaryLink, .card .primaryLink:visited {
+  display: block;
+  min-height: 2.9rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--login-accent);
+  border-radius: 0.5rem;
+  color: var(--login-bg);
+  background: var(--login-accent);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 750;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+.form button:hover:not(:disabled), .card .primaryLink:hover { background: var(--color-accent-text, #8ee6dc); }
+.form button:disabled { opacity: 0.6; cursor: wait; }
+.card :focus-visible { outline: 2px solid var(--login-accent); outline-offset: 3px; }
+.error { margin: 0; padding: 0.75rem; border: 1px solid #78484e; border-radius: 0.5rem; color: #ffb8c1; background: #2b1a20; font-size: 0.85rem; line-height: 1.6; }

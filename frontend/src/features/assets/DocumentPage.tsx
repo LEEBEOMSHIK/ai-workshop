@@ -1,17 +1,25 @@
-import type { DocumentSummary } from "./api";
+import type { WorkspaceSummary } from "../workspaces/api";
+import type { DocumentSummary, LibraryPage } from "./api";
 import { DocumentBrowser } from "./DocumentBrowser";
 
 interface DocumentPageProps {
   workspaceId: string;
-  initialDocuments: DocumentSummary[];
+  initialLibrary: LibraryPage;
+  initialRoot: LibraryPage;
+  initialWorkspaces: WorkspaceSummary[];
+  initialDocument: DocumentSummary | null;
+  initialVersionId: string | null;
 }
 
-export function DocumentPage({ workspaceId, initialDocuments }: DocumentPageProps) {
+export function DocumentPage({ workspaceId, initialLibrary, initialRoot, initialWorkspaces, initialDocument, initialVersionId }: DocumentPageProps) {
   return (
     <DocumentBrowser
       workspaceId={workspaceId}
-      workspaceName="문서 라이브러리"
-      initialDocuments={initialDocuments}
+      initialLibrary={initialLibrary}
+      initialRoot={initialRoot}
+      initialWorkspaces={initialWorkspaces}
+      initialDocument={initialDocument}
+      initialVersionId={initialVersionId}
     />
   );
 }

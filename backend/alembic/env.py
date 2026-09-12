@@ -12,12 +12,27 @@ from ai_workshop.labs.rag.evaluation import models as rag_evaluation_models  # n
 from ai_workshop.labs.rag.generation import (
     audit_models as rag_generation_audit_models,  # noqa: F401
 )
+from ai_workshop.labs.rag.generation import (
+    codex_approval_models as rag_codex_approval_models,  # noqa: F401
+)
+from ai_workshop.labs.rag.generation import (
+    codex_slot_models as rag_codex_slot_models,  # noqa: F401
+)
+from ai_workshop.labs.rag.generation import (
+    codex_verification_models as rag_codex_verification_models,  # noqa: F401
+)
+from ai_workshop.labs.rag.generation import (
+    evidence_approval_request_models as rag_evidence_approval_request_models,  # noqa: F401
+)
 from ai_workshop.labs.rag.ingestion import models as rag_ingestion_models  # noqa: F401
 from ai_workshop.labs.rag.models import models as rag_model_models  # noqa: F401
 from ai_workshop.labs.rag.policies import models as rag_policy_models  # noqa: F401
 from ai_workshop.platform.assets import models as asset_models  # noqa: F401
+from ai_workshop.platform.identity import authorization_models  # noqa: F401
 from ai_workshop.platform.identity import models as identity_models  # noqa: F401
 from ai_workshop.platform.jobs import models as job_models  # noqa: F401
+from ai_workshop.platform.learning import models as learning_models  # noqa: F401
+from ai_workshop.platform.publishing import models as publishing_models  # noqa: F401
 from ai_workshop.platform.workspaces import models as workspace_models  # noqa: F401
 from ai_workshop.shared.models import Base
 from alembic import context

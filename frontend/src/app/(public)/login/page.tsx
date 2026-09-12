@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation";
 
 import { LoginPage } from "../../../features/identity/LoginPage";
-import type { SetupStatus } from "../../../features/identity/api";
-import { serverApiRequest } from "../../../shared/api/server-client";
 import { safeReturnPath } from "../../../shared/auth/access";
+import {
+  incomingCookieHeader,
+  resolveSession,
+} from "../../../shared/auth/server-session";
 import { routes } from "../../../shared/routing/routes";
 import {
   captureServerRoute,
@@ -15,17 +17,35 @@ interface LoginRouteProps {
 }
 
 export default async function LoginRoute({ searchParams }: LoginRouteProps) {
-  const result = await captureServerRoute(() =>
-    serverApiRequest<SetupStatus>("/api/v1/setup/status"),
-  );
-  if (!result.ok) return <ServerRouteFailure failure={result.failure} />;
-  const status = result.value;
   const query = await searchParams;
-  const nextPath = safeReturnPath(
+  const nextPath = loginReturnPath(
     typeof query.next === "string" ? query.next : null,
   );
-  if (status.setup_required) {
-    redirect(`${routes.setup}?next=${encodeURIComponent(nextPath)}`);
+  const result = await captureServerRoute(async () =>
+    resolveSession(await incomingCookieHeader(), nextPath),
+  );
+  if (!result.ok) return <ServerRouteFailure failure={result.failure} />;
+  const decision = result.value;
+  if (decision.kind === "authenticated") redirect(nextPath);
+  if (decision.destination.startsWith(`${routes.setup}?`)) {
+    redirect(decision.destination);
   }
   return <LoginPage nextPath={nextPath} />;
+}
+
+function loginReturnPath(candidate: string | null): string {
+  const nextPath = safeReturnPath(candidate);
+  try {
+    const decoded = decodeURIComponent(nextPath);
+    const pathname = new URL(
+      safeReturnPath(decoded),
+      "https://ai-workshop.local",
+    ).pathname.replace(/\/+$/u, "");
+    if (pathname === routes.login || pathname === routes.setup) {
+      return routes.workshopHome;
+    }
+  } catch {
+    return routes.workshopHome;
+  }
+  return nextPath;
 }

@@ -8,6 +8,7 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from ai_workshop.platform.workspaces.domain import MembershipRole, Workspace, WorkspaceKind
 from ai_workshop.platform.workspaces.models import WorkspaceMembershipRecord, WorkspaceRecord
+from ai_workshop.platform.workspaces.permissions import workspace_read_allowed
 
 
 class WorkspaceRepository(Protocol):
@@ -28,6 +29,14 @@ def workspace_is_active() -> ColumnElement[bool]:
     )
 
 
+def workspace_personal_owner_matches(user_id: UUID) -> ColumnElement[bool]:
+    """Constrain personal ownership in addition to membership and active checks."""
+    return or_(
+        WorkspaceRecord.kind != WorkspaceKind.PERSONAL,
+        WorkspaceRecord.created_by == user_id,
+    )
+
+
 class SqlAlchemyWorkspaceRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -38,7 +47,9 @@ class SqlAlchemyWorkspaceRepository:
             .join(WorkspaceMembershipRecord)
             .where(
                 WorkspaceMembershipRecord.user_id == user_id,
+                workspace_read_allowed(user_id),
                 workspace_is_active(),
+                workspace_personal_owner_matches(user_id),
             )
             .order_by(WorkspaceRecord.name)
         )
@@ -47,9 +58,8 @@ class SqlAlchemyWorkspaceRepository:
     async def has_personal(self, user_id: UUID) -> bool:
         result = await self.session.execute(
             select(WorkspaceRecord.id)
-            .join(WorkspaceMembershipRecord)
             .where(
-                WorkspaceMembershipRecord.user_id == user_id,
+                WorkspaceRecord.created_by == user_id,
                 WorkspaceRecord.kind == WorkspaceKind.PERSONAL,
             )
             .limit(1)

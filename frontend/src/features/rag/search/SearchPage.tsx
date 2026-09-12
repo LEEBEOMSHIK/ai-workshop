@@ -17,6 +17,8 @@ import {
 } from "./api";
 import { EvidenceAnswer } from "./EvidenceAnswer";
 import { RelatedSources } from "./RelatedSources";
+import { CodexModelIdentity } from "../conversation/CodexModelIdentity";
+import { CodexQuestionConsent, type CodexClassification } from "../conversation/CodexQuestionConsent";
 
 const workspaceKindLabels: Record<WorkspaceOption["kind"], string> = {
   company: "전사",
@@ -34,6 +36,7 @@ type GenerationExecutionPreview = NonNullable<
 const providerLabels: Record<GenerationExecutionPreview["provider"], string> = {
   local_openai_compatible: "로컬 OpenAI 호환",
   openai_responses: "OpenAI Responses API",
+  development_codex_exec: "개발용 Codex CLI (외부 처리)",
 };
 
 const locationLabels: Record<GenerationExecutionPreview["location"], string> = {
@@ -52,6 +55,8 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
   const [folderIds, setFolderIds] = useState<string[]>([]);
   const [configurationId, setConfigurationId] = useState("");
   const [experimentalConsent, setExperimentalConsent] = useState(false);
+  const [codexClassification, setCodexClassification] = useState<CodexClassification>("");
+  const [codexConsent, setCodexConsent] = useState(false);
   const [query, setQuery] = useState("");
   const [completedSearches, setCompletedSearches] = useState<Array<{
     result: SearchResult;
@@ -108,6 +113,9 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
     (configuration) => configuration.id === configurationId,
   );
   const generationRequested = selectedConfiguration?.answer_policy.mode === "generative";
+  const preview = selectedConfiguration?.generation_execution_preview;
+  const codexProcessing = generationRequested && preview?.provider === "development_codex_exec";
+  const codexApproved = !codexProcessing || (!!codexClassification && codexConsent && !!preview?.disclosure_version);
   const selectedProcessingKnown =
     !generationRequested || selectedConfiguration?.generation_execution_preview != null;
   const requiresExperimentalConsent = selectedConfiguration?.experimental === true;
@@ -118,6 +126,7 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
   const conversationLocked = completedSearches.length > 0;
 
   async function toggleWorkspace(workspaceId: string, selected: boolean) {
+    resetCodexConsent();
     if (selected) {
       setWorkspaceIds((current) => [...current, workspaceId]);
       try {
@@ -141,6 +150,7 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
       query.trim().length < 2 ||
       !selectedConfigurationReady ||
       !selectedProcessingKnown ||
+      !codexApproved ||
       (requiresExperimentalConsent && !experimentalConsent)
     ) {
       return;
@@ -202,6 +212,7 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
     requestGeneration.current = generation;
     setError("");
     setSearching(true);
+    resetCodexConsent();
     try {
       const result = await searchEvidence(
         {
@@ -212,6 +223,7 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
           top_k: 10,
           experimental,
           history,
+          ...(codexProcessing && codexClassification && preview ? { codex_input_approval: { classification: codexClassification, consented: true, disclosure_version: preview.disclosure_version } } : {}),
         },
         controller.signal,
       );
@@ -221,7 +233,7 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
       }
     } catch (caught) {
       if (requestGeneration.current === generation && !controller.signal.aborted) {
-        setError(searchErrorMessage(caught));
+        setError(`${searchErrorMessage(caught)}${codexProcessing && caught instanceof ApiError ? ` (${caught.code}${caught.correlationId ? ` · 참조: ${caught.correlationId}` : ""})` : ""}`);
       }
     } finally {
       if (requestGeneration.current === generation) {
@@ -232,6 +244,7 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
   }
 
   function cancelSearch() {
+    resetCodexConsent();
     requestGeneration.current += 1;
     searchController.current?.abort();
     searchController.current = null;
@@ -239,10 +252,13 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
   }
 
   function startNewConversation() {
+    cancelSearch();
     setCompletedSearches([]);
     setQuery("");
     setError("");
   }
+
+  function resetCodexConsent() { setCodexConsent(false); setCodexClassification(""); }
 
   return (
     <main className="search-shell">
@@ -286,13 +302,14 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
                     <input
                       type="checkbox"
                       checked={folderIds.includes(folder.id)}
-                      onChange={(event) =>
+                      onChange={(event) => {
+                        resetCodexConsent();
                         setFolderIds((current) =>
                           event.target.checked
                             ? [...current, folder.id]
                             : current.filter((id) => id !== folder.id),
-                        )
-                      }
+                        );
+                      }}
                     />
                     {workspaceNames.get(workspaceId)} / {folder.name}
                   </label>
@@ -308,6 +325,7 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
               value={configurationId}
               onChange={(event) => {
                 setConfigurationId(event.target.value);
+                resetCodexConsent();
                 setExperimentalConsent(false);
                 setProcessingDetailsOpen(false);
               }}
@@ -351,13 +369,14 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
               </label>
             </aside>
           ) : null}
+          {codexProcessing ? <CodexQuestionConsent classification={codexClassification} consented={codexConsent} disabled={searching} onClassification={setCodexClassification} onConsent={setCodexConsent} /> : null}
           <label>
             검색 질문
             <input
               type="search"
               disabled={searching}
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => { setQuery(event.target.value); setCodexConsent(false); }}
             />
           </label>
           <button
@@ -368,6 +387,7 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
               !configurationId ||
               !selectedConfigurationReady ||
               !selectedProcessingKnown ||
+              !codexApproved ||
               query.trim().length < 2 ||
               (requiresExperimentalConsent && !experimentalConsent)
             }
@@ -444,6 +464,7 @@ function ProcessingDisclosure({
   return (
     <aside className="processing-disclosure" aria-label="선택한 구성 처리 안내">
       <p role="status" aria-label="선택한 구성 처리 안내">{preview.disclosure}</p>
+      <CodexModelIdentity execution={preview} />
       <button
         type="button"
         className="processing-details-toggle"

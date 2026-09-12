@@ -93,6 +93,7 @@ class StubConfigurationResolver:
 class RecordingScopeResolver:
     def __init__(self) -> None:
         self.calls: list[tuple[UUID, ...]] = []
+        self.document_calls: list[tuple[tuple[UUID, ...] | None, UUID | None]] = []
 
     async def resolve(
         self,
@@ -101,10 +102,13 @@ class RecordingScopeResolver:
         workspace_ids: tuple[UUID, ...],
         folder_ids: tuple[UUID, ...],
         indexing_profile_id: UUID,
+        document_ids: tuple[UUID, ...] | None = None,
+        document_processing_profile_id: UUID | None = None,
     ) -> ResolvedSearchScope:
         del actor_id, folder_ids, indexing_profile_id
         self.calls.append(workspace_ids)
-        return ResolvedSearchScope(workspace_ids, ())
+        self.document_calls.append((document_ids, document_processing_profile_id))
+        return ResolvedSearchScope(workspace_ids, (), document_ids=document_ids)
 
 
 class DenyingPolicyResolver:
@@ -324,6 +328,56 @@ def _service(
         generation_audit_repository=audit,
     )
     return service, scope, runtime, audit
+
+
+@pytest.mark.asyncio
+async def test_selected_request_with_history_fails_before_model_preparation() -> None:
+    decision = PolicyDecision(
+        True,
+        None,
+        INSTALLATION_POLICY_ID,
+        (WORKSPACE_POLICY_ID, OTHER_WORKSPACE_POLICY_ID),
+        workspace_policy_snapshots=(
+            (WORKSPACE_ID, WORKSPACE_POLICY_ID),
+            (OTHER_WORKSPACE_ID, OTHER_WORKSPACE_POLICY_ID),
+        ),
+    )
+    processing_profile_id = UUID("40000000-0000-0000-0000-000000000002")
+    configuration = replace(
+        _configuration(approval=_approval()),
+        active_index_alias=ActiveIndexAlias(
+            IndexDescriptor(2, "cosine"),
+            "synthetic-rag",
+            INDEXING_PROFILE_ID,
+            processing_profile_id,
+        ),
+    )
+    service, scope, runtime, audit = _service(
+        configuration=configuration,
+        decision=decision,
+    )
+    document_id = UUID("60000000-0000-0000-0000-000000000001")
+
+    with pytest.raises(AppError) as caught:
+        await service.search(
+            actor_id=ACTOR_ID,
+            request=SearchRequest(
+                query="synthetic question",
+                configuration_id=CONFIGURATION_ID,
+                workspace_ids=[WORKSPACE_ID],
+                document_ids=[document_id],
+                experimental=True,
+                history=[ConversationTurnRequest(role="user", content="legacy history")],
+            ),
+        )
+
+    assert (caught.value.code, caught.value.status_code) == (
+        "conversation_scope_changed",
+        409,
+    )
+    assert scope.document_calls == [((document_id,), processing_profile_id)]
+    assert runtime.calls == []
+    assert audit.audits == []
 
 
 @pytest.mark.asyncio

@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Annotated, Literal, Self
 from uuid import UUID
 
@@ -304,6 +305,7 @@ class EvaluationCandidateResponse(BaseModel):
 class EvaluationRunResponse(BaseModel):
     id: UUID
     owner_id: UUID
+    created_at: datetime
     dataset_snapshot_id: UUID
     evaluation_policy_version_id: UUID | None
     status: EvaluationRunStatus
@@ -324,6 +326,7 @@ class EvaluationRunResponse(BaseModel):
         return cls(
             id=run.id,
             owner_id=run.owner_id,
+            created_at=run.created_at,
             dataset_snapshot_id=run.dataset_snapshot_id,
             evaluation_policy_version_id=run.evaluation_policy_version_id,
             status=run.status,

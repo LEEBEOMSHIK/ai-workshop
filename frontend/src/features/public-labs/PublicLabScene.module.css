@@ -20,16 +20,6 @@
     var(--lab-bg);
 }
 
-.page > header {
-  position: relative;
-  z-index: var(--layer-hud);
-  width: 100%;
-  padding: 1rem clamp(1rem, 4vw, 4rem);
-  border-bottom: 1px solid rgb(85 217 201 / 18%);
-  background: rgb(7 11 16 / 82%);
-  backdrop-filter: blur(1rem);
-}
-
 .hero {
   width: 100%;
   padding: clamp(2.25rem, 6vw, 5rem) clamp(1rem, 6vw, 6rem) clamp(1.5rem, 4vw, 3rem);
@@ -303,6 +293,7 @@
 
 .ragLabPage {
   padding-bottom: clamp(2rem, 5vw, 5rem);
+  background: radial-gradient(ellipse at 50% 0, #304f52, transparent 65%), #172e39;
 }
 
 .ragLabHeader {
@@ -316,7 +307,7 @@
 
 .ragLabHeader h1 {
   margin: 0.55rem 0 0.75rem;
-  font-size: clamp(2.5rem, 6vw, 5.5rem);
+  font-size: clamp(2rem, 4vw, 3.25rem);
   line-height: 0.95;
 }
 
@@ -338,223 +329,107 @@
 }
 
 .ragWorkroom {
+  --studio-ink: #294b49;
+  --studio-wood: #bda57c;
   position: relative;
   width: calc(100% - clamp(1.5rem, 6vw, 6rem));
+  max-width: 1440px;
   margin-inline: auto;
-  padding: clamp(1rem, 2.5vw, 2.5rem);
-  border: 1px solid rgb(85 217 201 / 32%);
-  border-radius: clamp(1rem, 2vw, 2rem);
+  padding: 3rem clamp(1rem, 3vw, 3rem) 0;
+  border: 8px solid #405f60;
+  border-top: 12px solid #82998a;
+  border-radius: 3px;
   overflow: hidden;
-  background:
-    linear-gradient(180deg, rgb(12 27 34 / 94%) 0 78%, rgb(7 13 18 / 98%) 78%),
-    #0a1319;
-  box-shadow: inset 0 0 7rem rgb(0 0 0 / 42%), 0 2rem 6rem rgb(0 0 0 / 22%);
+  background: repeating-linear-gradient(0deg, #b8c4ad 0 31px, #aebda6 31px 32px);
+  box-shadow: inset 8px 0 #c3d0b6, inset -8px 0 #8faaa0, 0 10px 0 #203c40, 0 24px 60px #020c154d;
 }
-
 .workroomGrid {
-  position: absolute;
-  inset: 0 0 24%;
-  background:
-    linear-gradient(rgb(85 217 201 / 5%) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(85 217 201 / 5%) 1px, transparent 1px);
-  background-size: 3rem 3rem;
-  mask-image: linear-gradient(to bottom, black, transparent 94%);
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(90deg, transparent 0 79px, #697e6517 79px 80px);
+  pointer-events: none;
 }
-
+.labBackWall {
+  position: absolute; inset: 0 0 auto; height: 7.5rem;
+  background: repeating-linear-gradient(90deg, #e4d6b6 0 79px, #cbbd9c 79px 81px);
+  border-bottom: 14px solid #526d60;
+  box-shadow: 0 5px #294944, 0 16px 22px #30473925;
+  display: flex; justify-content: space-around; padding: 15px 6%; gap: 18%;
+}
+.labBackWall span {
+  width: 14%; min-width: 48px;
+  border: 5px solid #f3e8ca; border-bottom: 8px solid #b19d77;
+  background: linear-gradient(90deg, transparent 47%, #eadfc0 47% 53%, transparent 53%), linear-gradient(#8badab 0 48%, #dfe4c4 48% 54%, #71928d 54%);
+  box-shadow: 3px 5px #59695038;
+}
 .commandDeck {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  min-height: 18rem;
-  padding: clamp(1.25rem, 3vw, 2.5rem);
-  border: 1px solid rgb(245 200 109 / 32%);
-  border-radius: 1.2rem;
-  align-items: center;
-  gap: 1.5rem;
-  grid-template-columns: minmax(0, 1fr) minmax(13rem, 18rem);
-  background:
-    radial-gradient(circle at 82% 30%, rgb(245 200 109 / 11%), transparent 15rem),
-    rgb(8 17 23 / 88%);
+  position: relative; z-index: 1;
+  display: grid; min-height: 12rem; margin: 1.5rem 5% 1.5rem;
+  padding: 1.4rem 2rem; gap: 1.5rem;
+  grid-template-columns: minmax(0, 1fr) 12rem; align-items: center;
+  border: 4px solid #b8a477; border-radius: 2px;
+  background: #315957;
+  box-shadow: inset 0 0 0 3px #63827a, 6px 9px #354f4033;
 }
-
-.commandCopy h2 {
-  margin: 0.5rem 0 0.75rem;
-  font-size: clamp(1.8rem, 4vw, 3.4rem);
-}
-
-.commandCopy > p:not(.eyebrow) {
-  max-width: 47rem;
-  margin: 0;
-  color: var(--lab-muted);
-  line-height: 1.7;
-}
-
-.commandCopy .agentBoundaryNote {
-  max-width: 43rem;
-  margin-top: 1rem;
-  padding-left: 0.9rem;
-  border-left: 2px solid rgb(58 238 207 / 52%);
-  color: rgb(219 234 241 / 82%);
-  font-size: 0.84rem;
-}
-
-.commandAgent {
-  display: grid;
-  justify-items: center;
-}
-
+.commandCopy h2 { margin: .4rem 0 .7rem; font-size: clamp(1.3rem, 2.4vw, 2rem); color: #f0dfb5; }
+.commandCopy > p:not(.eyebrow) { max-width: 44rem; margin: 0; color: #d1ddc9; line-height: 1.7; font-size: .8rem; }
+.commandCopy .agentBoundaryNote { margin-top: .65rem; padding-left: .7rem; border-left: 2px solid #b6c193; font-size: .7rem; color: #b9cbbb; }
+.commandAgent { display: grid; justify-items: center; }
 .workerStations {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  margin: 1.25rem 0 0;
-  padding: 0;
-  list-style: none;
-  gap: 1rem;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  position: relative; z-index: 1; display: grid;
+  margin: 0; padding: 1rem 0 2.5rem; list-style: none;
+  gap: 3.6rem 2.5rem; grid-template-columns: repeat(3, minmax(0,1fr));
 }
-
-.workerStation {
-  position: relative;
-  min-width: 0;
-}
-
+.workerStation { position: relative; min-width: 0; }
 .workerStation::after {
-  position: absolute;
-  z-index: 2;
-  top: 50%;
-  right: -0.72rem;
-  display: block;
-  width: 0.55rem;
-  height: 0.55rem;
-  border-right: 2px solid var(--lab-amber);
-  border-bottom: 2px solid var(--lab-amber);
-  content: "";
-  transform: translateY(-50%) rotate(-45deg);
+  position: absolute; bottom: -1.8rem; left: 6%; right: 6%; height: 2px;
+  background: repeating-linear-gradient(90deg, #f2e8c6 0 12px, transparent 12px 21px);
+  content: ""; opacity: .85;
 }
-
-.workerStation:last-child::after {
-  display: none;
-}
-
-.workerStation:nth-child(3n):not(:last-child)::after {
-  top: auto;
-  right: auto;
-  bottom: -0.72rem;
-  left: 50%;
-  display: block;
-  transform: translateX(-50%) rotate(45deg);
-}
-
-.workerStation > section {
-  position: relative;
-  display: grid;
-  height: 100%;
-  min-height: 29rem;
-  padding: 1rem;
-  border: 1px solid rgb(85 217 201 / 22%);
-  border-radius: 1rem;
-  align-content: space-between;
-  overflow: hidden;
-  background: linear-gradient(150deg, rgb(19 34 42 / 96%), rgb(8 16 21 / 96%));
-}
-
-.workerStation > section::after {
-  position: absolute;
-  right: 1rem;
-  bottom: 0;
-  left: 1rem;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--lab-cyan), transparent);
-  content: "";
-  opacity: 0.45;
-}
-
+.workerStation > section { position: relative; min-height: 17rem; height: 100%; }
 .stationHeader {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
+  position: relative; z-index: 1; display: flex; align-items: center; gap: .65rem;
+  width: fit-content; max-width: 100%; padding: .5rem .75rem;
+  background: #e5dbc0; border-left: 4px solid #627e71; box-shadow: 3px 3px #3b574726;
 }
-
-.stationHeader p,
-.stationHeader h3 {
-  margin: 0;
-}
-
-.stationHeader p {
-  color: var(--lab-cyan);
-  font-size: 0.65rem;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-}
-
-.stationHeader h3 {
-  margin-top: 0.25rem;
-  font-size: clamp(0.95rem, 1.5vw, 1.15rem);
-}
-
-.stationOrder {
-  color: rgb(245 200 109 / 48%);
-  font-size: 2rem;
-  font-weight: 900;
-  line-height: 1;
-}
-
-.stationConsole {
-  position: absolute;
-  top: 5rem;
-  right: 1rem;
-  left: 1rem;
-  display: grid;
-  min-height: 5.5rem;
-  padding: 0.9rem;
-  border: 0.3rem solid #263a42;
-  align-content: center;
-  gap: 0.45rem;
-  background: rgb(5 13 17 / 82%);
-}
-
-.stationConsole span {
-  display: block;
-  width: 78%;
-  height: 0.3rem;
-  border-radius: 999px;
-  background: var(--lab-cyan);
-  box-shadow: 0 0 0.6rem rgb(85 217 201 / 35%);
-  animation: status-pulse 2.4s ease-in-out infinite;
-}
-
-.stationConsole span:nth-child(2) {
-  width: 54%;
-  animation-delay: -0.8s;
-}
-
-.stationConsole span:nth-child(3) {
-  width: 68%;
-  background: var(--lab-copper);
-  animation-delay: -1.6s;
-}
-
+.stationHeader p, .stationHeader h3 { margin: 0; }
+.stationHeader p { color: #607567; font: 700 8px/1.5 monospace; letter-spacing: .05em; }
+.stationHeader h3 { margin-top: .2rem; color: #2c514c; font-size: .8rem; }
+.stationOrder { color: #9c8457; font: 800 1.4rem/1 monospace; }
+.benchArt { position: absolute; top: 3.5rem; left: 0; width: 100%; max-height: 13rem; overflow: visible; filter: drop-shadow(3px 5px 1px #344b3420); }
+.pixelPerson { display: block; width: 72px; height: 96px; image-rendering: pixelated; flex: none; }
 .workerStation .character {
-  align-self: end;
-  width: 100%;
-  margin-top: 7rem;
+  position: absolute; bottom: -.35rem; right: -1rem; width: 85%; margin: 0;
 }
-
-.workerStation .characterButton {
-  min-width: 0;
-  padding: 0.75rem;
-  background: rgb(12 22 28 / 92%);
+.ragWorkroom .characterButton {
+  min-width: 0; padding: 4px; border: 1px solid transparent;
+  border-radius: 3px; background: transparent; box-shadow: none;
 }
-
-.workerStation .avatar {
-  width: 6.4rem;
-  height: 7rem;
-  transform: scale(0.86);
-  transform-origin: bottom;
+.ragWorkroom .characterButton:hover { border-color: #e7d3a0; background: #faf2d424; }
+.ragWorkroom .characterButton:focus-visible { outline: 3px solid #294f49; outline-offset: 3px; }
+.ragWorkroom .characterVisual { display: flex; align-items: end; gap: .1rem; animation: none; }
+.ragWorkroom .pixelPerson { animation: studio-work 3.5s steps(2,end) infinite; }
+.workerStation:nth-child(2n) .pixelPerson { animation-delay: -1.8s; }
+.ragWorkroom .identity {
+  margin: 0 0 7px; align-items: start; justify-items: start; gap: .15rem;
+  padding: .45rem .55rem; background: #294d48ed;
+  border: 1px solid #809784; border-radius: 2px;
+  box-shadow: 2px 3px #203c3933; color: #c5d4bd; font-size: 8px;
 }
+.ragWorkroom .identity strong { font-size: 11px; color: #fae7b9; }
+.ragWorkroom .identity .role { color: #a3c2ad; font-size: 8px; }
+.commandAgent .characterVisual { flex-direction: column; align-items: center; }
+.commandAgent .identity { align-items: center; justify-items: center; margin-top: -.4rem; }
+.commandAgent .pixelPerson { width: 66px; height: 88px; }
+.workroomThreshold {
+  position: relative; margin-inline: -3rem; padding: 16px 20px;
+  background: #3c5d57; border-top: 6px solid #889d83; text-align: center;
+}
+.workroomThreshold > span { color: #e4cf9c; font: 800 11px/1.5 monospace; letter-spacing: 3px; }
+.workroomThreshold p { color: #c9d4bc; font-size: 10px; margin: 5px 0 0; }
+.ragHeaderActions { display: grid; justify-items: end; gap: 1rem; }
+.returnToOffice { font-size: .78rem; color: #bed7ce; text-decoration: none; }
+.returnToOffice:hover { color: #f5dca3; }
+@keyframes studio-work { 0%, 80%, 100% { transform: translateY(0); } 40%, 60% { transform: translateY(-2px); } }
 
 .ragCapabilityDeck {
   display: grid;
@@ -1161,6 +1036,29 @@
   overscroll-behavior: contain;
 }
 
+.dialogCopy a {
+  color: #8ee6dc;
+  font-weight: 750;
+  overflow-wrap: anywhere;
+  text-decoration-color: currentcolor;
+  text-decoration-thickness: 0.12em;
+  text-underline-offset: 0.2em;
+}
+
+.dialogCopy a:visited {
+  color: #f5c86d;
+}
+
+.dialogCopy a:hover {
+  color: #d7fff9;
+}
+
+.dialogCopy a:focus-visible {
+  border-radius: 0.2rem;
+  outline: 3px solid var(--lab-amber);
+  outline-offset: 4px;
+}
+
 .agentBrief {
   display: grid;
   margin: 1rem 0 0;
@@ -1261,23 +1159,6 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .workerStation:nth-child(3n):not(:last-child)::after {
-    top: 50%;
-    right: -0.72rem;
-    bottom: auto;
-    left: auto;
-    transform: translateY(-50%) rotate(-45deg);
-  }
-
-  .workerStation:nth-child(2n):not(:last-child)::after {
-    top: auto;
-    right: auto;
-    bottom: -0.72rem;
-    left: 50%;
-    display: block;
-    transform: translateX(-50%) rotate(45deg);
-  }
-
   .ragCapabilityDeck {
     grid-template-columns: 1fr;
   }
@@ -1330,10 +1211,6 @@
 }
 
 @media (width < 48rem) {
-  .page > header {
-    padding-inline: 1rem;
-  }
-
   .hero {
     padding: 2rem 1rem 1.35rem;
   }
@@ -1381,12 +1258,13 @@
   }
 
   .ragWorkroom {
-    padding: 0.75rem;
+    padding: 2.5rem 1rem 0;
   }
 
   .commandDeck {
     padding: 1rem;
-    grid-template-columns: 1fr;
+    margin-inline: 0;
+    grid-template-columns: minmax(0, 1fr) 5rem;
   }
 
   .commandAgent {
@@ -1397,17 +1275,8 @@
     grid-template-columns: 1fr;
   }
 
-  .workerStation:nth-child(n):not(:last-child)::after {
-    top: auto;
-    right: auto;
-    bottom: -0.72rem;
-    left: 50%;
-    display: block;
-    transform: translateX(-50%) rotate(45deg);
-  }
-
   .workerStation > section {
-    min-height: 27rem;
+    min-height: 18rem;
   }
 
   .scene {
@@ -1551,7 +1420,7 @@
     animation: none;
   }
 
-  .stationConsole span {
+  .ragWorkroom .pixelPerson {
     animation: none;
   }
 }

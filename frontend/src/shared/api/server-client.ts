@@ -6,6 +6,9 @@ export async function serverApiRequest<T = void>(
   options: ApiRequestOptions = {},
   cookieHeader?: string,
 ): Promise<T> {
+  if (process.env.AI_WORKSHOP_FRONTEND_RUNTIME === "public") {
+    throw new Error("private_api_unavailable_in_public_runtime");
+  }
   const { body, json, ...init } = options;
   const headers = new Headers(init.headers);
   let requestBody = body;

@@ -24,6 +24,7 @@ from ai_workshop.platform.workspaces.models import (
     WorkspaceMembershipRecord,
     WorkspaceRecord,
 )
+from ai_workshop.platform.workspaces.permissions import workspace_read_allowed
 from ai_workshop.platform.workspaces.repository import workspace_is_active
 
 
@@ -70,9 +71,7 @@ class SqlAlchemySearchSourceResolver:
             WorkspaceMembershipRecord.user_id == actor_id,
         )
         exact_snapshot = bool(frozen_asset_version_ids or frozen_index_build_ids)
-        if exact_snapshot and (
-            not frozen_asset_version_ids or not frozen_index_build_ids
-        ):
+        if exact_snapshot and (not frozen_asset_version_ids or not frozen_index_build_ids):
             raise ValueError("An exact source snapshot requires Asset Versions and builds.")
         lifecycle_filters = (
             (
@@ -115,6 +114,7 @@ class SqlAlchemySearchSourceResolver:
                     RagProjectionRecord.status == "ready",
                     AssetVersionRecord.status == VersionStatus.READY,
                     workspace_is_active(),
+                    workspace_read_allowed(actor_id),
                     or_(
                         WorkspaceRecord.kind != WorkspaceKind.PERSONAL,
                         WorkspaceRecord.created_by == actor_id,

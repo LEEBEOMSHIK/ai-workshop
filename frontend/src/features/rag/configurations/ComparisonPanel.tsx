@@ -7,7 +7,10 @@ import type {
   EvaluationRun,
   EvaluationRunCreate,
   SavedConfiguration,
+  Workspace,
 } from "./api";
+import { EvaluationAuthoringPanel } from "./EvaluationAuthoringPanel";
+import { EvaluationAcceptanceButton } from "./EvaluationAcceptanceButton";
 import {
   loadConfigurations,
   loadEvaluationRun,
@@ -19,7 +22,9 @@ interface ComparisonPanelProps {
   configurations: SavedConfiguration[];
   initialRuns: EvaluationRun[];
   initialSelectedVersionIds?: string[];
+  workspaces?: Workspace[];
   onConfigurationUpdated: (configuration: SavedConfiguration) => void;
+  onDefaultPromoted?: (promoted: SavedConfiguration, refreshed: SavedConfiguration[]) => void;
 }
 
 const runStatusLabels: Record<EvaluationRun["status"], string> = {
@@ -57,7 +62,9 @@ export function ComparisonPanel({
   configurations,
   initialRuns,
   initialSelectedVersionIds = [],
+  workspaces = [],
   onConfigurationUpdated,
+  onDefaultPromoted,
 }: ComparisonPanelProps) {
   const baseline = configurations.find((configuration) => configuration.is_system);
   const selectableVersionIds = useMemo(
@@ -95,6 +102,16 @@ export function ComparisonPanel({
   const startController = useRef<AbortController | null>(null);
   const refreshController = useRef<AbortController | null>(null);
   const promotionController = useRef<AbortController | null>(null);
+
+  const incomingSelectionKey = initialSelectedVersionIds.join("\u0000");
+  const [appliedSelectionKey, setAppliedSelectionKey] = useState(incomingSelectionKey);
+  if (appliedSelectionKey !== incomingSelectionKey) {
+    setAppliedSelectionKey(incomingSelectionKey);
+    setSelectedVersionIds((current) => {
+      const next = unique([...current, ...initialSelectedVersionIds]).filter((id) => selectableVersionIds.has(id));
+      return next.length === current.length && next.every((id, index) => id === current[index]) ? current : next;
+    });
+  }
 
   const orderedConfigurations = useMemo(() => {
     const selected = configurations.filter(
@@ -282,12 +299,13 @@ export function ComparisonPanel({
       } catch {
         if (!isCurrentPromotion(currentGeneration, controller)) return;
         synchronized = configurations.map((current) => {
-          if (current.id === promoted.id) return promoted;
-          return current.is_default ? { ...current, is_default: false } : current;
+          if (current.version_id === promoted.version_id) return promoted;
+          return current.is_default ? { ...current, is_default: false, experimental: true } : current;
         });
       }
       if (isCurrentPromotion(currentGeneration, controller)) {
-        synchronized.forEach(onConfigurationUpdated);
+        if (onDefaultPromoted) onDefaultPromoted(promoted, synchronized);
+        else synchronized.forEach(onConfigurationUpdated);
       }
     } catch (caught) {
       if (isCurrentPromotion(currentGeneration, controller)) {
@@ -330,6 +348,16 @@ export function ComparisonPanel({
         <p>가장 높은 단일 지표가 아니라 정책으로 검증된 평가 상태가 운영 승격을 결정합니다.</p>
       </div>
 
+      <EvaluationAuthoringPanel configurations={configurations} workspaces={workspaces}
+        beginOperation={() => { cancelRunOperations(); setActiveRun(null); return runGeneration.current; }}
+        isCurrentOperation={(intent) => mounted.current && runGeneration.current === intent}
+        onInvalidate={() => { cancelRunOperations(); setActiveRun(null); }}
+        onRun={(run) => {
+          setActiveRun(run); setDatasetSnapshotId(run.dataset_snapshot_id);
+          setEvaluationPolicyVersionId(run.evaluation_policy_version_id ?? "");
+          setSelectedVersionIds(run.candidates.map((candidate) => candidate.configuration_version_id).filter((id) => selectableVersionIds.has(id)));
+        }} />
+      <details><summary>기존 스냅샷으로 비교 (고급)</summary>
       <form className="evaluation-controls" onSubmit={handleStart}>
         <fieldset disabled={starting}>
           <legend>비교 후보</legend>
@@ -406,6 +434,7 @@ export function ComparisonPanel({
           </button>
         </div>
       </form>
+      </details>
 
       {error ? <p className="form-error" role="alert">{error}</p> : null}
       {activeRun ? (
@@ -434,6 +463,8 @@ export function ComparisonPanel({
               canPromote={canPromote}
               promoting={promotingId === configuration.id}
               onPromote={() => void promote(configuration)}
+              runId={activeRun?.id ?? ""}
+              onUpdated={onConfigurationUpdated}
             />
           );
         })}
@@ -448,12 +479,16 @@ function CandidateResult({
   canPromote,
   promoting,
   onPromote,
+  runId,
+  onUpdated,
 }: {
   configuration: SavedConfiguration;
   candidate: EvaluationCandidate | undefined;
   canPromote: boolean;
   promoting: boolean;
   onPromote: () => void;
+  runId: string;
+  onUpdated: (configuration: SavedConfiguration) => void;
 }) {
   const failedCases = candidate?.case_results.filter(isFailedCase) ?? [];
   return (
@@ -499,6 +534,7 @@ function CandidateResult({
 
       <p>평가 상태: {configuration.evaluation_state}</p>
       {canPromote ? <p>정책 근거 확인됨 · 서버 최종 판정 필요</p> : null}
+      {!configuration.is_system ? <EvaluationAcceptanceButton key={`${configuration.version_id}:${runId}`} configuration={configuration} runId={runId} disabled={!canPromote} onUpdated={onUpdated} /> : null}
       <button
         type="button"
         disabled={
@@ -508,7 +544,7 @@ function CandidateResult({
         }
         onClick={onPromote}
       >
-        {promoting ? "승격 중…" : "운영 기본값으로 승격"}
+        {promoting ? "승격 중…" : "전체 기본값으로 지정"}
       </button>
     </article>
   );

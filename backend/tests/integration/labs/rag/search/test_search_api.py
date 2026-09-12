@@ -184,8 +184,7 @@ class InMemorySearchConfigurationResolver(SearchConfigurationResolverPort):
     ) -> ResolvedSearchConfiguration:
         if (
             self.configuration is None
-            or configuration_version_id
-            != self.configuration.configuration_version_id
+            or configuration_version_id != self.configuration.configuration_version_id
         ):
             raise AppError("not_found", "The requested resource was not found.", 404)
         self.calls.append((configuration_version_id, actor_id))
@@ -200,18 +199,18 @@ class RecordingScopeResolver:
         workspace_ids: tuple[UUID, ...],
         folder_ids: tuple[UUID, ...],
         indexing_profile_id: UUID,
+        document_ids: tuple[UUID, ...] | None = None,
+        document_processing_profile_id: UUID | None = None,
     ) -> ResolvedSearchScope:
+        del document_processing_profile_id
         assert actor_id == ACTOR_ID
         assert indexing_profile_id == INDEXING_PROFILE_ID
         return ResolvedSearchScope(
             workspace_ids,
             folder_ids,
-            asset_version_ids=(
-                UUID("a0000000-0000-0000-0000-000000000001"),
-            ),
-            index_build_ids=(
-                UUID("b0000000-0000-0000-0000-000000000001"),
-            ),
+            asset_version_ids=(UUID("a0000000-0000-0000-0000-000000000001"),),
+            index_build_ids=(UUID("b0000000-0000-0000-0000-000000000001"),),
+            document_ids=document_ids,
         )
 
 
@@ -277,9 +276,7 @@ class AuthoritativeSourceResolver(SearchSourceResolverPort):
         indexing_profile_id: UUID,
         hits: tuple[FusedHit, ...],
     ) -> tuple[EvidenceSource, ...]:
-        self.calls.append(
-            (actor_id, indexing_profile_id, tuple(item.chunk_id for item in hits))
-        )
+        self.calls.append((actor_id, indexing_profile_id, tuple(item.chunk_id for item in hits)))
         hit_ids = {item.chunk_id for item in hits}
         return tuple(source for source in self.sources if source.chunk.chunk_id in hit_ids)
 
@@ -345,29 +342,29 @@ def _configuration(
 def _generation_deployment() -> ModelDeploymentVersion:
     return replace(
         ModelDeploymentVersion.create(
-        deployment_id=UUID("c0000000-0000-0000-0000-000000000010"),
-        version=1,
-        display_name="Synthetic local generation",
-        description="Synthetic search fixture",
-        model_definition_id=UUID("c0000000-0000-0000-0000-000000000002"),
-        provider=ProviderKind.LOCAL_OPENAI_COMPATIBLE,
-        location=ExecutionLocation.LOCAL,
-        allowed_environments=(DeploymentEnvironment.DEVELOPMENT,),
-        provider_model_id="test/exact-model",
-        endpoint_ref="local-runtime",
-        secret_ref=None,
-        capabilities=(
-            DeploymentCapability.STRUCTURED_OUTPUT,
-            DeploymentCapability.CONTEXTUALIZATION,
-        ),
-        external_transfer=False,
-        transmitted_data_categories=(),
-        data_processing_notice_ref=None,
-        timeout_seconds=10.0,
-        max_retries=0,
-        retry_backoff_seconds=0.0,
-        healthcheck_enabled=True,
-        development_only=False,
+            deployment_id=UUID("c0000000-0000-0000-0000-000000000010"),
+            version=1,
+            display_name="Synthetic local generation",
+            description="Synthetic search fixture",
+            model_definition_id=UUID("c0000000-0000-0000-0000-000000000002"),
+            provider=ProviderKind.LOCAL_OPENAI_COMPATIBLE,
+            location=ExecutionLocation.LOCAL,
+            allowed_environments=(DeploymentEnvironment.DEVELOPMENT,),
+            provider_model_id="test/exact-model",
+            endpoint_ref="local-runtime",
+            secret_ref=None,
+            capabilities=(
+                DeploymentCapability.STRUCTURED_OUTPUT,
+                DeploymentCapability.CONTEXTUALIZATION,
+            ),
+            external_transfer=False,
+            transmitted_data_categories=(),
+            data_processing_notice_ref=None,
+            timeout_seconds=10.0,
+            max_retries=0,
+            retry_backoff_seconds=0.0,
+            healthcheck_enabled=True,
+            development_only=False,
             created_by=ACTOR_ID,
         ),
         id=UUID("c0000000-0000-0000-0000-000000000011"),
@@ -648,9 +645,7 @@ def _post_search(
 
 
 def _task8_database_url(base_url: str, database: str) -> str:
-    return make_url(base_url).set(database=database).render_as_string(
-        hide_password=False
-    )
+    return make_url(base_url).set(database=database).render_as_string(hide_password=False)
 
 
 def _task8_sync_url(database_url: str) -> str:
@@ -674,13 +669,9 @@ def _isolated_task8_database(
         yield isolated_url
     finally:
         get_settings.cache_clear()
-        with psycopg.connect(
-            _task8_sync_url(administrative), autocommit=True
-        ) as connection:
+        with psycopg.connect(_task8_sync_url(administrative), autocommit=True) as connection:
             connection.execute(
-                sql.SQL("DROP DATABASE {} WITH (FORCE)").format(
-                    sql.Identifier(database)
-                )
+                sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(database))
             )
 
 
@@ -729,13 +720,13 @@ def _seed_task8_generation_contract(isolated_url: str) -> dict[str, UUID]:
             "INSERT INTO rag_profiles (id, kind, name, version, config, "
             "evaluation_state, is_default) VALUES (%s, 'generation', "
             "'Synthetic external generation', 1, "
-            "'{\"prompt_ref\":\"rag-answer-v1\","
-            "\"context_prompt_ref\":\"rag-contextualize-v1\","
-            "\"citation_mode\":\"required\","
-            "\"context_policy\":{\"max_history_turns\":4,"
-            "\"max_history_tokens\":100},"
-            "\"generation\":{\"timeout_seconds\":10,"
-            "\"max_output_tokens\":200,\"temperature\":0.1,"
+            '\'{"prompt_ref":"rag-answer-v1",'
+            '"context_prompt_ref":"rag-contextualize-v1",'
+            '"citation_mode":"required",'
+            '"context_policy":{"max_history_turns":4,'
+            '"max_history_tokens":100},'
+            '"generation":{"timeout_seconds":10,'
+            '"max_output_tokens":200,"temperature":0.1,'
             "\"response_schema_version\":1}}'::json, 'passed', false)",
             (ids["generation_profile"],),
         )
@@ -1001,14 +992,10 @@ def verify_postgresql_current_approval_policy_strengthening_and_audit_hygiene(
                 external_approval=ResolvedExternalApproval(
                     configuration_version_id=stored.configuration_version_id,
                     deployment_version_id=stored.deployment_version_id,
-                    installation_policy_version_id=(
-                        stored.installation_policy_version_id
-                    ),
+                    installation_policy_version_id=(stored.installation_policy_version_id),
                     disclosure_version=stored.disclosure_version,
                     workspace_policies=tuple(
-                        ResolvedWorkspacePolicyApproval(
-                            item.workspace_id, item.policy_version_id
-                        )
+                        ResolvedWorkspacePolicyApproval(item.workspace_id, item.policy_version_id)
                         for item in stored.workspace_policies
                     ),
                 ),
@@ -1017,9 +1004,7 @@ def verify_postgresql_current_approval_policy_strengthening_and_audit_hygiene(
             yield SearchApplicationService(
                 configuration_resolver=InMemorySearchConfigurationResolver(configuration),
                 scope_resolver=RecordingScopeResolver(),
-                sparse_retriever=SparseRetriever(
-                    (SparseHit(source.chunk, rank=1, score=10.0),)
-                ),
+                sparse_retriever=SparseRetriever((SparseHit(source.chunk, rank=1, score=10.0),)),
                 dense_retriever=DenseRetriever(),
                 source_resolver=AuthoritativeSourceResolver((source,)),
                 turn_signer=ConversationTurnSigner(b"s" * 32),
@@ -1056,8 +1041,7 @@ def verify_postgresql_current_approval_policy_strengthening_and_audit_hygiene(
             "location": "external",
             "external_transfer": True,
             "disclosure": (
-                "OpenAI 외부 API로 현재 질문, 제한된 이전 대화와 선별된 "
-                "문서 근거가 전송됩니다."
+                "OpenAI 외부 API로 현재 질문, 제한된 이전 대화와 선별된 문서 근거가 전송됩니다."
             ),
         }
         assert runtime_resolver.calls == 1
@@ -1094,9 +1078,12 @@ def verify_postgresql_current_approval_policy_strengthening_and_audit_hygiene(
         assert len(runtime.contextualization_requests) == 2
         assert len(runtime.generation_requests) == 2
         with psycopg.connect(_task8_sync_url(isolated_url)) as connection:
-            assert connection.execute(
-                "SELECT count(*) FROM rag_generation_execution_audits"
-            ).fetchone()[0] == 2
+            assert (
+                connection.execute(
+                    "SELECT count(*) FROM rag_generation_execution_audits"
+                ).fetchone()[0]
+                == 2
+            )
 
         strengthened_policy_id = uuid4()
         denied: Response | None = None
@@ -1308,16 +1295,10 @@ def test_supported_search_returns_extractive_answer_and_authenticated_actor() ->
     payload = response.json()
     assert payload["status"] == "supported"
     assert payload["answer"]["excerpt"] == source.chunk.evidence_units[0].text
-    assert payload["answer"]["source"]["asset_version_id"] == str(
-        source.chunk.asset_version_id
-    )
+    assert payload["answer"]["source"]["asset_version_id"] == str(source.chunk.asset_version_id)
     assert payload["answer"]["source"]["document_id"] == str(source.document_id)
-    assert payload["answer"]["source"]["projection_id"] == str(
-        source.chunk.projection_id
-    )
-    assert payload["answer"]["source"]["evidence_unit_id"] == str(
-        source.chunk.evidence_units[0].id
-    )
+    assert payload["answer"]["source"]["projection_id"] == str(source.chunk.projection_id)
+    assert payload["answer"]["source"]["evidence_unit_id"] == str(source.chunk.evidence_units[0].id)
     assert payload["configuration_version"] == {
         "configuration_id": str(CONFIGURATION_ID),
         "version_id": str(CONFIGURATION_VERSION_ID),
@@ -1363,6 +1344,9 @@ def test_generative_search_returns_only_citation_validated_answer() -> None:
         "model_name": "test llm",
         "model_version": 1,
         "deployment_name": "Synthetic local generation",
+        "requested_provider_model_id": None,
+        "observed_provider_model_id": None,
+        "model_identity_status": None,
         "location": "local",
         "external_transfer": False,
         "disclosure": "사내 로컬 모델에서 처리됩니다.",
@@ -1656,9 +1640,7 @@ def test_search_failure_after_contextualization_persists_safe_execution_audit(
 
 def test_search_failure_is_masked_only_when_required_audit_persistence_fails() -> None:
     class FailingAuditRepository(RecordingGenerationAuditRepository):
-        async def add(
-            self, audit: GenerationExecutionAudit
-        ) -> GenerationExecutionAudit:
+        async def add(self, audit: GenerationExecutionAudit) -> GenerationExecutionAudit:
             del audit
             raise RuntimeError("private audit storage detail")
 
@@ -1689,9 +1671,7 @@ def test_invalid_generated_citation_never_exposes_draft() -> None:
     private_draft = "근거에 없는 비공개 생성 초안"
 
     class InvalidCitationRuntime(RecordingGenerationRuntime):
-        async def generate(
-            self, request: GenerationRequest
-        ) -> ProviderGenerationResult:
+        async def generate(self, request: GenerationRequest) -> ProviderGenerationResult:
             self.generation_requests.append(request)
             return ProviderGenerationResult(
                 generation=StructuredGeneration(
@@ -1699,9 +1679,7 @@ def test_invalid_generated_citation_never_exposes_draft() -> None:
                     claims=(
                         GeneratedClaim(
                             text=private_draft,
-                            evidence_ids=(
-                                UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"),
-                            ),
+                            evidence_ids=(UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"),),
                         ),
                     ),
                 ),
@@ -1731,9 +1709,7 @@ def test_generation_execution_identity_mismatch_discards_answer() -> None:
                 execution=ProviderExecutionMetadata(
                     provider=result.execution.provider,
                     provider_model_id=result.execution.provider_model_id,
-                    deployment_version_id=UUID(
-                        "ffffffff-ffff-ffff-ffff-ffffffffffff"
-                    ),
+                    deployment_version_id=UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"),
                     input_tokens=1,
                     output_tokens=1,
                     latency_ms=1,
@@ -1765,9 +1741,7 @@ def test_health_execution_identity_mismatch_fails_before_generation() -> None:
                 execution=ProviderExecutionMetadata(
                     provider=execution.provider,
                     provider_model_id=execution.provider_model_id,
-                    deployment_version_id=UUID(
-                        "ffffffff-ffff-ffff-ffff-ffffffffffff"
-                    ),
+                    deployment_version_id=UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"),
                     input_tokens=None,
                     output_tokens=None,
                     latency_ms=1,
@@ -1790,9 +1764,7 @@ def test_health_execution_identity_mismatch_fails_before_generation() -> None:
 
 def test_audit_failure_never_exposes_generated_answer() -> None:
     class FailingAuditRepository(RecordingGenerationAuditRepository):
-        async def add(
-            self, audit: GenerationExecutionAudit
-        ) -> GenerationExecutionAudit:
+        async def add(self, audit: GenerationExecutionAudit) -> GenerationExecutionAudit:
             del audit
             raise RuntimeError("private audit storage detail")
 
@@ -2270,9 +2242,7 @@ def test_text_and_pdf_viewers_independently_reauthorize_exact_resource() -> None
     parsed = _parsed_artifact(UUID("d0000000-0000-0000-0000-000000000002"))
     resource = _viewer_resource(media_type="application/pdf", original=pdf, parsed=parsed)
     repository = MemoryViewerAccessRepository(resource)
-    store = MemoryObjectStore(
-        {"authorized/original": pdf, "authorized/parsed": parsed}
-    )
+    store = MemoryObjectStore({"authorized/original": pdf, "authorized/parsed": parsed})
 
     with _viewer_client(repository, store) as client:
         text_response = client.get(
@@ -2333,9 +2303,7 @@ def test_normalized_viewer_supports_docx_parsed_content_without_original_access(
         parsed_sha256=sha256(parsed).hexdigest(),
     )
     repository = MemoryViewerAccessRepository(resource)
-    store = MemoryObjectStore(
-        {"authorized/original": original, "authorized/parsed": parsed}
-    )
+    store = MemoryObjectStore({"authorized/original": original, "authorized/parsed": parsed})
 
     with _viewer_client(repository, store) as client:
         response = client.get(
@@ -2390,9 +2358,7 @@ def test_docx_image_viewer_requires_authorized_exact_element_and_sha256() -> Non
     )
     resource = replace(resource, asset_version_id=asset_version_id)
     repository = MemoryViewerAccessRepository(resource)
-    store = MemoryObjectStore(
-        {"authorized/original": original, "authorized/parsed": parsed}
-    )
+    store = MemoryObjectStore({"authorized/original": original, "authorized/parsed": parsed})
 
     with _viewer_client(repository, store) as client:
         response = client.get(

@@ -46,9 +46,7 @@ def deployment(*, location: ExecutionLocation) -> ModelDeploymentVersion:
         description="Public synthetic fixture",
         model_definition_id=MODEL_ID,
         provider=(
-            ProviderKind.OPENAI_RESPONSES
-            if is_external
-            else ProviderKind.LOCAL_OPENAI_COMPATIBLE
+            ProviderKind.OPENAI_RESPONSES if is_external else ProviderKind.LOCAL_OPENAI_COMPATIBLE
         ),
         location=location,
         allowed_environments=(DeploymentEnvironment.PRODUCTION,),
@@ -100,9 +98,7 @@ def health(*, status: str = "ready") -> DeploymentHealthCheck:
         deployment_version_id=VERSION_ID,
         status=status,
         safe_error_code=None if status == "ready" else "provider_unavailable",
-        observed_provider_model_id=(
-            "synthetic/exact-model" if status == "ready" else None
-        ),
+        observed_provider_model_id=("synthetic/exact-model" if status == "ready" else None),
         latency_ms=17,
         checked_by=ACTOR_ID,
         created_at=CREATED_AT,
@@ -133,8 +129,7 @@ def test_external_option_uses_the_same_versioned_disclosure_as_execution() -> No
         "required": True,
         "disclosure_version": "external-generation-v1",
         "disclosure": (
-            "OpenAI 외부 API로 현재 질문, 제한된 이전 대화와 선별된 문서 근거가 "
-            "전송됩니다."
+            "OpenAI 외부 API로 현재 질문, 제한된 이전 대화와 선별된 문서 근거가 전송됩니다."
         ),
         "transmitted_data_categories": ["question", "evidence"],
     }
@@ -213,12 +208,31 @@ def test_admin_summary_has_no_latest_health_before_the_first_check() -> None:
     assert response.latest_health is None
 
 
+def test_codex_catalog_exposes_only_logical_runner_reference_without_readiness_upgrade():
+    from tests.unit.labs.rag.deployments.test_domain import codex_deployment
+
+    exact = codex_deployment(runner_ref="codex-synthetic")
+    for response in (
+        DeploymentOptionResponse.from_entry(entry(exact)),
+        DeploymentAdminResponse.from_entry(entry(exact), secret_configured=False),
+    ):
+        assert response.runner_ref == "codex-synthetic"
+        assert response.readiness.ready is False
+        assert (
+            "endpoint_ref" not in response.model_dump()
+            and "secret_ref" not in response.model_dump()
+        )
+    http = deployment(location=ExecutionLocation.EXTERNAL)
+    assert DeploymentOptionResponse.from_entry(entry(http)).runner_ref is None
+    assert (
+        DeploymentAdminResponse.from_entry(entry(http), secret_configured=True).runner_ref is None
+    )
+
+
 def test_option_is_ready_only_for_the_exact_latest_healthy_model() -> None:
     exact_deployment = deployment(location=ExecutionLocation.LOCAL)
 
-    response = DeploymentOptionResponse.from_entry(
-        entry(exact_deployment, latest_health=health())
-    )
+    response = DeploymentOptionResponse.from_entry(entry(exact_deployment, latest_health=health()))
 
     assert response.readiness.model_dump() == {"ready": True, "reason_codes": []}
 
@@ -243,9 +257,7 @@ def test_openapi_exposes_the_task_9_safe_metadata_contract() -> None:
     admin_properties = schemas["DeploymentAdminResponse"]["properties"]
     health_properties = schemas["DeploymentHealthResponse"]["properties"]
 
-    assert {"deployment_version_id", "approval", "readiness"} <= set(
-        option_properties
-    )
+    assert {"deployment_version_id", "approval", "readiness"} <= set(option_properties)
     assert {"latest_health", "readiness"} <= set(admin_properties)
     assert "checked_at" in health_properties
     serialized = str(
@@ -268,18 +280,16 @@ def test_openapi_exposes_the_task_9_safe_metadata_contract() -> None:
 
 def test_external_approval_output_and_input_share_the_exact_version_literal() -> None:
     schemas = create_app().openapi()["components"]["schemas"]
-    input_version = schemas["ExternalTransferApprovalInput"]["properties"][
-        "disclosure_version"
-    ]
-    output_version = schemas["DeploymentApprovalResponse"]["properties"][
-        "disclosure_version"
-    ]
+    input_version = schemas["ExternalTransferApprovalInput"]["properties"]["disclosure_version"]
+    output_version = schemas["DeploymentApprovalResponse"]["properties"]["disclosure_version"]
     shared_version = schemas["ExternalGenerationDisclosureVersion"]
 
-    assert input_version == output_version == {
-        "$ref": "#/components/schemas/ExternalGenerationDisclosureVersion"
-    }
-    assert shared_version["const"] == "external-generation-v1"
+    assert (
+        input_version
+        == output_version
+        == {"$ref": "#/components/schemas/ExternalGenerationDisclosureVersion"}
+    )
+    assert shared_version["enum"] == ["external-generation-v1", "codex-external-generation-v1"]
     assert shared_version["type"] == "string"
 
 

@@ -290,6 +290,7 @@ function searchResult(overrides: Partial<SearchResult> = {}): SearchResult {
     conflicts: [],
     warnings: [],
     related_sources: [],
+    selected_scope: null,
     configuration_version: {
       configuration_id: "configuration-1",
       version_id: "configuration-version-1",

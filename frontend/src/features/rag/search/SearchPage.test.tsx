@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, vi } from "vitest";
@@ -15,6 +15,84 @@ afterEach(() => {
 });
 
 describe("SearchPage", () => {
+  it.each(["success", "error"])("starts a clean Codex conversation and ignores a late follow-up %s", async (outcome) => {
+    const pending = deferred<Response>();
+    const calls: RequestInit[] = [];
+    const result = (text: string) => ({
+      status: "supported", answer: evidenceAnswer(), conflict_state: "none", conflicts: [], warnings: [], related_sources: [],
+      configuration_version: { configuration_id: "configuration-1", version_id: "configuration-version-1", version: 3 },
+      experimental: false, resolved_query: text,
+      generation: { status: "answered", text, citations: [], reason_codes: [], turn_id: text, validation_token: `signed-${text}`, execution: null },
+    });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("/folders")) return jsonResponse([]);
+      calls.push(init!);
+      return calls.length === 2 ? pending.promise : jsonResponse(result(calls.length === 1 ? "First answer" : "New answer"));
+    }));
+    const current = savedConfiguration({ generation_execution_preview: safeExecutionPreview({ provider: "development_codex_exec", disclosure_version: "codex-external-generation-v1" }) });
+    render(<SearchPage initialOptions={{ configurations: [current], workspaces: [{ id: "company-1", name: "Synthetic workspace", kind: "company", expires_at: null }] }} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("checkbox", { name: /Synthetic workspace/ }));
+    await user.selectOptions(screen.getByLabelText("저장된 RAG 구성"), current.id);
+    const input = screen.getByRole("searchbox");
+    async function approveAndSend(question: string) {
+      await user.type(input, question);
+      await user.selectOptions(screen.getByLabelText("이번 질문과 전송 이력의 분류"), "synthetic");
+      await user.click(screen.getByRole("checkbox", { name: "이번 질문의 외부 처리를 확인했습니다" }));
+      await user.click(screen.getByRole("button", { name: "질문 보내기" }));
+    }
+    await approveAndSend("First question");
+    await screen.findByText("First answer", { selector: ".generated-answer p" });
+    await approveAndSend("Pending follow-up");
+    expect(input).toBeDisabled();
+    expect(JSON.parse(String(calls[1].body)).history).toHaveLength(2);
+    await user.click(screen.getByRole("button", { name: "새 대화" }));
+    expect(calls[1].signal?.aborted).toBe(true);
+    expect(input).toBeEnabled();
+    expect(input).toHaveValue("");
+    expect(screen.queryByRole("region", { name: "현재 대화" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("submitted-search-result")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("이번 질문과 전송 이력의 분류")).toHaveValue("");
+    expect(screen.getByRole("checkbox", { name: "이번 질문의 외부 처리를 확인했습니다" })).not.toBeChecked();
+    await act(async () => {
+      pending.resolve(outcome === "success" ? jsonResponse(result("Late answer")) : jsonResponse({ error: { code: "provider_timeout", correlation_id: "late-error", message: "Late failure" } }, 503));
+    });
+    expect(screen.queryByTestId("submitted-search-result")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await user.type(input, "Fresh question");
+    expect(screen.getByRole("button", { name: "질문 보내기" })).toBeDisabled();
+    await user.selectOptions(screen.getByLabelText("이번 질문과 전송 이력의 분류"), "synthetic");
+    expect(screen.getByRole("button", { name: "질문 보내기" })).toBeDisabled();
+    await user.click(screen.getByRole("checkbox", { name: "이번 질문의 외부 처리를 확인했습니다" }));
+    await user.click(screen.getByRole("button", { name: "질문 보내기" }));
+    await screen.findByText("New answer", { selector: ".generated-answer p" });
+    expect(calls).toHaveLength(3);
+    expect(JSON.parse(String(calls[2].body)).history).toEqual([]);
+  });
+  it("requires fresh Codex question/history approval and preserves a failed question", async () => {
+    const current = savedConfiguration({ generation_execution_preview: safeExecutionPreview({ provider: "development_codex_exec", disclosure_version: "codex-external-generation-v1", requested_provider_model_id: "selected-model", observed_provider_model_id: null, model_identity_status: "unknown" }) });
+    const calls: RequestInit[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("/folders")) return jsonResponse([]);
+      calls.push(init!);
+      return jsonResponse({ error: { code: "codex_capacity_busy", message: "safe", correlation_id: "safe-correlation" } }, 503);
+    }));
+    const user = userEvent.setup();
+    render(<SearchPage initialOptions={{ configurations: [current], workspaces: [{ id: "company-1", name: "Synthetic workspace", kind: "company", expires_at: null }] }} />);
+    await user.click(screen.getByRole("checkbox", { name: /Synthetic workspace/ }));
+    await user.selectOptions(screen.getByLabelText("저장된 RAG 구성"), current.id);
+    await user.type(screen.getByRole("searchbox"), "Synthetic question");
+    expect(screen.getByRole("button", { name: "질문 보내기" })).toBeDisabled();
+    await user.selectOptions(screen.getByLabelText("이번 질문과 전송 이력의 분류"), "synthetic");
+    await user.click(screen.getByRole("checkbox", { name: "이번 질문의 외부 처리를 확인했습니다" }));
+    await user.click(screen.getByRole("button", { name: "질문 보내기" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("codex_capacity_busy · 참조: safe-correlation");
+    expect(calls).toHaveLength(1);
+    expect(JSON.parse(String(calls[0].body)).codex_input_approval).toEqual({ classification: "synthetic", consented: true, disclosure_version: "codex-external-generation-v1" });
+    expect(screen.getByRole("searchbox")).toHaveValue("Synthetic question");
+    expect(screen.getByRole("checkbox", { name: "이번 질문의 외부 처리를 확인했습니다" })).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "질문 보내기" })).toBeDisabled();
+  });
   it("keeps a ready extractive search usable when optional generation metadata fails", async () => {
     const extractive = savedConfiguration({
       generation_profile_id: null,
@@ -1044,6 +1122,7 @@ function safeExecutionPreview(
 ): NonNullable<SavedConfiguration["generation_execution_preview"]> {
   return {
     deployment_name: "OpenAI 금융 답변",
+    disclosure_version: "external-generation-v1",
     model_name: "OpenAI GPT-5 mini",
     model_version: 2,
     provider: "openai_responses" as const,

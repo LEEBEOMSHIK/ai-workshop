@@ -29,6 +29,12 @@ class InstallationDataPolicyVersionRecord(UUIDPrimaryKeyMixin, TimestampMixin, B
         UniqueConstraint("policy_id", "version"),
         CheckConstraint("version > 0", name="ck_rag_installation_policy_versions_positive"),
         CheckConstraint(
+            "approved_providers::jsonb <@ "
+            "'[\"local_openai_compatible\", \"openai_responses\", "
+            "\"development_codex_exec\"]'::jsonb",
+            name="ck_rag_installation_policy_versions_providers",
+        ),
+        CheckConstraint(
             "outbound_mode IN ('deny', 'approved_providers')",
             name="ck_rag_installation_policy_versions_mode",
         ),
@@ -69,6 +75,12 @@ class WorkspaceDataPolicyVersionRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base
             "version",
         ),
         CheckConstraint("version > 0", name="ck_rag_workspace_policy_versions_positive"),
+        CheckConstraint(
+            "approved_providers::jsonb <@ "
+            "'[\"local_openai_compatible\", \"openai_responses\", "
+            "\"development_codex_exec\"]'::jsonb",
+            name="ck_rag_workspace_policy_versions_providers",
+        ),
         CheckConstraint(
             "outbound_mode IN ('inherit', 'deny', 'approved_providers')",
             name="ck_rag_workspace_policy_versions_mode",

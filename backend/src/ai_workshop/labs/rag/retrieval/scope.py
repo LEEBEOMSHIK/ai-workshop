@@ -12,7 +12,14 @@ from ai_workshop.labs.rag.documents.models import (
     RagIndexBuildRecord,
     RagProjectionRecord,
 )
-from ai_workshop.labs.rag.retrieval.domain import ResolvedSearchScope
+from ai_workshop.labs.rag.retrieval.domain import (
+    ResolvedSearchScope,
+    SelectedDocumentIdentity,
+)
+from ai_workshop.labs.rag.retrieval.selection import (
+    normalize_document_ids,
+    selected_scope_fingerprint,
+)
 from ai_workshop.platform.assets.domain import VersionStatus
 from ai_workshop.platform.assets.models import (
     AssetVersionRecord,
@@ -24,6 +31,7 @@ from ai_workshop.platform.workspaces.models import (
     WorkspaceMembershipRecord,
     WorkspaceRecord,
 )
+from ai_workshop.platform.workspaces.permissions import workspace_read_allowed
 from ai_workshop.shared.errors import AppError
 
 
@@ -45,12 +53,19 @@ class SearchScopeRepository(Protocol):
         folder_ids: tuple[UUID, ...],
     ) -> tuple[tuple[UUID, UUID], ...]: ...
 
+    async def find_document_locations(
+        self,
+        document_ids: tuple[UUID, ...],
+    ) -> tuple[tuple[UUID, UUID, UUID | None], ...]: ...
+
     async def find_searchable_lifecycle(
         self,
         workspace_ids: tuple[UUID, ...],
         folder_ids: tuple[UUID, ...],
         indexing_profile_id: UUID,
-    ) -> tuple[tuple[UUID, UUID], ...]: ...
+        document_ids: tuple[UUID, ...] | None = None,
+        document_processing_profile_id: UUID | None = None,
+    ) -> tuple[SelectedDocumentIdentity, ...]: ...
 
 
 class SqlAlchemySearchScopeRepository:
@@ -72,7 +87,7 @@ class SqlAlchemySearchScopeRepository:
             await self.session.execute(
                 select(WorkspaceRecord, WorkspaceMembershipRecord.id)
                 .outerjoin(WorkspaceMembershipRecord, membership_join)
-                .where(WorkspaceRecord.id.in_(workspace_ids))
+                .where(WorkspaceRecord.id.in_(workspace_ids), workspace_read_allowed(actor_id))
             )
         ).all()
         by_id = {
@@ -106,16 +121,43 @@ class SqlAlchemySearchScopeRepository:
         by_id = {folder_id: workspace_id for folder_id, workspace_id in rows}
         return tuple((item, by_id[item]) for item in folder_ids if item in by_id)
 
+    async def find_document_locations(
+        self,
+        document_ids: tuple[UUID, ...],
+    ) -> tuple[tuple[UUID, UUID, UUID | None], ...]:
+        if not document_ids:
+            return ()
+        rows = (
+            await self.session.execute(
+                select(
+                    DocumentRecord.id,
+                    DocumentRecord.workspace_id,
+                    DocumentRecord.folder_id,
+                ).where(DocumentRecord.id.in_(document_ids))
+            )
+        ).all()
+        by_id = {
+            document_id: (workspace_id, folder_id) for document_id, workspace_id, folder_id in rows
+        }
+        return tuple((item, *by_id[item]) for item in document_ids if item in by_id)
+
     async def find_searchable_lifecycle(
         self,
         workspace_ids: tuple[UUID, ...],
         folder_ids: tuple[UUID, ...],
         indexing_profile_id: UUID,
-    ) -> tuple[tuple[UUID, UUID], ...]:
+        document_ids: tuple[UUID, ...] | None = None,
+        document_processing_profile_id: UUID | None = None,
+    ) -> tuple[SelectedDocumentIdentity, ...]:
         if not workspace_ids:
             return ()
         statement = (
-            select(AssetVersionRecord.id, RagIndexBuildRecord.id)
+            select(
+                DocumentRecord.id,
+                AssetVersionRecord.id,
+                RagProjectionRecord.id,
+                RagIndexBuildRecord.id,
+            )
             .join(
                 DocumentRecord,
                 DocumentRecord.id == AssetVersionRecord.document_id,
@@ -142,9 +184,21 @@ class SqlAlchemySearchScopeRepository:
         )
         if folder_ids:
             statement = statement.where(DocumentRecord.folder_id.in_(folder_ids))
-        return tuple((asset_id, build_id) for asset_id, build_id in (
-            await self.session.execute(statement)
-        ).all())
+        if document_ids is not None:
+            statement = statement.where(DocumentRecord.id.in_(document_ids))
+        if document_processing_profile_id is not None:
+            statement = statement.where(
+                RagProjectionRecord.document_processing_profile_id
+                == document_processing_profile_id,
+                RagIndexBuildRecord.document_processing_profile_id
+                == document_processing_profile_id,
+            )
+        return tuple(
+            SelectedDocumentIdentity(document_id, asset_id, projection_id, build_id)
+            for document_id, asset_id, projection_id, build_id in (
+                await self.session.execute(statement)
+            ).all()
+        )
 
 
 class SearchScopeResolver:
@@ -153,9 +207,11 @@ class SearchScopeResolver:
         repository: SearchScopeRepository,
         *,
         now: Callable[[], datetime] | None = None,
+        selected_documents_max_count: int = 100,
     ) -> None:
         self.repository = repository
         self.now = now or (lambda: datetime.now(UTC))
+        self.selected_documents_max_count = selected_documents_max_count
 
     async def resolve(
         self,
@@ -164,6 +220,8 @@ class SearchScopeResolver:
         workspace_ids: tuple[UUID, ...],
         folder_ids: tuple[UUID, ...],
         indexing_profile_id: UUID,
+        document_ids: tuple[UUID, ...] | None = None,
+        document_processing_profile_id: UUID | None = None,
     ) -> ResolvedSearchScope:
         requested_workspaces = tuple(dict.fromkeys(workspace_ids))
         requested_folders = tuple(dict.fromkeys(folder_ids))
@@ -183,9 +241,7 @@ class SearchScopeResolver:
         ):
             self._raise_not_found()
 
-        folder_workspaces = dict(
-            await self.repository.find_folder_workspaces(requested_folders)
-        )
+        folder_workspaces = dict(await self.repository.find_folder_workspaces(requested_folders))
         authorized_workspaces = frozenset(requested_workspaces)
         if any(
             folder_id not in folder_workspaces
@@ -194,19 +250,62 @@ class SearchScopeResolver:
         ):
             self._raise_not_found()
 
+        selected_document_ids = normalize_document_ids(
+            document_ids,
+            max_count=self.selected_documents_max_count,
+        )
+        if selected_document_ids is not None:
+            locations = {
+                document_id: (workspace_id, folder_id)
+                for document_id, workspace_id, folder_id in (
+                    await self.repository.find_document_locations(selected_document_ids)
+                )
+            }
+            if any(
+                document_id not in locations
+                or locations[document_id][0] not in authorized_workspaces
+                or (requested_folders and locations[document_id][1] not in requested_folders)
+                for document_id in selected_document_ids
+            ):
+                self._raise_not_found()
+            if document_processing_profile_id is None:
+                raise AppError(
+                    "document_processing_profile_missing",
+                    "The selected configuration has no document processing profile.",
+                    409,
+                )
+
         lifecycle = await self.repository.find_searchable_lifecycle(
             requested_workspaces,
             requested_folders,
             indexing_profile_id,
+            selected_document_ids,
+            document_processing_profile_id,
         )
+        identities = tuple(sorted(lifecycle, key=lambda item: str(item.document_id)))
+        if selected_document_ids is not None and (
+            tuple(item.document_id for item in identities) != selected_document_ids
+        ):
+            raise AppError(
+                "selected_documents_not_ready",
+                "One or more selected documents are not ready for search.",
+                409,
+            )
         return ResolvedSearchScope(
             requested_workspaces,
             requested_folders,
             asset_version_ids=tuple(
-                dict.fromkeys(asset_version_id for asset_version_id, _ in lifecycle)
+                dict.fromkeys(identity.asset_version_id for identity in identities)
             ),
             index_build_ids=tuple(
-                dict.fromkeys(index_build_id for _, index_build_id in lifecycle)
+                dict.fromkeys(identity.index_build_id for identity in identities)
+            ),
+            document_ids=selected_document_ids,
+            selected_documents=(identities if selected_document_ids is not None else ()),
+            scope_fingerprint=(
+                selected_scope_fingerprint(identities)
+                if selected_document_ids is not None
+                else None
             ),
         )
 

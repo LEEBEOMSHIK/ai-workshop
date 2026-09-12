@@ -1,10 +1,11 @@
 from typing import Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ai_workshop.labs.rag.deployments.domain import ExecutionLocation, ProviderKind
 from ai_workshop.labs.rag.documents.domain import SourceKind, SourceLocation
+from ai_workshop.labs.rag.generation.codex_admin_api import CodexInputApprovalRequest
 from ai_workshop.labs.rag.highlighting.domain import (
     AnswerStatus,
     ConflictState,
@@ -12,6 +13,7 @@ from ai_workshop.labs.rag.highlighting.domain import (
     HighlightKind,
     HighlightSpan,
 )
+from ai_workshop.labs.rag.retrieval.selection import reject_explicit_empty_document_ids
 from ai_workshop.labs.rag.search.service import RelatedSource, SearchResult
 
 
@@ -23,13 +25,21 @@ class ConversationTurnRequest(BaseModel):
 
 
 class SearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     query: str = Field(min_length=2, max_length=1000)
     configuration_id: UUID
     workspace_ids: list[UUID] = Field(min_length=1)
     folder_ids: list[UUID] = Field(default_factory=list)
+    document_ids: list[UUID] | None = None
     top_k: int = Field(default=10, ge=1, le=50)
     experimental: bool = False
     history: list[ConversationTurnRequest] = Field(default_factory=list, max_length=20)
+    codex_input_approval: CodexInputApprovalRequest | None = None
+
+    _reject_empty_document_ids = field_validator("document_ids", mode="before")(
+        reject_explicit_empty_document_ids
+    )
 
 
 class GeneratedCitationResponse(BaseModel):
@@ -45,6 +55,9 @@ class GenerationExecutionResponse(BaseModel):
     location: ExecutionLocation
     external_transfer: bool
     disclosure: str
+    requested_provider_model_id: str | None = None
+    observed_provider_model_id: str | None = None
+    model_identity_status: Literal["unknown", "verified", "mismatch"] | None = None
 
 
 class GenerationResponse(BaseModel):
@@ -218,6 +231,18 @@ class ConfigurationVersionResponse(BaseModel):
     version: int
 
 
+class SelectedDocumentIdentityResponse(BaseModel):
+    document_id: UUID
+    asset_version_id: UUID
+    projection_id: UUID
+    index_build_id: UUID
+
+
+class SelectedScopeResponse(BaseModel):
+    identities: list[SelectedDocumentIdentityResponse]
+    fingerprint: str
+
+
 class SearchResponse(BaseModel):
     status: AnswerStatus
     answer: EvidenceAnswerResponse | None
@@ -229,6 +254,7 @@ class SearchResponse(BaseModel):
     experimental: bool
     resolved_query: str
     generation: GenerationResponse
+    selected_scope: SelectedScopeResponse | None
 
     @classmethod
     def from_domain(cls, result: SearchResult) -> Self:
@@ -254,6 +280,22 @@ class SearchResponse(BaseModel):
             ),
             experimental=configuration.experimental,
             resolved_query=result.resolved_query,
+            selected_scope=(
+                SelectedScopeResponse(
+                    identities=[
+                        SelectedDocumentIdentityResponse(
+                            document_id=item.document_id,
+                            asset_version_id=item.asset_version_id,
+                            projection_id=item.projection_id,
+                            index_build_id=item.index_build_id,
+                        )
+                        for item in result.selected_scope.identities
+                    ],
+                    fingerprint=result.selected_scope.fingerprint,
+                )
+                if result.selected_scope is not None
+                else None
+            ),
             generation=GenerationResponse(
                 status=result.generation.status.value,
                 text=result.generation.text,
@@ -274,10 +316,11 @@ class SearchResponse(BaseModel):
                         model_version=result.generation.execution.model_version,
                         deployment_name=result.generation.execution.deployment_name,
                         location=result.generation.execution.location,
-                        external_transfer=(
-                            result.generation.execution.external_transfer
-                        ),
+                        external_transfer=(result.generation.execution.external_transfer),
                         disclosure=result.generation.execution.disclosure,
+                        requested_provider_model_id=result.generation.execution.requested_provider_model_id,
+                        observed_provider_model_id=result.generation.execution.observed_provider_model_id,
+                        model_identity_status=result.generation.execution.model_identity_status,
                     )
                     if result.generation.execution is not None
                     else None

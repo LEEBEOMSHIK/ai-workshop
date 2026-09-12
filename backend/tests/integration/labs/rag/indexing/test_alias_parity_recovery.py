@@ -11,7 +11,6 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
 
 from ai_workshop.config import Settings, get_settings
-from ai_workshop.infrastructure.search.elasticsearch import create_elasticsearch
 from ai_workshop.labs.rag.documents.models import (
     RagIndexBuildRecord,
     RagProjectionRecord,
@@ -30,6 +29,12 @@ from ai_workshop.platform.jobs.domain import Job, JobType
 from ai_workshop.platform.jobs.repository import SqlAlchemyJobRepository
 from ai_workshop.platform.workspaces.models import WorkspaceRecord
 from ai_workshop.shared.db import create_engine, create_session_factory
+from tests.integration.rag_isolation_support import (
+    create_isolated_elasticsearch as create_elasticsearch,
+)
+from tests.integration.rag_isolation_support import (
+    isolated_rag_resources,  # noqa: F401
+)
 
 pytestmark = pytest.mark.integration
 
@@ -228,7 +233,7 @@ async def _delete_alias_parity_fixture(
 async def test_periodic_alias_parity_recovers_commit_loss_supersession_and_empty_set() -> None:
     base = get_settings()
     settings = base.model_copy(
-        update={"elasticsearch_index_prefix": f"rag-alias-parity-{uuid4().hex}"}
+        update={"elasticsearch_index_prefix": f"{base.elasticsearch_index_prefix}-alias-parity"}
     )
     fixture = await _seed_alias_parity_fixture(settings)
     client: AsyncElasticsearch = create_elasticsearch(settings)
@@ -397,7 +402,10 @@ async def test_periodic_alias_parity_recovers_commit_loss_supersession_and_empty
 @pytest.mark.asyncio
 async def test_membership_added_while_source_locks_are_acquired_skips_alias_call() -> None:
     settings = get_settings().model_copy(
-        update={"elasticsearch_index_prefix": f"rag-membership-race-{uuid4().hex}"}
+        update={
+            "elasticsearch_index_prefix":
+                f"{get_settings().elasticsearch_index_prefix}-membership-race"
+        }
     )
     fixture = await _seed_alias_parity_fixture(settings)
     engine = create_engine(settings)
@@ -472,7 +480,10 @@ async def test_membership_added_while_source_locks_are_acquired_skips_alias_call
 @pytest.mark.asyncio
 async def test_failed_profile_does_not_block_later_profile_convergence() -> None:
     settings = get_settings().model_copy(
-        update={"elasticsearch_index_prefix": f"rag-profile-fairness-{uuid4().hex}"}
+        update={
+            "elasticsearch_index_prefix":
+                f"{get_settings().elasticsearch_index_prefix}-profile-fairness"
+        }
     )
     fixture = await _seed_alias_parity_fixture(settings)
     healthy_profile_id = UUID("ffffffff-ffff-ffff-ffff-ffffffffffff")
@@ -550,7 +561,10 @@ async def test_failed_profile_does_not_block_later_profile_convergence() -> None
 @pytest.mark.asyncio
 async def test_keyset_pages_reach_101st_profile_after_first_page_failure() -> None:
     settings = get_settings().model_copy(
-        update={"elasticsearch_index_prefix": f"rag-keyset-fairness-{uuid4().hex}"}
+        update={
+            "elasticsearch_index_prefix":
+                f"{get_settings().elasticsearch_index_prefix}-keyset-fairness"
+        }
     )
     profile_ids = tuple(UUID(int=value) for value in range(1, 101)) + (
         UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"),

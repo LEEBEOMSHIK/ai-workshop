@@ -13,6 +13,7 @@ from ai_workshop.platform.workspaces.models import (
     WorkspaceMembershipRecord,
     WorkspaceRecord,
 )
+from ai_workshop.platform.workspaces.permissions import workspace_read_allowed
 from ai_workshop.platform.workspaces.repository import workspace_is_active
 
 
@@ -60,6 +61,7 @@ class SqlAlchemyViewerResourceAccessRepository:
                     RagIngestionJobRecord.parsed_sha256.is_not(None),
                     RagIngestionJobRecord.index_alias_verified.is_(True),
                     workspace_is_active(),
+                    workspace_read_allowed(actor_id),
                     or_(
                         WorkspaceRecord.kind != WorkspaceKind.PERSONAL,
                         WorkspaceRecord.created_by == actor_id,

@@ -1,8 +1,10 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from uuid import UUID, uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
+from ai_workshop.config import get_settings
 from ai_workshop.main import create_app
 from ai_workshop.platform.assets.domain import AssetVersion, Document, Folder, VersionStatus
 from ai_workshop.platform.assets.library import (
@@ -20,6 +22,16 @@ from ai_workshop.platform.identity.domain import User, UserRole
 from ai_workshop.platform.jobs.domain import Job, JobType
 from ai_workshop.platform.workspaces.domain import Workspace, WorkspaceKind
 from ai_workshop.worker import get_job_dispatcher
+
+
+@pytest.fixture(autouse=True)
+def synthetic_secret_key(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    monkeypatch.setenv("AI_WORKSHOP_SECRET_KEY", "synthetic-asset-api-test-secret-key")
+    get_settings.cache_clear()
+    try:
+        yield
+    finally:
+        get_settings.cache_clear()
 
 
 def owner() -> User:
@@ -185,6 +197,7 @@ def test_library_endpoints_serialize_scoped_metadata_and_versions() -> None:
             "id": str(child.id),
             "name": "Annual",
             "parent_id": str(folder.id),
+            "metadata_revision": 1,
             "has_children": False,
         }
     ]

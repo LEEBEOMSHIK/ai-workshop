@@ -28,6 +28,7 @@ from ai_workshop.labs.rag.ingestion import models as rag_ingestion_models  # noq
 from ai_workshop.labs.rag.models import models as rag_model_models  # noqa: F401
 from ai_workshop.labs.rag.policies import models as rag_policy_models  # noqa: F401
 from ai_workshop.platform.assets import models as asset_models  # noqa: F401
+from ai_workshop.platform.assets import trash_models as asset_trash_models  # noqa: F401
 from ai_workshop.platform.identity import authorization_models  # noqa: F401
 from ai_workshop.platform.identity import models as identity_models  # noqa: F401
 from ai_workshop.platform.jobs import models as job_models  # noqa: F401

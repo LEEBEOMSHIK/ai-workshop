@@ -9,6 +9,7 @@ def load_models() -> None:
     from ai_workshop.labs.rag.ingestion import models as rag_ingestion_models
     from ai_workshop.labs.rag.models import models as rag_models
     from ai_workshop.platform.assets import models as asset_models
+    from ai_workshop.platform.assets import purge_models as asset_purge_models
     from ai_workshop.platform.assets import trash_models as asset_trash_models
     from ai_workshop.platform.identity import models as identity_models
     from ai_workshop.platform.jobs import models as job_models
@@ -17,6 +18,8 @@ def load_models() -> None:
 
     _ = (
         asset_models.AssetVersionRecord,
+        asset_purge_models.AssetPurgeJobRecord,
+        asset_purge_models.AssetPurgeDispatchRecord,
         asset_trash_models.AssetRetentionPolicyRecord,
         asset_trash_models.AssetTrashBatchRecord,
         identity_models.UserRecord,

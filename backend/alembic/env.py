@@ -2,6 +2,7 @@ from asyncio import run
 from logging.config import fileConfig
 
 from sqlalchemy import pool
+from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from ai_workshop.config import get_settings
@@ -28,6 +29,7 @@ from ai_workshop.labs.rag.ingestion import models as rag_ingestion_models  # noq
 from ai_workshop.labs.rag.models import models as rag_model_models  # noqa: F401
 from ai_workshop.labs.rag.policies import models as rag_policy_models  # noqa: F401
 from ai_workshop.platform.assets import models as asset_models  # noqa: F401
+from ai_workshop.platform.assets import purge_models as asset_purge_models  # noqa: F401
 from ai_workshop.platform.assets import trash_models as asset_trash_models  # noqa: F401
 from ai_workshop.platform.identity import authorization_models  # noqa: F401
 from ai_workshop.platform.identity import models as identity_models  # noqa: F401
@@ -60,7 +62,7 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
-def do_run_migrations(connection: object) -> None:
+def do_run_migrations(connection: Connection) -> None:
     context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
 
     with context.begin_transaction():

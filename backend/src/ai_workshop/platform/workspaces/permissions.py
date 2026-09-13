@@ -61,6 +61,28 @@ def workspace_write_allowed(actor_id: UUID) -> ColumnElement[bool]:
     )
 
 
+def workspace_delete_allowed(actor_id: UUID) -> ColumnElement[bool]:
+    member = aliased(WorkspaceMembershipRecord)
+    return and_(
+        workspace_read_allowed(actor_id),
+        select(member.id)
+        .where(
+            member.workspace_id == WorkspaceRecord.id,
+            member.user_id == actor_id,
+            or_(
+                member.role == MembershipRole.OWNER,
+                WorkspaceRecord.kind == WorkspaceKind.PERSONAL,
+                and_(
+                    WorkspaceRecord.kind == WorkspaceKind.COMPANY,
+                    member.can_delete.is_(True),
+                ),
+            ),
+        )
+        .correlate(WorkspaceRecord)
+        .exists(),
+    )
+
+
 def not_found() -> AppError:
     return AppError("not_found", "The requested resource was not found.", 404)
 
@@ -92,6 +114,27 @@ async def require_workspace_write(
     found = await session.scalar(
         select(WorkspaceRecord.id).where(
             WorkspaceRecord.id == workspace_id, workspace_write_allowed(actor_id)
+        )
+    )
+    if found is None:
+        raise not_found()
+
+
+async def require_workspace_delete(
+    session: AsyncSession, actor_id: UUID, workspace_id: UUID, *, lock: bool = False
+) -> None:
+    if lock:
+        found = await session.scalar(
+            select(WorkspaceRecord.id).where(
+                WorkspaceRecord.id == workspace_id, workspace_delete_allowed(actor_id)
+            )
+        )
+        if found is None:
+            raise not_found()
+        await lock_workspace_memberships(session, workspace_id, (actor_id,))
+    found = await session.scalar(
+        select(WorkspaceRecord.id).where(
+            WorkspaceRecord.id == workspace_id, workspace_delete_allowed(actor_id)
         )
     )
     if found is None:

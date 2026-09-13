@@ -1,6 +1,8 @@
 import pytest
+from sqlalchemy import UniqueConstraint
 
 from ai_workshop.platform.assets.folder_names import folder_name_key
+from ai_workshop.platform.assets.models import FolderRecord
 
 
 def test_folder_name_key_strips_only_the_frozen_whitespace_set() -> None:
@@ -27,3 +29,22 @@ def test_folder_name_key_does_not_normalize_unicode() -> None:
 
     assert folder_name_key(combining) == combining
     assert folder_name_key(combining) != "é"
+
+
+def test_folder_model_declares_only_the_two_active_name_unique_indexes() -> None:
+    indexes = {index.name: index for index in FolderRecord.__table__.indexes}
+
+    assert {
+        name: index.unique
+        for name, index in indexes.items()
+        if name.startswith("ix_folders_active_")
+    } == {
+        "ix_folders_active_root_name": True,
+        "ix_folders_active_sibling_name": True,
+    }
+    assert not any(
+        isinstance(constraint, UniqueConstraint)
+        and tuple(column.name for column in constraint.columns)
+        == ("workspace_id", "parent_id", "name")
+        for constraint in FolderRecord.__table__.constraints
+    )

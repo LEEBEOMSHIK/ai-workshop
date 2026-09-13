@@ -135,6 +135,37 @@ async def test_noop_checks_revision_and_permission_before_returning():
     assert error.value.status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_folder_move_rejects_a_sibling_with_the_same_frozen_name_key():
+    from ai_workshop.platform.assets.movement import AssetMovementService
+    from tests.unit.platform.assets.test_asset_service import MemoryAssetRepository, owner
+
+    workspace = uuid4()
+    source = Folder.create(workspace_id=workspace, parent_id=None, name="자료")
+    destination = Folder.create(workspace_id=workspace, parent_id=None, name="Destination")
+    existing = Folder(uuid4(), workspace, destination.id, "\t자료\u3000")
+
+    class Repository(MemoryAssetRepository):
+        async def list_folders(self, user_id, workspace_id):
+            return [source, destination, existing]
+
+        async def folder_belongs_to(self, folder_id, workspace_id):
+            return folder_id == destination.id
+
+    with pytest.raises(AppError) as failure:
+        await AssetMovementService(Repository(), max_depth=64).move_folder(
+            user=owner(),
+            workspace_id=workspace,
+            folder_id=source.id,
+            destination_folder_id=destination.id,
+            expected_revision=1,
+        )
+
+    assert failure.value.code == "folder_exists"
+    assert failure.value.status_code == 409
+    assert source.parent_id is None
+
+
 @pytest.mark.parametrize("kind", ["document", "folder"])
 def test_move_http_contract_requires_explicit_revision_and_returns_current_metadata(kind):
     from fastapi import FastAPI

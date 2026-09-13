@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from uuid import UUID, uuid4
 
+from ai_workshop.platform.assets.folder_names import folder_name_key
+
 
 class VersionStatus(StrEnum):
     STORED = "stored"
@@ -38,7 +40,7 @@ class Folder:
         parent_id: UUID | None,
         name: str,
     ) -> "Folder":
-        return cls(uuid4(), workspace_id, parent_id, name.strip())
+        return cls(uuid4(), workspace_id, parent_id, folder_name_key(name))
 
     def move_to(
         self,

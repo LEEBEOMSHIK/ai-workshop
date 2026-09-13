@@ -358,7 +358,9 @@ async def test_upload_rejects_foreign_folder_before_storage_write() -> None:
 @pytest.mark.asyncio
 async def test_create_folder_rejects_invalid_trimmed_names_in_service(name: str) -> None:
     repository = GuardRepository()
-    service = AssetService(repository, RecordingStore(), max_upload_bytes=1024, max_depth=64)  # type: ignore[arg-type]
+    service = AssetService(  # type: ignore[arg-type]
+        repository, RecordingStore(), max_upload_bytes=1024, max_depth=64
+    )
 
     with pytest.raises(AppError) as failure:
         await service.create_folder(
@@ -369,6 +371,46 @@ async def test_create_folder_rejects_invalid_trimmed_names_in_service(name: str)
         )
 
     assert failure.value.status_code == 422
+    assert repository.added_folders == []
+
+
+@pytest.mark.asyncio
+async def test_create_folder_rejects_the_same_frozen_name_key_without_renaming() -> None:
+    class ExistingNameRepository(GuardRepository):
+        def __init__(self) -> None:
+            super().__init__()
+            self.checked_names: list[str] = []
+
+        async def list_folders(self, user_id: UUID, workspace_id: UUID) -> list[Folder]:
+            return []
+
+        async def lock_folder_siblings(
+            self, workspace_id: UUID, parent_id: UUID | None
+        ) -> None:
+            return None
+
+        async def folder_name_exists(
+            self, workspace_id: UUID, parent_id: UUID | None, name: str
+        ) -> bool:
+            self.checked_names.append(name)
+            return name == "연구"
+
+    repository = ExistingNameRepository()
+    service = AssetService(  # type: ignore[arg-type]
+        repository, RecordingStore(), max_upload_bytes=1024, max_depth=64
+    )
+
+    with pytest.raises(AppError) as failure:
+        await service.create_folder(
+            user=member(),
+            workspace_id=uuid4(),
+            parent_id=None,
+            name="\t연구\u3000",
+        )
+
+    assert failure.value.code == "folder_exists"
+    assert failure.value.status_code == 409
+    assert repository.checked_names == ["연구"]
     assert repository.added_folders == []
 
 

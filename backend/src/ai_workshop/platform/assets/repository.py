@@ -5,6 +5,10 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_workshop.platform.assets.domain import AssetVersion, Document, Folder
+from ai_workshop.platform.assets.folder_names import (
+    FOLDER_NAME_WHITESPACE_V1,
+    folder_name_key,
+)
 from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecord, FolderRecord
 from ai_workshop.platform.workspaces.models import WorkspaceMembershipRecord, WorkspaceRecord
 from ai_workshop.platform.workspaces.permissions import (
@@ -206,7 +210,9 @@ class SqlAlchemyAssetRepository:
             .where(
                 FolderRecord.workspace_id == workspace_id,
                 FolderRecord.parent_id == parent_id,
-                func.trim(FolderRecord.name) == name.strip(),
+                FolderRecord.lifecycle == "active",
+                func.btrim(FolderRecord.name, FOLDER_NAME_WHITESPACE_V1)
+                == folder_name_key(name),
             )
             .limit(1)
         )

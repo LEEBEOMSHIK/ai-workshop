@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ai_workshop.config import Settings, get_settings
 from ai_workshop.infrastructure.object_store.local import LocalObjectStore
 from ai_workshop.platform.assets.domain import AssetVersion, Document, Folder
+from ai_workshop.platform.assets.folder_names import folder_name_key
 from ai_workshop.platform.assets.movement import FolderHierarchy
 from ai_workshop.platform.assets.repository import AssetRepository, SqlAlchemyAssetRepository
 from ai_workshop.platform.assets.storage import ObjectStore
@@ -111,7 +112,7 @@ class AssetService:
         name: str,
     ) -> Folder:
         await self.repository.require_workspace_write(user.id, workspace_id, lock=True)
-        clean_name = name.strip()
+        clean_name = folder_name_key(name)
         if not 1 <= len(clean_name) <= 180:
             raise AppError("invalid_folder_name", "The folder name is invalid.", 422)
         if parent_id and not await self.repository.folder_belongs_to(parent_id, workspace_id):

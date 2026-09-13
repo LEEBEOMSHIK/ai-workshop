@@ -12,11 +12,13 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     Uuid,
+    func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ai_workshop.platform.assets import trash_models as trash_models  # noqa: F401
 from ai_workshop.platform.assets.domain import VersionStatus
+from ai_workshop.platform.assets.folder_names import FOLDER_NAME_WHITESPACE_V1
 from ai_workshop.shared.models import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 _LIFECYCLE_CHECK = (
@@ -35,7 +37,6 @@ _TRASH_STATE_CHECK = (
 class FolderRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "folders"
     __table_args__ = (
-        UniqueConstraint("workspace_id", "parent_id", "name"),
         CheckConstraint("metadata_revision >= 1", name="ck_folder_metadata_revision"),
         CheckConstraint(_LIFECYCLE_CHECK, name="ck_folder_lifecycle"),
         CheckConstraint(
@@ -70,6 +71,25 @@ class FolderRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     purge_after: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+Index(
+    "ix_folders_active_root_name",
+    FolderRecord.workspace_id,
+    func.btrim(FolderRecord.name, FOLDER_NAME_WHITESPACE_V1),
+    unique=True,
+    postgresql_where=(FolderRecord.lifecycle == "active")
+    & FolderRecord.parent_id.is_(None),
+)
+Index(
+    "ix_folders_active_sibling_name",
+    FolderRecord.workspace_id,
+    FolderRecord.parent_id,
+    func.btrim(FolderRecord.name, FOLDER_NAME_WHITESPACE_V1),
+    unique=True,
+    postgresql_where=(FolderRecord.lifecycle == "active")
+    & FolderRecord.parent_id.is_not(None),
+)
 
 
 class DocumentRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):

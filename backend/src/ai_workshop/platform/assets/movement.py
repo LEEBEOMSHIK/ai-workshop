@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_workshop.config import Settings, get_settings
 from ai_workshop.platform.assets.domain import Document, Folder
+from ai_workshop.platform.assets.folder_names import folder_name_key
 from ai_workshop.platform.assets.repository import AssetRepository, SqlAlchemyAssetRepository
 from ai_workshop.platform.identity.domain import User
 from ai_workshop.shared.db import get_session
@@ -135,7 +136,7 @@ class AssetMovementService:
         if any(
             folder.id != source.id
             and folder.parent_id == destination_folder_id
-            and folder.name.strip() == source.name.strip()
+            and folder_name_key(folder.name) == folder_name_key(source.name)
             for folder in folders
         ):
             raise AppError("folder_exists", "A folder with this name already exists.", 409)

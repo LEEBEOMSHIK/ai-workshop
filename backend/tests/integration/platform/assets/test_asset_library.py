@@ -143,13 +143,13 @@ async def _seed_library(database_url: str) -> LibrarySeed:
                         id=root_folder_ids[0],
                         workspace_id=workspace_id,
                         parent_id=None,
-                        name="Same",
+                        name="First root",
                     ),
                     FolderRecord(
                         id=root_folder_ids[1],
                         workspace_id=workspace_id,
                         parent_id=None,
-                        name="Same",
+                        name="Second root",
                     ),
                     FolderRecord(
                         id=child_folder_id,

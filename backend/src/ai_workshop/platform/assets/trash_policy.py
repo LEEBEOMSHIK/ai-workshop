@@ -1,5 +1,25 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
+
+from ai_workshop.platform.workspaces.domain import WorkspaceCapabilities
+
+
+class TrashAction(StrEnum):
+    LIST = "list"
+    TRASH = "trash"
+    RESTORE = "restore"
+    PURGE = "purge"
+
+
+def allows_trash_action(
+    capabilities: WorkspaceCapabilities,
+    action: TrashAction,
+) -> bool:
+    allowed = capabilities.read and capabilities.delete
+    if action is TrashAction.RESTORE:
+        return allowed and capabilities.write
+    return allowed and action in (TrashAction.LIST, TrashAction.TRASH, TrashAction.PURGE)
 
 
 @dataclass(frozen=True)

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from ipaddress import ip_address
 from pathlib import Path
 from uuid import uuid4
 
@@ -44,6 +46,33 @@ def _require_exact_database_name(database: str) -> None:
         raise AssertionError("refusing to operate on a non-publishing test database")
 
 
+def validate_disposable_database_target(settings: Settings, database: str) -> None:
+    try:
+        url = make_url(settings.database_url)
+        host = url.host
+        try:
+            loopback = host == "localhost" or (
+                host is not None and ip_address(host).is_loopback
+            )
+        except ValueError:
+            loopback = False
+        safe = (
+            settings.environment in {"local", "test"}
+            and url.get_backend_name() == "postgresql"
+            and loopback
+            and _DATABASE_NAME.fullmatch(database) is not None
+            and set(url.query) <= {"connect_timeout"}
+            and not any(
+                os.environ.get(key)
+                for key in ("PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE")
+            )
+        )
+    except Exception:
+        raise ValueError("unsafe_disposable_database_target") from None
+    if not safe:
+        raise ValueError("unsafe_disposable_database_target")
+
+
 def _assert_current_database(database_url: str, expected: str) -> None:
     with psycopg.connect(_sync_url(database_url), connect_timeout=5) as connection:
         actual = connection.execute("SELECT current_database()").fetchone()
@@ -56,15 +85,20 @@ def isolated_publishing_database(
 ) -> Iterator[IsolatedPublishingDatabase]:
     settings = Settings(_env_file=BACKEND_ROOT.parent / ".env")  # type: ignore[call-arg]
     database = f"ai_workshop_publishing_{uuid4().hex}"
+    validate_disposable_database_target(settings, database)
     _require_exact_database_name(database)
     isolated_url = _database_url(settings.database_url, database)
     administrative_url = _database_url(settings.database_url, "postgres")
-    with psycopg.connect(
-        _sync_url(administrative_url), autocommit=True, connect_timeout=5
-    ) as connection:
-        connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
-    print(f"publishing_test_database_created={database}")
+    created = False
     try:
+        with psycopg.connect(
+            _sync_url(administrative_url), autocommit=True, connect_timeout=5
+        ) as connection:
+            connection.execute(
+                sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database))
+            )
+            created = True
+        print(f"publishing_test_database_created={database}")
         _assert_current_database(isolated_url, database)
         monkeypatch.setenv("AI_WORKSHOP_DATABASE_URL", isolated_url)
         monkeypatch.setenv("AI_WORKSHOP_SECRET_KEY", "publishing-test-secret-key-value")
@@ -76,12 +110,16 @@ def isolated_publishing_database(
         )
     finally:
         get_settings.cache_clear()
-        _require_exact_database_name(database)
-        _assert_current_database(isolated_url, database)
-        with psycopg.connect(
-            _sync_url(administrative_url), autocommit=True, connect_timeout=5
-        ) as connection:
-            connection.execute(
-                sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(database))
-            )
-        print(f"publishing_test_database_dropped={database}")
+        if created:
+            validate_disposable_database_target(settings, database)
+            _require_exact_database_name(database)
+            _assert_current_database(isolated_url, database)
+            with psycopg.connect(
+                _sync_url(administrative_url), autocommit=True, connect_timeout=5
+            ) as connection:
+                connection.execute(
+                    sql.SQL("DROP DATABASE {} WITH (FORCE)").format(
+                        sql.Identifier(database)
+                    )
+                )
+            print(f"publishing_test_database_dropped={database}")

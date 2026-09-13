@@ -42,7 +42,7 @@ DB trigger로 기존 정책의 UPDATE를 거부한다. 참조된 정책의 DELET
 
 ## 4. 삭제 배치와 공간 격리
 
-asset_trash_batches: id, workspace_id, actor_id, policy_id, trashed_at, purge_after, created_at.
+asset_trash_batches: id, workspace_id, actor_id, policy_version_id, trashed_at, purge_after, created_at.
 배치는 폴더 삭제 당시 포함된 활성 항목 집합의 식별자다. 이전에 독립적으로 삭제된 항목은 포함하지 않는다.
 실제 항목 집합과 원래 위치·미리보기 digest의 저장은 후속 명령/manifest 계약에서 함께 구현한다.
 2B 배치만으로 폴더 복원을 실행하거나 모든 자식이 같은 배치라고 추정하지 않는다.
@@ -56,16 +56,19 @@ asset_trash_batches: id, workspace_id, actor_id, policy_id, trashed_at, purge_af
 ## 5. 전용 삭제 작업과 전달 대기열
 
 asset_purge_jobs: id, workspace_id, trash_batch_id, request_key, status, attempt_count,
-available_at, error_code, created_at, updated_at.
+available_at, error_code, finished_at, created_at, updated_at.
 status는 purge_pending/purging/retry_wait/blocked/purged만 허용하고 attempt_count는 0 이상이다.
+purged일 때만 finished_at을 필수로 저장하고 그 전에는 NULL이다. updated_at을 완료 시각으로 대신하지 않는다.
+작업 상태는 job이 실행 정본이며 해당 원문 상태는 같은 트랜잭션에서 동기화한다. 교차 테이블 상태 일치는 단일 CHECK로 보장했다고 주장하지 않는다.
 UNIQUE(workspace_id,request_key)로 동일 요청을 식별한다. 동일 키에 다른 배치를 전달한 충돌은 후속 명령에서 409로 거부한다.
 UNIQUE(trash_batch_id)로 배치의 중복 삭제 작업을 막는다. 차단·실패 재시도는 새 job을 만드는 대신 같은 job을 사용한다.
 배치와 공간은 복합 RESTRICT FK다. Document/AssetVersion에는 CASCADE FK를 두지 않는다.
 파일명·경로·본문·예외 원문·전체 manifest는 job에 넣지 않는다. error_code는 명명된 안전 코드만 저장한다.
 
-asset_purge_dispatches: id, job_id, status, attempt_count, available_at, delivered_at, created_at, updated_at.
-job_id는 UNIQUE이며 RESTRICT 참조다. status는 pending/delivered, attempt_count는 0 이상이다.
-pending이면 delivered_at=NULL, delivered이면 delivered_at 필수다.
+asset_purge_dispatches: id, job_id, status, attempt_count, available_at, claim_token, claimed_at, sent_at, created_at, updated_at.
+job_id는 UNIQUE이며 RESTRICT 참조다. attempt_count는 0 이상이다.
+status는 pending/claimed/sent를 사용한다. pending은 claim_token/claimed_at/sent_at 모두 NULL, claimed는 claim_token/claimed_at만 필수, sent는 sent_at만 필수다.
+위 상태 조합은 CHECK로 강제하고 (status,available_at) 인덱스를 둔다. sent는 broker 전송 사실이며 작업 실행 완료가 아니다.
 전송 대기열에는 job_id만 저장하고 원본·모델 입력 payload를 복사하지 않는다.
 후속 삭제 요청은 purge_pending 변경과 job/dispatch를 동일 트랜잭션으로 저장한다.
 Celery 전송기·재전송·claim/lease·실제 실행기는 이번 단계에 포함하지 않는다.
@@ -78,9 +81,11 @@ repository는 SQL trim(name), 이동은 Python strip()을 사용하므로 탭·�
 문서명 고유 제약은 0014에서 제거됐다. 문서에 파일명 고유 제약을 다시 만들지 않고 SHA-256 중복 계약을 유지한다.
 
 폴더는 표시 이름을 바꾸지 않고 현재 Python strip() 의미의 비교 키를 정본으로 통일하는 것을 제안한다.
+Python 런타임 변경으로 비교가 바뀌지 않도록 현재 공백 문자 집합을 명시적 상수로 고정하고 Python strip(문자집합)과 PostgreSQL btrim(name,문자집합)이 같은 값을 사용한다.
 대소문자 접기와 Unicode NFC/NFKC 변환은 추가하지 않는다. DB 표현식과 Python 비교의 공백 집합 동등성을 테스트한다.
 active root용 (workspace_id,비교키), active 일반 폴더용 (workspace_id,parent_id,비교키) 부분 UNIQUE 인덱스를 분리한다.
 trashed 등 비활성 항목은 활성 이름 예약에서 제외한다. 복원 충돌은 자동 병합이나 덮어쓰기로 해소하지 않는다.
+기존 전체 행 UNIQUE는 부분 인덱스로 교체한다. 그대로 남겨 비활성 폴더의 이름까지 예약하지 않는다.
 
 DDL 적용 전 읽기 전용 dry-run은 동일한 비교 키로 root/일반 중복, 비정규 저장 이름, 잘못된 공간-부모 연결, 순환을 검사한다.
 비정규 이름은 name != name.strip()인 기존 저장값이다. 해당 값도 자동 변경하지 않고 적용을 중단한다.
@@ -89,12 +94,14 @@ DDL 적용 전 읽기 전용 dry-run은 동일한 비교 키로 root/일반 중�
 충돌이 있으면 migration을 중단한다. 실사용 데이터를 자동 rename/merge/delete하지 않는다.
 dry-run 통과와 DDL 사이 변경을 막기 위해 실제 migration도 쓰기 차단 잠금 아래 같은 검사를 다시 수행한다.
 실사용 dry-run 실행 대상과 허용 범위는 별도 확인하며, 이번 설계에서 DB에 접속하지 않았다.
+folder.parent뿐 아니라 document.folder의 다른 공간 연결도 검사한다. 기존 parent CASCADE/folder SET NULL FK는 이번 작업에서 임의로 교체하지 않는다.
+복합 FK의 ON DELETE SET NULL이 workspace_id까지 NULL로 만들 수 있으므로 해당 계층 FK 변경은 별도 계약 없이는 수행하지 않는다.
 
 ## 7. 파일 경계와 구현 순서
 
 1. `backend/src/ai_workshop/platform/assets/trash_models.py`: 정책·배치 모델. `assets/models.py`: 현재 상태/세대/배치 참조.
 2. `backend/src/ai_workshop/platform/assets/purge_models.py`: 전용 job/dispatch 모델. 기존 `platform/jobs/models.py`는 변경하지 않는다.
-3. `backend/alembic/env.py`: 새 모델 metadata 등록. `backend/alembic/versions/`에는 현행 0034 다음의 명명된 migration을 순차 추가한다.
+3. `backend/alembic/env.py`와 `backend/src/ai_workshop/shared/model_registry.py`: 새 모델 metadata 등록. `backend/alembic/versions/`에는 현행 0034 다음의 명명된 migration을 순차 추가한다.
 4. `backend/src/ai_workshop/platform/assets/folder_names.py`: 비교 키 정본. repository/movement가 같은 의미를 소비하게 한다.
 5. `backend/src/ai_workshop/platform/assets/trash_migration_preflight.py`: 읽기 전용 검사와 구조화된 결과. 자동 데이터 수정 없음.
 6. `backend/tests/integration/platform/assets/test_trash_persistence.py`: 정책/배치/공간/상태 제약 검증.
@@ -122,3 +129,5 @@ dry-run 통과와 DDL 사이 변경을 막기 위해 실제 migration도 쓰기 
 2B 완료는 저장 제약과 마이그레이션의 합성 검증 완료다. 사용자가 파일을 삭제할 수 있게 되는 시점이 아니다.
 2C의 provenance/최소 증명, 일반 조회·검색·worker 차단, 휴지통/복원 명령, 정리 참여자와 공통 UI 게이트를 이어간다.
 필터가 없는 현재 API에 비활성 데이터를 생성해 테스트하지 않는다. 합성 비활성 사례는 격리 DB에서만 만든다.
+
+DBA 정적 조사에서 모델 registry 등록·기존 전체 고유 제약 제거·outbox claim/전송 상태·완료 시각 보완을 반영했다. 실사용 데이터에 충돌이 실제 존재한다고 확인한 것은 아니다.

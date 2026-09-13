@@ -251,7 +251,9 @@ class SqlAlchemyLibraryRepository:
 
 
 def _folder(record: FolderRecord) -> Folder:
-    return Folder(record.id, record.workspace_id, record.parent_id, record.name)
+    return Folder(
+        record.id, record.workspace_id, record.parent_id, record.name, record.metadata_revision
+    )
 
 
 def _version(record: AssetVersionRecord) -> AssetVersion:
@@ -275,4 +277,5 @@ def _document(record: DocumentRecord, latest: AssetVersionRecord) -> Document:
         name=record.name,
         active_version_id=record.active_version_id,
         versions=[_version(latest)],
+        metadata_revision=record.metadata_revision,
     )

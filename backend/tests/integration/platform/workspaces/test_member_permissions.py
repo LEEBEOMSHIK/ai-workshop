@@ -85,7 +85,7 @@ async def test_new_company_member_can_read_but_cannot_write(
             )
         async with sessions.begin() as session:
             repository = SqlAlchemyAssetRepository(session)
-            service = AssetService(repository, store, max_upload_bytes=1024)
+            service = AssetService(repository, store, max_upload_bytes=1024, max_depth=64)
             assert await repository.has_workspace_access(seed.user.id, seed.workspace_id)
             with pytest.raises(AppError) as denied:
                 await service.create_folder(
@@ -228,7 +228,10 @@ async def test_streaming_write_revoked_before_save_leaves_no_document_job_or_obj
                 async with sessions.begin() as session:
                     coordinator = AssetUploadCoordinator(
                         AssetService(
-                            SqlAlchemyAssetRepository(session), store, max_upload_bytes=1024
+                            SqlAlchemyAssetRepository(session),
+                            store,
+                            max_upload_bytes=1024,
+                            max_depth=64,
                         ),
                         JobService(SqlAlchemyJobRepository(session)),
                         commit=session.commit,

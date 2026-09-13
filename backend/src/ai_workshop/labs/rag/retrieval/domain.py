@@ -135,6 +135,7 @@ class ResolvedSearchScope:
     document_ids: tuple[UUID, ...] | None = None
     selected_documents: tuple[SelectedDocumentIdentity, ...] = ()
     scope_fingerprint: str | None = None
+    authorized_documents: tuple[SelectedDocumentIdentity, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

@@ -9,7 +9,7 @@ const root: LibraryPage = {
   ancestors: [],
   documents: [],
   folder: null,
-  folders: [{ id: "folder-projects", name: "Projects", parent_id: null, has_children: true }],
+  folders: [{ id: "folder-projects", metadata_revision: 1, name: "Projects", parent_id: null, has_children: true }],
   next_document_cursor: null,
   next_folder_cursor: "next-root",
   workspace: { id: "workspace-1", name: "제품 자료", kind: "company", expires_at: null },
@@ -17,11 +17,28 @@ const root: LibraryPage = {
 
 afterEach(() => vi.unstubAllGlobals());
 
+it("keeps the cabinet top level distinct from a real root folder during keyboard navigation", async () => {
+  const user = userEvent.setup();
+  const selectFolder = vi.fn();
+  render(<LibraryTree workspaces={[root.workspace]} currentWorkspaceId="workspace-1" selectedFolderId={null}
+    initialRoot={{ ...root, folders: [{ id: "named-root", metadata_revision: 1, name: "root", parent_id: null, has_children: false }] }} onSelectFolder={selectFolder} />);
+
+  const topLevel = screen.getByRole("button", { name: "파일함 최상위" });
+  expect(topLevel).toHaveAttribute("aria-current", "page");
+  topLevel.focus();
+  await user.keyboard("{Enter}");
+  expect(selectFolder).toHaveBeenLastCalledWith(null);
+  await user.tab();
+  expect(screen.getByRole("button", { name: "root 폴더 열기" })).toHaveFocus();
+  await user.keyboard("{Enter}");
+  expect(selectFolder).toHaveBeenLastCalledWith("named-root");
+});
+
 it("uses grouped workspace navigation and lazy nested folder disclosures", async () => {
   const fetcher = vi.fn<typeof fetch>(async () => Response.json({
     ...root,
-    folder: { id: "folder-projects", name: "Projects", parent_id: null },
-    folders: [{ id: "folder-2026", name: "2026", parent_id: "folder-projects", has_children: false }],
+    folder: { id: "folder-projects", metadata_revision: 1, name: "Projects", parent_id: null },
+    folders: [{ id: "folder-2026", metadata_revision: 1, name: "2026", parent_id: "folder-projects", has_children: false }],
     next_folder_cursor: null,
   }));
   vi.stubGlobal("fetch", fetcher);
@@ -56,7 +73,7 @@ it("uses grouped workspace navigation and lazy nested folder disclosures", async
 it("loads the next bounded root folder page without replacing existing nodes", async () => {
   vi.stubGlobal("fetch", vi.fn<typeof fetch>(async () => Response.json({
     ...root,
-    folders: [{ id: "folder-z", name: "Zeta", parent_id: null, has_children: false }],
+    folders: [{ id: "folder-z", metadata_revision: 1, name: "Zeta", parent_id: null, has_children: false }],
     next_folder_cursor: null,
   })));
   const user = userEvent.setup();
@@ -94,17 +111,17 @@ it("starts collapsed at a narrow viewport and retains the selected folder when r
 it("loads authoritative siblings and their next page when reopening a restored ancestor seed", async () => {
   const selected: LibraryPage = {
     ...root,
-    ancestors: [{ id: "folder-a", name: "A", parent_id: null }],
-    folder: { id: "folder-b", name: "B", parent_id: "folder-a" },
+    ancestors: [{ id: "folder-a", metadata_revision: 1, name: "A", parent_id: null }],
+    folder: { id: "folder-b", metadata_revision: 1, name: "B", parent_id: "folder-a" },
     folders: [],
     next_folder_cursor: null,
   };
-  const restoredRoot = { ...root, folders: [{ id: "folder-a", name: "A", parent_id: null, has_children: true }], next_folder_cursor: null };
+  const restoredRoot = { ...root, folders: [{ id: "folder-a", metadata_revision: 1, name: "A", parent_id: null, has_children: true }], next_folder_cursor: null };
   const fetcher = vi.fn<typeof fetch>(async (input) => String(input).includes("folder_cursor=more-a")
-    ? Response.json({ ...selected, folders: [{ id: "folder-d", name: "D", parent_id: "folder-a", has_children: false }], next_folder_cursor: null })
+    ? Response.json({ ...selected, folders: [{ id: "folder-d", metadata_revision: 1, name: "D", parent_id: "folder-a", has_children: false }], next_folder_cursor: null })
     : Response.json({ ...selected, folder: selected.ancestors[0], ancestors: [], folders: [
-      { id: "folder-b", name: "B", parent_id: "folder-a", has_children: false },
-      { id: "folder-c", name: "C", parent_id: "folder-a", has_children: false },
+      { id: "folder-b", metadata_revision: 1, name: "B", parent_id: "folder-a", has_children: false },
+      { id: "folder-c", metadata_revision: 1, name: "C", parent_id: "folder-a", has_children: false },
     ], next_folder_cursor: "more-a" }));
   vi.stubGlobal("fetch", fetcher);
   const user = userEvent.setup();
@@ -134,14 +151,14 @@ it("consumes a root folder cursor only once during repeated activation", async (
   expect(loadMore).toBeDisabled();
   await user.click(loadMore);
   expect(fetcher).toHaveBeenCalledTimes(1);
-  await act(async () => resolvePage(Response.json({ ...root, folders: [{ id: "folder-z", name: "Zeta", parent_id: null, has_children: false }], next_folder_cursor: null })));
+  await act(async () => resolvePage(Response.json({ ...root, folders: [{ id: "folder-z", metadata_revision: 1, name: "Zeta", parent_id: null, has_children: false }], next_folder_cursor: null })));
   expect(await screen.findAllByRole("button", { name: "Zeta 폴더 열기" })).toHaveLength(1);
 });
 
 it("uses injected domain browsing and workspace navigation without Platform URLs", async () => {
   const browse = vi.fn(async () => ({
     ...root,
-    folder: { id: "folder-projects", name: "Projects", parent_id: null },
+    folder: { id: "folder-projects", metadata_revision: 1, name: "Projects", parent_id: null },
     folders: [],
     next_folder_cursor: null,
   }));
@@ -171,14 +188,14 @@ it("disables folder choices outside an injected fixed selection boundary", () =>
     currentWorkspaceId="workspace-1"
     selectedFolderId="folder-allowed"
     initialRoot={{ ...root, folders: [
-      { id: "folder-allowed", name: "Allowed", parent_id: null, has_children: false },
-      { id: "folder-other", name: "Other", parent_id: null, has_children: false },
+      { id: "folder-allowed", metadata_revision: 1, name: "Allowed", parent_id: null, has_children: false },
+      { id: "folder-other", metadata_revision: 1, name: "Other", parent_id: null, has_children: false },
     ] }}
     onSelectFolder={vi.fn()}
     isFolderSelectionDisabled={(folderId) => folderId !== "folder-allowed"}
   />);
 
-  expect(screen.getByRole("button", { name: "루트 (미분류)" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "파일함 최상위" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Allowed 폴더 열기" })).toBeEnabled();
   expect(screen.getByRole("button", { name: "Other 폴더 열기" })).toBeDisabled();
 });

@@ -15,7 +15,7 @@ interface PanelData {
   allowedFolderIdsByWorkspace?: Readonly<Record<string, readonly string[]>>;
 }
 
-export function DocumentSelectionPanel({ slug, currentDocuments, workspaceIds, folderIds, foldersByWorkspace, onApply, onClose, returnFocus }: {
+export function DocumentSelectionPanel({ slug, currentDocuments, workspaceIds, folderIds, foldersByWorkspace, onApply, onClose, returnFocus, onSelectionInvalidated }: {
   slug: string;
   currentDocuments: DocumentSummary[];
   workspaceIds: string[];
@@ -24,6 +24,7 @@ export function DocumentSelectionPanel({ slug, currentDocuments, workspaceIds, f
   onApply: (documents: DocumentSummary[]) => void;
   onClose: () => void;
   returnFocus: HTMLElement | null;
+  onSelectionInvalidated?: () => void;
 }) {
   const [data, setData] = useState<PanelData | null>(null);
   const [error, setError] = useState(false);
@@ -66,6 +67,7 @@ export function DocumentSelectionPanel({ slug, currentDocuments, workspaceIds, f
   }, []);
 
   function close() {
+    if (panelRef.current?.querySelector('[role="dialog"][aria-busy="true"]')) return;
     onClose();
     queueMicrotask(() => returnFocus?.focus());
   }
@@ -114,6 +116,7 @@ export function DocumentSelectionPanel({ slug, currentDocuments, workspaceIds, f
         embedded
         allowedFolderIdsByWorkspace={data.allowedFolderIdsByWorkspace}
         onApplySelection={(documents) => { onApply(documents); close(); }}
+        onSelectionInvalidated={onSelectionInvalidated}
       /> : null}
     </section>
   </div>;

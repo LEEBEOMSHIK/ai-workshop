@@ -157,6 +157,18 @@ PPTX, XLSX, HTML과 HWPX는 이후 형식 확장 단계에서 추가한다.
 
 ## 6. Hybrid retrieval
 
+### 파일함 이동과 현재 검색 범위
+
+승인된 [이동 계약](../../superpowers/specs/2026-09-13-explorer-movement-design.md)에 따라
+현재 폴더 범위는 DB의 Document 위치와 권한·READY lifecycle로 해석한다. 위치 변경만으로 재색인하지 않는다.
+현재 검색은 허용된 정확한 `(document, asset_version, projection, index_build)` 조합을 내부 범위에 유지하고,
+BM25/dense 모두 그 조합을 선필터로 사용한다. 색인에 남은 과거 folder_id를 현재 폴더 조건으로 사용하지 않는다.
+Elasticsearch의 기존 schema에는 document_id가 없으므로 DB의 불변 Asset→Document 소속을 근거로
+정확한 asset/projection/build AND 조합들을 OR로 제한한다. 개별 ID 집합의 교차 곱이나 빈 범위 fallback은 금지한다.
+원문 resolver의 Document ID와 현재 위치를 DB에서 다시 확인하고, 준비된 근거의 정확한 조합이 생성 전 최신 범위에서 빠지면 중단한다.
+명시 문서 선택의 공개 fingerprint 의미는 유지한다. 폴더 제한 없는 위치 변경은 동일 문서 identity를 바꾸지 않는다.
+Frozen 평가는 별도 물리 색인·스냅샷 의미를 유지한다. 이 보완은 구현과 자동 검증을 완료했으며 이동 UI와 실사용 적용은 별도 단계다.
+
 초기 기준 검색은 다음 구성이다.
 
 ```text

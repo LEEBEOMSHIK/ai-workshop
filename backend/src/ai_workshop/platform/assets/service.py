@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ai_workshop.config import Settings, get_settings
 from ai_workshop.infrastructure.object_store.local import LocalObjectStore
 from ai_workshop.platform.assets.domain import AssetVersion, Document, Folder
+from ai_workshop.platform.assets.movement import FolderHierarchy
 from ai_workshop.platform.assets.repository import AssetRepository, SqlAlchemyAssetRepository
 from ai_workshop.platform.assets.storage import ObjectStore
 from ai_workshop.platform.identity.domain import User
@@ -28,10 +29,12 @@ class AssetService:
         object_store: ObjectStore,
         *,
         max_upload_bytes: int,
+        max_depth: int,
     ) -> None:
         self.repository = repository
         self.object_store = object_store
         self.max_upload_bytes = max_upload_bytes
+        self.max_depth = max_depth
 
     async def upload(
         self,
@@ -113,6 +116,9 @@ class AssetService:
             raise AppError("invalid_folder_name", "The folder name is invalid.", 422)
         if parent_id and not await self.repository.folder_belongs_to(parent_id, workspace_id):
             raise AppError("not_found", "The requested resource was not found.", 404)
+        FolderHierarchy(
+            await self.repository.list_folders(user.id, workspace_id), max_depth=self.max_depth
+        ).validate_create(parent_id)
         await self.repository.lock_folder_siblings(workspace_id, parent_id)
         if await self.repository.folder_name_exists(workspace_id, parent_id, clean_name):
             raise AppError("folder_exists", "A folder with this name already exists.", 409)
@@ -262,6 +268,7 @@ def get_asset_service(
         SqlAlchemyAssetRepository(session),
         LocalObjectStore(settings.object_store_root),
         max_upload_bytes=50 * 1024 * 1024,
+        max_depth=settings.library_max_depth,
     )
 
 

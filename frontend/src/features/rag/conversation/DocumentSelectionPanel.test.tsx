@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 
@@ -8,7 +8,32 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 const workspaceId = "11111111-1111-4111-8111-111111111111";
 const documentId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-const document = { active_version_id: "version-1", folder_id: null, id: documentId, job_id: null, latest_version: 1, latest_version_id: "version-1", name: "운용 규정.md", status: "ready", workspace_id: workspaceId } as const;
+const document = { active_version_id: "version-1", folder_id: null, id: documentId, job_id: null, latest_version: 1, latest_version_id: "version-1", metadata_revision: 1, name: "운용 규정.md", status: "ready", workspace_id: workspaceId } as const;
+
+it("contains Tab and consumes Escape in the nested move dialog without closing file selection", async () => {
+  const workspace = { id: workspaceId, name: "회사 규정", kind: "company", expires_at: null };
+  vi.stubGlobal("fetch", vi.fn(async (input) => {
+    const path = String(input);
+    if (path.endsWith("/capabilities")) return Response.json({ read: true, write: true, delete: false, manage_members: false });
+    if (path.endsWith("/library")) return Response.json({ domain_id: "domain-1", display_name: "자산운용", connection_version_id: "connection-1", selection_limit: 2, workspace_options: [workspace] });
+    return Response.json({ workspace, folder: null, ancestors: [], documents: [document], folders: [], next_document_cursor: null, next_folder_cursor: null });
+  }));
+  const close = vi.fn(); const user = userEvent.setup();
+  render(<DocumentSelectionPanel slug="asset-management" currentDocuments={[document]} workspaceIds={[workspaceId]} folderIds={[]} foldersByWorkspace={{}} onApply={vi.fn()} onClose={close} returnFocus={null} />);
+  const moveButton = await screen.findByRole("button", { name: "운용 규정.md 이동" });
+  await waitFor(() => expect(moveButton).toBeEnabled());
+  await user.click(moveButton);
+  const inner = screen.getByRole("dialog", { name: "이동 확인" });
+  await waitFor(() => expect(within(inner).getByRole("button", { name: "파일함 최상위" })).toBeEnabled());
+  const cancel = within(inner).getByRole("button", { name: "이동 취소" });
+  expect(cancel).toHaveFocus(); await user.tab();
+  expect(within(inner).getByRole("button", { name: "파일함 최상위" })).toHaveFocus();
+  await user.tab({ shift: true }); expect(cancel).toHaveFocus();
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("dialog", { name: "이동 확인" })).not.toBeInTheDocument();
+  expect(screen.getByRole("dialog", { name: "파일 선택" })).toBeVisible(); expect(close).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "운용 규정.md 이동" })).toHaveFocus();
+});
 
 it("places initial focus inside the modal and contains forward and reverse Tab navigation", async () => {
   stubRootLibrary();
@@ -53,7 +78,7 @@ it("browses only existing domain documents, permits explicit last deselection, a
 
 it("keeps embedded folder, workspace, and viewer navigation out of chat history", async () => {
   const personalId = "22222222-2222-4222-8222-222222222222";
-  const folder = { id: "folder-1", name: "리스크", parent_id: null, has_children: false };
+  const folder = { id: "folder-1", metadata_revision: 1, name: "리스크", parent_id: null, has_children: false };
   const folderDocument = { ...document, folder_id: folder.id };
   const root = { ancestors: [], documents: [document], folder: null, folders: [folder], next_document_cursor: null, next_folder_cursor: null, workspace: { id: workspaceId, name: "회사 규정", kind: "company", expires_at: null } } as const;
   vi.stubGlobal("fetch", vi.fn(async (input) => {

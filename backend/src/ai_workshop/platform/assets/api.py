@@ -5,11 +5,15 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile
 
 from ai_workshop.platform.assets.library_api import router as library_router
+from ai_workshop.platform.assets.movement import AssetMovementService, get_asset_movement_service
 from ai_workshop.platform.assets.originals_api import router as originals_router
 from ai_workshop.platform.assets.schemas import (
+    AssetMoveRequest,
     AssetVersionResponse,
+    DocumentMoveResponse,
     DocumentResponse,
     FolderCreate,
+    FolderMoveResponse,
     FolderResponse,
 )
 from ai_workshop.platform.assets.service import (
@@ -25,6 +29,56 @@ from ai_workshop.worker import CeleryJobDispatcher, get_job_dispatcher
 router = APIRouter(prefix="/api/v1", tags=["assets"])
 router.include_router(library_router)
 router.include_router(originals_router)
+
+
+@router.post("/workspaces/{workspace_id}/documents/{document_id}/move")
+async def move_document(
+    workspace_id: UUID,
+    document_id: UUID,
+    request: AssetMoveRequest,
+    user: Annotated[User, Depends(get_current_user)],
+    service: Annotated[AssetMovementService, Depends(get_asset_movement_service)],
+) -> DocumentMoveResponse:
+    document, changed = await service.move_document(
+        user=user,
+        workspace_id=workspace_id,
+        document_id=document_id,
+        destination_folder_id=request.destination_folder_id,
+        expected_revision=request.expected_revision,
+    )
+    return DocumentMoveResponse(
+        id=document.id,
+        workspace_id=document.workspace_id,
+        name=document.name,
+        folder_id=document.folder_id,
+        metadata_revision=document.metadata_revision,
+        changed=changed,
+    )
+
+
+@router.post("/workspaces/{workspace_id}/folders/{folder_id}/move")
+async def move_folder(
+    workspace_id: UUID,
+    folder_id: UUID,
+    request: AssetMoveRequest,
+    user: Annotated[User, Depends(get_current_user)],
+    service: Annotated[AssetMovementService, Depends(get_asset_movement_service)],
+) -> FolderMoveResponse:
+    folder, changed = await service.move_folder(
+        user=user,
+        workspace_id=workspace_id,
+        folder_id=folder_id,
+        destination_folder_id=request.destination_folder_id,
+        expected_revision=request.expected_revision,
+    )
+    return FolderMoveResponse(
+        id=folder.id,
+        workspace_id=folder.workspace_id,
+        name=folder.name,
+        parent_id=folder.parent_id,
+        metadata_revision=folder.metadata_revision,
+        changed=changed,
+    )
 
 
 @router.get(

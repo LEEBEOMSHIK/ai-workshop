@@ -338,7 +338,7 @@ def test_library_settings_default_and_maximum_are_consistent() -> None:
 async def test_upload_rejects_foreign_folder_before_storage_write() -> None:
     repository = GuardRepository(folder_allowed=False)
     store = RecordingStore()
-    service = AssetService(repository, store, max_upload_bytes=1024)  # type: ignore[arg-type]
+    service = AssetService(repository, store, max_upload_bytes=1024, max_depth=64)  # type: ignore[arg-type]
 
     with pytest.raises(AppError) as failure:
         await service.upload(
@@ -358,7 +358,7 @@ async def test_upload_rejects_foreign_folder_before_storage_write() -> None:
 @pytest.mark.asyncio
 async def test_create_folder_rejects_invalid_trimmed_names_in_service(name: str) -> None:
     repository = GuardRepository()
-    service = AssetService(repository, RecordingStore(), max_upload_bytes=1024)  # type: ignore[arg-type]
+    service = AssetService(repository, RecordingStore(), max_upload_bytes=1024, max_depth=64)  # type: ignore[arg-type]
 
     with pytest.raises(AppError) as failure:
         await service.create_folder(

@@ -8,7 +8,11 @@ from ai_workshop.infrastructure.search.elasticsearch import create_elasticsearch
 from ai_workshop.labs.rag.indexing.contracts import IndexDescriptor, IndexDocument
 from ai_workshop.labs.rag.indexing.elasticsearch import ElasticsearchSearchIndex
 from ai_workshop.labs.rag.indexing.service import IndexingService
-from ai_workshop.labs.rag.retrieval.domain import ActiveIndexAlias, ResolvedSearchScope
+from ai_workshop.labs.rag.retrieval.domain import (
+    ActiveIndexAlias,
+    ResolvedSearchScope,
+    SelectedDocumentIdentity,
+)
 from ai_workshop.labs.rag.retrieval.elasticsearch import (
     ElasticsearchDenseRetriever,
     ElasticsearchSparseRetriever,
@@ -86,6 +90,9 @@ async def test_bm25_and_knn_prefilters_exclude_private_personal_chunk() -> None:
             (),
             asset_version_ids=(company_asset_version_id,),
             index_build_ids=(build_id,),
+            authorized_documents=(SelectedDocumentIdentity(
+                uuid4(), company_asset_version_id, projection_id, build_id,
+            ),),
         )
 
         sparse_hits = await ElasticsearchSparseRetriever(client).search_sparse(
@@ -197,6 +204,9 @@ async def _assert_stale_alias_target_cannot_displace_b(label: str) -> None:
             folder_ids=(),
             asset_version_ids=(b_asset_id,),
             index_build_ids=(b_build_id,),
+            authorized_documents=(SelectedDocumentIdentity(
+                uuid4(), b_asset_id, b_projection_id, b_build_id,
+            ),),
         )
 
         sparse_hits = await ElasticsearchSparseRetriever(client).search_sparse(

@@ -1,25 +1,31 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, vi } from "vitest";
 
 import type { DocumentSummary, LibraryPage } from "./api";
 import { DocumentBrowser } from "./DocumentBrowser";
+import { getWorkspaceCapabilities } from "../workspaces/api";
+
+vi.mock("../workspaces/api", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../workspaces/api")>(),
+  getWorkspaceCapabilities: vi.fn(async () => ({ read: true, write: true, delete: false, manage_members: false })),
+}));
 
 const document: DocumentSummary = {
   active_version_id: "version-2", folder_id: null, id: "document-1", job_id: null,
-  latest_version: 3, latest_version_id: "version-3", name: "합성 문서.md",
+  latest_version: 3, latest_version_id: "version-3", metadata_revision: 1, name: "합성 문서.md",
   status: "processing", workspace_id: "workspace-1",
 };
 
 const root: LibraryPage = {
   ancestors: [], documents: [document], folder: null,
-  folders: [{ id: "folder-1", name: "제품", parent_id: null, has_children: false }],
+  folders: [{ id: "folder-1", metadata_revision: 1, name: "제품", parent_id: null, has_children: false }],
   next_document_cursor: null, next_folder_cursor: null,
   workspace: { id: "workspace-1", name: "제품 자료", kind: "company", expires_at: null },
 };
 
 const folderPage: LibraryPage = {
-  ...root, ancestors: [], documents: [], folder: { id: "folder-1", name: "제품", parent_id: null }, folders: [],
+  ...root, ancestors: [], documents: [], folder: { id: "folder-1", metadata_revision: 1, name: "제품", parent_id: null }, folders: [],
 };
 
 function renderBrowser(options: Partial<Parameters<typeof DocumentBrowser>[0]> = {}) {
@@ -71,7 +77,7 @@ it("focuses the current folder heading when the restored document is outside the
 
   await user.click(screen.getByRole("button", { name: "문서 닫기" }));
 
-  expect(screen.getByRole("heading", { name: "미분류 문서" })).toHaveFocus();
+  expect(screen.getByRole("heading", { name: "파일함 최상위" })).toHaveFocus();
 });
 
 it("returns focus to the URL-restored document instead of an earlier clicked document", async () => {
@@ -222,6 +228,7 @@ it("keeps the existing new-version and duplicate upload behavior", async () => {
   const user = userEvent.setup();
   renderBrowser();
 
+  await waitFor(() => expect(screen.getByLabelText("합성 문서.md 새 버전 파일")).toBeEnabled());
   await user.upload(screen.getByLabelText("합성 문서.md 새 버전 파일"), new File(["v4"], "doc.md", { type: "text/markdown" }));
   expect(await screen.findByText("최신 버전 4")).toBeVisible();
   await user.upload(screen.getByLabelText("새 문서 파일"), new File(["duplicate"], "copy.md", { type: "text/markdown" }));
@@ -232,10 +239,10 @@ it("keeps the existing new-version and duplicate upload behavior", async () => {
 it("ignores a stale folder reply after the user changes scope", async () => {
   let resolveFirst!: (response: Response) => void;
   const first = new Promise<Response>((resolve) => { resolveFirst = resolve; });
-  const secondPage = { ...root, folder: { id: "folder-2", name: "두 번째", parent_id: null }, folders: [], documents: [{ ...document, id: "document-2", name: "현재.txt" }] };
+  const secondPage = { ...root, folder: { id: "folder-2", metadata_revision: 1, name: "두 번째", parent_id: null }, folders: [], documents: [{ ...document, id: "document-2", name: "현재.txt" }] };
   vi.stubGlobal("fetch", vi.fn<typeof fetch>((input) => String(input).includes("folder-1") ? first : Promise.resolve(Response.json(secondPage))));
   const user = userEvent.setup();
-  renderBrowser({ initialRoot: { ...root, folders: [...root.folders, { id: "folder-2", name: "두 번째", parent_id: null, has_children: false }] } });
+  renderBrowser({ initialRoot: { ...root, folders: [...root.folders, { id: "folder-2", metadata_revision: 1, name: "두 번째", parent_id: null, has_children: false }] } });
 
   await user.click(screen.getByRole("button", { name: "제품 폴더 열기" }));
   await user.click(screen.getByRole("button", { name: "두 번째 폴더 열기" }));
@@ -354,14 +361,14 @@ it("consumes a document cursor only once during repeated activation", async () =
 it("does not append a late document page after navigating to another folder", async () => {
   let resolvePage!: (response: Response) => void;
   const oldPage = new Promise<Response>((resolve) => { resolvePage = resolve; });
-  const currentPage = { ...root, folder: { id: "folder-2", name: "두 번째", parent_id: null }, folders: [], documents: [{ ...document, id: "current-document", name: "현재 범위.txt", folder_id: "folder-2" }], next_document_cursor: null };
+  const currentPage = { ...root, folder: { id: "folder-2", metadata_revision: 1, name: "두 번째", parent_id: null }, folders: [], documents: [{ ...document, id: "current-document", name: "현재 범위.txt", folder_id: "folder-2" }], next_document_cursor: null };
   vi.stubGlobal("fetch", vi.fn<typeof fetch>((input) => String(input).includes("document_cursor=old-page")
     ? oldPage
     : Promise.resolve(Response.json(currentPage))));
   const user = userEvent.setup();
   renderBrowser({
     initialLibrary: { ...root, next_document_cursor: "old-page" },
-    initialRoot: { ...root, folders: [...root.folders, { id: "folder-2", name: "두 번째", parent_id: null, has_children: false }] },
+    initialRoot: { ...root, folders: [...root.folders, { id: "folder-2", metadata_revision: 1, name: "두 번째", parent_id: null, has_children: false }] },
   });
 
   await user.click(screen.getByRole("button", { name: "문서 더 보기" }));
@@ -376,7 +383,7 @@ it("does not let a late post-upload refresh replace a newer folder selection", a
   let markRefreshStarted!: () => void;
   const refreshStarted = new Promise<void>((resolve) => { markRefreshStarted = resolve; });
   const oldRefresh = new Promise<Response>((resolve) => { resolveRefresh = resolve; });
-  const currentPage = { ...root, folder: { id: "folder-2", name: "두 번째", parent_id: null }, folders: [], documents: [{ ...document, id: "current-document", name: "현재 범위.txt", folder_id: "folder-2" }] };
+  const currentPage = { ...root, folder: { id: "folder-2", metadata_revision: 1, name: "두 번째", parent_id: null }, folders: [], documents: [{ ...document, id: "current-document", name: "현재 범위.txt", folder_id: "folder-2" }] };
   const fetcher = vi.fn<typeof fetch>((input, init) => {
     const path = String(input);
     if (init?.method === "POST") return Promise.resolve(Response.json({ ...document, id: "uploaded-document", name: "업로드됨.txt" }, { status: 201 }));
@@ -386,14 +393,15 @@ it("does not let a late post-upload refresh replace a newer folder selection", a
   });
   vi.stubGlobal("fetch", fetcher);
   const user = userEvent.setup();
-  renderBrowser({ initialRoot: { ...root, folders: [...root.folders, { id: "folder-2", name: "두 번째", parent_id: null, has_children: false }] } });
+  renderBrowser({ initialRoot: { ...root, folders: [...root.folders, { id: "folder-2", metadata_revision: 1, name: "두 번째", parent_id: null, has_children: false }] } });
 
+  await waitFor(() => expect(screen.getByLabelText("새 문서 파일")).toBeEnabled());
   await user.upload(screen.getByLabelText("새 문서 파일"), new File(["text"], "uploaded.txt", { type: "text/plain" }));
   await refreshStarted;
   await user.click(screen.getByRole("button", { name: "두 번째 폴더 열기" }));
   expect(await screen.findByRole("button", { name: "현재 범위.txt 열기" })).toBeVisible();
   await act(async () => resolveRefresh(Response.json({ ...root, documents: [{ ...document, id: "old-document", name: "이전 범위.txt" }] })));
-  expect(await screen.findByText("저장 완료")).toBeVisible();
+  expect(screen.queryByText(/저장 완료/)).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "이전 범위.txt 열기" })).not.toBeInTheDocument();
 });
 
@@ -407,6 +415,7 @@ it("retains the uploaded document job identity when reconciliation omits it", as
   const user = userEvent.setup();
   renderBrowser({ initialLibrary: { ...root, documents: [] } });
 
+  await waitFor(() => expect(screen.getByLabelText("새 문서 파일")).toBeEnabled());
   await user.upload(screen.getByLabelText("새 문서 파일"), new File(["text"], "job.txt", { type: "text/plain" }));
 
   expect(await screen.findByRole("button", { name: "처리할 문서.txt 열기" })).toBeVisible();
@@ -478,10 +487,8 @@ it("mounts workspace member management only when the caller explicitly enables i
   expect(fetcher).not.toHaveBeenCalled();
   hidden.unmount();
 
+  vi.mocked(getWorkspaceCapabilities).mockResolvedValue({ read: true, write: true, delete: true, manage_members: true });
   renderBrowser({ showMemberManagement: true });
   expect(await screen.findByRole("button", { name: "구성원 권한 관리" })).toBeVisible();
-  expect(fetcher).toHaveBeenCalledWith(
-    "/api/v1/workspaces/workspace-1/capabilities",
-    expect.objectContaining({ credentials: "include" }),
-  );
+  expect(getWorkspaceCapabilities).toHaveBeenCalledWith("workspace-1", expect.any(AbortSignal));
 });

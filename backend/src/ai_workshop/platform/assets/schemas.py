@@ -1,7 +1,7 @@
 from typing import Annotated, Self
 from uuid import UUID
 
-from pydantic import BaseModel, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from ai_workshop.platform.assets.domain import AssetVersion, Document, Folder, VersionStatus
 from ai_workshop.platform.assets.library import LibraryPage
@@ -20,10 +20,16 @@ class FolderResponse(BaseModel):
     id: UUID
     name: str
     parent_id: UUID | None
+    metadata_revision: int
 
     @classmethod
     def from_domain(cls, folder: Folder) -> "FolderResponse":
-        return cls(id=folder.id, name=folder.name, parent_id=folder.parent_id)
+        return cls(
+            id=folder.id,
+            name=folder.name,
+            parent_id=folder.parent_id,
+            metadata_revision=folder.metadata_revision,
+        )
 
 
 class DocumentResponse(BaseModel):
@@ -31,6 +37,7 @@ class DocumentResponse(BaseModel):
     workspace_id: UUID
     folder_id: UUID | None
     name: str
+    metadata_revision: int
     latest_version: int
     active_version_id: UUID | None
     latest_version_id: UUID
@@ -50,6 +57,7 @@ class DocumentResponse(BaseModel):
             workspace_id=document.workspace_id,
             folder_id=document.folder_id,
             name=document.name,
+            metadata_revision=document.metadata_revision,
             latest_version=latest.number,
             active_version_id=document.active_version_id,
             latest_version_id=latest.id,
@@ -93,11 +101,7 @@ class LibraryPageResponse(BaseModel):
     def from_domain(cls, page: LibraryPage) -> Self:
         return cls(
             workspace=WorkspaceResponse.from_domain(page.workspace),
-            folder=(
-                FolderResponse.from_domain(page.folder)
-                if page.folder is not None
-                else None
-            ),
+            folder=(FolderResponse.from_domain(page.folder) if page.folder is not None else None),
             ancestors=[FolderResponse.from_domain(folder) for folder in page.ancestors],
             folders=[
                 LibraryFolderResponse(
@@ -106,9 +110,7 @@ class LibraryPageResponse(BaseModel):
                 )
                 for item in page.folders
             ],
-            documents=[
-                DocumentResponse.from_domain(document) for document in page.documents
-            ],
+            documents=[DocumentResponse.from_domain(document) for document in page.documents],
             next_folder_cursor=page.next_folder_cursor,
             next_document_cursor=page.next_document_cursor,
         )
@@ -117,3 +119,27 @@ class LibraryPageResponse(BaseModel):
 class AssetVersionPageResponse(BaseModel):
     items: list[AssetVersionResponse]
     next_cursor: str | None
+
+
+class AssetMoveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    destination_folder_id: UUID | None
+    expected_revision: Annotated[int, Field(strict=True, ge=1)]
+
+
+class DocumentMoveResponse(BaseModel):
+    id: UUID
+    workspace_id: UUID
+    name: str
+    folder_id: UUID | None
+    metadata_revision: int
+    changed: bool
+
+
+class FolderMoveResponse(BaseModel):
+    id: UUID
+    workspace_id: UUID
+    name: str
+    parent_id: UUID | None
+    metadata_revision: int
+    changed: bool

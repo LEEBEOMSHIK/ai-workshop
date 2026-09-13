@@ -1,7 +1,7 @@
 from typing import Protocol
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_workshop.platform.assets.domain import AssetVersion, Document, Folder
@@ -18,6 +18,23 @@ from ai_workshop.platform.workspaces.repository import (
 
 
 class AssetRepository(Protocol):
+    async def has_foreign_folder_children(
+        self, workspace_id: UUID, parent_ids: set[UUID]
+    ) -> bool: ...
+    async def move_document_location(
+        self,
+        workspace_id: UUID,
+        document_id: UUID,
+        destination_id: UUID | None,
+        expected_revision: int,
+    ) -> bool: ...
+    async def move_folder_location(
+        self,
+        workspace_id: UUID,
+        folder_id: UUID,
+        destination_id: UUID | None,
+        expected_revision: int,
+    ) -> bool: ...
     async def require_workspace_write(
         self, user_id: UUID, workspace_id: UUID, *, lock: bool = False
     ) -> None: ...
@@ -40,6 +57,21 @@ class AssetRepository(Protocol):
 class SqlAlchemyAssetRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
+
+    async def has_foreign_folder_children(self, workspace_id: UUID, parent_ids: set[UUID]) -> bool:
+        # Return only existence: never load or expose the foreign workspace's metadata.
+        return bool(
+            await self.session.scalar(
+                select(
+                    select(FolderRecord.id)
+                    .where(
+                        FolderRecord.parent_id.in_(parent_ids),
+                        FolderRecord.workspace_id != workspace_id,
+                    )
+                    .exists()
+                )
+            )
+        )
 
     async def require_workspace_write(
         self, user_id: UUID, workspace_id: UUID, *, lock: bool = False
@@ -87,6 +119,7 @@ class SqlAlchemyAssetRepository:
             folder_id=document.folder_id,
             name=document.name,
             active_version_id=document.active_version_id,
+            metadata_revision=document.metadata_revision,
         )
         self.session.add(document_record)
         await self.session.flush()
@@ -111,6 +144,7 @@ class SqlAlchemyAssetRepository:
             return []
         result = await self.session.execute(
             select(DocumentRecord)
+            .execution_options(populate_existing=True)
             .where(DocumentRecord.workspace_id == workspace_id)
             .order_by(DocumentRecord.name)
         )
@@ -142,6 +176,7 @@ class SqlAlchemyAssetRepository:
                     name=record.name,
                     active_version_id=record.active_version_id,
                     versions=versions,
+                    metadata_revision=record.metadata_revision,
                 )
             )
         return documents
@@ -151,11 +186,12 @@ class SqlAlchemyAssetRepository:
             return []
         result = await self.session.execute(
             select(FolderRecord)
+            .execution_options(populate_existing=True)
             .where(FolderRecord.workspace_id == workspace_id)
             .order_by(FolderRecord.name)
         )
         return [
-            Folder(item.id, item.workspace_id, item.parent_id, item.name)
+            Folder(item.id, item.workspace_id, item.parent_id, item.name, item.metadata_revision)
             for item in result.scalars()
         ]
 
@@ -170,7 +206,7 @@ class SqlAlchemyAssetRepository:
             .where(
                 FolderRecord.workspace_id == workspace_id,
                 FolderRecord.parent_id == parent_id,
-                FolderRecord.name == name,
+                func.trim(FolderRecord.name) == name.strip(),
             )
             .limit(1)
         )
@@ -202,6 +238,7 @@ class SqlAlchemyAssetRepository:
                 workspace_id=folder.workspace_id,
                 parent_id=folder.parent_id,
                 name=folder.name,
+                metadata_revision=folder.metadata_revision,
             )
         )
         await self.session.flush()
@@ -214,6 +251,7 @@ class SqlAlchemyAssetRepository:
     ) -> Document | None:
         result = await self.session.execute(
             select(DocumentRecord)
+            .execution_options(populate_existing=True)
             .join(
                 WorkspaceMembershipRecord,
                 WorkspaceMembershipRecord.workspace_id == DocumentRecord.workspace_id,
@@ -255,6 +293,7 @@ class SqlAlchemyAssetRepository:
             name=record.name,
             active_version_id=record.active_version_id,
             versions=versions,
+            metadata_revision=record.metadata_revision,
         )
 
     async def save_version(self, document: Document, version: AssetVersion) -> Document:
@@ -272,6 +311,44 @@ class SqlAlchemyAssetRepository:
         )
         await self.session.flush()
         return document
+
+    async def move_document_location(
+        self,
+        workspace_id: UUID,
+        document_id: UUID,
+        destination_id: UUID | None,
+        expected_revision: int,
+    ) -> bool:
+        result = await self.session.execute(
+            update(DocumentRecord)
+            .where(
+                DocumentRecord.id == document_id,
+                DocumentRecord.workspace_id == workspace_id,
+                DocumentRecord.metadata_revision == expected_revision,
+            )
+            .values(folder_id=destination_id, metadata_revision=expected_revision + 1)
+            .returning(DocumentRecord.id)
+        )
+        return len(result.scalars().all()) == 1
+
+    async def move_folder_location(
+        self,
+        workspace_id: UUID,
+        folder_id: UUID,
+        destination_id: UUID | None,
+        expected_revision: int,
+    ) -> bool:
+        result = await self.session.execute(
+            update(FolderRecord)
+            .where(
+                FolderRecord.id == folder_id,
+                FolderRecord.workspace_id == workspace_id,
+                FolderRecord.metadata_revision == expected_revision,
+            )
+            .values(parent_id=destination_id, metadata_revision=expected_revision + 1)
+            .returning(FolderRecord.id)
+        )
+        return len(result.scalars().all()) == 1
 
     async def find_version(self, version_id: UUID) -> AssetVersion | None:
         record = await self.session.get(AssetVersionRecord, version_id)

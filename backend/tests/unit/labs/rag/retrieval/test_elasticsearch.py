@@ -12,6 +12,7 @@ from ai_workshop.labs.rag.retrieval.domain import (
     FrozenIndexTarget,
     ResolvedSearchScope,
     SearchBackendUnavailableError,
+    SelectedDocumentIdentity,
 )
 from ai_workshop.labs.rag.retrieval.elasticsearch import (
     ElasticsearchDenseRetriever,
@@ -211,6 +212,18 @@ def test_active_scope_without_authoritative_lifecycle_is_match_none() -> None:
     assert not any("index_build_id" in str(item) for item in filters)
 
 
+def test_independent_asset_and_build_lists_do_not_authorize_live_search() -> None:
+    filters = build_scope_filter(
+        uuid4(),
+        ResolvedSearchScope(
+            (uuid4(),), (uuid4(),),
+            asset_version_ids=(uuid4(),), index_build_ids=(uuid4(),),
+        ),
+    )
+    assert {"match_none": {}} in filters
+    assert not any("folder_id" in str(item) for item in filters)
+
+
 @pytest.mark.asyncio
 async def test_sparse_and_dense_use_equivalent_acl_prefilters_and_hide_vectors() -> None:
     actor_id = UUID("00000000-0000-0000-0000-000000000809")
@@ -224,11 +237,16 @@ async def test_sparse_and_dense_use_equivalent_acl_prefilters_and_hide_vectors()
         UUID("00000000-0000-0000-0000-000000000806"),
         UUID("00000000-0000-0000-0000-000000000816"),
     )
+    identities = (
+        SelectedDocumentIdentity(uuid4(), asset_version_ids[0], UUID(int=802), index_build_ids[0]),
+        SelectedDocumentIdentity(uuid4(), asset_version_ids[1], UUID(int=812), index_build_ids[1]),
+    )
     scope = ResolvedSearchScope(
         (workspace_id,),
         (folder_id,),
         asset_version_ids=asset_version_ids,
         index_build_ids=index_build_ids,
+        authorized_documents=identities,
     )
     client = RecordingClient(_response())
     sparse = ElasticsearchSparseRetriever(cast(AsyncElasticsearch, client))
@@ -257,10 +275,19 @@ async def test_sparse_and_dense_use_equivalent_acl_prefilters_and_hide_vectors()
     assert sparse_filter == dense_filter == [
         {"terms": {"workspace_id": [str(workspace_id)]}},
         {"term": {"allowed_user_ids": str(actor_id)}},
-        {"terms": {"folder_id": [str(folder_id)]}},
         {"term": {"status": "ready"}},
-        {"terms": {"asset_version_id": [str(item) for item in asset_version_ids]}},
-        {"terms": {"index_build_id": [str(item) for item in index_build_ids]}},
+        {"bool": {"minimum_should_match": 1, "should": [
+            {"bool": {"filter": [
+                {"term": {"asset_version_id": str(asset_version_ids[0])}},
+                {"term": {"projection_id": str(UUID(int=802))}},
+                {"term": {"index_build_id": str(index_build_ids[0])}},
+            ]}},
+            {"bool": {"filter": [
+                {"term": {"asset_version_id": str(asset_version_ids[1])}},
+                {"term": {"projection_id": str(UUID(int=812))}},
+                {"term": {"index_build_id": str(index_build_ids[1])}},
+            ]}},
+        ]}},
     ]
     assert all(
         "embedding" not in cast(dict[str, list[str]], call["source"])["includes"]

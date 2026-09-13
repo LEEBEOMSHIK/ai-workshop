@@ -122,6 +122,7 @@ class SelectedScopeResolver:
             document_ids=(self.identity.document_id,),
             selected_documents=(self.identity,),
             scope_fingerprint=self.fingerprint,
+            authorized_documents=(self.identity,),
         )
 
 
@@ -246,6 +247,7 @@ class StatefulSelectedScopeResolver:
             document_ids=normalized_ids,
             selected_documents=identities,
             scope_fingerprint=self.fingerprints[normalized_ids],
+            authorized_documents=identities,
         )
 
 

@@ -200,14 +200,26 @@ def build_scope_filter(
         {"terms": {"workspace_id": [str(item) for item in scope.workspace_ids]}},
         {"term": {"allowed_user_ids": str(actor_id)}},
     ]
-    if scope.folder_ids:
+    if not scope.active_only and scope.folder_ids:
         filters.append({"terms": {"folder_id": [str(item) for item in scope.folder_ids]}})
     if scope.ready_only:
         filters.append({"term": {"status": "ready"}})
-    if scope.active_only and (
-        not scope.asset_version_ids or not scope.index_build_ids
-    ):
-        filters.append({"match_none": {}})
+    if scope.active_only:
+        if not scope.authorized_documents:
+            filters.append({"match_none": {}})
+            return filters
+        # The immutable Asset -> Document join was proved by the DB resolver.
+        # Preserve each exact tuple; separate terms lists allow cross-pairing.
+        filters.append(
+            {"bool": {"minimum_should_match": 1, "should": [
+                {"bool": {"filter": [
+                    {"term": {"asset_version_id": str(identity.asset_version_id)}},
+                    {"term": {"projection_id": str(identity.projection_id)}},
+                    {"term": {"index_build_id": str(identity.index_build_id)}},
+                ]}}
+                for identity in scope.authorized_documents
+            ]}}
+        )
         return filters
     if scope.asset_version_ids:
         filters.append(

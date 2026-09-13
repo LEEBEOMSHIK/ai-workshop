@@ -1534,6 +1534,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{workspace_id}/documents/{document_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Move Document */
+        post: operations["move_document_api_v1_workspaces__workspace_id__documents__document_id__move_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{workspace_id}/folders": {
         parameters: {
             query?: never;
@@ -1546,6 +1563,23 @@ export interface paths {
         put?: never;
         /** Create Folder */
         post: operations["create_folder_api_v1_workspaces__workspace_id__folders_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/folders/{folder_id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Move Folder */
+        post: operations["move_folder_api_v1_workspaces__workspace_id__folders__folder_id__move_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1734,6 +1768,13 @@ export interface components {
          * @enum {string}
          */
         AnswerStatus: "supported" | "insufficient_evidence";
+        /** AssetMoveRequest */
+        AssetMoveRequest: {
+            /** Destination Folder Id */
+            destination_folder_id: string | null;
+            /** Expected Revision */
+            expected_revision: number;
+        };
         /** AssetVersionPageResponse */
         AssetVersionPageResponse: {
             /** Items */
@@ -2479,6 +2520,27 @@ export interface components {
             transmitted_data_categories?: string[];
         };
         Digest: string;
+        /** DocumentMoveResponse */
+        DocumentMoveResponse: {
+            /** Changed */
+            changed: boolean;
+            /** Folder Id */
+            folder_id: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Metadata Revision */
+            metadata_revision: number;
+            /** Name */
+            name: string;
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
+        };
         /** DocumentResponse */
         DocumentResponse: {
             /** Active Version Id */
@@ -2499,6 +2561,8 @@ export interface components {
              * Format: uuid
              */
             latest_version_id: string;
+            /** Metadata Revision */
+            metadata_revision: number;
             /** Name */
             name: string;
             status: components["schemas"]["VersionStatus"];
@@ -3280,6 +3344,27 @@ export interface components {
             /** Parent Id */
             parent_id?: string | null;
         };
+        /** FolderMoveResponse */
+        FolderMoveResponse: {
+            /** Changed */
+            changed: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Metadata Revision */
+            metadata_revision: number;
+            /** Name */
+            name: string;
+            /** Parent Id */
+            parent_id: string | null;
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
+        };
         /** FolderResponse */
         FolderResponse: {
             /**
@@ -3287,6 +3372,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Metadata Revision */
+            metadata_revision: number;
             /** Name */
             name: string;
             /** Parent Id */
@@ -3588,6 +3675,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Metadata Revision */
+            metadata_revision: number;
             /** Name */
             name: string;
             /** Parent Id */
@@ -11735,6 +11824,78 @@ export interface operations {
             };
         };
     };
+    move_document_api_v1_workspaces__workspace_id__documents__document_id__move_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssetMoveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentMoveResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     list_folders_api_v1_workspaces__workspace_id__folders_get: {
         parameters: {
             query?: never;
@@ -11824,6 +11985,78 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FolderResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    move_folder_api_v1_workspaces__workspace_id__folders__folder_id__move_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                folder_id: string;
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssetMoveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FolderMoveResponse"];
                 };
             };
             /** @description Authentication required. */

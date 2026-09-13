@@ -17,7 +17,12 @@ from ai_workshop.labs.rag.generation.execution import (
 from ai_workshop.labs.rag.generation.integrity import ConversationTurnSigner
 from ai_workshop.labs.rag.highlighting.domain import EvidenceSource
 from ai_workshop.labs.rag.policies.domain import PolicyDecision
-from ai_workshop.labs.rag.retrieval.domain import FusedHit, ResolvedSearchScope, SparseHit
+from ai_workshop.labs.rag.retrieval.domain import (
+    FusedHit,
+    ResolvedSearchScope,
+    SelectedDocumentIdentity,
+    SparseHit,
+)
 from ai_workshop.labs.rag.search.schemas import ConversationTurnRequest, SearchRequest
 from ai_workshop.shared.errors import AppError
 from tests.unit.labs.rag.highlighting.test_evidence_selector import _source
@@ -75,12 +80,17 @@ class OneSourceRetriever:
 
 class ActiveScopeResolver:
     async def resolve(self, **_kwargs: object) -> ResolvedSearchScope:
-        chunk = _source(1, "synthetic fact").chunk
+        source = _source(1, "synthetic fact")
+        chunk = source.chunk
         return ResolvedSearchScope(
             (WORKSPACE_ID,),
             (),
             asset_version_ids=(chunk.asset_version_id,),
             index_build_ids=(chunk.index_build_id,),
+            authorized_documents=(SelectedDocumentIdentity(
+                source.document_id, chunk.asset_version_id,
+                chunk.projection_id, chunk.index_build_id,
+            ),),
         )
 
 

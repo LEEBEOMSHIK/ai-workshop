@@ -8,6 +8,17 @@ export type LibraryPage = components["schemas"]["LibraryPageResponse"];
 export type AssetVersion = components["schemas"]["AssetVersionResponse"];
 export type AssetVersionPage = components["schemas"]["AssetVersionPageResponse"];
 export type OriginalPreview = components["schemas"]["OriginalPreviewResponse"];
+export type AssetMoveRequest = components["schemas"]["AssetMoveRequest"];
+export type DocumentMoveResult = components["schemas"]["DocumentMoveResponse"];
+export type FolderMoveResult = components["schemas"]["FolderMoveResponse"];
+
+export function moveDocument(workspaceId: string, documentId: string, body: AssetMoveRequest, signal?: AbortSignal): Promise<DocumentMoveResult> {
+  return apiRequest(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/documents/${encodeURIComponent(documentId)}/move`, { method: "POST", json: { destination_folder_id: body.destination_folder_id, expected_revision: body.expected_revision }, signal });
+}
+
+export function moveFolder(workspaceId: string, folderId: string, body: AssetMoveRequest, signal?: AbortSignal): Promise<FolderMoveResult> {
+  return apiRequest(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/folders/${encodeURIComponent(folderId)}/move`, { method: "POST", json: { destination_folder_id: body.destination_folder_id, expected_revision: body.expected_revision }, signal });
+}
 
 export type EvidenceApprovalStatus = "pending" | "approved" | "rejected";
 export type EvidenceApprovalContextStatus = "unapproved" | "approved" | "revoked";

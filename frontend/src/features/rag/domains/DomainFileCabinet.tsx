@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { DocumentBrowser } from "../../assets/DocumentBrowser";
 import type { DocumentSummary, LibraryPage } from "../../assets/api";
+import { assertMoveSourceUnchanged, documentMoveSource, folderMoveSource, type MoveSource } from "../../assets/movement";
 import { readLibrarySelection, type LibrarySelection, writeLibrarySelection } from "../../assets/useLibraryNavigation";
 import { ApiError } from "../../../shared/api/client";
 import { ragDomainChatPath, ragDomainFilesPath } from "../../../shared/routing/routes";
@@ -36,6 +37,7 @@ export interface DomainFileCabinetProps {
   allowEmptySelection?: boolean;
   embedded?: boolean;
   allowedFolderIdsByWorkspace?: Readonly<Record<string, readonly string[]>>;
+  onSelectionInvalidated?: () => void;
 }
 
 export function DomainFileCabinet({
@@ -51,6 +53,7 @@ export function DomainFileCabinet({
   allowEmptySelection = false,
   embedded = false,
   allowedFolderIdsByWorkspace,
+  onSelectionInvalidated,
 }: DomainFileCabinetProps) {
   const router = useRouter();
   const [view, setView] = useState<CabinetView>({ revision: 0, workspaceId: initialLibrary.workspace.id, library: initialLibrary, root: initialRoot, document: initialDocument, versionId: initialVersionId });
@@ -58,23 +61,39 @@ export function DomainFileCabinet({
   const [switching, setSwitching] = useState(false);
   const [error, setError] = useState("");
   const [invalidated, setInvalidated] = useState(false);
+  const [revalidating, setRevalidating] = useState(false);
+  const selectedRef = useRef(selected);
+  const validationRequest = useRef<AbortController | null>(null);
+  const selectionGeneration = useRef(0);
+  const invalidationNotified = useRef(false);
+  const mounted = useRef(true);
+  const moveObligation = useRef<{ source: MoveSource; generation: number; selectedIds: Set<string> } | null>(null);
   const workspaceRequest = useRef<AbortController | null>(null);
   const selectionIdentity = `${slug}:${context.domain_id}:${context.connection_version_id}`;
   const selectionIdentityRef = useRef(selectionIdentity);
   const defaultWorkspaceId = context.workspace_options[0]?.id ?? initialLibrary.workspace.id;
 
-  useEffect(() => () => workspaceRequest.current?.abort(), []);
+  useEffect(() => { selectedRef.current = selected; }, [selected]);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; workspaceRequest.current?.abort(); validationRequest.current?.abort(); selectionGeneration.current += 1; };
+  }, []);
 
   const invalidateSelection = useCallback(() => {
+    selectionGeneration.current += 1;
     setSelected(new Map());
     setInvalidated(true);
     setError(INVALIDATION_MESSAGE);
-  }, []);
+    if (!invalidationNotified.current) { invalidationNotified.current = true; onSelectionInvalidated?.(); }
+  }, [onSelectionInvalidated]);
 
   useEffect(() => {
     if (selectionIdentityRef.current === selectionIdentity) return;
     selectionIdentityRef.current = selectionIdentity;
     workspaceRequest.current?.abort();
+    validationRequest.current?.abort();
+    selectionGeneration.current += 1;
+    setRevalidating(false);
     setSwitching(false);
     setView((current) => ({ revision: current.revision + 1, workspaceId: initialLibrary.workspace.id, library: initialLibrary, root: initialRoot, document: initialDocument, versionId: initialVersionId }));
     invalidateSelection();
@@ -84,7 +103,7 @@ export function DomainFileCabinet({
     try {
       return await browseDomainLibrary(slug, workspaceId, options);
     } catch (failure) {
-      if (isAuthorizationFailure(failure)) invalidateSelection();
+      if (!options.signal?.aborted && isAuthorizationFailure(failure)) invalidateSelection();
       throw failure;
     }
   }, [invalidateSelection, slug]);
@@ -92,7 +111,7 @@ export function DomainFileCabinet({
     try {
       return await getDomainLibraryDocument(slug, workspaceId, documentId, signal);
     } catch (failure) {
-      if (isAuthorizationFailure(failure)) invalidateSelection();
+      if (!signal?.aborted && isAuthorizationFailure(failure)) invalidateSelection();
       throw failure;
     }
   }, [invalidateSelection, slug]);
@@ -105,8 +124,19 @@ export function DomainFileCabinet({
     return { ...selection, workspaceId: selection.workspaceId ?? defaultWorkspaceId };
   }, [defaultWorkspaceId]);
 
+  const retirePendingMovement = useCallback(() => {
+    // Aborting transport does not prove the move rolled back or the selection became safe.
+    if (validationRequest.current || (moveObligation.current && [...moveObligation.current.selectedIds].some((id) => selectedRef.current.has(id)))) invalidateSelection();
+    moveObligation.current = null;
+    validationRequest.current?.abort();
+    validationRequest.current = null;
+    selectionGeneration.current += 1;
+    setRevalidating(false);
+  }, [invalidateSelection]);
+
   const loadWorkspace = useCallback(async (workspaceId: string, selection: LibrarySelection, publish: boolean) => {
     workspaceRequest.current?.abort();
+    retirePendingMovement();
     if (!context.workspace_options.some((workspace) => workspace.id === workspaceId)) {
       setSelected(new Map());
       setError(INVALIDATION_MESSAGE);
@@ -140,13 +170,14 @@ export function DomainFileCabinet({
         setSwitching(false);
       }
     }
-  }, [allowedFolderIdsByWorkspace, browse, context.workspace_options, getDocument, invalidateSelection, publishSelection]);
+  }, [allowedFolderIdsByWorkspace, browse, context.workspace_options, getDocument, invalidateSelection, publishSelection, retirePendingMovement]);
 
   function toggleDocument(document: DocumentSummary, checked: boolean) {
     const allowedFolderIds = allowedFolderIdsByWorkspace?.[document.workspace_id];
-    if (invalidated
+    if (invalidated || revalidating
       || !context.workspace_options.some((workspace) => workspace.id === document.workspace_id)
       || (allowedFolderIds && (!document.folder_id || !allowedFolderIds.includes(document.folder_id)))) return;
+    selectionGeneration.current += 1;
     setSelected((current) => {
       const next = new Map(current);
       if (checked) {
@@ -161,9 +192,57 @@ export function DomainFileCabinet({
 
   function applySelection() {
     const documents = [...selected.values()];
-    if (invalidated || (documents.length === 0 && !allowEmptySelection)) return;
+    if (invalidated || revalidating || (documents.length === 0 && !allowEmptySelection)) return;
     if (onApplySelection) onApplySelection(documents);
     else router.push(ragDomainChatPath(slug, documents.map((document) => ({ workspaceId: document.workspace_id, documentId: document.id }))));
+  }
+
+  async function beforeMove(source: MoveSource, destinationId: string | null, signal: AbortSignal) {
+    if (invalidated || switching || source.workspaceId !== view.workspaceId || !context.workspace_options.some((workspace) => workspace.id === source.workspaceId)) throw new Error("domain_write_unavailable");
+    const fresh = source.kind === "document"
+      ? documentMoveSource(await getDocument(source.workspaceId, source.id, signal))
+      : await browse(source.workspaceId, { folderId: source.id, signal }).then((page) => page.folder && page.workspace.id === source.workspaceId ? folderMoveSource(page.folder, source.workspaceId) : null);
+    assertMoveSourceUnchanged(source, fresh);
+    const destination = await browse(source.workspaceId, { folderId: destinationId, signal });
+    if (destination.workspace.id !== source.workspaceId || (destination.folder?.id ?? null) !== destinationId) throw new Error("domain_destination_changed");
+    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+    moveObligation.current = { source, generation: selectionGeneration.current, selectedIds: new Set([...selectedRef.current.values()].filter((document) => document.workspace_id === source.workspaceId).map((document) => document.id)) };
+  }
+
+  async function revalidateMovedSelection(source: MoveSource) {
+    if (!mounted.current || selectionIdentityRef.current !== selectionIdentity) return;
+    const obligation = moveObligation.current;
+    if (!obligation || obligation.source !== source) return;
+    if (obligation.generation !== selectionGeneration.current) {
+      moveObligation.current = null;
+      if ([...obligation.selectedIds].some((id) => selectedRef.current.has(id))) invalidateSelection();
+      return;
+    }
+    const documents = [...selectedRef.current.values()];
+    if (!documents.length) { moveObligation.current = null; return; }
+    validationRequest.current?.abort();
+    const controller = new AbortController(); validationRequest.current = controller;
+    const generation = ++selectionGeneration.current;
+    setRevalidating(true);
+    try {
+      // Read raw domain adapter here: one failed member invalidates the whole snapshot atomically.
+      const fresh = await Promise.all(documents.map((document) => getDomainLibraryDocument(slug, document.workspace_id, document.id, controller.signal)));
+      if (controller.signal.aborted || selectionGeneration.current !== generation) return;
+      const unsafe = fresh.some((document, index) => {
+        const original = documents[index];
+        const allowed = allowedFolderIdsByWorkspace?.[document.workspace_id];
+        return document.id !== original.id || document.workspace_id !== original.workspace_id || document.active_version_id !== original.active_version_id
+          || !context.workspace_options.some((workspace) => workspace.id === document.workspace_id)
+          || (allowed && (!document.folder_id || !allowed.includes(document.folder_id)));
+      });
+      if (unsafe) { invalidateSelection(); setError("이동으로 선택 문서의 범위 또는 활성 버전이 변경되었습니다. 문서를 다시 선택해 주세요."); }
+      else { const next = new Map(fresh.map((document) => [document.id, document])); selectedRef.current = next; setSelected(next); }
+    } catch {
+      if (!controller.signal.aborted && selectionGeneration.current === generation) { invalidateSelection(); setError("선택 문서의 현재 위치와 권한을 확인하지 못했습니다. 문서를 다시 선택해 주세요."); }
+    } finally {
+      if (moveObligation.current?.source === source) moveObligation.current = null;
+      if (validationRequest.current === controller) { validationRequest.current = null; if (mounted.current) setRevalidating(false); }
+    }
   }
 
   return (
@@ -174,9 +253,10 @@ export function DomainFileCabinet({
       </div> : null}
       <div className={styles.selectionBar}>
         <p>{selected.size} / {context.selection_limit}개 선택</p>
-        <button type="button" disabled={invalidated || (selected.size === 0 && !allowEmptySelection) || switching} onClick={applySelection}>{actionLabel}</button>
+        <button type="button" disabled={invalidated || revalidating || (selected.size === 0 && !allowEmptySelection) || switching} onClick={applySelection}>{actionLabel}</button>
       </div>
-      {invalidated || error ? <p className={styles.error} role="alert">{invalidated ? INVALIDATION_MESSAGE : error}</p> : null}
+      {invalidated || error ? <p className={styles.error} role="alert">{error || INVALIDATION_MESSAGE}</p> : null}
+      {revalidating ? <p role="status">선택 문서의 현재 위치와 활성 버전을 확인하는 중…</p> : null}
       {switching ? <p role="status">지식 공간을 불러오는 중…</p> : null}
       <DocumentBrowser
         key={`${view.workspaceId}:${view.revision}`}
@@ -186,7 +266,28 @@ export function DomainFileCabinet({
         initialWorkspaces={context.workspace_options}
         initialDocument={view.document}
         initialVersionId={view.versionId}
-        readOnly
+        readOnly={invalidated || switching || !context.workspace_options.some((workspace) => workspace.id === view.workspaceId)}
+        beforeMutation={async (folderId, documentId, signal) => {
+          if (invalidated || switching || !context.workspace_options.some((workspace) => workspace.id === view.workspaceId)) throw new Error("domain_write_unavailable");
+          if (documentId) {
+            const document = await getDocument(view.workspaceId, documentId, signal);
+            if (document.folder_id !== folderId) throw new Error("document_destination_changed");
+          } else await browse(view.workspaceId, { folderId, signal });
+        }}
+        beforeMove={beforeMove}
+        onMoveCommitted={revalidateMovedSelection}
+        onMoveScopeInvalidated={retirePendingMovement}
+        onMoveRejected={(source) => { if (moveObligation.current?.source === source) moveObligation.current = null; }}
+        onMoveUncertain={(source) => {
+          if (!mounted.current || selectionIdentityRef.current !== selectionIdentity) return;
+          const obligation = moveObligation.current;
+          if (!obligation || obligation.source !== source) return;
+          moveObligation.current = null;
+          if ([...obligation.selectedIds].some((id) => selectedRef.current.has(id))) {
+            invalidateSelection();
+            setError("이동 결과를 확인하지 못했습니다. 현재 위치를 확인한 뒤 문서를 다시 선택해 주세요.");
+          }
+        }}
         showMemberManagement={!embedded}
         browse={browse}
         getDocument={getDocument}
@@ -197,7 +298,7 @@ export function DomainFileCabinet({
         onSelectWorkspace={(workspaceId) => void loadWorkspace(workspaceId, { folderId: null, documentId: null, versionId: null }, true)}
         selectedDocumentIds={invalidated ? new Set() : new Set(selected.keys())}
         onToggleDocumentSelection={toggleDocument}
-        isDocumentSelectionDisabled={(document) => invalidated || (selected.size >= context.selection_limit && !selected.has(document.id))}
+        isDocumentSelectionDisabled={(document) => invalidated || revalidating || (selected.size >= context.selection_limit && !selected.has(document.id))}
         isFolderSelectionDisabled={(folderId) => {
           const allowedFolderIds = allowedFolderIdsByWorkspace?.[view.workspaceId];
           return allowedFolderIds ? folderId === null || !allowedFolderIds.includes(folderId) : false;
@@ -210,5 +311,5 @@ export function DomainFileCabinet({
 }
 
 function isAuthorizationFailure(failure: unknown): boolean {
-  return failure instanceof ApiError && (failure.status === 403 || failure.status === 404);
+  return failure instanceof ApiError && [401, 403, 404].includes(failure.status);
 }

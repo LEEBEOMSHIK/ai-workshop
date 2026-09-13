@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 
@@ -12,11 +12,98 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 
 const company = { id: "11111111-1111-4111-8111-111111111111", name: "회사 규정", kind: "company", expires_at: null } as const;
 const personal = { id: "22222222-2222-4222-8222-222222222222", name: "개인 연구", kind: "personal", expires_at: null } as const;
-const first = { active_version_id: "version-1", folder_id: null, id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", job_id: null, latest_version: 1, latest_version_id: "version-1", name: "운용 규정.md", status: "ready", workspace_id: company.id } as const;
+const first = { active_version_id: "version-1", folder_id: null, id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", job_id: null, latest_version: 1, latest_version_id: "version-1", metadata_revision: 1, name: "운용 규정.md", status: "ready", workspace_id: company.id } as const;
 const second = { ...first, id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", name: "리스크 메모.txt" };
 const third = { ...first, id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", name: "초과 문서.txt" };
 const root: LibraryPage = { ancestors: [], documents: [first], folder: null, folders: [], next_document_cursor: "next", next_folder_cursor: null, workspace: company };
 const context: DomainLibraryContext = { domain_id: "domain-1", display_name: "자산운용", connection_version_id: "connection-1", workspace_options: [company, personal], selection_limit: 2 };
+
+const writeCapabilities = { read: true, write: true, delete: false, manage_members: false };
+
+it("uploads inside the embedded selected folder without applying selection, opening the upload or changing URL", async () => {
+  const folder = { id: "risk", metadata_revision: 1, name: "위험 자료", parent_id: null, has_children: false };
+  const original = { ...first, folder_id: folder.id };
+  const page = { ...root, folder, documents: [original], next_document_cursor: null };
+  const uploaded = { ...second, name: "새 자료.txt", folder_id: folder.id, status: "stored", active_version_id: null };
+  let committed = false;
+  const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input);
+    if (path.endsWith("/capabilities")) return Response.json(writeCapabilities);
+    if (init?.method === "POST") { committed = true; return Response.json(uploaded); }
+    if (path.includes("/rag/domains/asset-management/library/") && path.includes("folder_id=risk")) return Response.json({ ...page, documents: committed ? [original, uploaded] : [original] });
+    throw new Error(`Unexpected request: ${path}`);
+  });
+  vi.stubGlobal("fetch", fetcher);
+  const apply = vi.fn(); const user = userEvent.setup(); const url = window.location.href;
+  render(<DomainFileCabinet embedded slug="asset-management" context={context} initialLibrary={page} initialRoot={{ ...root, folders: [folder] }} initialDocument={null} initialVersionId={null} initialSelectedDocuments={[original]} onApplySelection={apply} allowedFolderIdsByWorkspace={{ [company.id]: [folder.id] }} />);
+  await waitFor(() => expect(screen.getByRole("button", { name: "문서 올리기" })).toBeEnabled());
+  expect(screen.getByText(/저장 위치:/)).toHaveTextContent("회사 공간 / 회사 규정 / 위험 자료");
+  await user.upload(screen.getByLabelText("새 문서 파일"), new File(["synthetic"], "new.txt", { type: "text/plain" }));
+  expect(await screen.findByRole("button", { name: "새 자료.txt 열기" })).toBeVisible();
+  expect(screen.getByRole("checkbox", { name: `${first.name} 선택` })).toBeChecked();
+  expect(screen.getByRole("checkbox", { name: "새 자료.txt 선택" })).not.toBeChecked();
+  expect(apply).not.toHaveBeenCalled(); expect(push).not.toHaveBeenCalled(); expect(window.location.href).toBe(url);
+  expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+  const post = fetcher.mock.calls.find(([, init]) => init?.method === "POST");
+  expect(post?.[0]).toBe(`/api/v1/workspaces/${company.id}/documents`);
+  expect((post?.[1]?.body as FormData).get("folder_id")).toBe("risk");
+});
+
+it("denies domain preflight without sending a Platform upload and invalidates the search draft", async () => {
+  const fetcher = vi.fn(async (input: RequestInfo | URL) => String(input).endsWith("/capabilities") ? Response.json(writeCapabilities) : Response.json({ error: { code: "not_found", message: "private", correlation_id: "test" } }, { status: 404 }));
+  vi.stubGlobal("fetch", fetcher); const user = userEvent.setup();
+  render(<DomainFileCabinet embedded slug="asset-management" context={context} initialLibrary={root} initialRoot={root} initialDocument={null} initialVersionId={null} initialSelectedDocuments={[first]} />);
+  await waitFor(() => expect(screen.getByLabelText("새 문서 파일")).toBeEnabled());
+  await user.upload(screen.getByLabelText("새 문서 파일"), new File(["synthetic"], "new.txt", { type: "text/plain" }));
+  expect(await screen.findByText(/파일함 권한 또는 도메인 연결이 변경되었습니다/)).toBeVisible();
+  expect(screen.getByRole("button", { name: "선택 문서로 대화" })).toBeDisabled();
+  expect(fetcher.mock.calls.every(([input]) => String(input).endsWith("/capabilities") || String(input).includes("/rag/domains/"))).toBe(true);
+  expect(screen.queryByLabelText("새 문서 파일")).not.toBeInTheDocument();
+});
+
+it("ignores a late committed upload after switching workspace and clears retry state", async () => {
+  let resolveUpload!: (value: Response) => void;
+  const personalRoot = { ...root, workspace: personal, documents: [], next_document_cursor: null };
+  const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input);
+    if (path.endsWith("/capabilities")) return Response.json(writeCapabilities);
+    if (init?.method === "POST") return new Promise<Response>((resolve) => { resolveUpload = resolve; });
+    if (path.endsWith(`/workspaces/${personal.id}`)) return Response.json(personalRoot);
+    if (path.endsWith(`/workspaces/${company.id}`)) return Response.json(root);
+    throw new Error(`Unexpected request: ${path}`);
+  });
+  vi.stubGlobal("fetch", fetcher); const user = userEvent.setup(); const apply = vi.fn();
+  render(<DomainFileCabinet embedded slug="asset-management" context={context} initialLibrary={root} initialRoot={root} initialDocument={null} initialVersionId={null} initialSelectedDocuments={[first]} onApplySelection={apply} />);
+  await waitFor(() => expect(screen.getByLabelText("새 문서 파일")).toBeEnabled());
+  await user.upload(screen.getByLabelText("새 문서 파일"), new File(["synthetic"], "new.txt", { type: "text/plain" }));
+  await user.click(screen.getByRole("button", { name: personal.name }));
+  await screen.findByRole("heading", { name: personal.name });
+  await act(async () => resolveUpload(Response.json({ ...second, name: "늦은 업로드.txt" })));
+  expect(screen.queryByRole("button", { name: "늦은 업로드.txt 열기" })).not.toBeInTheDocument();
+  expect(screen.queryByText(/저장 완료/)).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "업로드 다시 시도" })).not.toBeInTheDocument();
+  expect(screen.getByText("1 / 2개 선택")).toBeVisible(); expect(apply).not.toHaveBeenCalled();
+});
+
+it("ignores denied preflight from an unmounted workspace without invalidating the new workspace selection", async () => {
+  let rejectPreflight!: (response: Response) => void;
+  const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input);
+    if (path.endsWith("/capabilities")) return Response.json(writeCapabilities);
+    if (path.endsWith(`/workspaces/${company.id}`)) return new Promise<Response>((resolve) => { rejectPreflight = resolve; });
+    if (path.endsWith(`/workspaces/${personal.id}`)) return Response.json({ ...root, workspace: personal, documents: [], next_document_cursor: null });
+    throw new Error(`Unexpected request: ${path}`);
+  });
+  vi.stubGlobal("fetch", fetcher); const user = userEvent.setup();
+  render(<DomainFileCabinet embedded slug="asset-management" context={context} initialLibrary={root} initialRoot={root} initialDocument={null} initialVersionId={null} initialSelectedDocuments={[first]} />);
+  await waitFor(() => expect(screen.getByLabelText("새 문서 파일")).toBeEnabled());
+  await user.upload(screen.getByLabelText("새 문서 파일"), new File(["synthetic"], "new.txt", { type: "text/plain" }));
+  await user.click(screen.getByRole("button", { name: personal.name }));
+  await screen.findByRole("heading", { name: personal.name });
+  await act(async () => rejectPreflight(Response.json({ error: { code: "not_found", message: "private", correlation_id: "test" } }, { status: 404 })));
+  expect(screen.getByText("1 / 2개 선택")).toBeVisible();
+  expect(screen.queryByText(/파일함 권한 또는 도메인 연결이 변경되었습니다/)).not.toBeInTheDocument();
+});
 
 beforeEach(() => {
   push.mockReset();
@@ -180,7 +267,7 @@ it("invalidates selected documents when the domain connection identity changes",
 });
 
 it("resets the actual browser and closes its viewer when the active workspace is selected", async () => {
-  const folder = { id: "folder-1", name: "리스크", parent_id: null, has_children: false };
+  const folder = { id: "folder-1", metadata_revision: 1, name: "리스크", parent_id: null, has_children: false };
   const folderDocument = { ...first, id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", name: "폴더 문서.txt", folder_id: folder.id };
   const rootWithFolder = { ...root, folders: [folder], next_document_cursor: null };
   const folderPage = { ...rootWithFolder, ancestors: [], folder, folders: [], documents: [folderDocument] };

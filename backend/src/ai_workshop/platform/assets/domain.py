@@ -28,6 +28,7 @@ class Folder:
     workspace_id: UUID
     parent_id: UUID | None
     name: str
+    metadata_revision: int = 1
 
     @classmethod
     def create(
@@ -58,6 +59,7 @@ class Document:
     name: str
     active_version_id: UUID | None = None
     versions: list[AssetVersion] = field(default_factory=list)
+    metadata_revision: int = 1
 
     @classmethod
     def create(cls, *, workspace_id: UUID, folder_id: UUID | None, name: str) -> "Document":

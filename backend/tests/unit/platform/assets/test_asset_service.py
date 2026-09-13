@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from ai_workshop.infrastructure.object_store.local import LocalObjectStore
-from ai_workshop.platform.assets.domain import AssetVersion, Document, VersionStatus
+from ai_workshop.platform.assets.domain import AssetVersion, Document, Folder, VersionStatus
 from ai_workshop.platform.assets.repository import AssetRepository
 from ai_workshop.platform.assets.service import AssetService, AssetUploadCoordinator
 from ai_workshop.platform.identity.domain import User, UserRole
@@ -21,6 +21,12 @@ class MemoryAssetRepository(AssetRepository):
 
     async def has_workspace_access(self, user_id: UUID, workspace_id: UUID) -> bool:
         return self.allowed
+
+    async def list_folders(self, user_id: UUID, workspace_id: UUID) -> list[Folder]:
+        return []
+
+    async def has_foreign_folder_children(self, workspace_id: UUID, parent_ids: set[UUID]) -> bool:
+        return False
 
     async def require_workspace_write(
         self, user_id: UUID, workspace_id: UUID, *, lock: bool = False
@@ -113,7 +119,9 @@ async def changed_content() -> AsyncIterator[bytes]:
 @pytest.mark.asyncio
 async def test_upload_stores_allowed_document_and_creates_version(tmp_path) -> None:
     repository = MemoryAssetRepository()
-    service = AssetService(repository, LocalObjectStore(tmp_path), max_upload_bytes=1024)
+    service = AssetService(
+        repository, LocalObjectStore(tmp_path), max_upload_bytes=1024, max_depth=64
+    )
 
     document = await service.upload(
         user=owner(),
@@ -137,6 +145,7 @@ async def test_upload_hides_workspace_without_membership(tmp_path) -> None:
         MemoryAssetRepository(allowed=False),
         LocalObjectStore(tmp_path),
         max_upload_bytes=1024,
+        max_depth=64,
     )
 
     with pytest.raises(AppError) as exc_info:
@@ -156,7 +165,9 @@ async def test_upload_hides_workspace_without_membership(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_upload_rejects_exact_content_duplicate_in_same_workspace(tmp_path) -> None:
     repository = MemoryAssetRepository()
-    service = AssetService(repository, LocalObjectStore(tmp_path), max_upload_bytes=1024)
+    service = AssetService(
+        repository, LocalObjectStore(tmp_path), max_upload_bytes=1024, max_depth=64
+    )
     user = owner()
     workspace_id = uuid4()
     await service.upload(
@@ -186,7 +197,9 @@ async def test_upload_rejects_exact_content_duplicate_in_same_workspace(tmp_path
 @pytest.mark.asyncio
 async def test_upload_allows_same_filename_when_content_differs(tmp_path) -> None:
     repository = MemoryAssetRepository()
-    service = AssetService(repository, LocalObjectStore(tmp_path), max_upload_bytes=1024)
+    service = AssetService(
+        repository, LocalObjectStore(tmp_path), max_upload_bytes=1024, max_depth=64
+    )
     user = owner()
     workspace_id = uuid4()
     first = await service.upload(
@@ -214,7 +227,9 @@ async def test_upload_allows_same_filename_when_content_differs(tmp_path) -> Non
 @pytest.mark.asyncio
 async def test_upload_allows_exact_content_in_a_different_workspace(tmp_path) -> None:
     repository = MemoryAssetRepository()
-    service = AssetService(repository, LocalObjectStore(tmp_path), max_upload_bytes=1024)
+    service = AssetService(
+        repository, LocalObjectStore(tmp_path), max_upload_bytes=1024, max_depth=64
+    )
     user = owner()
     first = await service.upload(
         user=user,
@@ -241,7 +256,9 @@ async def test_upload_allows_exact_content_in_a_different_workspace(tmp_path) ->
 @pytest.mark.asyncio
 async def test_upload_version_increments_existing_document(tmp_path) -> None:
     repository = MemoryAssetRepository()
-    service = AssetService(repository, LocalObjectStore(tmp_path), max_upload_bytes=1024)
+    service = AssetService(
+        repository, LocalObjectStore(tmp_path), max_upload_bytes=1024, max_depth=64
+    )
     user = owner()
     document = await service.upload(
         user=user,
@@ -266,7 +283,9 @@ async def test_upload_version_increments_existing_document(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_upload_version_rejects_unchanged_exact_content(tmp_path) -> None:
     repository = MemoryAssetRepository()
-    service = AssetService(repository, LocalObjectStore(tmp_path), max_upload_bytes=1024)
+    service = AssetService(
+        repository, LocalObjectStore(tmp_path), max_upload_bytes=1024, max_depth=64
+    )
     user = owner()
     document = await service.upload(
         user=user,
@@ -294,7 +313,7 @@ async def test_upload_version_rejects_unchanged_exact_content(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_upload_coordinator_creates_a_durable_verification_job(tmp_path) -> None:
     asset_service = AssetService(
-        MemoryAssetRepository(), LocalObjectStore(tmp_path), max_upload_bytes=1024
+        MemoryAssetRepository(), LocalObjectStore(tmp_path), max_upload_bytes=1024, max_depth=64
     )
     job_repository = MemoryJobRepository()
     commit_count = 0
@@ -329,7 +348,7 @@ async def test_upload_coordinator_creates_a_durable_verification_job(tmp_path) -
 @pytest.mark.asyncio
 async def test_upload_removes_object_when_durable_job_creation_fails(tmp_path) -> None:
     asset_service = AssetService(
-        MemoryAssetRepository(), LocalObjectStore(tmp_path), max_upload_bytes=1024
+        MemoryAssetRepository(), LocalObjectStore(tmp_path), max_upload_bytes=1024, max_depth=64
     )
     coordinator = AssetUploadCoordinator(asset_service, JobService(FailingJobRepository()))
 

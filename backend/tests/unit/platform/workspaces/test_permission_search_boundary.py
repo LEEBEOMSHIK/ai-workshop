@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 
-from ai_workshop.labs.rag.retrieval.domain import ResolvedSearchScope
+from ai_workshop.labs.rag.retrieval.domain import ResolvedSearchScope, SelectedDocumentIdentity
 from ai_workshop.labs.rag.retrieval.service import HybridRetrievalService
 from ai_workshop.labs.rag.search.schemas import SearchRequest
 from ai_workshop.labs.rag.search.service import SearchApplicationService
@@ -71,8 +71,10 @@ async def test_revocation_after_preparation_aborts_before_retrieval() -> None:
 async def test_revocation_during_query_encoding_aborts_both_candidate_branches() -> None:
     events: list[str] = []
     revoked = False
+    identity = SelectedDocumentIdentity(uuid4(), uuid4(), uuid4(), uuid4())
     scope = ResolvedSearchScope(
-        (uuid4(),), (), asset_version_ids=(uuid4(),), index_build_ids=(uuid4(),)
+        (uuid4(),), (), asset_version_ids=(identity.asset_version_id,),
+        index_build_ids=(identity.index_build_id,), authorized_documents=(identity,),
     )
 
     class CurrentScope(RetrievalScopeResolver):

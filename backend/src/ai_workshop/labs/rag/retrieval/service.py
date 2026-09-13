@@ -6,6 +6,7 @@ from uuid import UUID
 from ai_workshop.labs.rag.embeddings.contracts import EmbeddingPort
 from ai_workshop.labs.rag.models.domain import FrozenJsonValue, Profile, ProfileKind
 from ai_workshop.labs.rag.retrieval.domain import (
+    ActiveIndexAlias,
     DenseHit,
     FusedHit,
     QueryEmbeddingUnavailableError,
@@ -14,6 +15,7 @@ from ai_workshop.labs.rag.retrieval.domain import (
     SearchIndexTarget,
     SparseHit,
 )
+from ai_workshop.labs.rag.retrieval.integrity import require_authorized_identities
 from ai_workshop.labs.rag.retrieval.query_embedding import RetrievalQueryEmbedding
 from ai_workshop.labs.rag.retrieval.rrf import rrf_fuse
 from ai_workshop.shared.errors import AppError
@@ -122,7 +124,9 @@ class HybridRetrievalService:
             document_ids=document_ids,
             document_processing_profile_id=document_processing_profile_id,
         )
-        if scope.active_only and (not scope.asset_version_ids or not scope.index_build_ids):
+        if isinstance(index_alias, ActiveIndexAlias) and not scope.active_only:
+            raise ValueError("Normal retrieval requires the active profile index alias.")
+        if scope.active_only and not scope.authorized_documents:
             return ()
 
         if dense_top_k is None:
@@ -154,7 +158,7 @@ class HybridRetrievalService:
         # Encoding may take long enough for another request to revoke access.
         # Revalidate immediately before either candidate branch starts, while
         # retaining the same authorized source snapshot for sparse and dense.
-        await self.scope_resolver.resolve(
+        current_scope = await self.scope_resolver.resolve(
             actor_id=actor_id,
             workspace_ids=workspace_ids,
             folder_ids=folder_ids,
@@ -162,6 +166,8 @@ class HybridRetrievalService:
             document_ids=document_ids,
             document_processing_profile_id=document_processing_profile_id,
         )
+        if scope.active_only:
+            require_authorized_identities(scope.authorized_documents, current_scope)
 
         try:
             async with asyncio.TaskGroup() as group:

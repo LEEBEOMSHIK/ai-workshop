@@ -17,6 +17,54 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 afterEach(() => vi.unstubAllGlobals());
 
 describe("ConversationPage", () => {
+  it("keeps sending blocked after a bounded selected document moves and the panel closes without Apply", async () => {
+    const folder = { id: "folder-1", workspace_id: "workspace-1", metadata_revision: 1, name: "리스크", parent_id: null, has_children: false };
+    const scoped = { ...selectedDocument(), folder_id: folder.id };
+    let committed = false;
+    const posts: RequestInit[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith("/capabilities")) return jsonResponse({ read: true, write: true, delete: false, manage_members: false });
+      if (path.endsWith("/folders")) return jsonResponse(path.includes("workspace-1") ? [folder] : []);
+      if (path.endsWith("/library")) return jsonResponse({ domain_id: "domain-1", display_name: "자산운용", connection_version_id: "connection-1", selection_limit: 3, workspace_options: domain().workspace_options });
+      if (init?.method === "POST") { posts.push(init); committed = true; return jsonResponse({ id: scoped.id, workspace_id: scoped.workspace_id, folder_id: null, metadata_revision: 2, name: scoped.name, changed: true }); }
+      if (path.endsWith(`/documents/${scoped.id}`)) return jsonResponse({ ...scoped, folder_id: committed ? null : folder.id, metadata_revision: committed ? 2 : 1 });
+      if (path.includes("/library/workspaces/workspace-1")) return jsonResponse({ ...libraryPage(), folder: path.includes("folder_id=folder-1") ? folder : null, folders: path.includes("folder_id=folder-1") ? [] : [folder], documents: committed ? [] : [scoped] });
+      throw new Error(`Unexpected path: ${path}`);
+    }));
+    const user = userEvent.setup(); render(<ConversationPage domain={domain()} />);
+    await user.click(screen.getByRole("button", { name: "검색 범위 열기" }));
+    await user.click(screen.getByRole("radio", { name: "폴더" }));
+    await user.click(await screen.findByRole("checkbox", { name: /회사 규정 \/ 리스크/ }));
+    await user.click(screen.getByRole("button", { name: "범위 적용" }));
+    await user.click(screen.getByRole("button", { name: "파일 선택" }));
+    await user.click(await screen.findByRole("checkbox", { name: "운용 규정.md 선택" }));
+    await user.click(screen.getByRole("button", { name: "선택 적용" }));
+    await user.type(screen.getByRole("textbox", { name: "질문" }), "합성 질문");
+    expect(screen.getByRole("button", { name: "질문 보내기" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "파일 선택" }));
+    const panel = await screen.findByRole("dialog", { name: "파일 선택" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "운용 규정.md 이동" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "운용 규정.md 이동" }));
+    const modal = screen.getByRole("dialog", { name: "이동 확인" });
+    await waitFor(() => expect(within(modal).getByRole("button", { name: "파일함 최상위" })).toBeEnabled());
+    await user.click(within(modal).getByRole("button", { name: "파일함 최상위" }));
+    await waitFor(() => expect(within(modal).getByRole("button", { name: "여기로 이동" })).toBeEnabled());
+    await user.click(within(modal).getByRole("button", { name: "여기로 이동" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "이동 확인" })).not.toBeInTheDocument());
+    expect(within(panel).getByRole("button", { name: "선택 적용" })).toBeDisabled();
+    await user.click(within(panel).getByRole("button", { name: "닫기" }));
+    expect(screen.queryByRole("dialog", { name: "파일 선택" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "질문 보내기" })).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent(/다시 선택하거나 범위를 다시 설정/);
+    expect(screen.getByRole("button", { name: "새 대화" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "새 대화" }));
+    expect(screen.getByRole("button", { name: "질문 보내기" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "파일 선택" }));
+    const reopenedApply = await screen.findByRole("button", { name: "선택 적용" });
+    expect(reopenedApply).toBeDisabled();
+    expect(posts).toHaveLength(1); expect(JSON.parse(posts[0].body as string)).toEqual({ destination_folder_id: null, expected_revision: 1 });
+  }, 20_000);
   it("preserves an applied folder id when the refreshed folder listing no longer contains it", () => {
     expect(buildScopeSnapshot(domain(), ["workspace-1"], ["folder-withdrawn"], {}, null)).toMatchObject({
       workspaceIds: ["workspace-1"],
@@ -771,7 +819,7 @@ function searchResult(turn: number): DomainSearchResult {
 }
 
 function selectedDocument() {
-  return { active_version_id: "asset-version-current", folder_id: null, id: "document-1", job_id: null, latest_version: 3, latest_version_id: "asset-version-current", name: "운용 규정.md", status: "ready" as const, workspace_id: "workspace-1" };
+  return { active_version_id: "asset-version-current", folder_id: null, id: "document-1", job_id: null, latest_version: 3, latest_version_id: "asset-version-current", metadata_revision: 1, name: "운용 규정.md", status: "ready" as const, workspace_id: "workspace-1" };
 }
 
 function selectedScope(): NonNullable<DomainSearchResult["selected_scope"]> {

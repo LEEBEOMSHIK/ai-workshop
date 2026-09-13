@@ -1,6 +1,14 @@
 from uuid import UUID
 
-from sqlalchemy import BigInteger, ForeignKey, Index, Integer, String, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ai_workshop.platform.assets.domain import VersionStatus
@@ -9,21 +17,33 @@ from ai_workshop.shared.models import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 class FolderRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "folders"
-    __table_args__ = (UniqueConstraint("workspace_id", "parent_id", "name"),)
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "parent_id", "name"),
+        CheckConstraint("metadata_revision >= 1", name="ck_folder_metadata_revision"),
+    )
 
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"))
     parent_id: Mapped[UUID | None] = mapped_column(ForeignKey("folders.id", ondelete="CASCADE"))
     name: Mapped[str] = mapped_column(String(180), nullable=False)
+    metadata_revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
 
 
 class DocumentRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "documents"
-    __table_args__ = (Index("ix_documents_workspace_id", "workspace_id"),)
+    __table_args__ = (
+        Index("ix_documents_workspace_id", "workspace_id"),
+        CheckConstraint("metadata_revision >= 1", name="ck_document_metadata_revision"),
+    )
 
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"))
     folder_id: Mapped[UUID | None] = mapped_column(ForeignKey("folders.id", ondelete="SET NULL"))
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     active_version_id: Mapped[UUID | None] = mapped_column(nullable=True)
+    metadata_revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
 
 
 class AssetVersionRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):

@@ -31,9 +31,10 @@ interface LibraryViewerProps {
   initialVersionId: string | null;
   onClose: () => void;
   onVersionChange: (versionId: string) => void;
+  keyboardEnabled?: boolean;
 }
 
-export function LibraryViewer({ document, initialVersionId, onClose, onVersionChange }: LibraryViewerProps) {
+export function LibraryViewer({ document, initialVersionId, onClose, onVersionChange, keyboardEnabled = true }: LibraryViewerProps) {
   const [selectedVersionId, setSelectedVersionId] = useState(initialVersionId ?? document.active_version_id);
   const [versions, setVersions] = useState<AssetVersion[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -59,6 +60,7 @@ export function LibraryViewer({ document, initialVersionId, onClose, onVersionCh
   }, []);
 
   useEffect(() => {
+    if (!keyboardEnabled) return;
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
@@ -67,7 +69,7 @@ export function LibraryViewer({ document, initialVersionId, onClose, onVersionCh
     };
     window.addEventListener("keydown", closeOnEscape, true);
     return () => window.removeEventListener("keydown", closeOnEscape, true);
-  }, [onClose]);
+  }, [keyboardEnabled, onClose]);
 
   useEffect(() => {
     const controller = new AbortController();

@@ -14,6 +14,7 @@ from ai_workshop.labs.rag.retrieval.domain import (
     ResolvedSearchScope,
     RetrievedChunk,
     SearchBackendUnavailableError,
+    SelectedDocumentIdentity,
     SparseHit,
 )
 from ai_workshop.labs.rag.retrieval.service import HybridRetrievalService
@@ -100,13 +101,15 @@ class RecordingScopeResolver:
         allow_empty: bool = False,
     ) -> None:
         self.events = events
+        identity = SelectedDocumentIdentity(uuid4(), uuid4(), uuid4(), uuid4())
         self.scope = (
             scope
             if allow_empty or not scope.active_only or scope.asset_version_ids
             else replace(
                 scope,
-                asset_version_ids=(uuid4(),),
-                index_build_ids=(uuid4(),),
+                asset_version_ids=(identity.asset_version_id,),
+                index_build_ids=(identity.index_build_id,),
+                authorized_documents=(identity,),
             )
         )
         self.indexing_profile_ids: list[UUID | None] = []
@@ -302,11 +305,13 @@ class BlockingSparseRetriever:
 @pytest.mark.asyncio
 async def test_hybrid_resolves_scope_and_embedding_before_concurrent_branches() -> None:
     events: list[str] = []
+    identity = SelectedDocumentIdentity(uuid4(), uuid4(), uuid4(), uuid4())
     scope = ResolvedSearchScope(
         (uuid4(),),
         (),
-        asset_version_ids=(uuid4(),),
-        index_build_ids=(uuid4(),),
+        asset_version_ids=(identity.asset_version_id,),
+        index_build_ids=(identity.index_build_id,),
+        authorized_documents=(identity,),
     )
     duplicate = _chunk(2)
     sparse = RecordingSparseRetriever(
@@ -355,11 +360,13 @@ async def test_hybrid_resolves_scope_and_embedding_before_concurrent_branches() 
 async def test_selected_scope_reaches_bm25_and_dense_with_identical_exact_filters() -> None:
     events: list[str] = []
     document_id, processing_profile_id = uuid4(), uuid4()
+    identity = SelectedDocumentIdentity(document_id, uuid4(), uuid4(), uuid4())
     scope = ResolvedSearchScope(
         (uuid4(),),
         (),
-        asset_version_ids=(uuid4(),),
-        index_build_ids=(uuid4(),),
+        asset_version_ids=(identity.asset_version_id,),
+        index_build_ids=(identity.index_build_id,),
+        authorized_documents=(identity,),
         document_ids=(document_id,),
     )
     sparse = RecordingSparseRetriever(events, ())
@@ -904,3 +911,38 @@ async def test_caller_cancellation_propagates_unchanged() -> None:
 
     assert sparse.cancelled is True
     assert dense.cancelled is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["remove", "cross_pair", "expand"])
+async def test_embedding_boundary_checks_original_identity_snapshot(change: str) -> None:
+    events: list[str] = []
+    first = SelectedDocumentIdentity(uuid4(), uuid4(), uuid4(), uuid4())
+    other = SelectedDocumentIdentity(uuid4(), uuid4(), uuid4(), uuid4())
+    original = ResolvedSearchScope((uuid4(),), (uuid4(),),
+        asset_version_ids=(first.asset_version_id,), index_build_ids=(first.index_build_id,),
+        authorized_documents=(first,))
+    fresh_identities = (() if change == "remove" else
+        (replace(first, projection_id=other.projection_id),) if change == "cross_pair" else
+        (first, other))
+
+    class ChangingResolver(RecordingScopeResolver):
+        async def resolve(self, **kwargs):
+            scope = await super().resolve(**kwargs)
+            return (scope if len(self.indexing_profile_ids) == 1 else
+                    replace(scope, authorized_documents=fresh_identities))
+
+    sparse, dense = RecordingSparseRetriever(events, ()), RecordingDenseRetriever(events, ())
+    service = HybridRetrievalService(scope_resolver=ChangingResolver(events, original),
+        embedding=RecordingEmbedding(events), sparse_retriever=sparse, dense_retriever=dense)
+    arguments = dict(actor_id=uuid4(), query="query", workspace_ids=original.workspace_ids,
+        folder_ids=original.folder_ids, indexing_profile_id=INDEXING_PROFILE_ID,
+        retrieval_profile=_hybrid_profile(), index_alias=_active_alias(), result_limit=3)
+    if change == "expand":
+        assert await service.search(**arguments) == ()
+        assert sparse.scope is dense.scope is original
+    else:
+        with pytest.raises(AppError) as error:
+            await service.search(**arguments)
+        assert (error.value.code, error.value.status_code) == ("conversation_scope_changed", 409)
+        assert sparse.calls == dense.calls == 0

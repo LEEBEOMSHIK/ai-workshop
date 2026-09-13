@@ -132,6 +132,7 @@ async def test_version_switch_excludes_superseded_a1_until_a2_is_searchable() ->
 
     assert scope.asset_version_ids == (b_asset_id,)
     assert scope.index_build_ids == (b_build_id,)
+    assert getattr(scope, "authorized_documents", ()) == (b_identity,)
     assert a1_asset_id not in scope.asset_version_ids
     assert a1_build_id not in scope.index_build_ids
 
@@ -323,12 +324,29 @@ async def test_selected_documents_are_normalized_and_freeze_exact_lifecycle() ->
         document_ids=(second_document_id, first_document_id, second_document_id),
         document_processing_profile_id=processing_profile_id,
     )
-
     assert scope.document_ids == (first_document_id, second_document_id)
     assert scope.selected_documents == (first, second)
+    assert scope.authorized_documents == (first, second)
     assert scope.asset_version_ids == (first.asset_version_id, second.asset_version_id)
     assert scope.index_build_ids == (first.index_build_id, second.index_build_id)
     assert scope.scope_fingerprint is not None and len(scope.scope_fingerprint) == 64
+
+
+@pytest.mark.asyncio
+async def test_folder_scope_keeps_exact_authority_without_public_document_selection() -> None:
+    actor_id, folder_id = uuid4(), uuid4()
+    company = Workspace(uuid4(), "Company", WorkspaceKind.COMPANY, actor_id)
+    identity = SelectedDocumentIdentity(uuid4(), uuid4(), uuid4(), uuid4())
+    scope = await resolver(
+        workspaces=(company,), actor_id=actor_id,
+        member_workspace_ids=frozenset({company.id}), folders={folder_id: company.id},
+        searchable_lifecycle=(identity,),
+    ).resolve(actor_id=actor_id, workspace_ids=(company.id,), folder_ids=(folder_id,),
+              indexing_profile_id=uuid4())
+    assert scope.authorized_documents == (identity,)
+    assert scope.selected_documents == ()
+    assert scope.document_ids is None and scope.scope_fingerprint is None
+
 
 
 @pytest.mark.asyncio

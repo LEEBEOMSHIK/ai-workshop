@@ -307,6 +307,7 @@ class SearchScopeResolver:
                 if selected_document_ids is not None
                 else None
             ),
+            authorized_documents=identities,
         )
 
     def _is_authorized(self, access: WorkspaceAccess, actor_id: UUID) -> bool:

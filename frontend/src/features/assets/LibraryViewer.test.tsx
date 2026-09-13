@@ -12,6 +12,7 @@ const document: DocumentSummary = {
   job_id: null,
   latest_version: 3,
   latest_version_id: "version-3",
+  metadata_revision: 1,
   name: "예시 문서.md",
   status: "processing",
   workspace_id: "workspace-1",

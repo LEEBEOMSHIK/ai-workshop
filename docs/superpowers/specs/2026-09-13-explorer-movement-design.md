@@ -1,6 +1,6 @@
 # 파일함 최상위 표현과 안전한 이동
 
-- 상태: 사용자 방향 승인. 탐색기 표현은 선행 구현, 서버 이동 상세는 문서 확인 대기.
+- 상태: 사용자 상세 설계 승인(2026-09-13). 탐색기 표현·서버 이동·RAG 정합성·이동 UI 핵심 구현/검증 완료. 복구 중 뷰어 닫기 초점 Minor와 실사용0034 적용은 후속(작업 기록 참조).
 - 정본 연결: [통합 파일함](2026-09-13-unified-cabinet-design.md), [ADR-0023](../../decisions/0023-domain-cabinet-conversation.md).
 - 대상: Platform Assets, 공통 파일 탐색기, RAG 현재 위치 해석. 다른 공간 간 이동·삭제·소유권 이전은 제외한다.
 
@@ -36,7 +36,8 @@
 ## 3. 서버 계약
 
 이동은 Platform 서비스가 담당한다. API 핸들러는 검증된 입력을 서비스로 전달한다.
-다음 계약은 신규 구현 목표이며 현재 제공되는 API가 아니다.
+다음 계약의 서버 코드와 생성 타입은 구현·검증됐으며 실사용 DB 적용/서버 재시작은 별도 단계다.
+UI는 실제 응답의 유효한 metadata_revision이 없으면 이동을 활성화하지 않고 임의 기본 revision을 만들지 않는다.
 
 - `POST /api/v1/workspaces/{workspace_id}/documents/{document_id}/move`
 - `POST /api/v1/workspaces/{workspace_id}/folders/{folder_id}/move`
@@ -74,8 +75,8 @@ Folder/Document 각각에 `metadata_revision` non-null/default1/check>=1을 추�
 
 ## 5. 검색·인용 정합성
 
-현재 DB scope resolver는 DocumentRecord.folder_id로 후보를 제한하지만 Elasticsearch build_scope_filter도 색인에 저장된 folder_id를 제한한다.
-따라서 DB 위치만 바꾸는 구현은 새 폴더 검색에서 누락될 수 있다. 이 경계 검증 전에는 이동 UI를 노출하지 않는다.
+보완 전 DB scope resolver는 DocumentRecord.folder_id로 후보를 제한하지만 Elasticsearch build_scope_filter도 색인에 저장된 folder_id를 제한했다.
+따라서 DB 위치만 바꾸면 새 폴더 검색에서 누락될 수 있었다. 현재는 아래 정확한 조합 선필터의 구현과 격리 검증을 완료했으며, 이동 UI를 연결하는 단계다.
 
 채택 방향은 현재 권한·폴더를 DB에서 해석한 정확한 READY Asset/build allowlist를 양쪽 검색의 선필터로 사용하는 것이다.
 현재 검색에서는 과거 색인의 folder_id를 추가 권한 조건으로 사용하지 않는다. allowlist가 없거나 비어 있으면 조회를 거부/빈 결과로 처리하며 넓은 검색으로 전환하지 않는다.
@@ -83,7 +84,7 @@ Folder/Document 각각에 `metadata_revision` non-null/default1/check>=1을 추�
 검색 결과의 현재 위치는 권한 있는 DB 메타데이터에서 해석한다. 색인 시점 위치를 현재 위치로 표시하지 않는다.
 DB scope를 검색 전 해석하고, 근거 사용·모델 전송 전에 현재 허용 `(document, asset, projection, build)` 조합과 준비된 근거의 정확한 조합을 비교한다.
 개별 ID 집합의 임의 교차 조합을 허용된 근거로 인정하지 않는다.
-현재 `revalidate_access`처럼 scope를 다시 읽은 결과를 버리지 않는다. 사용 예정 근거가 새 집합에서 빠지면 scope-changed로 중단한다.
+보완 전 `revalidate_access`처럼 scope를 다시 읽은 결과를 버리지 않는다. 사용 예정 근거가 새 집합에서 빠지면 scope-changed로 중단한다.
 제한 없는 명시 문서 선택은 같은 문서의 위치 변경만으로 무효화하지 않는다. 유지된 폴더 제한을 벗어나거나 권한/활성 원본이 바뀐 경우 재선택을 요구한다.
 과거 답변은 기록으로 남되 인용 원문 접근은 현재 권한으로 검사한다. 안정 문서/버전 ID가 유지되어 폴더 이동만으로 인용이 끊기지 않아야 한다.
 이동은 재파싱·재임베딩 사유가 아니다. worker가 저장한 오래된 문서 객체로 새 위치를 덮어쓰지 않는지 검증한다.

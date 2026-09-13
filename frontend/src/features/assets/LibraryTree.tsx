@@ -7,6 +7,15 @@ import { workspaceDocumentPath } from "../../shared/routing/routes";
 import type { WorkspaceSummary } from "../workspaces/api";
 import { browseLibrary, type LibraryFolder, type LibraryPage } from "./api";
 import styles from "./DocumentLibrary.module.css";
+import { hasMoveRevision } from "./movement";
+import type { MoveRowBindings } from "./useAssetMovement";
+
+interface TreeMovement {
+  enabled: boolean;
+  open: (folder: LibraryFolder, opener: HTMLElement) => void;
+  sourceBindings: (folder: LibraryFolder) => MoveRowBindings;
+  destinationBindings: (id: string | null, ancestorIds?: readonly string[]) => MoveRowBindings;
+}
 
 interface Branch {
   authoritative: boolean;
@@ -27,6 +36,7 @@ interface LibraryTreeProps {
   browse?: typeof browseLibrary;
   onSelectWorkspace?: (workspaceId: string) => void;
   isFolderSelectionDisabled?: (folderId: string | null) => boolean;
+  movement?: TreeMovement;
 }
 
 const workspaceGroups: { label: string; kinds: WorkspaceSummary["kind"][] }[] = [
@@ -37,7 +47,7 @@ const workspaceGroups: { label: string; kinds: WorkspaceSummary["kind"][] }[] = 
 
 const narrowTreeQuery = "(max-width: 680px)";
 
-export function LibraryTree({ workspaces, currentWorkspaceId, selectedFolderId, initialRoot, initialSelection = initialRoot, onSelectFolder, browse = browseLibrary, onSelectWorkspace, isFolderSelectionDisabled }: LibraryTreeProps) {
+export function LibraryTree({ workspaces, currentWorkspaceId, selectedFolderId, initialRoot, initialSelection = initialRoot, onSelectFolder, browse = browseLibrary, onSelectWorkspace, isFolderSelectionDisabled, movement }: LibraryTreeProps) {
   const initialTree = buildInitialTree(initialRoot, initialSelection);
   const [root, setRoot] = useState<Branch>(() => initialTree.root);
   const [branches, setBranches] = useState<Record<string, Branch>>(() => initialTree.branches);
@@ -62,6 +72,7 @@ export function LibraryTree({ workspaces, currentWorkspaceId, selectedFolderId, 
     controllers.current.add(controller);
     try {
       const page = await browse(currentWorkspaceId, { folderId, folderCursor: cursor, signal: controller.signal });
+      if (controller.signal.aborted) return;
       setBranches((current) => ({
         ...current,
         [folderId]: {
@@ -109,6 +120,7 @@ export function LibraryTree({ workspaces, currentWorkspaceId, selectedFolderId, 
     setRoot((current) => ({ ...current, loading: true, error: false }));
     try {
       const page = await browse(currentWorkspaceId, { folderCursor: cursor, signal: controller.signal });
+      if (controller.signal.aborted) return;
       setRoot((current) => current.nextCursor === cursor
         ? { ...current, folders: mergeFolders(current.folders, page.folders), nextCursor: page.next_folder_cursor, loading: false }
         : current);
@@ -140,8 +152,11 @@ export function LibraryTree({ workspaces, currentWorkspaceId, selectedFolderId, 
       })}
       <section className={styles.treeGroup}>
         <h3>폴더</h3>
-        <button type="button" disabled={isFolderSelectionDisabled?.(null) ?? false} aria-current={selectedFolderId === null ? "page" : undefined} onClick={() => onSelectFolder(null)}>루트 (미분류)</button>
-        <ul>{root.folders.map((folder) => <FolderNode key={folder.id} folder={folder} depth={0} branches={branches} selectedFolderId={selectedFolderId} onSelect={onSelectFolder} onToggle={toggle} onLoadMore={loadBranch} isFolderSelectionDisabled={isFolderSelectionDisabled} />)}</ul>
+        <div className={styles.folderRow} data-selected={selectedFolderId === null} {...movement?.destinationBindings(null)}>
+          <span aria-hidden="true" />
+          <button className={styles.folderSelect} type="button" disabled={isFolderSelectionDisabled?.(null) ?? false} aria-current={selectedFolderId === null ? "page" : undefined} onClick={() => onSelectFolder(null)}><FolderIcon open /><span>파일함 최상위</span></button>
+        </div>
+        <ul className={styles.folderChildren}>{root.folders.map((folder) => <FolderNode key={folder.id} folder={folder} branches={branches} selectedFolderId={selectedFolderId} onSelect={onSelectFolder} onToggle={toggle} onLoadMore={loadBranch} isFolderSelectionDisabled={isFolderSelectionDisabled} movement={movement} ancestorIds={[]} />)}</ul>
         {root.loading ? <p role="status">폴더를 불러오는 중…</p> : null}
         {root.error ? <button type="button" onClick={loadMoreRoot}>루트 폴더 다시 시도</button> : null}
         {root.nextCursor && !root.error ? <button type="button" disabled={root.loading} onClick={loadMoreRoot}>루트 폴더 더 보기</button> : null}
@@ -150,30 +165,39 @@ export function LibraryTree({ workspaces, currentWorkspaceId, selectedFolderId, 
   </nav>;
 }
 
-function FolderNode({ folder, depth, branches, selectedFolderId, onSelect, onToggle, onLoadMore, isFolderSelectionDisabled }: {
+function FolderNode({ folder, branches, selectedFolderId, onSelect, onToggle, onLoadMore, isFolderSelectionDisabled, movement, ancestorIds }: {
   folder: LibraryFolder;
-  depth: number;
   branches: Record<string, Branch>;
   selectedFolderId: string | null;
   onSelect: (folderId: string) => void;
   onToggle: (folder: LibraryFolder) => void;
   onLoadMore: (folderId: string, cursor: string | null) => void;
   isFolderSelectionDisabled?: (folderId: string | null) => boolean;
+  movement?: TreeMovement;
+  ancestorIds: readonly string[];
 }) {
   const branch = branches[folder.id];
   const expanded = branch?.expanded ?? false;
+  const childrenId = useId();
   return <li>
-    <div className={styles.folderRow} style={{ paddingLeft: `${depth * 0.75}rem` }}>
-      {folder.has_children ? <button type="button" aria-expanded={expanded} aria-label={`${folder.name} 하위 폴더 ${expanded ? "접기" : "펼치기"}`} onClick={() => onToggle(folder)}>{expanded ? "▾" : "▸"}</button> : <span aria-hidden="true" />}
-      <button type="button" disabled={isFolderSelectionDisabled?.(folder.id) ?? false} aria-current={selectedFolderId === folder.id ? "page" : undefined} aria-label={`${folder.name} 폴더 열기`} onClick={() => onSelect(folder.id)}>{folder.name}</button>
+    <div className={`${styles.folderRow} ${movement ? styles.movableFolder : ""}`} data-selected={selectedFolderId === folder.id} {...movement?.sourceBindings(folder)} {...movement?.destinationBindings(folder.id, ancestorIds)}>
+      {folder.has_children ? <button className={styles.folderDisclosure} type="button" aria-expanded={expanded} aria-controls={expanded ? childrenId : undefined} aria-label={`${folder.name} 하위 폴더 ${expanded ? "접기" : "펼치기"}`} onClick={() => onToggle(folder)}><svg className={styles.folderChevron} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true" focusable="false"><path d="m6 3 5 5-5 5" /></svg></button> : <span aria-hidden="true" />}
+      <button className={styles.folderSelect} type="button" disabled={isFolderSelectionDisabled?.(folder.id) ?? false} aria-current={selectedFolderId === folder.id ? "page" : undefined} aria-label={`${folder.name} 폴더 열기`} onClick={() => onSelect(folder.id)}><FolderIcon open={expanded || selectedFolderId === folder.id} /><span>{folder.name}</span></button>
+      {movement ? <button className={styles.moveButton} type="button" aria-label={`${folder.name} 폴더 이동`} disabled={!movement.enabled || !hasMoveRevision(folder.metadata_revision)} onClick={(event) => movement.open(folder, event.currentTarget)}>이동</button> : null}
     </div>
-    {expanded ? <div>
+    {expanded ? <div className={styles.folderChildren} id={childrenId}>
       {branch?.loading ? <p role="status">하위 폴더를 불러오는 중…</p> : null}
       {branch?.error ? <button type="button" onClick={() => onLoadMore(folder.id, null)}>하위 폴더 다시 시도</button> : null}
-      <ul>{branch?.folders.map((child) => <FolderNode key={child.id} folder={child} depth={depth + 1} branches={branches} selectedFolderId={selectedFolderId} onSelect={onSelect} onToggle={onToggle} onLoadMore={onLoadMore} isFolderSelectionDisabled={isFolderSelectionDisabled} />)}</ul>
+      <ul>{branch?.folders.map((child) => <FolderNode key={child.id} folder={child} branches={branches} selectedFolderId={selectedFolderId} onSelect={onSelect} onToggle={onToggle} onLoadMore={onLoadMore} isFolderSelectionDisabled={isFolderSelectionDisabled} movement={movement} ancestorIds={[...ancestorIds, folder.id]} />)}</ul>
       {branch?.nextCursor && !branch.error ? <button type="button" disabled={branch.loading} onClick={() => onLoadMore(folder.id, branch.nextCursor)}>하위 폴더 더 보기</button> : null}
     </div> : null}
   </li>;
+}
+
+function FolderIcon({ open }: { open: boolean }) {
+  return <svg className={styles.folderIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+    {open ? <><path d="M3 18V6a2 2 0 0 1 2-2h4l2 3h7a2 2 0 0 1 2 2v1" /><path d="M3 18l3-7h16l-3 8a2 2 0 0 1-2 1H5a2 2 0 0 1-2-2Z" /></> : <path d="M3 18V6a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />}
+  </svg>;
 }
 
 function branchFromPage(page: LibraryPage, expanded: boolean): Branch {

@@ -71,6 +71,7 @@ from ai_workshop.labs.rag.retrieval.domain import (
     ResolvedSearchScope,
     SelectedDocumentIdentity,
 )
+from ai_workshop.labs.rag.retrieval.integrity import require_authorized_identities
 from ai_workshop.labs.rag.retrieval.service import (
     DenseRetrieverPort,
     HybridRetrievalService,
@@ -279,9 +280,11 @@ class SearchApplicationService:
             resolved_scope,
         )
 
-        async def revalidate_access() -> None:
+        async def revalidate_access(
+            required: tuple[SelectedDocumentIdentity, ...] | None = None,
+        ) -> None:
             # Re-read DB authorization; keep the prepared source snapshot immutable.
-            await self.scope_resolver.resolve(
+            current_scope = await self.scope_resolver.resolve(
                 actor_id=actor_id,
                 workspace_ids=requested_workspace_ids,
                 folder_ids=requested_folder_ids,
@@ -290,6 +293,10 @@ class SearchApplicationService:
                 document_processing_profile_id=(
                     configuration.active_index_alias.document_processing_profile_id
                 ),
+            )
+            require_authorized_identities(
+                resolved_scope.authorized_documents if required is None else required,
+                current_scope,
             )
 
         if request.document_ids is not None and conversation_scope is None and request.history:
@@ -488,11 +495,30 @@ class SearchApplicationService:
                 indexing_profile_id=configuration.indexing_profile_id,
                 hits=hits,
             )
+            if {hit.chunk_id for hit in hits} != {
+                source.chunk.chunk_id for source in sources
+            }:
+                raise AppError(
+                    "conversation_scope_changed",
+                    "The search scope changed. Select sources again.",
+                    409,
+                )
             selection = EvidenceSelector(configuration.embedding).select(
                 query=resolved_query,
                 sources=sources,
                 policy=policy,
             )
+            required_sources = tuple(
+                SelectedDocumentIdentity(
+                    source.document_id,
+                    source.chunk.asset_version_id,
+                    source.chunk.projection_id,
+                    source.chunk.index_build_id,
+                )
+                for source in sources
+            )
+            require_authorized_identities(required_sources, resolved_scope)
+            await revalidate_access(required_sources)
         except EmbeddingRuntimeUnavailableError:
             error = AppError(
                 "evidence_embedding_unavailable",
@@ -524,7 +550,6 @@ class SearchApplicationService:
                     provider_execution=contextualization_execution,
                 )
             raise
-        await revalidate_access()
         generation = await self._generate(
             actor_id=actor_id,
             original_query=request.query.strip(),

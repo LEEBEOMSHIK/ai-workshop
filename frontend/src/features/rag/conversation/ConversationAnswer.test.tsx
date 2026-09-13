@@ -7,7 +7,7 @@ import type { DomainSearchResult } from "./api";
 import type { CompletedTurn } from "./types";
 
 it("labels the server-confirmed selected scope with document names and opens its exact used version", async () => {
-  const document = { active_version_id: "asset-version-new", folder_id: null, id: "document-1", job_id: null, latest_version: 9, latest_version_id: "asset-version-new", name: "운용 규정.md", status: "ready", workspace_id: "workspace-1" } as const;
+  const document = { active_version_id: "asset-version-new", folder_id: null, id: "document-1", job_id: null, latest_version: 9, latest_version_id: "asset-version-new", metadata_revision: 1, name: "운용 규정.md", status: "ready", workspace_id: "workspace-1" } as const;
   const turn = {
     type: "answer",
     query: "질문",

@@ -89,7 +89,7 @@ async def test_foreign_membership_cannot_expose_personal_files(
                 original_max_bytes=1024,
                 text_preview_max_bytes=1024,
             )
-            service = AssetService(assets, store, max_upload_bytes=1024)
+            service = AssetService(assets, store, max_upload_bytes=1024, max_depth=64)
             jobs = SqlAlchemyJobRepository(session)
             job = await jobs.add(
                 Job.create(

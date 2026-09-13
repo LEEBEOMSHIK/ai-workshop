@@ -123,6 +123,7 @@ class SqlAlchemySearchSourceResolver:
                     RagIndexBuildRecord.status == "ready",
                     *lifecycle_filters,
                 )
+                .execution_options(populate_existing=not exact_snapshot)
             )
         ).all()
         row_by_chunk = {row[0].id: row for row in rows}
@@ -169,7 +170,11 @@ class SqlAlchemySearchSourceResolver:
             if row is None or hit.chunk is None:
                 continue
             chunk, projection, build, version, document = row
-            if hit.chunk.index_build_id != build.id:
+            if (
+                hit.chunk.asset_version_id != version.id
+                or hit.chunk.projection_id != projection.id
+                or hit.chunk.index_build_id != build.id
+            ):
                 continue
             sources.append(
                 EvidenceSource(

@@ -339,6 +339,7 @@ async def test_concurrent_root_folder_creation_serializes_duplicate_check(
                 SqlAlchemyAssetRepository(session),
                 LocalObjectStore(tmp_path),
                 max_upload_bytes=1024,
+                max_depth=64,
             )
             return await service.create_folder(
                 user=seed.user,

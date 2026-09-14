@@ -43,6 +43,11 @@ class AssetPurgeJobRecord(UUIDPrimaryKeyMixin, Base):
             "trash_batch_id",
             name="uq_asset_purge_jobs_trash_batch_id",
         ),
+        UniqueConstraint(
+            "workspace_id",
+            "id",
+            name="uq_asset_purge_jobs_workspace_id",
+        ),
         ForeignKeyConstraint(
             ["workspace_id", "trash_batch_id"],
             ["asset_trash_batches.workspace_id", "asset_trash_batches.id"],

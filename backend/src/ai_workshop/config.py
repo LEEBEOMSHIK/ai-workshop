@@ -4,6 +4,7 @@ from pathlib import Path
 from re import fullmatch
 from typing import Literal, Self
 from urllib.parse import urlsplit
+from uuid import UUID
 
 from pydantic import (
     BaseModel,
@@ -74,6 +75,10 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://ai_workshop:ai_workshop@127.0.0.1:5432/ai_workshop"
     redis_url: str = "redis://127.0.0.1:6379/0"
     object_store_root: Path = Path(".local-data/objects")
+    rag_artifact_store_id: str | None = Field(
+        default=None, pattern=r"^[a-z][a-z0-9_]{0,79}$"
+    )
+    rag_artifact_store_binding_id: UUID | None = None
     library_page_size: int = Field(default=50, strict=True, ge=1, le=200)
     library_max_page_size: int = Field(default=200, strict=True, ge=1, le=200)
     library_max_depth: int = Field(default=64, strict=True, ge=1, le=256)
@@ -129,6 +134,21 @@ class Settings(BaseSettings):
     )
     publishing_approved_public_personas: tuple[PublicPersona, ...] = ()
     publishing_limits: PublishingLimits = Field(default_factory=PublishingLimits)
+
+    @field_validator("rag_artifact_store_id")
+    @classmethod
+    def validate_rag_artifact_store_id(cls, value: str | None) -> str | None:
+        if value is not None and fullmatch(r"[a-z][a-z0-9_]{0,79}", value) is None:
+            raise ValueError("RAG artifact store ID must be an exact machine identifier.")
+        return value
+
+    @model_validator(mode="after")
+    def require_paired_rag_artifact_store_binding(self) -> Self:
+        if (self.rag_artifact_store_id is None) != (
+            self.rag_artifact_store_binding_id is None
+        ):
+            raise ValueError("RAG artifact store ID and binding ID must be configured together.")
+        return self
 
     @model_validator(mode="after")
     def require_library_default_within_maximum(self) -> Self:

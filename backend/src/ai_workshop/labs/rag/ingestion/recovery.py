@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ai_workshop.labs.rag.documents.domain import ProjectionStatus
 from ai_workshop.labs.rag.documents.models import RagProjectionRecord
+from ai_workshop.labs.rag.documents.repository import SqlAlchemyRagDocumentRepository
 from ai_workshop.labs.rag.ingestion.locking import lock_ingestion_source
 from ai_workshop.labs.rag.ingestion.models import (
     RagIngestionDispatchRecord,
@@ -118,7 +119,10 @@ class SqlAlchemyInactiveRagIngestionReconciler:
             error_message="The RAG ingestion source is no longer the active READY version.",
         )
         await jobs.update(job)
-        projection.status = ProjectionStatus.FAILED
+        await SqlAlchemyRagDocumentRepository(session).mark_status(
+            projection.id,
+            ProjectionStatus.FAILED,
+        )
         if dispatch is not None and dispatch.status != "cancelled":
             dispatch.status = "cancelled"
             dispatch.claimed_at = None

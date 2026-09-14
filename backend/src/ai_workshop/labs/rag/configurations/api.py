@@ -30,6 +30,7 @@ def get_rag_configuration_service(
     from ai_workshop.labs.rag.generation.readiness import (
         SqlAlchemyGenerationReadiness,
     )
+    from ai_workshop.labs.rag.ingestion.artifact_service import prepare_artifact_admission
     from ai_workshop.labs.rag.ingestion.repository import (
         SqlAlchemyRagIngestionCommandRepository,
     )
@@ -37,7 +38,9 @@ def get_rag_configuration_service(
 
     return RagConfigurationService(
         SqlAlchemyRagConfigurationRepository(session),
-        RagIngestionService(SqlAlchemyRagIngestionCommandRepository(session)),
+        RagIngestionService(SqlAlchemyRagIngestionCommandRepository(
+            session, artifact_admission=prepare_artifact_admission(settings),
+        )),
         generation_readiness=SqlAlchemyGenerationReadiness(session, settings, actor_id=user.id),
         environment=settings.environment,
     )

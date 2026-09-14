@@ -15,6 +15,7 @@ from elastic_transport import (
     ConnectionError as ElasticsearchConnectionError,
 )
 from sqlalchemy import select, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ai_workshop.config import Settings
@@ -53,6 +54,12 @@ from ai_workshop.labs.rag.indexing.service import (
     IndexingResult,
     IndexingService,
 )
+from ai_workshop.labs.rag.ingestion.artifact_contracts import ArtifactPublication, ArtifactRole
+from ai_workshop.labs.rag.ingestion.artifact_service import (
+    RagArtifactPublisher,
+    finalize_artifact,
+    safe_database_error,
+)
 from ai_workshop.labs.rag.ingestion.domain import (
     ArtifactReference,
     RagIngestionError,
@@ -77,6 +84,7 @@ from ai_workshop.labs.rag.models.repository import _model_to_domain
 from ai_workshop.platform.assets.domain import VersionStatus
 from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecord
 from ai_workshop.platform.jobs.domain import JobStatus
+from ai_workshop.platform.jobs.models import JobRecord
 from ai_workshop.platform.jobs.repository import SqlAlchemyJobRepository
 from ai_workshop.platform.workspaces.models import (
     WorkspaceMembershipRecord,
@@ -460,6 +468,7 @@ class ProductionEmbeddingStage:
         self.settings = settings
         self.object_store = object_store
         self.runtime_provider = runtime_provider or EmbeddingRuntimeProvider(embedding_factory)
+        self.artifact_publisher = RagArtifactPublisher(settings)
 
     async def embed(self, *, projection_id: UUID, indexing_profile_id: UUID) -> int:
         engine = create_engine(self.settings)
@@ -499,8 +508,12 @@ class ProductionEmbeddingStage:
                     indexing_profile_id=indexing_profile_id,
                 )
             try:
+                tracked_chunks = await self.artifact_publisher.read(
+                    ingestion.job_id, ArtifactRole.CHUNKS, chunk_reference,
+                )
                 chunks = deserialize_chunking_result(
-                    await _read_artifact(self.object_store, chunk_reference)
+                    tracked_chunks if tracked_chunks is not None
+                    else await _read_artifact(self.object_store, chunk_reference)
                 )
             except (KeyError, TypeError, ValueError) as exc:
                 raise RagIngestionError(
@@ -528,11 +541,22 @@ class ProductionEmbeddingStage:
                 raise RagIngestionError(
                     "embedding_output_invalid", str(exc), retryable=False
                 ) from exc
-            reference, authoritative_result = await _publish_embedding(
-                self.object_store,
-                f"rag/embeddings/{projection_id}.json",
-                serialize_embedding_result(result),
+            published = await self.artifact_publisher.publish(
+                ingestion.job_id, ArtifactRole.EMBEDDINGS, serialize_embedding_result(result),
             )
+            if published is None:
+                reference, authoritative_result = await _publish_embedding(
+                    self.object_store, f"rag/embeddings/{projection_id}.json",
+                    serialize_embedding_result(result),
+                )
+            else:
+                reference, authoritative_content = published
+                try:
+                    authoritative_result = deserialize_embedding_result(authoritative_content)
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise RagIngestionError(
+                        "embedding_artifact_invalid", "embedding_artifact_invalid", retryable=False,
+                    ) from exc
             if authoritative_result.descriptor != resolved.descriptor:
                 raise RagIngestionError(
                     "embedding_artifact_descriptor_mismatch",
@@ -545,7 +569,31 @@ class ProductionEmbeddingStage:
                 expected_descriptor=resolved.descriptor,
             )
             async with sessions.begin() as session:
-                ingestion, _projection = await _lock_active_stage_rows(session, projection_id)
+                ingestion, projection = await _lock_active_stage_rows(session, projection_id)
+                # The helper has locked these rows, but publication ran outside that
+                # transaction. Recheck current lifecycle state before accepting bytes.
+                await session.refresh(ingestion)
+                await session.refresh(projection)
+                job_status = await session.scalar(
+                    select(JobRecord.status).where(JobRecord.id == ingestion.job_id)
+                )
+                active = (
+                    projection.status == ProjectionStatus.EMBEDDING
+                    and job_status == JobStatus.RUNNING
+                )
+                completed = (
+                    projection.status == ProjectionStatus.INDEXING
+                    and job_status == JobStatus.RUNNING
+                ) or (
+                    projection.status == ProjectionStatus.READY
+                    and job_status == JobStatus.SUCCEEDED
+                )
+                if not active and not completed:
+                    raise RagIngestionError(
+                        "embedding_stage_conflict",
+                        "The locked job and projection cannot accept embedding completion.",
+                        retryable=False,
+                    )
                 current = await _resolve_embedding(
                     session,
                     projection_id=projection_id,
@@ -558,6 +606,22 @@ class ProductionEmbeddingStage:
                         retryable=False,
                     )
                 existing = (ingestion.embedding_object_key, ingestion.embedding_sha256)
+                if not active:
+                    if (
+                        existing != (reference.key, reference.sha256)
+                        or ingestion.embedding_count != len(authoritative_result.vectors)
+                        or isinstance(reference.tracking, ArtifactPublication)
+                    ):
+                        raise RagIngestionError(
+                            "embedding_stage_conflict",
+                            "A completed stage requires its exact verified embedding replay.",
+                            retryable=False,
+                        )
+                    await finalize_artifact(
+                        session, ingestion.job_id, projection_id,
+                        ArtifactRole.EMBEDDINGS, reference,
+                    )
+                    return len(authoritative_result.vectors)
                 if existing != (None, None) and existing != (reference.key, reference.sha256):
                     raise RagIngestionError(
                         "embedding_artifact_conflict",
@@ -567,8 +631,13 @@ class ProductionEmbeddingStage:
                 ingestion.embedding_object_key = reference.key
                 ingestion.embedding_sha256 = reference.sha256
                 ingestion.embedding_count = len(authoritative_result.vectors)
+                await finalize_artifact(
+                    session, ingestion.job_id, projection_id, ArtifactRole.EMBEDDINGS, reference,
+                )
                 await session.flush()
             return len(authoritative_result.vectors)
+        except SQLAlchemyError as exc:
+            raise safe_database_error(exc) from None
         finally:
             await engine.dispose()
 

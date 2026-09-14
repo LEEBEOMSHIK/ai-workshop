@@ -1,6 +1,8 @@
+import traceback
 from uuid import UUID, uuid4
 
 import pytest
+from celery.exceptions import Retry
 from sqlalchemy.exc import DisconnectionError, IntegrityError, OperationalError, TimeoutError
 
 import ai_workshop.worker as worker_module
@@ -10,6 +12,7 @@ from ai_workshop.labs.rag.indexing.recovery import (
     RagAliasParityResult,
     RagAliasParityRunError,
 )
+from ai_workshop.labs.rag.ingestion.artifact_service import safe_database_error
 from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand
 from ai_workshop.labs.rag.ingestion.handoff import (
     RagAssetHandoffIdentity,
@@ -181,6 +184,76 @@ def test_integrity_error_is_never_classified_as_retryable() -> None:
     assert retryable is False
 
 
+@pytest.mark.parametrize(
+    "transient,retries,fail_also",
+    [
+        (True, 0, False),
+        (True, 1, False),
+        (False, 0, False),
+        (False, 1, True),
+    ],
+)
+def test_rag_task_never_exposes_database_parameters_in_retry_or_terminal_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+    transient: bool,
+    retries: int,
+    fail_also: bool,
+) -> None:
+    sentinels = ("SYNTHETIC_PRIVATE_ARTIFACT_KEY", "SYNTHETIC_PRIVATE_ARTIFACT_HASH")
+    exception_class = OperationalError if transient else IntegrityError
+    failure = exception_class(
+        "insert artifact",
+        {"key": sentinels[0], "hash": sentinels[1]},
+        RuntimeError("synthetic database failure"),
+    )
+    failures = []
+
+    class Workflow:
+        async def run(self, job_id):
+            raise failure
+
+        async def fail(self, job_id, **kwargs):
+            failures.append(kwargs)
+            if fail_also:
+                raise OperationalError(
+                    "update artifact",
+                    {"key": sentinels[0], "hash": sentinels[1]},
+                    RuntimeError("synthetic second failure"),
+                )
+
+    settings = Settings(
+        _env_file=None, environment="test", secret_key="x" * 32, redis_url="redis://unused:6379/0"
+    )
+    task = create_celery(settings, rag_workflow_factory=lambda _: Workflow()).tasks[
+        RAG_INGESTION_TASK
+    ]
+    retry_errors = []
+
+    def retry(*, exc, countdown):
+        retry_errors.append(exc)
+        raise Retry(exc=exc)
+
+    monkeypatch.setattr(task, "retry", retry)
+    task.push_request(retries=retries)
+    try:
+        expected_exception = Retry if transient and retries == 0 else RuntimeError
+        with pytest.raises(expected_exception) as raised:
+            task.run(str(uuid4()))
+    finally:
+        task.pop_request()
+    formatted = "".join(traceback.format_exception(raised.value))
+    assert all(sentinel not in formatted for sentinel in sentinels)
+    if transient and retries == 0:
+        assert len(retry_errors) == 1 and failures == []
+        retry_error = retry_errors[0]
+        assert retry_error is not failure
+        assert retry_error.__cause__ is None and retry_error.__context__ is None
+        assert all(sentinel not in repr(retry_error.args) for sentinel in sentinels)
+        assert _rag_error(retry_error) == ("database_transient", True)
+    else:
+        assert retry_errors == [] and len(failures) == 1
+
+
 def test_reconciler_sender_sends_only_the_persisted_job_id() -> None:
     settings = Settings(
         _env_file=None,
@@ -297,6 +370,88 @@ def test_asset_verification_uses_late_ack_worker_loss_and_bounded_retry() -> Non
     assert task.acks_late is True
     assert task.reject_on_worker_lost is True
     assert task.max_retries == 3
+
+
+@pytest.mark.parametrize("transient", [True, False])
+def test_verified_asset_preserves_safe_handoff_retry_classification(
+    monkeypatch: pytest.MonkeyPatch,
+    transient: bool,
+) -> None:
+    asset_id, profile_id, requester_id, job_id = (uuid4() for _ in range(4))
+    events = []
+    normalized_errors = []
+    retry_errors = []
+    sentinels = ("SYNTHETIC_PRIVATE_ARTIFACT_KEY", "SYNTHETIC_PRIVATE_ARTIFACT_HASH")
+    expected_code = "database_transient" if transient else "rag_ingestion_failed"
+
+    class Workflow:
+        async def run(self, actual_job):
+            assert actual_job == job_id
+            events.append("verified")
+            return asset_id
+
+        async def retry(self, actual_job, **kwargs):
+            assert actual_job == job_id and kwargs["error_code"] == expected_code
+            events.append("retry_recorded")
+
+        async def fail(self, actual_job, **kwargs):
+            assert actual_job == job_id and kwargs["error_code"] == expected_code
+            events.append("terminal_failure")
+
+    class Subscriptions:
+        async def for_asset(self, actual_asset):
+            assert actual_asset == asset_id
+            return (VerifiedAssetSubscription(profile_id, requester_id),)
+
+    async def ensure_job(settings, command):
+        assert command == EnsureIndexedCommand(asset_id, profile_id, requester_id)
+        events.append("handoff")
+        error_type = OperationalError if transient else IntegrityError
+        try:
+            raise error_type(
+                "insert artifact",
+                {"key": sentinels[0], "hash": sentinels[1]},
+                RuntimeError("synthetic database failure"),
+            )
+        except error_type as exc:
+            normalized = safe_database_error(exc)
+            normalized_errors.append(normalized)
+            raise normalized from None
+
+    def retry(*, exc, countdown):
+        retry_errors.append(exc)
+        raise Retry(exc=exc)
+
+    monkeypatch.setattr(worker_module, "create_asset_verification_workflow", lambda _: Workflow())
+    monkeypatch.setattr(worker_module, "_ensure_rag_job", ensure_job)
+    settings = Settings(
+        _env_file=None,
+        environment="test",
+        secret_key="x" * 32,
+        redis_url="redis://unused:6379/0",
+    )
+    task = create_celery(settings, rag_subscriptions=Subscriptions()).tasks[ASSET_VERIFICATION_TASK]
+    monkeypatch.setattr(task, "retry", retry)
+    task.push_request(retries=0)
+    try:
+        with pytest.raises(Retry if transient else RuntimeError) as raised:
+            task.run(str(job_id))
+    finally:
+        task.pop_request()
+    assert normalized_errors[0].__context__ is not None
+    assert all(
+        sentinel not in "".join(traceback.format_exception(raised.value)) for sentinel in sentinels
+    )
+    if transient:
+        assert events == ["verified", "handoff", "retry_recorded"]
+        assert len(retry_errors) == 1
+        safe_error = retry_errors[0]
+    else:
+        assert events == ["verified", "handoff", "terminal_failure"] and retry_errors == []
+        safe_error = raised.value.__cause__
+    assert safe_error is not normalized_errors[0]
+    assert safe_error.__context__ is None and safe_error.__cause__ is None
+    assert worker_module._asset_error(safe_error) == (expected_code, transient)
 
 
 def test_asset_verification_retries_a_retryable_error_then_succeeds(

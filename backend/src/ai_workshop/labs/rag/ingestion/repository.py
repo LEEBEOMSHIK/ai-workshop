@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from sqlalchemy import and_, or_, select, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ai_workshop.labs.rag.configurations.repository import (
@@ -11,6 +12,8 @@ from ai_workshop.labs.rag.configurations.repository import (
 from ai_workshop.labs.rag.documents.domain import ProjectionStatus, RagProjection
 from ai_workshop.labs.rag.documents.models import RagProjectionRecord
 from ai_workshop.labs.rag.documents.repository import SqlAlchemyRagDocumentRepository
+from ai_workshop.labs.rag.ingestion.artifact_repository import SqlAlchemyRagArtifactRepository
+from ai_workshop.labs.rag.ingestion.artifact_service import ArtifactAdmission, safe_database_error
 from ai_workshop.labs.rag.ingestion.dispatch import DispatchClaim
 from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand, RagIngestionError
 from ai_workshop.labs.rag.ingestion.locking import lock_ingestion_source
@@ -26,8 +29,11 @@ from ai_workshop.platform.jobs.repository import SqlAlchemyJobRepository
 
 
 class SqlAlchemyRagIngestionCommandRepository:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(
+        self, session: AsyncSession, *, artifact_admission: ArtifactAdmission | None = None,
+    ) -> None:
         self.session = session
+        self.artifact_admission = artifact_admission or ArtifactAdmission()
 
     async def ensure(self, command: EnsureIndexedCommand, *, idempotency_key: str) -> UUID:
         source = await lock_ingestion_source(self.session, command.asset_version_id)
@@ -101,6 +107,7 @@ class SqlAlchemyRagIngestionCommandRepository:
             )
         )
         if projection_record is None:
+            binding = self.artifact_admission.require()
             projection = RagProjection.pending(
                 asset_version_id=command.asset_version_id,
                 indexing_profile_id=command.indexing_profile_id,
@@ -153,6 +160,11 @@ class SqlAlchemyRagIngestionCommandRepository:
             )
         )
         await self.session.flush()
+        if projection_record is None:
+            try:
+                await SqlAlchemyRagArtifactRepository(self.session).register_bundle(job.id, binding)
+            except SQLAlchemyError as exc:
+                raise safe_database_error(exc) from None
         self.session.add(
             RagIngestionDispatchRecord(
                 job_id=job.id,

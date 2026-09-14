@@ -2,6 +2,7 @@ from uuid import UUID
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     CheckConstraint,
     Float,
@@ -29,6 +30,10 @@ class RagProjectionRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "'ready', 'failed', 'partial_ready')",
             name="ck_rag_document_projections_status",
         ),
+        CheckConstraint(
+            "content_revision IS NULL OR content_revision > 0",
+            name="ck_rag_document_projections_content_revision_positive",
+        ),
         UniqueConstraint(
             "asset_version_id",
             "document_processing_profile_id",
@@ -49,6 +54,7 @@ class RagProjectionRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ForeignKey("rag_profiles.id", ondelete="RESTRICT"), nullable=False
     )
     status: Mapped[ProjectionStatus] = mapped_column(String(32), nullable=False)
+    content_revision: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
 
 class StructuralElementRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):

@@ -25,11 +25,17 @@ from ai_workshop.labs.rag.generation import (
 from ai_workshop.labs.rag.generation import (
     evidence_approval_request_models as rag_evidence_approval_request_models,  # noqa: F401
 )
+from ai_workshop.labs.rag.ingestion import artifact_models as rag_artifact_models  # noqa: F401
 from ai_workshop.labs.rag.ingestion import models as rag_ingestion_models  # noqa: F401
 from ai_workshop.labs.rag.models import models as rag_model_models  # noqa: F401
 from ai_workshop.labs.rag.policies import models as rag_policy_models  # noqa: F401
 from ai_workshop.platform.assets import models as asset_models  # noqa: F401
+from ai_workshop.platform.assets import provenance_models as asset_provenance_models  # noqa: F401
+from ai_workshop.platform.assets import (
+    purge_inventory_models as asset_purge_inventory_models,  # noqa: F401
+)
 from ai_workshop.platform.assets import purge_models as asset_purge_models  # noqa: F401
+from ai_workshop.platform.assets import purge_proof_models as asset_purge_proof_models  # noqa: F401
 from ai_workshop.platform.assets import trash_models as asset_trash_models  # noqa: F401
 from ai_workshop.platform.identity import authorization_models  # noqa: F401
 from ai_workshop.platform.identity import models as identity_models  # noqa: F401

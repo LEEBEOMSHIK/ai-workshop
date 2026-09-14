@@ -3,6 +3,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_workshop.config import Settings
@@ -15,6 +16,12 @@ from ai_workshop.labs.rag.documents.domain import (
 )
 from ai_workshop.labs.rag.documents.models import RagProjectionRecord
 from ai_workshop.labs.rag.documents.repository import SqlAlchemyRagDocumentRepository
+from ai_workshop.labs.rag.ingestion.artifact_contracts import ArtifactRole
+from ai_workshop.labs.rag.ingestion.artifact_service import (
+    RagArtifactPublisher,
+    finalize_artifact,
+    safe_database_error,
+)
 from ai_workshop.labs.rag.ingestion.domain import (
     ArtifactReference,
     IngestionExecution,
@@ -116,6 +123,8 @@ class SqlAlchemyRagIngestionLifecycle:
                         retryable=False,
                     )
                 return self._execution(rows)
+        except SQLAlchemyError as exc:
+            raise safe_database_error(exc) from None
         finally:
             await engine.dispose()
 
@@ -132,6 +141,9 @@ class SqlAlchemyRagIngestionLifecycle:
                 rows = await self._load(session, job_id, lock=True)
                 self._require_active_source(rows)
                 if rows.projection.status is not ProjectionStatus.PARSING:
+                    await finalize_artifact(
+                        session, job_id, rows.projection.id, ArtifactRole.PARSED, artifact,
+                    )
                     return self._require_completed_stage(rows, ProjectionStatus.CHUNKING)
                 await SqlAlchemyRagDocumentRepository(session).save_parsed_document(
                     rows.projection.id, document
@@ -140,7 +152,12 @@ class SqlAlchemyRagIngestionLifecycle:
                 rows.ingestion.parsed_sha256 = artifact.sha256
                 rows.ingestion.parsed_element_count = len(document.elements)
                 await self._advance(session, rows, ProjectionStatus.CHUNKING)
+                await finalize_artifact(
+                    session, job_id, rows.projection.id, ArtifactRole.PARSED, artifact,
+                )
                 return self._execution(rows)
+        except SQLAlchemyError as exc:
+            raise safe_database_error(exc) from None
         finally:
             await engine.dispose()
 
@@ -157,6 +174,9 @@ class SqlAlchemyRagIngestionLifecycle:
                 rows = await self._load(session, job_id, lock=True)
                 self._require_active_source(rows)
                 if rows.projection.status is not ProjectionStatus.CHUNKING:
+                    await finalize_artifact(
+                        session, job_id, rows.projection.id, ArtifactRole.CHUNKS, artifact,
+                    )
                     return self._require_completed_stage(rows, ProjectionStatus.EMBEDDING)
                 await SqlAlchemyRagDocumentRepository(session).replace_chunks(
                     rows.projection.id, result.chunks
@@ -165,7 +185,12 @@ class SqlAlchemyRagIngestionLifecycle:
                 rows.ingestion.chunk_sha256 = artifact.sha256
                 rows.ingestion.chunk_count = len(result.chunks)
                 await self._advance(session, rows, ProjectionStatus.EMBEDDING)
+                await finalize_artifact(
+                    session, job_id, rows.projection.id, ArtifactRole.CHUNKS, artifact,
+                )
                 return self._execution(rows)
+        except SQLAlchemyError as exc:
+            raise safe_database_error(exc) from None
         finally:
             await engine.dispose()
 
@@ -191,6 +216,8 @@ class SqlAlchemyRagIngestionLifecycle:
                 rows.ingestion.embedding_count = embedding_count
                 await self._advance(session, rows, ProjectionStatus.INDEXING)
                 return self._execution(rows)
+        except SQLAlchemyError as exc:
+            raise safe_database_error(exc) from None
         finally:
             await engine.dispose()
 
@@ -227,6 +254,8 @@ class SqlAlchemyRagIngestionLifecycle:
                 rows.job.succeed(stage=ProjectionStatus.READY.value)
                 await SqlAlchemyJobRepository(session).update(rows.job)
                 return self._execution(rows)
+        except SQLAlchemyError as exc:
+            raise safe_database_error(exc) from None
         finally:
             await engine.dispose()
 
@@ -266,6 +295,8 @@ class SqlAlchemyRagIngestionLifecycle:
                     error_message=error_message[:500],
                 )
                 await SqlAlchemyJobRepository(session).update(rows.job)
+        except SQLAlchemyError as exc:
+            raise safe_database_error(exc) from None
         finally:
             await engine.dispose()
 
@@ -509,6 +540,7 @@ def create_rag_ingestion_workflow(settings: Settings) -> RagIngestionWorkflow:
         ProductionEmbeddingStage(settings, object_store, runtime_provider=runtime_provider),
         ProductionIndexingStage(settings, object_store),
         ProductionReadinessVerifier(settings),
+        artifact_publisher=RagArtifactPublisher(settings),
     )
 
 

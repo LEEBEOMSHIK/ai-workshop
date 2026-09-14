@@ -3,6 +3,7 @@ from uuid import UUID
 
 from ai_workshop.labs.rag.chunking.contracts import ChunkingConfig
 from ai_workshop.labs.rag.documents.domain import ProjectionStatus
+from ai_workshop.labs.rag.ingestion.artifact_contracts import ArtifactPublication, VerifiedArtifact
 from ai_workshop.labs.rag.models.document_processing import (
     LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
     DocumentProcessingSpec,
@@ -22,6 +23,7 @@ class EnsureIndexedCommand:
 class ArtifactReference:
     key: str
     sha256: str
+    tracking: ArtifactPublication | VerifiedArtifact | None = None
 
     def __post_init__(self) -> None:
         if not self.key or len(self.sha256) != 64:
@@ -69,3 +71,10 @@ class RagIngestionError(Exception):
         super().__init__(message)
         self.code = code
         self.retryable = retryable
+
+
+class RagIngestionBusy(RagIngestionError):
+    """This delivery does not own the open attempt; it cannot fail the shared job."""
+
+    def __init__(self) -> None:
+        super().__init__("artifact_attempt_busy", "artifact_attempt_busy", retryable=False)

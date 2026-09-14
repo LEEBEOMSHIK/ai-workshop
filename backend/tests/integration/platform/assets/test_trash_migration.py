@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 import psycopg
 import pytest
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
@@ -108,6 +109,12 @@ def _index_names(connection: psycopg.Connection[Any]) -> set[str]:
             "AND tablename='folders'"
         ).fetchall()
     }
+
+
+def _configured_head(database: IsolatedPublishingDatabase) -> str:
+    head = ScriptDirectory.from_config(database.config).get_current_head()
+    assert head is not None
+    return head
 
 
 def test_head_replaces_the_old_folder_unique_constraint_with_active_name_keys() -> None:
@@ -295,7 +302,7 @@ def test_0034_head_0034_round_trip_preserves_assets_and_schema_contract() -> Non
         with psycopg.connect(url) as connection:
             assert connection.execute(
                 "SELECT version_num FROM alembic_version"
-            ).fetchone() == ("0037_active_folder_names",)
+            ).fetchone() == (_configured_head(database),)
             assert _index_names(connection) >= {
                 "ix_folders_active_root_name",
                 "ix_folders_active_sibling_name",
@@ -427,7 +434,7 @@ def test_dirty_downgrade_preserves_head_revision_schema_and_data() -> None:
         with psycopg.connect(url) as connection:
             assert connection.execute(
                 "SELECT version_num FROM alembic_version"
-            ).fetchone() == ("0037_active_folder_names",)
+            ).fetchone() == (_configured_head(database),)
             assert _index_names(connection) >= {
                 "ix_folders_active_root_name",
                 "ix_folders_active_sibling_name",
@@ -461,7 +468,7 @@ def test_downgrade_refuses_to_restore_an_impossible_old_unique_constraint() -> N
         with psycopg.connect(url) as connection:
             assert connection.execute(
                 "SELECT version_num FROM alembic_version"
-            ).fetchone() == ("0037_active_folder_names",)
+            ).fetchone() == (_configured_head(database),)
             assert connection.execute(
                 "SELECT id,name FROM folders WHERE id=%s", (duplicate_id,)
             ).fetchone() == (duplicate_id, "Duplicate")

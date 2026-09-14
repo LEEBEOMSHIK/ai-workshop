@@ -9,7 +9,7 @@ from uuid import UUID
 
 from celery import Celery, Task  # type: ignore[import-untyped]
 from fastapi import Depends
-from sqlalchemy.exc import DisconnectionError, OperationalError, TimeoutError
+from sqlalchemy.exc import DisconnectionError, OperationalError, SQLAlchemyError, TimeoutError
 
 from ai_workshop.config import Settings, get_settings
 from ai_workshop.labs.rag.configurations.repository import (
@@ -27,7 +27,11 @@ from ai_workshop.labs.rag.indexing.recovery import (
     SqlAlchemyRagAliasParityReconciler,
 )
 from ai_workshop.labs.rag.ingestion.dispatch import RagDispatchReconciler
-from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand, RagIngestionError
+from ai_workshop.labs.rag.ingestion.domain import (
+    EnsureIndexedCommand,
+    RagIngestionBusy,
+    RagIngestionError,
+)
 from ai_workshop.labs.rag.ingestion.handoff import (
     RagAssetHandoffReconciler,
     RagAssetHandoffResult,
@@ -218,27 +222,34 @@ def create_celery(
                 )
         except Exception as exc:
             code, retryable = _asset_error(exc)
-            if not isinstance(exc, AssetTaskError) and retryable:
-                with suppress(OperationalError, TimeoutError, DisconnectionError):
-                    run(
-                        workflow.retry(
-                            UUID(job_id),
-                            error_code=code,
-                            error_message="The asset verification task will be retried.",
-                        )
+            error = exc
+        else:
+            return
+        if isinstance(error, RagIngestionError):
+            # Handoff normalization may suppress, but still retain, raw SQL context.
+            # Build the task payload outside that handler without changing asset errors.
+            error = RagIngestionError(code, code, retryable=retryable)
+        if not isinstance(error, AssetTaskError) and retryable:
+            with suppress(OperationalError, TimeoutError, DisconnectionError):
+                run(
+                    workflow.retry(
+                        UUID(job_id),
+                        error_code=code,
+                        error_message="The asset verification task will be retried.",
                     )
-            if retryable and int(task.request.retries) < int(task.max_retries):
-                raise task.retry(exc=exc, countdown=0) from exc
-            if retryable or not isinstance(exc, AssetTaskError):
-                with suppress(OperationalError, TimeoutError, DisconnectionError):
-                    run(
-                        workflow.fail(
-                            UUID(job_id),
-                            error_code=code,
-                            error_message="The asset verification task failed.",
-                        )
+                )
+        if retryable and int(task.request.retries) < int(task.max_retries):
+            raise task.retry(exc=error, countdown=0) from error
+        if retryable or not isinstance(error, AssetTaskError):
+            with suppress(OperationalError, TimeoutError, DisconnectionError):
+                run(
+                    workflow.fail(
+                        UUID(job_id),
+                        error_code=code,
+                        error_message="The asset verification task failed.",
                     )
-            raise RuntimeError(code) from exc
+                )
+        raise RuntimeError(code) from error
 
     @application.task(  # type: ignore
         name=ASSET_VERIFICATION_DISPATCH_RECONCILE_TASK,
@@ -306,12 +317,24 @@ def create_celery(
         workflow = rag_workflow_factory(resolved_settings)
         try:
             run(workflow.run(UUID(job_id)))
+        except RagIngestionBusy:
+            # Acknowledge only this non-owning delivery, even at exhausted retries.
+            # The owner keeps its reservation; no timeout takeover or shared failure.
+            getLogger(__name__).info("artifact_attempt_busy")
+            return
         except Exception as exc:
             code, retryable = _rag_error(exc)
-            retries = int(task.request.retries)
-            max_retries = int(task.max_retries)
-            if retryable and retries < max_retries:
-                raise task.retry(exc=exc, countdown=0) from exc
+        else:
+            return
+        # Leave the raw exception handler before creating Celery payloads or raising:
+        # neither serialized retry errors nor terminal tracebacks retain its context.
+        retries = int(task.request.retries)
+        max_retries = int(task.max_retries)
+        if retryable and retries < max_retries:
+            raise task.retry(
+                exc=RagIngestionError(code, code, retryable=retryable), countdown=0
+            ) from None
+        try:
             run(
                 workflow.fail(
                     UUID(job_id),
@@ -319,7 +342,9 @@ def create_celery(
                     error_message="The RAG ingestion stage failed.",
                 )
             )
-            raise RuntimeError(code) from exc
+        except Exception as exc:
+            code, _ = _rag_error(exc)
+        raise RuntimeError(code) from None
 
     return application
 
@@ -349,13 +374,21 @@ def get_job_dispatcher(
 
 
 async def _ensure_rag_job(settings: Settings, command: EnsureIndexedCommand) -> UUID:
+    from ai_workshop.labs.rag.ingestion.artifact_service import (
+        prepare_artifact_admission,
+        safe_database_error,
+    )
+
+    admission = prepare_artifact_admission(settings)
     engine = create_engine(settings)
     sessions = create_session_factory(engine)
     try:
         async with sessions.begin() as session:
             return await RagIngestionService(
-                SqlAlchemyRagIngestionCommandRepository(session)
+                SqlAlchemyRagIngestionCommandRepository(session, artifact_admission=admission)
             ).ensure_indexed(command)
+    except SQLAlchemyError as exc:
+        raise safe_database_error(exc) from None
     finally:
         await engine.dispose()
 
@@ -536,7 +569,7 @@ def _rag_error(exc: Exception) -> tuple[str, bool]:
 
 
 def _asset_error(exc: Exception) -> tuple[str, bool]:
-    if isinstance(exc, AssetTaskError):
+    if isinstance(exc, (AssetTaskError, RagIngestionError)):
         return exc.code, exc.retryable
     if isinstance(exc, (OperationalError, TimeoutError, DisconnectionError)):
         return "database_transient", True

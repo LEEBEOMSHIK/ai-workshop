@@ -1,10 +1,11 @@
 import hashlib
 from collections.abc import AsyncIterator
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
 from ai_workshop.labs.rag.chunking.contracts import ChunkingConfig, ChunkingResult
 from ai_workshop.labs.rag.documents.domain import ParsedDocument, ProjectionStatus
+from ai_workshop.labs.rag.ingestion.artifact_contracts import ArtifactRole
 from ai_workshop.labs.rag.ingestion.domain import (
     ArtifactReference,
     EnsureIndexedCommand,
@@ -21,6 +22,9 @@ from ai_workshop.labs.rag.ingestion.serialization import (
 from ai_workshop.labs.rag.models.document_processing import DocumentProcessingSpec
 from ai_workshop.platform.assets.domain import AssetVersion
 from ai_workshop.platform.assets.storage import StoredObject
+
+if TYPE_CHECKING:
+    from ai_workshop.labs.rag.ingestion.artifact_service import RagArtifactPublisher
 
 
 class ImmutableArtifactStore(Protocol):
@@ -122,6 +126,8 @@ class RagIngestionWorkflow:
         embeddings: EmbeddingStagePort,
         indexing: IndexingStagePort,
         verifier: ReadinessVerifierPort,
+        *,
+        artifact_publisher: "RagArtifactPublisher | None" = None,
     ) -> None:
         self.lifecycle = lifecycle
         self.object_store = object_store
@@ -130,6 +136,7 @@ class RagIngestionWorkflow:
         self.embeddings = embeddings
         self.indexing = indexing
         self.verifier = verifier
+        self.artifact_publisher = artifact_publisher
 
     async def run(self, job_id: UUID) -> UUID:
         execution = await self.lifecycle.begin(job_id)
@@ -148,7 +155,8 @@ class RagIngestionWorkflow:
                 self._require_nonempty_document(document)
                 content = serialize_parsed_document(document)
                 artifact, authoritative_content = await self._publish_artifact(
-                    f"rag/parsed/{execution.projection_id}.json", content
+                    f"rag/parsed/{execution.projection_id}.json", content,
+                    job_id=job_id, role=ArtifactRole.PARSED,
                 )
                 document = self._deserialize_parsed(
                     authoritative_content,
@@ -167,7 +175,9 @@ class RagIngestionWorkflow:
                         retryable=False,
                     )
                 document = self._deserialize_parsed(
-                    await self._read_artifact(execution.parsed_artifact),
+                    await self._read_artifact(
+                        execution.parsed_artifact, job_id=job_id, role=ArtifactRole.PARSED,
+                    ),
                     asset_version_id=execution.asset_version.id,
                 )
                 self._require_nonempty_document(document)
@@ -180,7 +190,8 @@ class RagIngestionWorkflow:
                 self._require_nonempty_chunks(result)
                 content = serialize_chunking_result(result)
                 artifact, authoritative_content = await self._publish_artifact(
-                    f"rag/chunks/{execution.projection_id}.json", content
+                    f"rag/chunks/{execution.projection_id}.json", content,
+                    job_id=job_id, role=ArtifactRole.CHUNKS,
                 )
                 result = self._deserialize_chunks(
                     authoritative_content,
@@ -234,8 +245,12 @@ class RagIngestionWorkflow:
         )
 
     async def _publish_artifact(
-        self, key: str, content: bytes
+        self, key: str, content: bytes, *, job_id: UUID, role: ArtifactRole,
     ) -> tuple[ArtifactReference, bytes]:
+        if self.artifact_publisher is not None:
+            published = await self.artifact_publisher.publish(job_id, role, content)
+            if published is not None:
+                return published
         try:
             stored = await self.object_store.put_if_absent(key, _bytes_source(content))
         except OSError as exc:
@@ -258,7 +273,13 @@ class RagIngestionWorkflow:
             )
         return ArtifactReference(key, exact_sha256), exact_content
 
-    async def _read_artifact(self, artifact: ArtifactReference) -> bytes:
+    async def _read_artifact(
+        self, artifact: ArtifactReference, *, job_id: UUID, role: ArtifactRole,
+    ) -> bytes:
+        if self.artifact_publisher is not None:
+            tracked = await self.artifact_publisher.read(job_id, role, artifact)
+            if tracked is not None:
+                return tracked
         content = await self._read_exact_key(artifact.key)
         if hashlib.sha256(content).hexdigest() != artifact.sha256:
             raise RagIngestionError(
@@ -278,7 +299,9 @@ class RagIngestionWorkflow:
                 retryable=False,
             )
         result = self._deserialize_chunks(
-            await self._read_artifact(execution.chunk_artifact),
+            await self._read_artifact(
+                execution.chunk_artifact, job_id=execution.job_id, role=ArtifactRole.CHUNKS,
+            ),
             projection_id=execution.projection_id,
         )
         self._require_nonempty_chunks(result)

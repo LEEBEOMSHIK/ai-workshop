@@ -389,6 +389,45 @@ Codex는 로컬에서 실행해도 질문·포함된 대화·승인 근거를 Op
 
 ## 4. RAG ingestion, 검색과 평가
 
+### 추적 RAG 산출물 저장소 활성화 전제
+
+추적 대상은 새 ingestion이 게시하는 parsed, chunks, embeddings JSON 묶음뿐이다. 기존
+projection/job 파일, 원본 Asset, OCR 입력 이미지, Elasticsearch build와 다른 임시 파일은
+이 저장소의 소유 자산으로 간주하지 않는다. 기존 미추적 projection을 파일명이나 현재 환경
+설정만으로 자동 등록하거나 backfill하지 않으며, 인벤토리에서도 legacy 미해결 상태로 남긴다.
+
+활성화는 다음 전제를 모두 충족한 별도 승인 작업이어야 한다.
+
+1. 구 API와 worker의 신규 ingestion 진입을 막고 진행 중 writer를 drain한 뒤, API·worker·beat와
+   직접 SQL/파일 writer가 모두 중지됐는지 확인한다. 종료가 입증되지 않은 open attempt나 남은
+   등록 temp key가 있으면 timeout만으로 완료 처리하지 않고 활성화·정리를 중단한다.
+2. DB migration과 새 API·worker 버전을 함께 준비한다. 추적 테이블만 먼저 사용하거나 구 writer를
+   다시 시작하지 않는다.
+3. 현재 구현은 별도의 RAG root 설정을 제공하지 않는다. 추적 adapter도 기존 원본 object store와
+   같은 `AI_WORKSHOP_OBJECT_STORE_ROOT`를 사용하므로, 먼저 그 실제 구성 경로와 기존 원본
+   object가 계속 접근 가능한지 확인한다. 빈 전용 경로로 임의 변경하거나 기존 object를 이동·추정
+   backfill하지 않는다. 별도 물리 저장소가 필요하면 이 활성화 절차가 아니라 구성·이관 설계를 먼저
+   승인받는다.
+4. 안정적인 논리 이름(예: `rag_ingestion_artifacts`)은
+   `AI_WORKSHOP_RAG_ARTIFACT_STORE_ID`에 설정한다. 이 값은 소문자로 시작하는 소문자·숫자·밑줄
+   80자 이하의 정확한 machine identifier다. 운영 절차에서 새로 발급한 UUID는 이 이름과 다른
+   값이며 `AI_WORKSHOP_RAG_ARTIFACT_STORE_BINDING_ID`에 설정한다.
+5. 애플리케이션 시작 전에 실제 `AI_WORKSHOP_OBJECT_STORE_ROOT`에
+   `.ai-workshop-store.json`을 아래의 정확한 스키마로 별도 provisioning한다. marker의
+   `store_id`는 STORE_ID와, `binding_id`는 STORE_BINDING_ID와 각각 정확히 같아야 한다.
+
+```json
+{
+  "schema_version": 1,
+  "store_id": "rag_ingestion_artifacts",
+  "binding_id": "00000000-0000-4000-8000-000000000000"
+}
+```
+
+위 UUID는 형식 예시일 뿐 재사용할 운영 값이 아니다. 애플리케이션과 migration은 marker를 자동
+생성·수정하지 않는다. marker 부재·불일치·손상, 다른 실제 경로나 reparse 경로, 미확인 writer가
+하나라도 있으면 새 추적 ingestion과 완전한 삭제 인벤토리를 준비 완료로 간주하지 않는다.
+
 업로드가 검증되면 Platform Asset Version이 `stored`에서 `ready`로 전이되고 Document의 active version이 원자적으로 교체된다. 구독된 indexing profile마다 RAG Projection은 `pending → parsing → chunking → embedding → indexing → ready`를 거친다. Job과 Projection이 `failed`이면 오류 코드를 확인하며, READY가 되기 전에는 검색 alias에 포함되지 않는다.
 
 system BM25 기준선은 별도의 불변 indexing 구독으로 모든 활성 `ready` 자산에 기준선

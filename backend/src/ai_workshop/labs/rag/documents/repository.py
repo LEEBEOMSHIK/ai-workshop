@@ -17,6 +17,11 @@ from ai_workshop.labs.rag.documents.models import (
     RetrievalChunkRecord,
     StructuralElementRecord,
 )
+from ai_workshop.labs.rag.documents.provenance import (
+    _advance_projection_revision,
+    _lock_projection,
+    _register_projection,
+)
 from ai_workshop.labs.rag.models.document_processing import (
     LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
 )
@@ -81,18 +86,17 @@ class SqlAlchemyRagDocumentRepository:
     async def add_projection(self, projection: RagProjection) -> RagProjection:
         if projection.status is not ProjectionStatus.PENDING:
             raise ValueError("New RAG document projections must start pending.")
-        self.session.add(
-            RagProjectionRecord(
-                id=projection.id,
-                asset_version_id=projection.asset_version_id,
-                document_processing_profile_id=(
-                    projection.document_processing_profile_id
-                ),
-                indexing_profile_id=projection.indexing_profile_id,
-                status=projection.status,
-            )
+        record = RagProjectionRecord(
+            id=projection.id,
+            asset_version_id=projection.asset_version_id,
+            document_processing_profile_id=(projection.document_processing_profile_id),
+            indexing_profile_id=projection.indexing_profile_id,
+            status=projection.status,
+            content_revision=1,
         )
+        self.session.add(record)
         await self.session.flush()
+        await _register_projection(self.session, record)
         return projection
 
     async def find_projection(
@@ -118,9 +122,7 @@ class SqlAlchemyRagDocumentRepository:
         projection_id: UUID,
         document: ParsedDocument,
     ) -> None:
-        projection = await self.session.get(RagProjectionRecord, projection_id)
-        if projection is None:
-            raise LookupError("RAG document projection does not exist.")
+        projection = await _lock_projection(self.session, projection_id)
         if projection.asset_version_id != document.asset_version_id:
             raise ValueError("A parsed document must match the projection asset version.")
         chunk_exists = await self.session.scalar(
@@ -162,12 +164,14 @@ class SqlAlchemyRagDocumentRepository:
             ]
         )
         await self.session.flush()
+        await _advance_projection_revision(self.session, projection)
 
     async def replace_chunks(
         self,
         projection_id: UUID,
         chunks: tuple[RetrievalChunk, ...],
     ) -> None:
+        projection = await _lock_projection(self.session, projection_id)
         element_ids = {
             evidence.location.element_id
             for chunk in chunks
@@ -176,6 +180,11 @@ class SqlAlchemyRagDocumentRepository:
         for chunk in chunks:
             if chunk.projection_id != projection_id:
                 raise ValueError("A retrieval chunk must belong to the projection being replaced.")
+            for evidence in chunk.evidence_units:
+                if evidence.chunk_id is not None and evidence.chunk_id != chunk.id:
+                    raise ValueError(
+                        "An evidence unit must belong to its containing retrieval chunk."
+                    )
         if element_ids:
             result = await self.session.execute(
                 select(StructuralElementRecord.id).where(
@@ -209,10 +218,6 @@ class SqlAlchemyRagDocumentRepository:
                 )
             )
             for evidence in chunk.evidence_units:
-                if evidence.chunk_id is not None and evidence.chunk_id != chunk.id:
-                    raise ValueError(
-                        "An evidence unit must belong to its containing retrieval chunk."
-                    )
                 evidence_records.append(
                     EvidenceUnitRecord(
                         id=evidence.id,
@@ -238,16 +243,18 @@ class SqlAlchemyRagDocumentRepository:
         await self.session.flush()
         self.session.add_all(evidence_records)
         await self.session.flush()
+        await _advance_projection_revision(self.session, projection)
 
     async def mark_status(
         self,
         projection_id: UUID,
         status: ProjectionStatus,
     ) -> RagProjection:
-        record = await self.session.get(RagProjectionRecord, projection_id)
-        if record is None:
-            raise LookupError("RAG document projection does not exist.")
+        record = await _lock_projection(self.session, projection_id)
+        if ProjectionStatus(record.status) is status:
+            return _projection_to_domain(record)
         projection = _projection_to_domain(record).transition(status)
         record.status = projection.status
         await self.session.flush()
+        await _advance_projection_revision(self.session, record)
         return projection

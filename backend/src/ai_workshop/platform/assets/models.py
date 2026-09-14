@@ -96,6 +96,11 @@ class DocumentRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "documents"
     __table_args__ = (
         Index("ix_documents_workspace_id", "workspace_id"),
+        UniqueConstraint(
+            "workspace_id",
+            "id",
+            name="uq_documents_workspace_id_id",
+        ),
         CheckConstraint("metadata_revision >= 1", name="ck_document_metadata_revision"),
         CheckConstraint(_LIFECYCLE_CHECK, name="ck_document_lifecycle"),
         CheckConstraint(
@@ -137,6 +142,11 @@ class AssetVersionRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "asset_versions"
     __table_args__ = (
         UniqueConstraint("document_id", "number"),
+        UniqueConstraint(
+            "document_id",
+            "id",
+            name="uq_asset_versions_document_id_id",
+        ),
         Index("ix_asset_versions_sha256", "sha256"),
     )
 

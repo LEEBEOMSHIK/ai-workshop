@@ -6,10 +6,14 @@ def load_models() -> None:
     from ai_workshop.labs.rag.domains import models as rag_domain_models
     from ai_workshop.labs.rag.evaluation import models as rag_evaluation_models
     from ai_workshop.labs.rag.generation import codex_slot_models, codex_verification_models
+    from ai_workshop.labs.rag.ingestion import artifact_models as rag_artifact_models
     from ai_workshop.labs.rag.ingestion import models as rag_ingestion_models
     from ai_workshop.labs.rag.models import models as rag_models
     from ai_workshop.platform.assets import models as asset_models
+    from ai_workshop.platform.assets import provenance_models as asset_provenance_models
+    from ai_workshop.platform.assets import purge_inventory_models as asset_purge_inventory_models
     from ai_workshop.platform.assets import purge_models as asset_purge_models
+    from ai_workshop.platform.assets import purge_proof_models as asset_purge_proof_models
     from ai_workshop.platform.assets import trash_models as asset_trash_models
     from ai_workshop.platform.identity import models as identity_models
     from ai_workshop.platform.jobs import models as job_models
@@ -18,8 +22,17 @@ def load_models() -> None:
 
     _ = (
         asset_models.AssetVersionRecord,
+        asset_provenance_models.AssetSourceRelationRecord,
+        asset_purge_inventory_models.AssetPurgeInventoryRecord,
+        asset_purge_inventory_models.AssetPurgeInventoryTargetRecord,
+        asset_purge_inventory_models.AssetPurgeInventoryParticipantRecord,
+        asset_purge_inventory_models.AssetPurgeInventoryResourceRecord,
+        asset_purge_inventory_models.AssetPurgeReceiptRecord,
         asset_purge_models.AssetPurgeJobRecord,
         asset_purge_models.AssetPurgeDispatchRecord,
+        asset_purge_proof_models.AssetPurgeProofRecord,
+        asset_purge_proof_models.AssetPurgeProofTargetRecord,
+        asset_purge_proof_models.AssetPurgeProofParticipantRecord,
         asset_trash_models.AssetRetentionPolicyRecord,
         asset_trash_models.AssetTrashBatchRecord,
         identity_models.UserRecord,
@@ -29,6 +42,9 @@ def load_models() -> None:
         rag_document_models.RagIndexBuildRecord,
         rag_domain_models.RagDomainRecord,
         rag_evaluation_models.EvaluationRunRecord,
+        rag_artifact_models.RagArtifactBundleRecord,
+        rag_artifact_models.RagArtifactSlotRecord,
+        rag_artifact_models.RagArtifactAttemptRecord,
         codex_slot_models.CodexExecutionSlotRecord,
         codex_verification_models.CodexVerificationAttemptRecord,
         codex_verification_models.CodexStageAuditRecord,

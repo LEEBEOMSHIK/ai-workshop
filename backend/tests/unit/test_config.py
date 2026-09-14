@@ -1,10 +1,64 @@
 import json
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 from pydantic import ValidationError
 
 from ai_workshop.config import Settings
+
+
+def test_rag_artifact_store_binding_settings_are_optional_as_a_pair() -> None:
+    settings = Settings(secret_key="x" * 32, _env_file=None)
+
+    assert settings.rag_artifact_store_id is None
+    assert settings.rag_artifact_store_binding_id is None
+
+    configured = Settings(
+        secret_key="x" * 32,
+        rag_artifact_store_id="rag_ingestion_artifacts",
+        rag_artifact_store_binding_id="11111111-1111-4111-8111-111111111111",
+        _env_file=None,
+    )
+    assert configured.rag_artifact_store_id == "rag_ingestion_artifacts"
+    assert configured.rag_artifact_store_binding_id == UUID(
+        "11111111-1111-4111-8111-111111111111"
+    )
+
+
+@pytest.mark.parametrize(
+    ("store_id", "binding_id"),
+    [
+        ("rag_ingestion_artifacts", None),
+        (None, "11111111-1111-4111-8111-111111111111"),
+    ],
+)
+def test_rag_artifact_store_binding_settings_reject_unpaired_values(
+    store_id: str | None, binding_id: str | None
+) -> None:
+    with pytest.raises(ValidationError, match="configured together"):
+        Settings(
+            secret_key="x" * 32,
+            rag_artifact_store_id=store_id,
+            rag_artifact_store_binding_id=binding_id,
+            _env_file=None,
+        )
+
+
+@pytest.mark.parametrize(
+    "store_id",
+    ["../rag_store", "Xrag_store", "rag_store/extra", "a" * 81, "rag_store\n"],
+)
+def test_rag_artifact_store_id_requires_the_exact_machine_identifier(
+    store_id: str,
+) -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            secret_key="x" * 32,
+            rag_artifact_store_id=store_id,
+            rag_artifact_store_binding_id="11111111-1111-4111-8111-111111111111",
+            _env_file=None,
+        )
 
 
 @pytest.mark.parametrize(

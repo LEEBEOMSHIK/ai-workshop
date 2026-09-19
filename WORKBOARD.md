@@ -7,6 +7,12 @@
 
 ## 현재 작업
 
+- 원본 파일 소유권 상세 설계·독립 검토 완료(2026-09-20): UI·문서는 `7366213`으로 origin/main에 인계했다.
+  다음 범위를 원본 업로드 예약 → 문서 전용 임시물 → 일반 작업 기록으로 나눴다.
+  메인은 요구사항·시스템 경계·문서, DBA는 독립 예약/최종 확정 잠금, 독립 검토자는 소유권·실패·프라이버시를 검토한다.
+  상세안: `docs/superpowers/specs/2026-09-20-original-file-ownership-design.md`. 실패한 신규 업로드의 별도 목록을 보완하고 독립 재검토를 통과했다.
+  기록: `docs/worklogs/2026-09-20-original-file-ownership-design.md`. 상세안 확인 후 구현 계획으로 진행하며 원본·임시물·작업 기록 전체 구현은 아직 미완료다.
+
 - 커밋·푸시 인계(2026-09-20): 색인 출처와 공유 별칭·문서 쓰기 차단은 `fb266ff`로 main/origin에 반영했다.
   남은 root 표시·이동 확인창 UI와 관련 문서는 사용자 승인에 따라 별도 인계한다. 독립 154건·타입·전체 린트 및 리뷰 통과.
   참고 이미지 `references/images/img.png`는 제외한다. 현재 checkout 외 별도 worktree는 없다.
@@ -1341,25 +1347,26 @@ RAG 구성에 고정하고, 관리자가 PP-StructureV3 pipeline과 하위 OCR �
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**. 상세 이력은 연결된 작업 기록에 둔다.
 
-1. 파일함 root 표시·이동 확인창 개선 커밋 인계: 관련 154건·타입·전체 린트·독립 검토 통과.
+1. 원본 파일 소유권 상세 설계: 사전 예약·게시·확정·실패/미확정 목록 계약을 구체화했다.
+   DBA 조사와 독립 프라이버시 검토·보완 재검토 통과. 제품 코드는 아직 구현하지 않았다
+   (`docs/worklogs/2026-09-20-original-file-ownership-design.md`).
+2. 파일함 root 표시·이동 확인창 개선 커밋 인계: 관련 154건·타입·전체 린트·독립 검토 통과.
    기존 합성 브라우저 검증 기록을 보존하며 실사용 자료는 변경하지 않았다
    (`docs/worklogs/2026-09-13-root-move-dialog-polish.md`).
-2. 공유 별칭 종료·문서 쓰기 차단: 영속 요청 원장, fence, activation/parity와 inventory 연결.
+3. 공유 별칭 종료·문서 쓰기 차단: 영속 요청 원장, fence, activation/parity와 inventory 연결.
    관련349건·타입19파일·린트·독립 리뷰 통과. 실사용 적용과 전체 영구 삭제는 후속
    (`docs/worklogs/2026-09-20-rag-alias-write-fence.md`).
-3. RAG 색인 출처 구현: build 사전 등록·시도/UUID·activation/parity revision·실물 목록 연결.
+4. RAG 색인 출처 구현: build 사전 등록·시도/UUID·activation/parity revision·실물 목록 연결.
    단위278건·PG/ES 통합33건·legacy parity4건·타입15파일·린트 및 독립150건·최종 리뷰 통과. 실사용 적용·삭제는 후속
    (`docs/worklogs/2026-09-20-rag-index-provenance.md`).
-4. RAG 파싱·청킹·임베딩 파일 출처: 생성 전 등록·추적 게시·ingestion·실물 대조 구현.
+5. RAG 파싱·청킹·임베딩 파일 출처: 생성 전 등록·추적 게시·ingestion·실물 대조 구현.
    관련634건·타입14파일 및 worker 최종 재검증·린트24파일·개별/최종 보완 독립 검토 통과. Windows 권한 skip1건, 실사용 적용·삭제 미활성화
    (`docs/worklogs/2026-09-14-rag-artifact-provenance.md`).
-5. RAG SQL 출처 연결: 내용 revision·현재 관계·복구 쓰기와 일관된 읽기 목록 구현.
-   통합490건·기존 문서 저장소7건·타입7파일·린트10파일·개별/최종 독립 리뷰 통과. 실제 삭제 미활성화
-   (`docs/worklogs/2026-09-14-rag-sql-provenance.md`).
 ## 다음 작업
 
 최우선(2026-09-20): 색인 출처와 공유 alias의 영속 요청/확인된 종료, RAG 색인 쓰기 차단 구현을 완료했다.
-다음은 원본 파일·파서/OCR/뷰어 임시물·작업 메타데이터의 소유권 및 정리 계약 연결이다.
+원본 파일 소유권 상세안·독립 검토를 완료했다. 다음은 상세안 확인 후 원본 구현 계획·TDD이며,
+그다음 파서/OCR/뷰어 임시물과 일반 작업 메타데이터를 별도 연결한다.
 이후 전체 참여자 조립·구 writer/파일 writer 종료·잔존 재검증·실제 삭제 API/UI가 필요하다. 기존 SQL·JSON·색인/alias 구현을 반복하지 않는다.
 
 최우선(2026-09-14): RAG SQL 묶음과 parsed/chunks/embeddings JSON·게시 임시 파일의 출처·revision·목록 연결을 완료했다.

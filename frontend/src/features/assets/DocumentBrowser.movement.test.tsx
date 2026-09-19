@@ -35,12 +35,73 @@ async function chooseB() {
   await waitFor(() => expect(screen.getByRole("button", { name: "자료.txt 이동" })).toBeEnabled());
   await user.click(screen.getByRole("button", { name: "자료.txt 이동" }));
   const dialog = await screen.findByRole("dialog", { name: "이동 확인" });
-  await user.click(await within(dialog).findByRole("button", { name: "파일함 최상위" }));
+  await user.click(await within(dialog).findByRole("button", { name: "root" }));
   await user.click(await within(dialog).findByRole("button", { name: "B 목적지 열기" }));
   await waitFor(() => expect(within(dialog).getByRole("button", { name: "여기로 이동" })).toBeEnabled());
   return { user, dialog };
 }
 afterEach(() => vi.unstubAllGlobals());
+
+it("separates the moved object, locations, destination browser, and final action", async () => {
+  server(); mount();
+  const user = userEvent.setup();
+  await waitFor(() => expect(screen.getByRole("button", { name: "자료.txt 이동" })).toBeEnabled());
+  await user.click(screen.getByRole("button", { name: "자료.txt 이동" }));
+
+  const dialog = await screen.findByRole("dialog", { name: "이동 확인" });
+  const object = within(dialog).getByRole("group", { name: "이동할 객체" });
+  expect(within(object).getByText("문서")).toBeVisible();
+  expect(within(object).getByText("자료.txt")).toBeVisible();
+
+  const origin = within(dialog).getByRole("region", { name: "출발지" });
+  const destination = within(dialog).getByRole("region", { name: "목적지" });
+  expect(within(origin).getByText("합성 파일함")).toBeVisible();
+  expect(within(origin).getByText("root / A")).toBeVisible();
+  expect(within(destination).getByText("합성 파일함")).toBeVisible();
+  expect(within(destination).getByText("root / A")).toBeVisible();
+
+  const browser = within(dialog).getByRole("region", { name: "목적지 선택" });
+  const actions = within(dialog).getByRole("group", { name: "이동 작업" });
+  expect(within(browser).getByRole("button", { name: "root" })).toBeVisible();
+  expect(within(browser).queryByRole("button", { name: "여기로 이동" })).not.toBeInTheDocument();
+  expect(within(actions).getByRole("button", { name: "여기로 이동" })).toBeVisible();
+});
+
+it("distinguishes the null root from an actual named-root ancestor when browsing destinations", async () => {
+  const namedRoot = { ...a, id: "named-root", name: "root", has_children: true };
+  const child = { ...a, id: "named-root-child", parent_id: namedRoot.id, name: "하위", has_children: false };
+  const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+    const url = new URL(String(input), "http://localhost");
+    if (url.pathname.endsWith("/capabilities")) return Response.json(granted);
+    if (url.pathname.endsWith("/documents/doc")) return Response.json(source);
+    const folderId = url.searchParams.get("folder_id");
+    if (folderId === a.id) return Response.json(page);
+    if (folderId === namedRoot.id) return Response.json({ ...root, ancestors: [], folder: namedRoot, folders: [child] });
+    if (folderId === child.id) return Response.json({ ...root, ancestors: [namedRoot], folder: child, folders: [] });
+    return Response.json({ ...root, folders: [namedRoot] });
+  });
+  vi.stubGlobal("fetch", fetcher);
+  mount();
+  const user = userEvent.setup();
+  await waitFor(() => expect(screen.getByRole("button", { name: "자료.txt 이동" })).toBeEnabled());
+  await user.click(screen.getByRole("button", { name: "자료.txt 이동" }));
+  const dialog = await screen.findByRole("dialog", { name: "이동 확인" });
+  await user.click(await within(dialog).findByRole("button", { name: "root" }));
+  await user.click(await within(dialog).findByRole("button", { name: "root 목적지 열기" }));
+  await user.click(await within(dialog).findByRole("button", { name: "하위 목적지 열기" }));
+
+  const beforeAncestor = fetcher.mock.calls.length;
+  await user.click(await within(dialog).findByRole("button", { name: "root / root 상위 폴더 열기" }));
+  await waitFor(() => expect(fetcher.mock.calls.length).toBeGreaterThan(beforeAncestor));
+  expect(new URL(String(fetcher.mock.calls[beforeAncestor][0]), "http://localhost").searchParams.get("folder_id")).toBe(namedRoot.id);
+
+  const topLevel = await within(dialog).findByRole("button", { name: "root" });
+  await waitFor(() => expect(topLevel).toBeEnabled());
+  const beforeTopLevel = fetcher.mock.calls.length;
+  await user.click(topLevel);
+  await waitFor(() => expect(fetcher.mock.calls.length).toBeGreaterThan(beforeTopLevel));
+  expect(new URL(String(fetcher.mock.calls[beforeTopLevel][0]), "http://localhost").searchParams.get("folder_id")).toBeNull();
+});
 
 it("requires a destination and explicit confirmation then posts the captured revision", async () => {
   const posts = server(); mount(); const { user, dialog } = await chooseB();
@@ -240,8 +301,8 @@ it("drills into paginated destination folders without duplicate rows", async () 
   mount(); const user = userEvent.setup();
   await waitFor(() => expect(screen.getByRole("button", { name: "자료.txt 이동" })).toBeEnabled());
   await user.click(screen.getByRole("button", { name: "자료.txt 이동" })); const dialog = screen.getByRole("dialog", { name: "이동 확인" });
-  await waitFor(() => expect(within(dialog).getByRole("button", { name: "파일함 최상위" })).toBeEnabled());
-  await user.click(within(dialog).getByRole("button", { name: "파일함 최상위" }));
+  await waitFor(() => expect(within(dialog).getByRole("button", { name: "root" })).toBeEnabled());
+  await user.click(within(dialog).getByRole("button", { name: "root" }));
   await user.click(await within(dialog).findByRole("button", { name: "목적지 폴더 더 보기" }));
   expect(await within(dialog).findByRole("button", { name: "B 목적지 열기" })).toBeVisible();
   expect(within(dialog).getAllByRole("button", { name: "A 목적지 열기" })).toHaveLength(1); expect(posts()).toHaveLength(0);

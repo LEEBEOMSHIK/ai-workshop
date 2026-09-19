@@ -23,7 +23,7 @@ it("keeps the cabinet top level distinct from a real root folder during keyboard
   render(<LibraryTree workspaces={[root.workspace]} currentWorkspaceId="workspace-1" selectedFolderId={null}
     initialRoot={{ ...root, folders: [{ id: "named-root", metadata_revision: 1, name: "root", parent_id: null, has_children: false }] }} onSelectFolder={selectFolder} />);
 
-  const topLevel = screen.getByRole("button", { name: "파일함 최상위" });
+  const topLevel = screen.getByRole("button", { name: "root" });
   expect(topLevel).toHaveAttribute("aria-current", "page");
   topLevel.focus();
   await user.keyboard("{Enter}");
@@ -195,7 +195,7 @@ it("disables folder choices outside an injected fixed selection boundary", () =>
     isFolderSelectionDisabled={(folderId) => folderId !== "folder-allowed"}
   />);
 
-  expect(screen.getByRole("button", { name: "파일함 최상위" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "root" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Allowed 폴더 열기" })).toBeEnabled();
   expect(screen.getByRole("button", { name: "Other 폴더 열기" })).toBeDisabled();
 });

@@ -7,8 +7,9 @@
 
 ## 현재 작업
 
-- 커밋·푸시 인계(2026-09-20): 사용자 승인에 따라 색인 출처 추적과 공유 별칭·문서 쓰기 차단을 함께 main에 인계한다.
-  관련349건·정적 검사·독립 리뷰 증거를 확인했다. 별도 UI·ADR-0023·이동 설계·참고 자료는 제외한다. 현재 checkout만 있으며 정리할 별도 worktree는 없다.
+- 커밋·푸시 인계(2026-09-20): 색인 출처와 공유 별칭·문서 쓰기 차단은 `fb266ff`로 main/origin에 반영했다.
+  남은 root 표시·이동 확인창 UI와 관련 문서는 사용자 승인에 따라 별도 인계한다. 독립 154건·타입·전체 린트 및 리뷰 통과.
+  참고 이미지 `references/images/img.png`는 제외한다. 현재 checkout 외 별도 worktree는 없다.
 
 - 공유 별칭 종료 확인·문서 쓰기 차단 구현 완료(2026-09-20): 영속 요청 원장, source fence, activation/parity와 종료 관찰을 연결했다.
   높은 위험의 RAG/DB 동시성 작업으로 메인 설계·통합, 별도 DBA/fence 구현과 독립 검증을 분리했다. timeout/취소/DB 실패 시 open을 유지하고 재전송을 막는다.
@@ -1340,21 +1341,21 @@ RAG 구성에 고정하고, 관리자가 PP-StructureV3 pipeline과 하위 OCR �
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**. 상세 이력은 연결된 작업 기록에 둔다.
 
-1. 공유 별칭 종료·문서 쓰기 차단: 영속 요청 원장, fence, activation/parity와 inventory 연결.
+1. 파일함 root 표시·이동 확인창 개선 커밋 인계: 관련 154건·타입·전체 린트·독립 검토 통과.
+   기존 합성 브라우저 검증 기록을 보존하며 실사용 자료는 변경하지 않았다
+   (`docs/worklogs/2026-09-13-root-move-dialog-polish.md`).
+2. 공유 별칭 종료·문서 쓰기 차단: 영속 요청 원장, fence, activation/parity와 inventory 연결.
    관련349건·타입19파일·린트·독립 리뷰 통과. 실사용 적용과 전체 영구 삭제는 후속
    (`docs/worklogs/2026-09-20-rag-alias-write-fence.md`).
-2. RAG 색인 출처 구현: build 사전 등록·시도/UUID·activation/parity revision·실물 목록 연결.
+3. RAG 색인 출처 구현: build 사전 등록·시도/UUID·activation/parity revision·실물 목록 연결.
    단위278건·PG/ES 통합33건·legacy parity4건·타입15파일·린트 및 독립150건·최종 리뷰 통과. 실사용 적용·삭제는 후속
    (`docs/worklogs/2026-09-20-rag-index-provenance.md`).
-3. RAG 파싱·청킹·임베딩 파일 출처: 생성 전 등록·추적 게시·ingestion·실물 대조 구현.
+4. RAG 파싱·청킹·임베딩 파일 출처: 생성 전 등록·추적 게시·ingestion·실물 대조 구현.
    관련634건·타입14파일 및 worker 최종 재검증·린트24파일·개별/최종 보완 독립 검토 통과. Windows 권한 skip1건, 실사용 적용·삭제 미활성화
    (`docs/worklogs/2026-09-14-rag-artifact-provenance.md`).
-4. RAG SQL 출처 연결: 내용 revision·현재 관계·복구 쓰기와 일관된 읽기 목록 구현.
+5. RAG SQL 출처 연결: 내용 revision·현재 관계·복구 쓰기와 일관된 읽기 목록 구현.
    통합490건·기존 문서 저장소7건·타입7파일·린트10파일·개별/최종 독립 리뷰 통과. 실제 삭제 미활성화
    (`docs/worklogs/2026-09-14-rag-sql-provenance.md`).
-5. 휴지통 2C 공통 기반: 출처·버전된 삭제 목록·실행 결합 검증 결과·최소 증명 저장 구현.
-   회귀475건·보강 후 집중91건·타입14파일·린트20파일·최종 독립 재검토 통과. 실사용 삭제 미활성화
-   (`docs/worklogs/2026-09-14-asset-purge-provenance.md`).
 ## 다음 작업
 
 최우선(2026-09-20): 색인 출처와 공유 alias의 영속 요청/확인된 종료, RAG 색인 쓰기 차단 구현을 완료했다.

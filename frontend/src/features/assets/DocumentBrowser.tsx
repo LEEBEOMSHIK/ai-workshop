@@ -508,16 +508,16 @@ function DocumentBrowserScope({
         {selectionResolved ? <nav className={styles.breadcrumbs} aria-label="현재 폴더 경로">
           <button type="button" disabled={isFolderSelectionDisabled?.(null) ?? false} onClick={() => selectFolder(null)}>{library.workspace.name}</button>
           {library.ancestors.map((folder) => <span key={folder.id}>/ <button type="button" disabled={isFolderSelectionDisabled?.(folder.id) ?? false} onClick={() => selectFolder(folder.id)}>{folder.name}</button></span>)}
-          {library.folder ? <span aria-current="page">/ {library.folder.name}</span> : <span aria-current="page">/ 파일함 최상위</span>}
+          {library.folder ? <span aria-current="page">/ {library.folder.name}</span> : <span aria-current="page">/ root</span>}
         </nav> : <p className={styles.breadcrumbs}>선택한 폴더를 확인하고 있습니다.</p>}
         <div className={styles.toolbar}>
-          <h2 ref={folderHeadingRef} tabIndex={-1}>{selectionResolved ? library.folder?.name ?? "파일함 최상위" : "폴더 선택 확인 중"}</h2>
+          <h2 ref={folderHeadingRef} tabIndex={-1}>{selectionResolved ? library.folder?.name ?? "root" : "폴더 선택 확인 중"}</h2>
           {!readOnly ? <div className={styles.toolbarActions}>
             <button ref={folderButtonRef} type="button" disabled={!selectionResolved || !writable || mutating || isFolderSelectionDisabled?.(library.folder?.id ?? null)} aria-expanded={creatingFolder} onClick={() => creatingFolder ? cancelFolder() : setCreatingFolder(true)}>새 폴더</button>
             <UploadDialog key={uploadRevision} disabled={!selectionResolved || !writable || mutating || isFolderSelectionDisabled?.(library.folder?.id ?? null)} onUpload={handleUpload} />
           </div> : null}
         </div>
-        {selectionResolved ? <p className={styles.managementHint}>저장 위치: {workspaceKindLabel(library.workspace.kind)} / {library.workspace.name} / {[...library.ancestors.map((folder) => folder.name), library.folder?.name ?? "파일함 최상위"].join(" / ")}</p> : null}
+        {selectionResolved ? <p className={styles.managementHint}>저장 위치: {workspaceKindLabel(library.workspace.kind)} / {library.workspace.name} / {[...library.ancestors.map((folder) => folder.name), library.folder?.name ?? "root"].join(" / ")}</p> : null}
         {readOnly ? <p>읽기 전용 · 현재 위치에서는 파일을 변경할 수 없습니다.</p> : rights === "loading" ? <p role="status">파일 관리 권한을 확인하는 중…</p> : rights !== "write" ? <p>읽기 전용 · {rights === "failed" ? "권한을 확인하지 못했습니다." : rights === "revoked" ? "권한이 변경되었습니다." : "업로드와 폴더 생성에는 쓰기 권한이 필요합니다."} <button type="button" onClick={() => { setRights("loading"); setRightsRevision((revision) => revision + 1); }}>권한 다시 확인</button></p> : null}
         {mutating ? <p role="status">파일 변경을 저장하는 중…</p> : null}
         {mutationMessage ? <p role="status">{mutationMessage}</p> : null}

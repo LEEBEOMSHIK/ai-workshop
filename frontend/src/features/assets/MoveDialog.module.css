@@ -1,9 +1,30 @@
 .backdrop { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 1rem; background: rgb(0 0 0 / 65%); }
-.dialog { width: min(100%, 36rem); min-width: 0; max-height: 90dvh; overflow: auto; padding: 1.25rem; border: 1px solid var(--file-border); border-radius: 0.85rem; background: var(--file-surface); color: inherit; overflow-wrap: anywhere; }
-.dialog h2 { margin-top: 0; }
+.dialog { width: min(100%, 42rem); min-width: 0; max-height: 90dvh; overflow: auto; padding: 1.25rem; border: 1px solid var(--file-border); border-radius: 0.85rem; background: var(--file-surface); color: inherit; overflow-wrap: anywhere; }
+.dialog h2 { margin: 0; }
+.dialog h3 { margin: 0; font-size: 0.82rem; }
 .dialog p { color: var(--file-muted); }
 .dialog [role="alert"] { color: var(--file-error); }
-.controls { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.objectHeader { display: grid; min-width: 0; gap: 0.25rem; margin-top: 1rem; padding: 0.85rem; border: 1px solid var(--file-border); border-radius: 0.65rem; background: var(--file-surface-raised); }
+.objectType { color: var(--file-muted); font-size: 0.72rem; font-weight: 750; }
+.objectName { min-width: 0; font-size: 1.05rem; overflow-wrap: anywhere; word-break: break-word; }
+.locations { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; margin-top: 0.75rem; }
+.location { min-width: 0; padding: 0.85rem; border: 1px solid var(--file-border); border-radius: 0.65rem; }
+.location dl { display: grid; gap: 0.55rem; margin: 0.65rem 0 0; }
+.location dl > div { min-width: 0; }
+.location dt { color: var(--file-muted); font-size: 0.68rem; }
+.location dd { min-width: 0; margin: 0.15rem 0 0; overflow-wrap: anywhere; word-break: break-word; }
+.destinationBrowser { min-width: 0; margin-top: 0.9rem; padding: 0.9rem; border: 1px solid var(--file-border); border-radius: 0.65rem; background: var(--file-surface-raised); }
+.breadcrumbs { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.7rem; }
+.actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--file-border); }
 .dialog button { max-width: 100%; min-width: 0; padding: 0.55rem 0.7rem; border: 1px solid var(--file-border); border-radius: 0.5rem; color: var(--file-accent); background: var(--file-surface-raised); font: inherit; overflow-wrap: anywhere; cursor: pointer; }
+.dialog .primaryAction { color: var(--file-bg); border-color: var(--file-accent); background: var(--file-accent); font-weight: 750; }
 .dialog button:disabled { opacity: 0.5; cursor: not-allowed; }
-.folders { display: grid; gap: 0.4rem; list-style: none; padding: 0; }
+.folders { display: grid; gap: 0.4rem; margin-bottom: 0; list-style: none; padding: 0; }
+.folders button { width: 100%; text-align: left; }
+
+@media (max-width: 540px) {
+  .backdrop { align-items: end; padding: 0.5rem; }
+  .dialog { max-height: calc(100dvh - 1rem); padding: 1rem; }
+  .locations { grid-template-columns: 1fr; }
+  .actions > button { flex: 1 1 9rem; }
+}

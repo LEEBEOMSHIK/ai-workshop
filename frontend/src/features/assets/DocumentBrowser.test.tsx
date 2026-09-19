@@ -77,7 +77,7 @@ it("focuses the current folder heading when the restored document is outside the
 
   await user.click(screen.getByRole("button", { name: "문서 닫기" }));
 
-  expect(screen.getByRole("heading", { name: "파일함 최상위" })).toHaveFocus();
+  expect(screen.getByRole("heading", { name: "root" })).toHaveFocus();
 });
 
 it("returns focus to the URL-restored document instead of an earlier clicked document", async () => {

@@ -154,7 +154,7 @@ export function LibraryTree({ workspaces, currentWorkspaceId, selectedFolderId, 
         <h3>폴더</h3>
         <div className={styles.folderRow} data-selected={selectedFolderId === null} {...movement?.destinationBindings(null)}>
           <span aria-hidden="true" />
-          <button className={styles.folderSelect} type="button" disabled={isFolderSelectionDisabled?.(null) ?? false} aria-current={selectedFolderId === null ? "page" : undefined} onClick={() => onSelectFolder(null)}><FolderIcon open /><span>파일함 최상위</span></button>
+          <button className={styles.folderSelect} type="button" disabled={isFolderSelectionDisabled?.(null) ?? false} aria-current={selectedFolderId === null ? "page" : undefined} onClick={() => onSelectFolder(null)}><FolderIcon open /><span>root</span></button>
         </div>
         <ul className={styles.folderChildren}>{root.folders.map((folder) => <FolderNode key={folder.id} folder={folder} branches={branches} selectedFolderId={selectedFolderId} onSelect={onSelectFolder} onToggle={toggle} onLoadMore={loadBranch} isFolderSelectionDisabled={isFolderSelectionDisabled} movement={movement} ancestorIds={[]} />)}</ul>
         {root.loading ? <p role="status">폴더를 불러오는 중…</p> : null}

@@ -41,7 +41,7 @@ it("locks duplicate folder submissions, preserves the parent and revokes writes 
   expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
   await act(async () => resolve(Response.json({ error: { code: "forbidden", message: "denied", correlation_id: "test" } }, { status: 403 })));
   expect(screen.getByRole("button", { name: "문서 올리기" })).toBeDisabled();
-  expect(screen.getByRole("heading", { name: "파일함 최상위" })).toBeVisible();
+  expect(screen.getByRole("heading", { name: "root" })).toBeVisible();
 });
 
 it("revokes writes after committed upload reconciliation loses authorization without offering another upload", async () => {
@@ -66,7 +66,7 @@ it("keeps the mutation lock until folder reconciliation finishes", async () => {
   await user.click(screen.getByRole("button", { name: "폴더 만들기" }));
   expect(screen.getByRole("button", { name: "문서 올리기" })).toBeDisabled();
   await act(async () => resolve(Response.json({ ...root, folders: [{ id: "new-folder", name: "하위", parent_id: null, has_children: false }] })));
-  expect(screen.getByRole("heading", { name: "파일함 최상위" })).toBeVisible();
+  expect(screen.getByRole("heading", { name: "root" })).toBeVisible();
   expect(screen.getByRole("button", { name: "문서 올리기" })).toBeEnabled();
 });
 

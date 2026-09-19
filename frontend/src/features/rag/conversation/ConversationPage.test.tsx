@@ -47,8 +47,8 @@ describe("ConversationPage", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "운용 규정.md 이동" })).toBeEnabled());
     await user.click(screen.getByRole("button", { name: "운용 규정.md 이동" }));
     const modal = screen.getByRole("dialog", { name: "이동 확인" });
-    await waitFor(() => expect(within(modal).getByRole("button", { name: "파일함 최상위" })).toBeEnabled());
-    await user.click(within(modal).getByRole("button", { name: "파일함 최상위" }));
+    await waitFor(() => expect(within(modal).getByRole("button", { name: "root" })).toBeEnabled());
+    await user.click(within(modal).getByRole("button", { name: "root" }));
     await waitFor(() => expect(within(modal).getByRole("button", { name: "여기로 이동" })).toBeEnabled());
     await user.click(within(modal).getByRole("button", { name: "여기로 이동" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "이동 확인" })).not.toBeInTheDocument());

@@ -161,24 +161,32 @@ export function MoveDialog({ pending, writable, browse, getDocument, execute, re
   return <div className={styles.backdrop} onDrop={(event) => event.preventDefault()} onDragOver={(event) => event.preventDefault()}>
     <section ref={panel} tabIndex={-1} className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-busy={busy} onKeyDown={keyDown}>
       <h2 id={titleId}>이동 확인</h2>
-      <p><strong>{source.name}</strong></p>
-      <p>출발 위치: {origin ? pathLabel(origin) : "확인 중…"}</p>
-      <p>목적지: {destination ? pathLabel(destination) : "확인 중…"}</p>
+      <header className={styles.objectHeader} role="group" aria-label="이동할 객체">
+        <span className={styles.objectType}>{source.kind === "document" ? "문서" : "폴더"}</span>
+        <strong className={styles.objectName}>{source.name}</strong>
+      </header>
+      <div className={styles.locations}>
+        <LocationSummary label="출발지" page={origin} />
+        <LocationSummary label="목적지" page={destination} />
+      </div>
       {outcome === "draft" ? <>
-        <nav className={styles.controls} aria-label="이동 목적지 경로">
-          <button type="button" disabled={busy || reading} onClick={() => navigateDestination(null)}>파일함 최상위</button>
-          {destination?.ancestors.map((folder) => <button key={folder.id} type="button" disabled={busy || reading} onClick={() => navigateDestination(folder.id)}>{folder.name}</button>)}
-        </nav>
-        <ul className={styles.folders}>{destination?.folders.map((folder) => <li key={folder.id}><button type="button" disabled={busy || reading || (source.kind === "folder" && (folder.id === source.id || destination.ancestors.some((ancestor) => ancestor.id === source.id) || destination.folder?.id === source.id))} aria-label={`${folder.name} 목적지 열기`} onClick={() => navigateDestination(folder.id)}>{folder.name}</button></li>)}</ul>
-        {destination?.next_folder_cursor ? <button type="button" disabled={busy || reading} onClick={moreFolders}>목적지 폴더 더 보기</button> : null}
-        {problem && !reading ? <p role="status">{problem}</p> : null}
+        <section className={styles.destinationBrowser} aria-label="목적지 선택">
+          <h3>목적지 선택</h3>
+          <nav className={styles.breadcrumbs} aria-label="이동 목적지 경로">
+            <button type="button" disabled={busy || reading} onClick={() => navigateDestination(null)}>root</button>
+            {destination?.ancestors.map((folder, index) => <button key={folder.id} type="button" disabled={busy || reading} aria-label={`root / ${destination.ancestors.slice(0, index + 1).map((ancestor) => ancestor.name).join(" / ")} 상위 폴더 열기`} onClick={() => navigateDestination(folder.id)}>{folder.name}</button>)}
+          </nav>
+          <ul className={styles.folders}>{destination?.folders.map((folder) => <li key={folder.id}><button type="button" disabled={busy || reading || (source.kind === "folder" && (folder.id === source.id || destination.ancestors.some((ancestor) => ancestor.id === source.id) || destination.folder?.id === source.id))} aria-label={`${folder.name} 목적지 열기`} onClick={() => navigateDestination(folder.id)}>{folder.name}</button></li>)}</ul>
+          {destination?.next_folder_cursor ? <button type="button" disabled={busy || reading} onClick={moreFolders}>목적지 폴더 더 보기</button> : null}
+          {problem && !reading ? <p role="status">{problem}</p> : null}
+        </section>
       </> : null}
       {reading ? <p role="status">이동 위치를 불러오는 중…</p> : null}
       {busy ? <p role="status">{outcome === "draft" ? "이동을 확인하고 저장하는 중… 창을 닫아도 서버 작업을 취소한 것으로 간주하지 않습니다." : "목록을 확인하는 중…"}</p> : null}
       {error ? <p role="alert">{error}</p> : null}
-      <div className={styles.controls}>
+      <div className={styles.actions} role="group" aria-label="이동 작업">
         <button ref={cancel} type="button" disabled={busy} onClick={close}>{outcome === "draft" ? "이동 취소" : "닫기"}</button>
-        {outcome !== "draft" ? <button type="button" disabled={busy} onClick={refresh}>목록 새로고침</button> : needsRefresh ? <button type="button" disabled={busy || !writable} onClick={refresh}>이동 정보 새로 불러오기</button> : <button type="button" disabled={busy || reading || !writable || !!problem} onClick={submit}>여기로 이동</button>}
+        {outcome !== "draft" ? <button className={styles.primaryAction} type="button" disabled={busy} onClick={refresh}>목록 새로고침</button> : needsRefresh ? <button className={styles.primaryAction} type="button" disabled={busy || !writable} onClick={refresh}>이동 정보 새로 불러오기</button> : <button className={styles.primaryAction} type="button" disabled={busy || reading || !writable || !!problem} onClick={submit}>여기로 이동</button>}
       </div>
     </section>
   </div>;
@@ -188,4 +196,14 @@ export class MoveOutcomeUnknown extends Error {}
 
 export function isUnknownMoveFailure(failure: unknown) { return !(failure instanceof ApiError) || failure.status >= 500; }
 
-function pathLabel(page: LibraryPage) { return [page.workspace.name, "파일함 최상위", ...page.ancestors.map((folder) => folder.name), ...(page.folder ? [page.folder.name] : [])].join(" / "); }
+function LocationSummary({ label, page }: { label: "출발지" | "목적지"; page: LibraryPage | null }) {
+  return <section className={styles.location} aria-label={label}>
+    <h3>{label}</h3>
+    <dl>
+      <div><dt>작업 공간</dt><dd>{page?.workspace.name ?? "확인 중…"}</dd></div>
+      <div><dt>폴더 경로</dt><dd>{page ? folderPathLabel(page) : "확인 중…"}</dd></div>
+    </dl>
+  </section>;
+}
+
+function folderPathLabel(page: LibraryPage) { return ["root", ...page.ancestors.map((folder) => folder.name), ...(page.folder ? [page.folder.name] : [])].join(" / "); }

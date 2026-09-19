@@ -40,8 +40,8 @@ async function move() {
   await waitFor(() => expect(screen.getByRole("button", { name: "자료.txt 이동" })).toBeEnabled());
   await user.click(screen.getByRole("button", { name: "자료.txt 이동" }));
   const dialog = screen.getByRole("dialog", { name: "이동 확인" });
-  await waitFor(() => expect(within(dialog).getByRole("button", { name: "파일함 최상위" })).toBeEnabled());
-  await user.click(within(dialog).getByRole("button", { name: "파일함 최상위" }));
+  await waitFor(() => expect(within(dialog).getByRole("button", { name: "root" })).toBeEnabled());
+  await user.click(within(dialog).getByRole("button", { name: "root" }));
   await user.click(await within(dialog).findByRole("button", { name: "B 목적지 열기" }));
   await waitFor(() => expect(within(dialog).getByRole("button", { name: "여기로 이동" })).toBeEnabled());
   await user.click(within(dialog).getByRole("button", { name: "여기로 이동" }));

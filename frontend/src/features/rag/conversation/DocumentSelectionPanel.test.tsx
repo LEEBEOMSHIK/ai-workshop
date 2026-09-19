@@ -24,10 +24,10 @@ it("contains Tab and consumes Escape in the nested move dialog without closing f
   await waitFor(() => expect(moveButton).toBeEnabled());
   await user.click(moveButton);
   const inner = screen.getByRole("dialog", { name: "이동 확인" });
-  await waitFor(() => expect(within(inner).getByRole("button", { name: "파일함 최상위" })).toBeEnabled());
+  await waitFor(() => expect(within(inner).getByRole("button", { name: "root" })).toBeEnabled());
   const cancel = within(inner).getByRole("button", { name: "이동 취소" });
   expect(cancel).toHaveFocus(); await user.tab();
-  expect(within(inner).getByRole("button", { name: "파일함 최상위" })).toHaveFocus();
+  expect(within(inner).getByRole("button", { name: "root" })).toHaveFocus();
   await user.tab({ shift: true }); expect(cancel).toHaveFocus();
   await user.keyboard("{Escape}");
   expect(screen.queryByRole("dialog", { name: "이동 확인" })).not.toBeInTheDocument();

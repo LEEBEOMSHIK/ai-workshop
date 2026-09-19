@@ -42,6 +42,10 @@ class AliasIndices:
 
 
 class AliasClient:
+    def options(self, **kwargs: Any) -> "AliasClient":
+        assert kwargs == {"max_retries": 0, "retry_on_timeout": False, "retry_on_status": ()}
+        return self
+
     def __init__(
         self,
         *,
@@ -52,6 +56,13 @@ class AliasClient:
             acknowledged=acknowledged,
             current_targets=current_targets,
         )
+
+
+@pytest.mark.parametrize("ack", ["false", 1, None, {}, []])
+async def test_malformed_alias_ack_is_not_confirmed(ack):
+    client = AliasClient(acknowledged=ack)
+    index = ElasticsearchSearchIndex(cast(AsyncElasticsearch, client))
+    assert await index._replace_alias_targets("test-active", ("test-build",)) is False
 
 
 def test_mapping_carries_immutable_rag_descriptor_metadata() -> None:

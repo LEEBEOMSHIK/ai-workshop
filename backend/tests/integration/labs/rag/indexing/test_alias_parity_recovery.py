@@ -245,9 +245,15 @@ async def test_periodic_alias_parity_recovers_commit_loss_supersession_and_empty
     )
     commit_failed = False
     listener_armed = False
+    acknowledged_commits = 0
 
     def fail_first_commit(_connection) -> None:
-        nonlocal commit_failed
+        nonlocal commit_failed, acknowledged_commits
+        # The journal receipt commits first on a separate connection. Inject
+        # loss into the business transaction, whose rollback parity can repair.
+        acknowledged_commits += 1
+        if acknowledged_commits == 1:
+            return
         if not commit_failed:
             commit_failed = True
             raise OperationalError(
@@ -537,7 +543,8 @@ async def test_failed_profile_does_not_block_later_profile_convergence() -> None
         assert result.claimed >= 2
         assert (result.reconciled, result.failed) == (result.claimed - 1, 1)
         assert result.failures[0].profile_id == fixture.profile_id
-        assert result.failures[0].error_code == "alias_parity_search_transient"
+        assert result.failures[0].error_code == "rag_index_writer_unconfirmed"
+        assert result.failures[0].retryable is False
         failed_call = next(
             position
             for position, alias in enumerate(calls)

@@ -389,6 +389,52 @@ Codex는 로컬에서 실행해도 질문·포함된 대화·승인 근거를 Op
 
 ## 4. RAG ingestion, 검색과 평가
 
+### 추적 RAG 색인 활성화 전제
+
+새 build는 migration `0042_rag_index_resources`와 아래 두 설정이 필요하다. 실사용 적용은
+기존 writer를 중지·확인하고 migration 및 같은 버전의 API·worker·beat를 함께 배포하는
+별도 작업이다. 코드 검증만으로 실사용 적용이 완료된 것은 아니다.
+
+- `AI_WORKSHOP_RAG_INDEX_STORE_ID`: 소문자로 시작하는 소문자·숫자·밑줄 80자 이하의
+  안정적인 논리 식별자(예: `rag_indexes`).
+- `AI_WORKSHOP_RAG_INDEX_CLUSTER_UUID`: 승인된 ES endpoint의 정보 응답에서 확인한 실제
+  `cluster_uuid`. UUID 표준 문자열을 새로 발급하는 설정이 아니다. 두 설정은 함께 지정한다.
+
+새 build는 DB에 source·profile·정확한 concrete name·binding을 먼저 등록한다. ES UUID를
+확인하면 bulk 전에 저장하고, prepare 완료와 시도 종료를 같은 DB 트랜잭션으로 확정한다.
+cluster/UUID/입력 불일치 시 자동 인수·대체 저장소 전환을 하지 않는다. 기존 미추적 build는
+legacy로 유지하며 현재 이름·환경 설정만으로 자동 등록하거나 삭제 준비 완료로 판단하지 않는다.
+
+`rag_index_attempt_busy`는 다른 open prepare가 있다는 뜻이다. timeout·취소·통신 단절·DB
+최종화 실패의 `rag_index_writer_unconfirmed`는 기존 시도를 열린 상태로 보존한다. lease 만료나
+정상 count만으로 닫거나 새 writer에게 넘기지 않는다. 서버 종료가 확정된 부분 실패만 시도를
+닫고 재시도할 수 있다. 원시 ES 오류·본문·접속 정보는 일반 오류에 포함하지 않는다.
+
+현재 inventory는 읽기 대조만 제공한다. 별칭 원장과 문서 차단은 아래 절차를 따르며,
+다른 참여자·구 writer·legacy 해소와 실제 삭제 실행기 통합 전에는 영구 삭제 API/UI를 활성화하지 않는다.
+정확한 계약은 [색인 출처 설계](../superpowers/specs/2026-09-20-rag-index-provenance-design.md)를 따른다.
+
+### 공유 별칭 요청과 문서 쓰기 차단
+
+`0043_rag_alias_operations`와 `0044_rag_index_write_fences`는 별칭 요청과 문서별 차단을 저장한다.
+activation과 parity 모두 위 store/cluster 설정을 요구하며, 기존 미추적 build의 별칭도 원장을 거친다.
+구 API/worker/beat를 중지하고 진행 중 요청을 drain한 뒤 같은 버전으로 함께 적용해야 한다.
+서로 다른 writer 버전이 섞인 실행은 종료 확인의 전제를 만족하지 않는다.
+
+별칭 요청은 source/profile 잠금을 유지한 채 별도 DB 연결에서 먼저 예약한다. 미확인 요청이 있으면
+현재 별칭이 일치해도 재전송하지 않는다. 정확한 승인 응답과 target 관찰을 받은 요청만 종료한다.
+`rag_index_writer_unconfirmed`는 timeout·취소·불완전 응답·종료 기록 실패를 포함한다. 원장을 직접
+닫거나 삭제하고 재시도하는 복구 절차는 제공하지 않는다. 정상 count·현재 별칭·시간 경과로 종료를 추정하지 않는다.
+
+내부 `block_index_writes`는 exact workspace/document/generation에 영속 차단을 설정한다. 반복은 멱등이며
+차단 해제 API는 없다. 차단한 문서는 새 ingestion·게시·prepare·READY 진입에서 거부되고 parity의 target에서
+제외된다. 다른 문서는 유지한다. 이 호출 자체가 진행 중 요청을 종료하거나 물리 색인을 삭제하지 않는다.
+`inspect_index_writers`는 해당 문서의 전체 버전/build와 prepare·alias 원장을 확인한다. legacy나 미확인 요청이
+있으면 false다. true는 현재 지원하는 RAG 색인/별칭 writer 범위이며, 파일/OCR/외부 관리자·구 프로세스 또는
+전체 삭제 완료 증명이 아니다. UI/API에서 호출하는 전체 purge 조립은 후속이다.
+
+자세한 불변식과 잠금 순서는 [별칭·쓰기 차단 설계](../superpowers/specs/2026-09-20-rag-alias-write-fence-design.md)를 따른다.
+
 ### 추적 RAG 산출물 저장소 활성화 전제
 
 추적 대상은 새 ingestion이 게시하는 parsed, chunks, embeddings JSON 묶음뿐이다. 기존

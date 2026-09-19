@@ -25,6 +25,9 @@ from ai_workshop.labs.rag.generation import (
 from ai_workshop.labs.rag.generation import (
     evidence_approval_request_models as rag_evidence_approval_request_models,  # noqa: F401
 )
+from ai_workshop.labs.rag.indexing import alias_models as rag_alias_models  # noqa: F401
+from ai_workshop.labs.rag.indexing import fence_models as rag_fence_models  # noqa: F401
+from ai_workshop.labs.rag.indexing import resource_models as rag_index_resource_models  # noqa: F401
 from ai_workshop.labs.rag.ingestion import artifact_models as rag_artifact_models  # noqa: F401
 from ai_workshop.labs.rag.ingestion import models as rag_ingestion_models  # noqa: F401
 from ai_workshop.labs.rag.models import models as rag_model_models  # noqa: F401

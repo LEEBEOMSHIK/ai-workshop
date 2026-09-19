@@ -328,6 +328,13 @@ def create_celery(
             return
         # Leave the raw exception handler before creating Celery payloads or raising:
         # neither serialized retry errors nor terminal tracebacks retain its context.
+        if code in {"rag_index_attempt_busy", "rag_index_writer_unconfirmed"}:
+            # Neither duplicate delivery nor an unresolved ES request owns the right
+            # to terminalize the shared ingestion. Preserve its durable open claim.
+            getLogger(__name__).warning(code)
+            if code == "rag_index_attempt_busy":
+                return
+            raise RuntimeError(code) from None
         retries = int(task.request.retries)
         max_retries = int(task.max_retries)
         if retryable and retries < max_retries:
@@ -557,6 +564,15 @@ async def _reconcile_evaluation_dispatches(
 
 
 def _rag_error(exc: Exception) -> tuple[str, bool]:
+    from ai_workshop.labs.rag.indexing.tracked_elasticsearch import IndexPreparationFailed
+    from ai_workshop.labs.rag.indexing.tracking_contracts import IndexTrackingError
+
+    if isinstance(exc, IndexPreparationFailed):
+        return exc.code, (
+            exc.writer_confirmed_ended and exc.code == "rag_index_observation_failed"
+        )
+    if isinstance(exc, IndexTrackingError):
+        return exc.code, False
     if isinstance(exc, RagIngestionError):
         return exc.code, exc.retryable
     if isinstance(exc, (ParsingError, OcrRuntimeError)):

@@ -7,7 +7,7 @@ from uuid import UUID
 
 from elastic_transport import ApiError, ConnectionTimeout
 from elastic_transport import ConnectionError as ElasticsearchConnectionError
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.exc import (
     DisconnectionError,
     OperationalError,
@@ -15,7 +15,7 @@ from sqlalchemy.exc import (
 from sqlalchemy.exc import (
     TimeoutError as SqlAlchemyTimeoutError,
 )
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ai_workshop.config import Settings
 from ai_workshop.infrastructure.search.elasticsearch import create_elasticsearch
@@ -24,11 +24,26 @@ from ai_workshop.labs.rag.documents.models import (
     RagIndexBuildRecord,
     RagProjectionRecord,
 )
+from ai_workshop.labs.rag.indexing.alias_journal import AliasJournal
+from ai_workshop.labs.rag.indexing.alias_service import (
+    ClusterProbe,
+    alias_cluster_uuid,
+    run_alias_operation,
+)
 from ai_workshop.labs.rag.indexing.contracts import (
     IndexDescriptor,
     canonical_recovery_targets,
 )
 from ai_workshop.labs.rag.indexing.elasticsearch import ElasticsearchSearchIndex
+from ai_workshop.labs.rag.indexing.fence_models import RagIndexWriteFenceRecord
+from ai_workshop.labs.rag.indexing.resource_repository import SqlAlchemyRagIndexRepository
+from ai_workshop.labs.rag.indexing.tracking_contracts import IndexTrackingError
+from ai_workshop.labs.rag.indexing.tracking_service import (
+    TrackedIndexSession,
+    configured_index_binding,
+    tracked_index_session,
+    validate_tracked_targets,
+)
 from ai_workshop.labs.rag.ingestion.domain import RagIngestionError
 from ai_workshop.labs.rag.ingestion.locking import lock_ingestion_source
 from ai_workshop.labs.rag.models.document_processing import (
@@ -116,6 +131,8 @@ def _safe_cause_class(exc: BaseException) -> str:
 
 
 def _classify_failure(exc: Exception) -> tuple[str, bool]:
+    if isinstance(exc, IndexTrackingError):
+        return exc.code, False
     if isinstance(exc, RagAliasParityError):
         return exc.error_code, exc.retryable
     if isinstance(
@@ -145,6 +162,8 @@ class SqlAlchemyRagAliasParityReconciler:
         *,
         search_index_session: AliasParitySearchIndexSession | None = None,
         batch_size: int = 100,
+        tracked_search_session: TrackedIndexSession | None = None,
+        alias_cluster_probe: ClusterProbe | None = None,
     ) -> None:
         if batch_size < 1:
             raise ValueError("The alias parity batch size must be positive.")
@@ -153,6 +172,10 @@ class SqlAlchemyRagAliasParityReconciler:
             lambda: _elasticsearch_session(settings)
         )
         self.batch_size = batch_size
+        self.tracked_search_session = tracked_search_session or (
+            lambda: tracked_index_session(settings)
+        )
+        self.alias_cluster_probe = alias_cluster_probe or (lambda: alias_cluster_uuid(settings))
 
     async def run_once(
         self, *, profile_id: UUID | None = None
@@ -345,35 +368,29 @@ class SqlAlchemyRagAliasParityReconciler:
                 retryable=False,
             ) from exc
 
+        await validate_tracked_targets(
+            session, self.settings,
+            tuple(build for build in builds
+                  if build.is_active or any(target.build_id == build.id for target in current)),
+            self.tracked_search_session,
+        )
         async with self.search_index_session() as search_index:
-            acknowledged = await search_index.reconcile_active_targets(
-                alias,
-                intended_targets,
-            )
-            if not acknowledged:
-                raise RagAliasParityError(
-                    "alias_parity_activation_unacknowledged",
-                    "Elasticsearch did not acknowledge alias parity recovery.",
-                    retryable=True,
-                )
-            observed = await search_index.active_targets(alias)
-        if observed != intended_targets:
-            raise RagAliasParityError(
-                "alias_parity_target_mismatch",
-                "The observed alias target set did not match PostgreSQL truth.",
-                retryable=True,
+            await run_alias_operation(
+                AliasJournal(async_sessionmaker(session.bind, expire_on_commit=False)),
+                configured_index_binding(self.settings), alias, profile_id,
+                processing_profile_id, intended_targets, self.alias_cluster_probe,
+                lambda: search_index.reconcile_active_targets(alias, intended_targets),
+                lambda: search_index.active_targets(alias),
             )
 
         target_build_ids = tuple(target.build_id for target in current)
-        await session.execute(
-            update(RagIndexBuildRecord)
-            .where(
-                RagIndexBuildRecord.indexing_profile_id == profile_id,
-                RagIndexBuildRecord.document_processing_profile_id
-                == processing_profile_id,
-            )
-            .values(is_active=RagIndexBuildRecord.id.in_(target_build_ids))
-        )
+        changed = []
+        for build in builds:
+            active = build.id in target_build_ids
+            if build.is_active != active:
+                changed.append(build.id)
+                build.is_active = active
+        await SqlAlchemyRagIndexRepository(session).advance(changed)
         await session.flush()
 
 
@@ -414,6 +431,10 @@ async def _authoritative_targets(
             RagIndexBuildRecord.status == "ready",
             AssetVersionRecord.status == VersionStatus.READY,
             DocumentRecord.active_version_id == AssetVersionRecord.id,
+            DocumentRecord.lifecycle == "active",
+            ~select(RagIndexWriteFenceRecord.document_id).where(
+                RagIndexWriteFenceRecord.document_id == DocumentRecord.id
+            ).exists(),
         )
     )
     if processing_profile_id is not None:

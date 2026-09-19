@@ -147,8 +147,10 @@ class ElasticsearchSearchIndex:
             for index_name in intended_targets
             if index_name not in current_targets
         )
-        response = await self.client.indices.update_aliases(actions=actions)
-        return bool(response.get("acknowledged", False))
+        response = await self.client.options(
+            max_retries=0, retry_on_timeout=False, retry_on_status=(),
+        ).indices.update_aliases(actions=actions)
+        return response.get("acknowledged") is True
 
     async def active_targets(self, alias: str) -> tuple[str, ...]:
         try:

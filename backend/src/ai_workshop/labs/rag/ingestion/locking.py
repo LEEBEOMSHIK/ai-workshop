@@ -4,6 +4,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_workshop.labs.rag.indexing.fence_models import RagIndexWriteFenceRecord
 from ai_workshop.labs.rag.ingestion.domain import RagIngestionError
 from ai_workshop.platform.assets.domain import VersionStatus
 from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecord
@@ -42,6 +43,14 @@ async def lock_ingestion_source(
         raise RagIngestionError(
             "ingestion_dependency_missing",
             "The durable RAG ingestion source Document is missing.",
+            retryable=False,
+        )
+    if document.lifecycle != "active" or await session.get(
+        RagIndexWriteFenceRecord, document.id
+    ) is not None:
+        raise RagIngestionError(
+            "index_source_inactive",
+            "RAG writes are blocked for this source.",
             retryable=False,
         )
     if require_active and (

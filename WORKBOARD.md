@@ -1,11 +1,27 @@
 # Workboard
 
-- 마지막 갱신일: 2026-09-14
+- 마지막 갱신일: 2026-09-20
 - 현재 단계: 파일함 휴지통·복원·영구 삭제 기반의 단계별 구현·검증
 - 전체 상태: 불변 Document Processing Profile, 10개 고정 PP-StructureV3 모델,
   DOCX 내장 이미지 OCR·provenance·검색 원문 뷰어와 관리자 전체 구성이 구현됐다.
 
 ## 현재 작업
+
+- 커밋·푸시 인계(2026-09-20): 사용자 승인에 따라 색인 출처 추적과 공유 별칭·문서 쓰기 차단을 함께 main에 인계한다.
+  관련349건·정적 검사·독립 리뷰 증거를 확인했다. 별도 UI·ADR-0023·이동 설계·참고 자료는 제외한다. 현재 checkout만 있으며 정리할 별도 worktree는 없다.
+
+- 공유 별칭 종료 확인·문서 쓰기 차단 구현 완료(2026-09-20): 영속 요청 원장, source fence, activation/parity와 종료 관찰을 연결했다.
+  높은 위험의 RAG/DB 동시성 작업으로 메인 설계·통합, 별도 DBA/fence 구현과 독립 검증을 분리했다. timeout/취소/DB 실패 시 open을 유지하고 재전송을 막는다.
+  단위290건·통합54건 및 최종 원장10건/legacy parity4건 통과(중복 제외349건), 타입19파일·린트 및 독립 리뷰 통과.
+  실제 활성화와 차단의 경합, 다른 문서 유지, 목록 변경 탐지, 반복 prepared statement의 부분 인덱스 회귀까지 검증했다.
+  설계: `docs/superpowers/specs/2026-09-20-rag-alias-write-fence-design.md`. 계획: `docs/superpowers/plans/2026-09-20-rag-alias-write-fence.md`.
+  기록: `docs/worklogs/2026-09-20-rag-alias-write-fence.md`. 실사용 적용·물리 삭제·서버 재시작·commit/push는 수행하지 않았다.
+
+- RAG 색인 출처·실물 목록 구현 완료(2026-09-20): 사용자의 바로 구현 지시에 따라 build 생성 전 등록, prepare 시도·UUID 저장, activation/parity revision과 읽기 목록을 연결했다.
+  별도 DB·ES·inventory 구현과 독립 코드/프라이버시 검증을 분리했다. 리뷰의 재시도·replica refresh·제거 대상 binding·READY alias 지적을 수정했다.
+  관련 단위278건·전용 PG/ES 통합33건·legacy parity4건·타입15파일·린트 통과, 독립150건 재검증과 최종 리뷰의 잔여 차단 없음.
+  계획: `docs/superpowers/plans/2026-09-20-rag-index-provenance.md`. 기록: `docs/worklogs/2026-09-20-rag-index-provenance.md`.
+  실사용 migration/backfill·서버 재시작·삭제 활성화는 수행하지 않았다. 기존 UI/설계 변경을 보존했고 commit/push는 하지 않았다.
 
 - RAG 객체 산출물 구현 완료(2026-09-14): DB 계약 → 추적 파일 어댑터 → ingestion 연결 → 실물 목록 구현·독립 검토 완료.
   계획: `docs/superpowers/plans/2026-09-14-rag-artifact-provenance.md`. 기존 backend 환경과 전용 합성 DB/파일만 사용한다.
@@ -1324,22 +1340,26 @@ RAG 구성에 고정하고, 관리자가 PP-StructureV3 pipeline과 하위 OCR �
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**. 상세 이력은 연결된 작업 기록에 둔다.
 
-1. RAG 파싱·청킹·임베딩 파일 출처: 생성 전 등록·추적 게시·ingestion·실물 대조 구현.
+1. 공유 별칭 종료·문서 쓰기 차단: 영속 요청 원장, fence, activation/parity와 inventory 연결.
+   관련349건·타입19파일·린트·독립 리뷰 통과. 실사용 적용과 전체 영구 삭제는 후속
+   (`docs/worklogs/2026-09-20-rag-alias-write-fence.md`).
+2. RAG 색인 출처 구현: build 사전 등록·시도/UUID·activation/parity revision·실물 목록 연결.
+   단위278건·PG/ES 통합33건·legacy parity4건·타입15파일·린트 및 독립150건·최종 리뷰 통과. 실사용 적용·삭제는 후속
+   (`docs/worklogs/2026-09-20-rag-index-provenance.md`).
+3. RAG 파싱·청킹·임베딩 파일 출처: 생성 전 등록·추적 게시·ingestion·실물 대조 구현.
    관련634건·타입14파일 및 worker 최종 재검증·린트24파일·개별/최종 보완 독립 검토 통과. Windows 권한 skip1건, 실사용 적용·삭제 미활성화
    (`docs/worklogs/2026-09-14-rag-artifact-provenance.md`).
-2. RAG SQL 출처 연결: 내용 revision·현재 관계·복구 쓰기와 일관된 읽기 목록 구현.
+4. RAG SQL 출처 연결: 내용 revision·현재 관계·복구 쓰기와 일관된 읽기 목록 구현.
    통합490건·기존 문서 저장소7건·타입7파일·린트10파일·개별/최종 독립 리뷰 통과. 실제 삭제 미활성화
    (`docs/worklogs/2026-09-14-rag-sql-provenance.md`).
-3. 휴지통 2C 공통 기반: 출처·버전된 삭제 목록·실행 결합 검증 결과·최소 증명 저장 구현.
+5. 휴지통 2C 공통 기반: 출처·버전된 삭제 목록·실행 결합 검증 결과·최소 증명 저장 구현.
    회귀475건·보강 후 집중91건·타입14파일·린트20파일·최종 독립 재검토 통과. 실사용 삭제 미활성화
    (`docs/worklogs/2026-09-14-asset-purge-provenance.md`).
-4. 휴지통 영속 기반 2B: 상태·정책·배치·전용 삭제 작업/전송 대기열·활성 폴더 이름 고유성 구현.
-   통합329건·타입14파일·린트23파일·최종 독립 리뷰 통과. 실사용 DB/삭제 UI 미적용, 로컬 dcac68f
-   (`docs/worklogs/2026-09-14-asset-trash-persistence.md`).
-5. 휴지통 서버 권한: 현재 SQL 삭제 권한과 행위별 잠금 후 재검사, 철회·만료·개인공간 격리 검증.
-   관련265건·production/helper 타입·린트·개별 독립 검토 통과. 실제 삭제 UI/API는 미구현
-   (`docs/worklogs/2026-09-14-asset-trash-authorization.md`).
 ## 다음 작업
+
+최우선(2026-09-20): 색인 출처와 공유 alias의 영속 요청/확인된 종료, RAG 색인 쓰기 차단 구현을 완료했다.
+다음은 원본 파일·파서/OCR/뷰어 임시물·작업 메타데이터의 소유권 및 정리 계약 연결이다.
+이후 전체 참여자 조립·구 writer/파일 writer 종료·잔존 재검증·실제 삭제 API/UI가 필요하다. 기존 SQL·JSON·색인/alias 구현을 반복하지 않는다.
 
 최우선(2026-09-14): RAG SQL 묶음과 parsed/chunks/embeddings JSON·게시 임시 파일의 출처·revision·목록 연결을 완료했다.
 다음은 별도 소유 범위인 RAG index build·Elasticsearch, 원본 파일, 파서·OCR·뷰어의 문서 전용 임시물,

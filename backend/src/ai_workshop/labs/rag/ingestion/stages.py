@@ -14,7 +14,7 @@ from elastic_transport import (
 from elastic_transport import (
     ConnectionError as ElasticsearchConnectionError,
 )
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -42,17 +42,34 @@ from ai_workshop.labs.rag.embeddings.contracts import (
 from ai_workshop.labs.rag.embeddings.sentence_transformers import (
     SentenceTransformerEmbedding,
 )
+from ai_workshop.labs.rag.indexing.alias_journal import AliasJournal
+from ai_workshop.labs.rag.indexing.alias_models import AliasOperationRecord
+from ai_workshop.labs.rag.indexing.alias_service import (
+    ClusterProbe,
+    alias_cluster_uuid,
+    run_alias_operation,
+)
 from ai_workshop.labs.rag.indexing.contracts import (
     IndexDescriptor,
     IndexDocument,
     SearchIndexPort,
 )
 from ai_workshop.labs.rag.indexing.elasticsearch import ElasticsearchSearchIndex
+from ai_workshop.labs.rag.indexing.fence_models import RagIndexWriteFenceRecord
+from ai_workshop.labs.rag.indexing.resource_repository import SqlAlchemyRagIndexRepository
 from ai_workshop.labs.rag.indexing.service import (
     ActiveAliasTargetMismatchError,
     AliasActivationNotAcknowledgedError,
     IndexingResult,
     IndexingService,
+)
+from ai_workshop.labs.rag.indexing.tracking_contracts import IndexTrackingError
+from ai_workshop.labs.rag.indexing.tracking_service import (
+    TrackedIndexSession,
+    configured_index_binding,
+    prepare_tracked_index,
+    tracked_index_session,
+    validate_tracked_targets,
 )
 from ai_workshop.labs.rag.ingestion.artifact_contracts import ArtifactPublication, ArtifactRole
 from ai_workshop.labs.rag.ingestion.artifact_service import (
@@ -658,11 +675,15 @@ class ProductionIndexingStage:
         object_store: LocalObjectStore,
         *,
         search_index_session: SearchIndexSession | None = None,
+        tracked_search_session: TrackedIndexSession | None = None,
     ) -> None:
         self.settings = settings
         self.object_store = object_store
         self.search_index_session = search_index_session or (
             lambda: _elasticsearch_session(settings)
+        )
+        self.tracked_search_session = tracked_search_session or (
+            lambda: tracked_index_session(settings)
         )
 
     async def index(self, *, projection_id: UUID, indexing_profile_id: UUID) -> None:
@@ -671,6 +692,7 @@ class ProductionIndexingStage:
         try:
             build_id = await self._ensure_build(sessions, projection_id, indexing_profile_id)
             async with sessions() as session:
+                tracked = await SqlAlchemyRagIndexRepository(session).get(build_id)
                 ingestion = await session.scalar(
                     select(RagIngestionJobRecord).where(
                         RagIngestionJobRecord.projection_id == projection_id
@@ -762,10 +784,29 @@ class ProductionIndexingStage:
                     evidence_units=chunk.evidence_units,
                     embedding=vector.values,
                     index_build_id=build_id,
+                    indexing_profile_id=indexing_profile_id,
                 )
                 for chunk, vector in zip(chunks.chunks, embeddings.vectors, strict=True)
             )
             descriptor = IndexDescriptor(resolved.config.dimension, "cosine")
+            if tracked is not None:
+                if tracked.vector_dimension != descriptor.vector_dimension:
+                    raise RagIngestionError(
+                        "rag_index_input_conflict", "rag_index_input_conflict", retryable=False,
+                    )
+
+                async def lock_stage(session: AsyncSession) -> None:
+                    current, _ = await _lock_active_stage_rows(session, projection_id)
+                    if current.index_build_id != build_id:
+                        raise RagIngestionError(
+                            "index_build_conflict", "index_build_conflict", retryable=False,
+                        )
+
+                await prepare_tracked_index(
+                    sessions, self.settings, build_id, documents,
+                    self.tracked_search_session, lock_stage,
+                )
+                return
             async with self.search_index_session() as search_index:
                 prepared = await IndexingService(
                     search_index,
@@ -833,7 +874,13 @@ class ProductionIndexingStage:
                     RagIndexBuildRecord.projection_id == projection_id
                 )
             )
+            created = build is None
             if build is None:
+                binding = configured_index_binding(self.settings)
+                resolved = await _resolve_embedding(
+                    session, projection_id=projection_id, indexing_profile_id=indexing_profile_id,
+                )
+                descriptor = IndexDescriptor(resolved.config.dimension, "cosine")
                 build = RagIndexBuildRecord(
                     id=uuid4(),
                     projection_id=projection_id,
@@ -865,6 +912,23 @@ class ProductionIndexingStage:
                 )
             ingestion.index_build_id = build.id
             await session.flush()
+            if created:
+                namespace = index_namespace_document_processing_profile_id(
+                    ingestion.document_processing_profile_id,
+                )
+                name = descriptor.concrete_index_name(
+                    self.settings.elasticsearch_index_prefix, indexing_profile_id, build.id,
+                    document_processing_profile_id=namespace,
+                )
+                alias = descriptor.active_alias(
+                    self.settings.elasticsearch_index_prefix, indexing_profile_id,
+                    document_processing_profile_id=namespace,
+                )
+                build.index_name = name
+                build.vector_dimension = descriptor.vector_dimension
+                await SqlAlchemyRagIndexRepository(session).register(
+                    build.id, binding, descriptor, name, alias,
+                )
             return build.id
 
 
@@ -874,11 +938,17 @@ class ProductionReadinessVerifier:
         settings: Settings,
         *,
         search_index_session: SearchIndexSession | None = None,
+        tracked_search_session: TrackedIndexSession | None = None,
+        alias_cluster_probe: ClusterProbe | None = None,
     ) -> None:
         self.settings = settings
         self.search_index_session = search_index_session or (
             lambda: _elasticsearch_session(settings)
         )
+        self.tracked_search_session = tracked_search_session or (
+            lambda: tracked_index_session(settings)
+        )
+        self.alias_cluster_probe = alias_cluster_probe or (lambda: alias_cluster_uuid(settings))
 
     async def verify(
         self, *, projection_id: UUID, indexing_profile_id: UUID
@@ -941,11 +1011,16 @@ class ProductionReadinessVerifier:
                         "The final activation lock profile does not exist.",
                         retryable=False,
                     )
-                build = await session.scalar(
-                    select(RagIndexBuildRecord)
-                    .where(RagIndexBuildRecord.id == ingestion.index_build_id)
-                    .with_for_update()
-                )
+                scope_builds = tuple(await session.scalars(
+                    select(RagIndexBuildRecord).where(
+                        RagIndexBuildRecord.indexing_profile_id == indexing_profile_id,
+                        RagIndexBuildRecord.document_processing_profile_id
+                        == ingestion.document_processing_profile_id,
+                    ).order_by(RagIndexBuildRecord.id).with_for_update()
+                    .execution_options(populate_existing=True)
+                ))
+                build = next((item for item in scope_builds
+                              if item.id == ingestion.index_build_id), None)
                 resolved = await _resolve_embedding(
                     session,
                     projection_id=projection_id,
@@ -985,6 +1060,17 @@ class ProductionReadinessVerifier:
                         retryable=False,
                     )
                 if projection.status == ProjectionStatus.READY:
+                    if await session.scalar(select(AliasOperationRecord.id).where(
+                        AliasOperationRecord.indexing_profile_id == indexing_profile_id,
+                        AliasOperationRecord.document_processing_profile_id
+                        == ingestion.document_processing_profile_id,
+                        AliasOperationRecord.state == "open",
+                    ).limit(1)) is not None:
+                        raise IndexTrackingError("rag_index_attempt_busy")
+                    await validate_tracked_targets(
+                        session, self.settings, (build,), self.tracked_search_session,
+                        require_alias_parity=True,
+                    )
                     return verification
                 active_rows = (
                     await session.execute(
@@ -1017,6 +1103,10 @@ class ProductionReadinessVerifier:
                             RagProjectionRecord.status == ProjectionStatus.READY,
                             AssetVersionRecord.status == VersionStatus.READY,
                             DocumentRecord.active_version_id == AssetVersionRecord.id,
+                            DocumentRecord.lifecycle == "active",
+                            ~select(RagIndexWriteFenceRecord.document_id).where(
+                                RagIndexWriteFenceRecord.document_id == DocumentRecord.id
+                            ).exists(),
                         )
                         .order_by(RagIndexBuildRecord.id)
                     )
@@ -1066,14 +1156,23 @@ class ProductionReadinessVerifier:
                     alias_verified=False,
                     document_processing_profile_id=index_namespace_profile_id,
                 )
+                await validate_tracked_targets(
+                    session, self.settings,
+                    tuple(candidate for candidate in scope_builds
+                          if candidate.id in target_builds or candidate.is_active),
+                    self.tracked_search_session,
+                )
                 try:
                     async with self.search_index_session() as search_index:
-                        activated = await IndexingService(
-                            search_index,
-                            index_prefix=self.settings.elasticsearch_index_prefix,
-                        ).activate_prepared(
-                            prepared,
-                            intended_targets=intended_targets,
+                        await run_alias_operation(
+                            AliasJournal(sessions), configured_index_binding(self.settings),
+                            prepared.alias, indexing_profile_id,
+                            ingestion.document_processing_profile_id,
+                            tuple(sorted(intended_targets)), self.alias_cluster_probe,
+                            lambda: search_index.replace_active_targets(
+                                prepared.alias, intended_targets,
+                            ),
+                            lambda: search_index.active_targets(prepared.alias),
                         )
                 except (
                     ActiveAliasTargetMismatchError,
@@ -1083,23 +1182,17 @@ class ProductionReadinessVerifier:
                     ApiError,
                 ) as exc:
                     raise _classify_activation_error(exc) from exc
-                if not activated.alias_verified:
-                    raise RagIngestionError(
-                        "index_activation_failed",
-                        "The prepared index alias target set was not exactly verified.",
-                        retryable=True,
-                    )
                 target_build_ids = tuple(target_builds)
-                await session.execute(
-                    update(RagIndexBuildRecord)
-                    .where(
-                        RagIndexBuildRecord.document_processing_profile_id
-                        == ingestion.document_processing_profile_id,
-                        RagIndexBuildRecord.indexing_profile_id == indexing_profile_id,
-                    )
-                    .values(is_active=RagIndexBuildRecord.id.in_(target_build_ids))
-                )
+                changed = []
+                for candidate in scope_builds:
+                    active = candidate.id in target_build_ids
+                    if candidate.is_active != active or (
+                        candidate.id == build.id and candidate.status != "ready"
+                    ):
+                        changed.append(candidate.id)
+                    candidate.is_active = active
                 build.status = "ready"
+                await SqlAlchemyRagIndexRepository(session).advance(changed)
                 ingestion.indexed_document_count = build.indexed_document_count
                 ingestion.index_alias_verified = True
                 await SqlAlchemyRagDocumentRepository(session).mark_status(

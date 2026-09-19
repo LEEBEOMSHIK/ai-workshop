@@ -91,6 +91,8 @@ class Settings(BaseSettings):
     pdf_max_concurrent: int = Field(default=2, strict=True, gt=0)
     elasticsearch_url: str = "http://127.0.0.1:9200"
     elasticsearch_index_prefix: str = "ai-workshop-rag"
+    rag_index_store_id: str | None = Field(default=None, max_length=80)
+    rag_index_cluster_uuid: str | None = Field(default=None, max_length=128)
     model_cache_root: Path = Path(".local-data/models")
     evaluation_authoring_max_documents: int = Field(default=20, strict=True, ge=1, le=100)
     evaluation_authoring_max_evidence_units: int = Field(default=1000, strict=True, ge=1, le=10_000)
@@ -141,6 +143,26 @@ class Settings(BaseSettings):
         if value is not None and fullmatch(r"[a-z][a-z0-9_]{0,79}", value) is None:
             raise ValueError("RAG artifact store ID must be an exact machine identifier.")
         return value
+
+    @field_validator("rag_index_store_id")
+    @classmethod
+    def validate_rag_index_store_id(cls, value: str | None) -> str | None:
+        if value is not None and fullmatch(r"[a-z][a-z0-9_]{0,79}", value) is None:
+            raise ValueError("RAG index store ID must be an exact machine identifier.")
+        return value
+
+    @field_validator("rag_index_cluster_uuid")
+    @classmethod
+    def validate_rag_index_cluster_uuid(cls, value: str | None) -> str | None:
+        if value is not None and fullmatch(r"[A-Za-z0-9_-]{1,128}", value) is None:
+            raise ValueError("RAG index cluster UUID must be an opaque cluster identifier.")
+        return value
+
+    @model_validator(mode="after")
+    def require_paired_rag_index_binding(self) -> Self:
+        if (self.rag_index_store_id is None) != (self.rag_index_cluster_uuid is None):
+            raise ValueError("RAG index store ID and cluster UUID must be configured together.")
+        return self
 
     @model_validator(mode="after")
     def require_paired_rag_artifact_store_binding(self) -> Self:

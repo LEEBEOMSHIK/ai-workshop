@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 
@@ -10,29 +10,36 @@ const workspaceId = "11111111-1111-4111-8111-111111111111";
 const documentId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const document = { active_version_id: "version-1", folder_id: null, id: documentId, job_id: null, latest_version: 1, latest_version_id: "version-1", metadata_revision: 1, name: "운용 규정.md", status: "ready", workspace_id: workspaceId } as const;
 
-it("contains Tab and consumes Escape in the nested move dialog without closing file selection", async () => {
+it("keeps the real embedded browser selection-only even when the user has write rights", async () => {
   const workspace = { id: workspaceId, name: "회사 규정", kind: "company", expires_at: null };
-  vi.stubGlobal("fetch", vi.fn(async (input) => {
+  const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input);
-    if (path.endsWith("/capabilities")) return Response.json({ read: true, write: true, delete: false, manage_members: false });
+    if (init?.method && init.method !== "GET") throw new Error("Unexpected mutation");
+    if (path.endsWith("/capabilities")) return Response.json({ read: true, write: true, delete: true, manage_members: true });
     if (path.endsWith("/library")) return Response.json({ domain_id: "domain-1", display_name: "자산운용", connection_version_id: "connection-1", selection_limit: 2, workspace_options: [workspace] });
-    return Response.json({ workspace, folder: null, ancestors: [], documents: [document], folders: [], next_document_cursor: null, next_folder_cursor: null });
-  }));
-  const close = vi.fn(); const user = userEvent.setup();
-  render(<DocumentSelectionPanel slug="asset-management" currentDocuments={[document]} workspaceIds={[workspaceId]} folderIds={[]} foldersByWorkspace={{}} onApply={vi.fn()} onClose={close} returnFocus={null} />);
-  const moveButton = await screen.findByRole("button", { name: "운용 규정.md 이동" });
-  await waitFor(() => expect(moveButton).toBeEnabled());
-  await user.click(moveButton);
-  const inner = screen.getByRole("dialog", { name: "이동 확인" });
-  await waitFor(() => expect(within(inner).getByRole("button", { name: "root" })).toBeEnabled());
-  const cancel = within(inner).getByRole("button", { name: "이동 취소" });
-  expect(cancel).toHaveFocus(); await user.tab();
-  expect(within(inner).getByRole("button", { name: "root" })).toHaveFocus();
-  await user.tab({ shift: true }); expect(cancel).toHaveFocus();
-  await user.keyboard("{Escape}");
+    return Response.json({ workspace, folder: null, ancestors: [], documents: [document], folders: [{ id: "folder-1", metadata_revision: 1, name: "리스크", parent_id: null, has_children: false }], next_document_cursor: null, next_folder_cursor: null });
+  });
+  vi.stubGlobal("fetch", fetcher);
+  const apply = vi.fn(); const user = userEvent.setup();
+  render(<DocumentSelectionPanel slug="asset-management" currentDocuments={[document]} workspaceIds={[workspaceId]} folderIds={[]} foldersByWorkspace={{}} onApply={apply} onClose={vi.fn()} returnFocus={null} />);
+  const opener = await screen.findByRole("button", { name: `${document.name} 열기` });
+  await waitFor(() => expect(fetcher.mock.calls.some(([input]) => String(input).endsWith("/capabilities"))).toBe(true));
+  expect(screen.queryByRole("button", { name: /문서 올리기|새 폴더|새 버전 올리기|이동$/ })).not.toBeInTheDocument();
+  expect(window.document.querySelector('input[type="file"]')).not.toBeInTheDocument();
+  expect(window.document.querySelector('[draggable="true"]')).not.toBeInTheDocument();
+  const row = opener.closest("article")!;
+  const transfer = { types: ["Files"], files: [new File(["synthetic"], "new.txt")], setData: vi.fn(), clearData: vi.fn(), getData: vi.fn(), dropEffect: "move" };
+  fireEvent.dragStart(row, { dataTransfer: transfer });
+  fireEvent.dragOver(screen.getByRole("main"), { dataTransfer: transfer });
+  fireEvent.drop(screen.getByRole("main"), { dataTransfer: transfer });
+  expect(transfer.setData).not.toHaveBeenCalled();
+  expect(transfer.dropEffect).toBe("none");
+  opener.focus();
+  await user.keyboard("{F2}{Delete}{Control>}x{/Control}{Control>}v{/Control}");
   expect(screen.queryByRole("dialog", { name: "이동 확인" })).not.toBeInTheDocument();
-  expect(screen.getByRole("dialog", { name: "파일 선택" })).toBeVisible(); expect(close).not.toHaveBeenCalled();
-  expect(screen.getByRole("button", { name: "운용 규정.md 이동" })).toHaveFocus();
+  expect(fetcher.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true);
+  await user.click(screen.getByRole("button", { name: "선택 적용" }));
+  expect(apply).toHaveBeenCalledWith([document]);
 });
 
 it("places initial focus inside the modal and contains forward and reverse Tab navigation", async () => {
@@ -109,6 +116,8 @@ it("keeps embedded folder, workspace, and viewer navigation out of chat history"
   const documentOpener = await screen.findByRole("button", { name: `${document.name} 열기` });
   await user.click(documentOpener);
   expect(await screen.findByText("원문")).toBeVisible();
+  expect(screen.queryByRole("button", { name: "이 버전에 대한 Codex 승인 요청" })).not.toBeInTheDocument();
+  expect(vi.mocked(fetch).mock.calls.every(([input]) => !String(input).includes("evidence-approval"))).toBe(true);
   expect(window.location.href).toBe(chatUrl);
   expect(screen.getByRole("button", { name: "문서 닫기" })).toHaveFocus();
   await user.keyboard("{Escape}");

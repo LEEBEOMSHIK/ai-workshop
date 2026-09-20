@@ -17,19 +17,18 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 afterEach(() => vi.unstubAllGlobals());
 
 describe("ConversationPage", () => {
-  it("keeps sending blocked after a bounded selected document moves and the panel closes without Apply", async () => {
+  it("preserves the applied bounded selection when a read-only draft closes without Apply", async () => {
     const folder = { id: "folder-1", workspace_id: "workspace-1", metadata_revision: 1, name: "리스크", parent_id: null, has_children: false };
     const scoped = { ...selectedDocument(), folder_id: folder.id };
-    let committed = false;
     const posts: RequestInit[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path.endsWith("/capabilities")) return jsonResponse({ read: true, write: true, delete: false, manage_members: false });
       if (path.endsWith("/folders")) return jsonResponse(path.includes("workspace-1") ? [folder] : []);
       if (path.endsWith("/library")) return jsonResponse({ domain_id: "domain-1", display_name: "자산운용", connection_version_id: "connection-1", selection_limit: 3, workspace_options: domain().workspace_options });
-      if (init?.method === "POST") { posts.push(init); committed = true; return jsonResponse({ id: scoped.id, workspace_id: scoped.workspace_id, folder_id: null, metadata_revision: 2, name: scoped.name, changed: true }); }
-      if (path.endsWith(`/documents/${scoped.id}`)) return jsonResponse({ ...scoped, folder_id: committed ? null : folder.id, metadata_revision: committed ? 2 : 1 });
-      if (path.includes("/library/workspaces/workspace-1")) return jsonResponse({ ...libraryPage(), folder: path.includes("folder_id=folder-1") ? folder : null, folders: path.includes("folder_id=folder-1") ? [] : [folder], documents: committed ? [] : [scoped] });
+      if (init?.method === "POST") { posts.push(init); throw new Error("Unexpected mutation"); }
+      if (path.endsWith(`/documents/${scoped.id}`)) return jsonResponse(scoped);
+      if (path.includes("/library/workspaces/workspace-1")) return jsonResponse({ ...libraryPage(), folder: path.includes("folder_id=folder-1") ? folder : null, folders: path.includes("folder_id=folder-1") ? [] : [folder], documents: [scoped] });
       throw new Error(`Unexpected path: ${path}`);
     }));
     const user = userEvent.setup(); render(<ConversationPage domain={domain()} />);
@@ -44,26 +43,17 @@ describe("ConversationPage", () => {
     expect(screen.getByRole("button", { name: "질문 보내기" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "파일 선택" }));
     const panel = await screen.findByRole("dialog", { name: "파일 선택" });
-    await waitFor(() => expect(screen.getByRole("button", { name: "운용 규정.md 이동" })).toBeEnabled());
-    await user.click(screen.getByRole("button", { name: "운용 규정.md 이동" }));
-    const modal = screen.getByRole("dialog", { name: "이동 확인" });
-    await waitFor(() => expect(within(modal).getByRole("button", { name: "root" })).toBeEnabled());
-    await user.click(within(modal).getByRole("button", { name: "root" }));
-    await waitFor(() => expect(within(modal).getByRole("button", { name: "여기로 이동" })).toBeEnabled());
-    await user.click(within(modal).getByRole("button", { name: "여기로 이동" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "이동 확인" })).not.toBeInTheDocument());
-    expect(within(panel).getByRole("button", { name: "선택 적용" })).toBeDisabled();
+    const selected = await within(panel).findByRole("checkbox", { name: "운용 규정.md 선택" });
+    expect(selected).toBeChecked();
+    expect(within(panel).queryByRole("button", { name: /이동$|문서 올리기|새 폴더|새 버전 올리기/ })).not.toBeInTheDocument();
+    await user.click(selected);
+    expect(selected).not.toBeChecked();
     await user.click(within(panel).getByRole("button", { name: "닫기" }));
     expect(screen.queryByRole("dialog", { name: "파일 선택" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "질문 보내기" })).toBeDisabled();
-    expect(screen.getByRole("alert")).toHaveTextContent(/다시 선택하거나 범위를 다시 설정/);
-    expect(screen.getByRole("button", { name: "새 대화" })).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: "새 대화" }));
-    expect(screen.getByRole("button", { name: "질문 보내기" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "질문 보내기" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "파일 선택" }));
-    const reopenedApply = await screen.findByRole("button", { name: "선택 적용" });
-    expect(reopenedApply).toBeDisabled();
-    expect(posts).toHaveLength(1); expect(JSON.parse(posts[0].body as string)).toEqual({ destination_folder_id: null, expected_revision: 1 });
+    expect(await screen.findByRole("checkbox", { name: "운용 규정.md 선택" })).toBeChecked();
+    expect(posts).toHaveLength(0);
   }, 20_000);
   it("preserves an applied folder id when the refreshed folder listing no longer contains it", () => {
     expect(buildScopeSnapshot(domain(), ["workspace-1"], ["folder-withdrawn"], {}, null)).toMatchObject({
@@ -371,6 +361,8 @@ describe("ConversationPage", () => {
     await user.click(opener);
 
     expect(await screen.findByText("응답에 사용된 정확한 원문")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "이 버전에 대한 Codex 승인 요청" })).not.toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.every(([input]) => !String(input).includes("evidence-approval"))).toBe(true);
     await user.keyboard("{Escape}");
     expect(screen.queryByText("응답에 사용된 정확한 원문")).not.toBeInTheDocument();
     expect(opener).toHaveFocus();

@@ -20,7 +20,7 @@ const context: DomainLibraryContext = { domain_id: "domain-1", display_name: "�
 
 const writeCapabilities = { read: true, write: true, delete: false, manage_members: false };
 
-it("uploads inside the embedded selected folder without applying selection, opening the upload or changing URL", async () => {
+it("uploads inside the standalone selected folder without applying selection, opening the upload or changing URL", async () => {
   const folder = { id: "risk", metadata_revision: 1, name: "위험 자료", parent_id: null, has_children: false };
   const original = { ...first, folder_id: folder.id };
   const page = { ...root, folder, documents: [original], next_document_cursor: null };
@@ -35,7 +35,7 @@ it("uploads inside the embedded selected folder without applying selection, open
   });
   vi.stubGlobal("fetch", fetcher);
   const apply = vi.fn(); const user = userEvent.setup(); const url = window.location.href;
-  render(<DomainFileCabinet embedded slug="asset-management" context={context} initialLibrary={page} initialRoot={{ ...root, folders: [folder] }} initialDocument={null} initialVersionId={null} initialSelectedDocuments={[original]} onApplySelection={apply} allowedFolderIdsByWorkspace={{ [company.id]: [folder.id] }} />);
+  render(<DomainFileCabinet slug="asset-management" context={context} initialLibrary={page} initialRoot={{ ...root, folders: [folder] }} initialDocument={null} initialVersionId={null} initialSelectedDocuments={[original]} onApplySelection={apply} allowedFolderIdsByWorkspace={{ [company.id]: [folder.id] }} />);
   await waitFor(() => expect(screen.getByRole("button", { name: "문서 올리기" })).toBeEnabled());
   expect(screen.getByText(/저장 위치:/)).toHaveTextContent("회사 공간 / 회사 규정 / 위험 자료");
   await user.upload(screen.getByLabelText("새 문서 파일"), new File(["synthetic"], "new.txt", { type: "text/plain" }));
@@ -52,7 +52,7 @@ it("uploads inside the embedded selected folder without applying selection, open
 it("denies domain preflight without sending a Platform upload and invalidates the search draft", async () => {
   const fetcher = vi.fn(async (input: RequestInfo | URL) => String(input).endsWith("/capabilities") ? Response.json(writeCapabilities) : Response.json({ error: { code: "not_found", message: "private", correlation_id: "test" } }, { status: 404 }));
   vi.stubGlobal("fetch", fetcher); const user = userEvent.setup();
-  render(<DomainFileCabinet embedded slug="asset-management" context={context} initialLibrary={root} initialRoot={root} initialDocument={null} initialVersionId={null} initialSelectedDocuments={[first]} />);
+  render(<DomainFileCabinet slug="asset-management" context={context} initialLibrary={root} initialRoot={root} initialDocument={null} initialVersionId={null} initialSelectedDocuments={[first]} />);
   await waitFor(() => expect(screen.getByLabelText("새 문서 파일")).toBeEnabled());
   await user.upload(screen.getByLabelText("새 문서 파일"), new File(["synthetic"], "new.txt", { type: "text/plain" }));
   expect(await screen.findByText(/파일함 권한 또는 도메인 연결이 변경되었습니다/)).toBeVisible();
@@ -73,7 +73,7 @@ it("ignores a late committed upload after switching workspace and clears retry s
     throw new Error(`Unexpected request: ${path}`);
   });
   vi.stubGlobal("fetch", fetcher); const user = userEvent.setup(); const apply = vi.fn();
-  render(<DomainFileCabinet embedded slug="asset-management" context={context} initialLibrary={root} initialRoot={root} initialDocument={null} initialVersionId={null} initialSelectedDocuments={[first]} onApplySelection={apply} />);
+  render(<DomainFileCabinet slug="asset-management" context={context} initialLibrary={root} initialRoot={root} initialDocument={null} initialVersionId={null} initialSelectedDocuments={[first]} onApplySelection={apply} />);
   await waitFor(() => expect(screen.getByLabelText("새 문서 파일")).toBeEnabled());
   await user.upload(screen.getByLabelText("새 문서 파일"), new File(["synthetic"], "new.txt", { type: "text/plain" }));
   await user.click(screen.getByRole("button", { name: personal.name }));
@@ -95,7 +95,7 @@ it("ignores denied preflight from an unmounted workspace without invalidating th
     throw new Error(`Unexpected request: ${path}`);
   });
   vi.stubGlobal("fetch", fetcher); const user = userEvent.setup();
-  render(<DomainFileCabinet embedded slug="asset-management" context={context} initialLibrary={root} initialRoot={root} initialDocument={null} initialVersionId={null} initialSelectedDocuments={[first]} />);
+  render(<DomainFileCabinet slug="asset-management" context={context} initialLibrary={root} initialRoot={root} initialDocument={null} initialVersionId={null} initialSelectedDocuments={[first]} />);
   await waitFor(() => expect(screen.getByLabelText("새 문서 파일")).toBeEnabled());
   await user.upload(screen.getByLabelText("새 문서 파일"), new File(["synthetic"], "new.txt", { type: "text/plain" }));
   await user.click(screen.getByRole("button", { name: personal.name }));

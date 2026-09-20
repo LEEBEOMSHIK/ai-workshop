@@ -33,6 +33,26 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+it("keeps selection-only previews and version browsing without requesting evidence approval", async () => {
+  const fetcher = vi.fn<typeof fetch>(async (input) => {
+    const path = String(input);
+    if (path.includes("/library/")) return Response.json({ items: [
+      { id: "version-2", number: 2, media_type: "text/plain", size: 20, status: "ready" },
+      { id: "version-1", number: 1, media_type: "text/plain", size: 10, status: "ready" },
+    ], next_cursor: null });
+    if (path.endsWith("/preview")) return Response.json({ kind: "text", text: path.includes("version-1") ? "Earlier synthetic body" : "Active synthetic body", version: 1, name: "synthetic.txt", size: 10 });
+    throw new Error("Unexpected request in selection-only preview");
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(<LibraryViewer document={document} initialVersionId={null} onClose={vi.fn()} onVersionChange={vi.fn()} showEvidenceApproval={false} />);
+  expect(await screen.findByText("Active synthetic body")).toBeVisible();
+  expect(screen.queryByRole("button", { name: "이 버전에 대한 Codex 승인 요청" })).not.toBeInTheDocument();
+  await userEvent.setup().click(screen.getByRole("button", { name: /버전 1/ }));
+  expect(await screen.findByText("Earlier synthetic body")).toBeVisible();
+  expect(screen.queryByRole("button", { name: "이 버전에 대한 Codex 승인 요청" })).not.toBeInTheDocument();
+  expect(fetcher.mock.calls.every(([input, init]) => !String(input).includes("evidence-approval") && (!init?.method || init.method === "GET"))).toBe(true);
+});
+
 it("resets an in-flight approval submission when selecting another version", async () => {
   let resolveSubmission!: (response: Response) => void;
   const submission = new Promise<Response>((resolve) => { resolveSubmission = resolve; });

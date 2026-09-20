@@ -38,6 +38,7 @@ interface DocumentBrowserProps {
   initialVersionId: string | null;
   readOnly?: boolean;
   showMemberManagement?: boolean;
+  showEvidenceApproval?: boolean;
   browse?: typeof browseLibrary;
   getDocument?: typeof getLibraryDocument;
   writeSelection?: typeof writeLibrarySelection;
@@ -84,6 +85,7 @@ function DocumentBrowserScope({
   initialVersionId,
   readOnly = false,
   showMemberManagement = false,
+  showEvidenceApproval = true,
   browse = browseLibrary,
   getDocument = getLibraryDocument,
   writeSelection: publishSelection = writeLibrarySelection,
@@ -555,7 +557,7 @@ function DocumentBrowserScope({
         </div>
         {selectionResolved && library.next_document_cursor ? <button type="button" disabled={loadingMoreDocuments} onClick={loadMoreDocuments}>문서 더 보기</button> : null}
       </section>
-      {selectedDocument ? <LibraryViewer key={`${selectedDocument.id}:${selectedVersionId ?? "active"}`} document={selectedDocument} initialVersionId={selectedVersionId} keyboardEnabled={!movement.pending} onClose={closeDocument} onVersionChange={(versionId) => {
+      {selectedDocument ? <LibraryViewer key={`${selectedDocument.id}:${selectedVersionId ?? "active"}`} document={selectedDocument} initialVersionId={selectedVersionId} keyboardEnabled={!movement.pending} showEvidenceApproval={showEvidenceApproval} onClose={closeDocument} onVersionChange={(versionId) => {
         selectViewerVersion(versionId);
         publishSelection(workspaceId, { folderId: selectedDocument.folder_id, documentId: selectedDocument.id, versionId });
       }} /> : null}

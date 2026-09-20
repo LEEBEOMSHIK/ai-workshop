@@ -32,9 +32,10 @@ interface LibraryViewerProps {
   onClose: () => void;
   onVersionChange: (versionId: string) => void;
   keyboardEnabled?: boolean;
+  showEvidenceApproval?: boolean;
 }
 
-export function LibraryViewer({ document, initialVersionId, onClose, onVersionChange, keyboardEnabled = true }: LibraryViewerProps) {
+export function LibraryViewer({ document, initialVersionId, onClose, onVersionChange, keyboardEnabled = true, showEvidenceApproval = true }: LibraryViewerProps) {
   const [selectedVersionId, setSelectedVersionId] = useState(initialVersionId ?? document.active_version_id);
   const [versions, setVersions] = useState<AssetVersion[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -185,7 +186,7 @@ export function LibraryViewer({ document, initialVersionId, onClose, onVersionCh
     </div>
 
     {selectedVersionId ? <a className={styles.download} href={originalDownloadPath(document.id, selectedVersionId)}>원본 내려받기</a> : null}
-    <VersionEvidenceApproval key={JSON.stringify([document.workspace_id, document.id, selectedVersionId])} selectedVersionId={selectedVersionId} />
+    {showEvidenceApproval ? <VersionEvidenceApproval key={JSON.stringify([document.workspace_id, document.id, selectedVersionId])} selectedVersionId={selectedVersionId} /> : null}
     <section className={styles.versions} aria-label="문서 버전">
       <h3>버전</h3>
       {versionError ? <div role="alert"><p>{versionError}</p><button type="button" onClick={() => { setVersionError(""); setVersionRetry((value) => value + 1); }}>버전 목록 다시 시도</button></div> : null}

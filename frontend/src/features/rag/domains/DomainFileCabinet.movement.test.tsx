@@ -32,7 +32,7 @@ function setup(options: { bounded?: boolean; changedVersion?: boolean; delayReva
   });
   vi.stubGlobal("fetch", fetcher);
   const apply = vi.fn(); const invalidated = vi.fn();
-  render(<DomainFileCabinet embedded slug="demo" context={context} initialLibrary={page} initialRoot={root} initialDocument={null} initialVersionId={null} initialSelectedDocuments={options.emptySelection ? [] : [doc]} onApplySelection={apply} onSelectionInvalidated={invalidated} allowedFolderIdsByWorkspace={options.bounded ? { company: ["a"] } : undefined} />);
+  render(<DomainFileCabinet slug="demo" context={context} initialLibrary={page} initialRoot={root} initialDocument={null} initialVersionId={null} initialSelectedDocuments={options.emptySelection ? [] : [doc]} onApplySelection={apply} onSelectionInvalidated={invalidated} allowedFolderIdsByWorkspace={options.bounded ? { company: ["a"] } : undefined} />);
   return { apply, invalidated, fetcher, release };
 }
 async function move() {

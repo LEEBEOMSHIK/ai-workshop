@@ -198,7 +198,7 @@ export function DomainFileCabinet({
   }
 
   async function beforeMove(source: MoveSource, destinationId: string | null, signal: AbortSignal) {
-    if (invalidated || switching || source.workspaceId !== view.workspaceId || !context.workspace_options.some((workspace) => workspace.id === source.workspaceId)) throw new Error("domain_write_unavailable");
+    if (embedded || invalidated || switching || source.workspaceId !== view.workspaceId || !context.workspace_options.some((workspace) => workspace.id === source.workspaceId)) throw new Error("domain_write_unavailable");
     const fresh = source.kind === "document"
       ? documentMoveSource(await getDocument(source.workspaceId, source.id, signal))
       : await browse(source.workspaceId, { folderId: source.id, signal }).then((page) => page.folder && page.workspace.id === source.workspaceId ? folderMoveSource(page.folder, source.workspaceId) : null);
@@ -266,9 +266,9 @@ export function DomainFileCabinet({
         initialWorkspaces={context.workspace_options}
         initialDocument={view.document}
         initialVersionId={view.versionId}
-        readOnly={invalidated || switching || !context.workspace_options.some((workspace) => workspace.id === view.workspaceId)}
+        readOnly={embedded || invalidated || switching || !context.workspace_options.some((workspace) => workspace.id === view.workspaceId)}
         beforeMutation={async (folderId, documentId, signal) => {
-          if (invalidated || switching || !context.workspace_options.some((workspace) => workspace.id === view.workspaceId)) throw new Error("domain_write_unavailable");
+          if (embedded || invalidated || switching || !context.workspace_options.some((workspace) => workspace.id === view.workspaceId)) throw new Error("domain_write_unavailable");
           if (documentId) {
             const document = await getDocument(view.workspaceId, documentId, signal);
             if (document.folder_id !== folderId) throw new Error("document_destination_changed");
@@ -289,6 +289,7 @@ export function DomainFileCabinet({
           }
         }}
         showMemberManagement={!embedded}
+        showEvidenceApproval={!embedded}
         browse={browse}
         getDocument={getDocument}
         writeSelection={publishSelection}

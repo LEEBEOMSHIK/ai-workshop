@@ -445,7 +445,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
         setRetryQuery("");
         setError("선택 문서의 위치, 권한 또는 활성 버전이 변경되었습니다. 문서를 다시 선택하거나 범위를 다시 설정해 주세요.");
       }} /> : null}
-      {selectedOriginal ? <div className="conversation-original-panel"><LibraryViewer key={`${selectedOriginal.document.workspace_id}:${selectedOriginal.document.id}:${selectedOriginal.versionId}`} document={selectedOriginal.document} initialVersionId={selectedOriginal.versionId} onClose={closeSelectedVersion} onVersionChange={() => undefined} /></div> : null}
+      {selectedOriginal ? <div className="conversation-original-panel"><LibraryViewer key={`${selectedOriginal.document.workspace_id}:${selectedOriginal.document.id}:${selectedOriginal.versionId}`} document={selectedOriginal.document} initialVersionId={selectedOriginal.versionId} showEvidenceApproval={false} onClose={closeSelectedVersion} onVersionChange={() => undefined} /></div> : null}
     </main>
   );
 }

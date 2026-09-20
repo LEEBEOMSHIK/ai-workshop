@@ -1,6 +1,6 @@
 # Workboard
 
-- 마지막 갱신일: 2026-09-20
+- 마지막 갱신일: 2026-09-21
 - 현재 단계: 파일함 휴지통·복원·영구 삭제 기반의 단계별 구현·검증
 - 전체 상태: 불변 Document Processing Profile, 10개 고정 PP-StructureV3 모델,
   DOCX 내장 이미지 OCR·provenance·검색 원문 뷰어와 관리자 전체 구성이 구현됐다.
@@ -66,6 +66,11 @@ DB0048과 저장소 marker는 적용됐다. 평상시 시작에 migration·계�
 `prepare_rag_sandbox.ps1 -Phase Runtime`을 다시 실행하면 본래 포트와 충돌하므로 사용하지 않는다.
 
 ## 현재 작업
+
+- 대화 문서 선택 전용화(2026-09-21): 대화 패널의 업로드·새 폴더·이동·새 버전과 원문 승인 요청을 제거했다.
+  탐색·원문 미리보기·선택·해제·적용과 독립 파일함의 관리는 유지한다. 관련 8파일142개 테스트·타입·린트·독립 검토를 통과했다.
+  브라우저 선택·미리보기 확인 후 로그인 화면으로 전환되어 최종 승인 버튼 부재는 자동 회귀로 검증한다.
+  지급일 근거 묶음·응답 속도 개선은 별도 후속 작업이다.
 
 - 브라우저 RAG 요청 중단 수정(2026-09-20): Next 프록시 기본30초로 ECONNRESET이 발생하고 백엔드가 연결 해제로 생성 작업을 취소했다.
   프록시 대기를 유한한300초로 늘렸다. 기존 마스터 Chrome 세션에서 실제 질문→정답·인용 표시와 대화 API200을 확인했다.
@@ -1466,22 +1471,25 @@ RAG 구성에 고정하고, 관리자가 PP-StructureV3 pipeline과 하위 OCR �
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**. 상세 이력은 연결된 작업 기록에 둔다.
 
-1. 본래 환경 RAG 대화: 실제 평가·Codex 연결 검사, 기존 자산운용 도메인 활성화와 정답/본문 인용·근거 부족 응답 검증.
+1. 대화 문서 선택 전용화: 탐색·미리보기·선택 적용을 유지하고 문서 관리와 승인 요청 진입을 제외했다.
+   별도 파일함 관리 보존 및 독립 회귀 검토 (`docs/decisions/0023-domain-cabinet-conversation.md`).
+2. 본래 환경 RAG 대화: 실제 평가·Codex 연결 검사, 기존 자산운용 도메인 활성화와 정답/본문 인용·근거 부족 응답 검증.
    기존 계정·문서·모델 재사용, 소규모 합성 평가의 품질 한계와 발견 오류 수정 기록
    (`docs/worklogs/2026-09-20-original-rag-conversation.md`).
-2. 일반 Jobs 출처·보존·revision, dispatch와 읽기 inventory 및 격리 RAG 검색 준비.
+3. 일반 Jobs 출처·보존·revision, dispatch와 읽기 inventory 및 격리 RAG 검색 준비.
    합성 TXT 업로드와 선택 문서 BM25/E5 hybrid 검색 검증. LLM 답변·OCR 실검증은 후속
    (`docs/worklogs/2026-09-20-jobs-and-rag-sandbox.md`).
-3. HTTP 업로드 선행 예약: 인증/권한·예약 commit 전 본문 미수신, 제한 parser·원본 원자 연결·종료 확인 정리.
+4. HTTP 업로드 선행 예약: 인증/권한·예약 commit 전 본문 미수신, 제한 parser·원본 원자 연결·종료 확인 정리.
    704통과/2skip·타입/린트·독립 검토 완료. 실사용 적용과 과거 spool 복구는 후속
    (`docs/worklogs/2026-09-20-http-upload-intake.md`).
-4. 문서 전용 임시 작업공간: 사전 예약·Windows 핸들 정리·parser/OCR/preview·목록 연결.
+5. 문서 전용 임시 작업공간: 사전 예약·Windows 핸들 정리·parser/OCR/preview·목록 연결.
    706통과/2skip·타입/린트·독립 검토 완료. OCR 잔존 보존과 기존 통합 fixture 한계를 명시했다
    (`docs/worklogs/2026-09-20-document-temporary-workspace.md`).
-5. 원본 파일 추적: 사전 예약·Windows 게시·원자 확정·실패 정리 차단·미확정 목록 구현.
-   526건 통과·Windows 권한 skip2건·타입/린트·최종 독립 검토 통과. 실사용 적용과 비Windows 쓰기는 후속
-   (`docs/worklogs/2026-09-20-original-file-ownership.md`).
 ## 다음 작업
+
+최신 사용자 우선순위(2026-09-21): AM-LAB-840 지급일 질문에서 같은 상품의 관련 근거가 답변 입력에
+함께 전달되도록 출처 경계를 검증하는 근거 묶음을 설계·구현한다. 반복 임베딩 모델 로딩과 질의 처리,
+LLM 호출 소요 시간을 측정해 응답 지연을 개선한다. 이번 문서 선택 UI 수정에는 두 항목을 포함하지 않았다.
 
 최우선(2026-09-20): 일반 Jobs 메타데이터 출처·보존·revision과 읽기 목록을 구현했다.
 다음은 전체 참여자 inventory 조립과 구 writer/파일 writer의 종료 확인·잔존 재검증 계약이다.

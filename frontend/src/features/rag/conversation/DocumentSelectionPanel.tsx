@@ -101,6 +101,7 @@ export function DocumentSelectionPanel({ slug, currentDocuments, workspaceIds, f
         <h2 id="document-selection-title">파일 선택</h2>
         <button ref={closeButtonRef} type="button" onClick={close}>닫기</button>
       </header>
+      <p>이번 대화에서 검색할 문서를 선택하세요. 문서 업로드와 이동 등 관리는 파일함에서 할 수 있습니다.</p>
       {error ? <p className={styles.error} role="alert">도메인 파일함을 불러오지 못했습니다. 현재 선택은 유지됩니다.</p> : null}
       {!data && !error ? <p role="status">도메인 파일함을 불러오는 중…</p> : null}
       {data ? <DomainFileCabinet

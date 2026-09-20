@@ -4,8 +4,16 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecord
+from ai_workshop.platform.assets.provenance_repository import ProvenanceRepository
 from ai_workshop.platform.jobs.domain import Job, JobStatus, JobType
-from ai_workshop.platform.jobs.models import JobRecord
+from ai_workshop.platform.jobs.models import JobRecord, JobSourceRecord
+from ai_workshop.platform.jobs.ownership import (
+    JobOwnershipError,
+    advance_ownership,
+    relation,
+    validate_identity,
+)
 from ai_workshop.platform.workspaces.models import WorkspaceMembershipRecord, WorkspaceRecord
 from ai_workshop.platform.workspaces.permissions import workspace_read_allowed
 from ai_workshop.platform.workspaces.repository import (
@@ -46,6 +54,7 @@ def _to_domain(record: JobRecord) -> Job:
         error_message=record.error_message,
         started_at=record.started_at,
         finished_at=record.finished_at,
+        revision=record.revision,
     )
 
 
@@ -70,6 +79,15 @@ class SqlAlchemyJobRepository:
         return _to_domain(record) if record else None
 
     async def add(self, job: Job) -> Job:
+        source = (
+            await self.session.execute(
+                select(DocumentRecord.workspace_id, DocumentRecord.id)
+                .join(AssetVersionRecord, AssetVersionRecord.document_id == DocumentRecord.id)
+                .where(AssetVersionRecord.id == job.asset_version_id)
+            )
+        ).one_or_none()
+        if source is None or source.workspace_id != job.workspace_id:
+            raise JobOwnershipError("job_source_mismatch")
         record = JobRecord(
             id=job.id,
             user_id=job.user_id,
@@ -84,9 +102,20 @@ class SqlAlchemyJobRepository:
             error_message=job.error_message,
             started_at=job.started_at,
             finished_at=job.finished_at,
+            revision=1,
         )
         self.session.add(record)
         await self.session.flush()
+        owner = JobSourceRecord(
+            job_id=job.id,
+            workspace_id=job.workspace_id,
+            document_id=source.id,
+            asset_version_id=job.asset_version_id,
+        )
+        self.session.add(owner)
+        await self.session.flush()
+        await ProvenanceRepository(self.session).register(relation(owner, 1))
+        job.revision = 1
         return _to_domain(record)
 
     async def find_for_user(self, user_id: UUID, job_id: UUID) -> Job | None:
@@ -114,15 +143,29 @@ class SqlAlchemyJobRepository:
 
     async def find_by_id_for_update(self, job_id: UUID) -> Job | None:
         result = await self.session.execute(
-            select(JobRecord).where(JobRecord.id == job_id).with_for_update()
+            select(JobRecord)
+            .where(JobRecord.id == job_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
         record = result.scalar_one_or_none()
         return _to_domain(record) if record else None
 
     async def update(self, job: Job) -> Job:
-        record = await self.session.get(JobRecord, job.id)
+        record = await self.session.scalar(
+            select(JobRecord)
+            .where(JobRecord.id == job.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
         if record is None:
             raise LookupError("Job does not exist.")
+        validate_identity(record, job)
+        if (job.revision is not None and (type(job.revision) is not int or job.revision < 1)) or (
+            record.revision != job.revision
+        ):
+            raise JobOwnershipError("job_revision_conflict")
+        revision = await advance_ownership(self.session, record)
         record.status = job.status
         record.stage = job.stage
         record.attempt = job.attempt
@@ -130,5 +173,7 @@ class SqlAlchemyJobRepository:
         record.error_message = job.error_message
         record.started_at = job.started_at
         record.finished_at = job.finished_at
+        record.revision = revision
         await self.session.flush()
+        job.revision = revision
         return _to_domain(record)

@@ -1124,6 +1124,7 @@ class SqlAlchemySearchConfigurationResolver:
             experimental=configuration.experimental,
             generation_profile=generation_profile,
             external_approval=external_approval,
+            document_processing_profile_id=configuration.document_processing_profile_id,
         )
 
 

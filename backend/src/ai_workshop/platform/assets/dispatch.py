@@ -4,12 +4,13 @@ from datetime import UTC, datetime, timedelta
 from typing import Protocol
 from uuid import UUID
 
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ai_workshop.platform.assets.models import AssetVersionRecord
 from ai_workshop.platform.jobs.domain import JobStatus, JobType
 from ai_workshop.platform.jobs.models import JobRecord
+from ai_workshop.platform.jobs.repository import SqlAlchemyJobRepository, _to_domain
 
 
 def _utcnow() -> datetime:
@@ -135,16 +136,18 @@ class SqlAlchemyAssetVerificationDispatchRepository:
                 statement = statement.where(JobRecord.id == job_id)
             records = (await session.scalars(statement)).all()
             claims: list[AssetVerificationDispatchClaim] = []
+            jobs = SqlAlchemyJobRepository(session)
             for record in records:
-                record.status = JobStatus.RUNNING
-                record.stage = "dispatching_verification"
-                record.attempt += 1
-                record.error_code = None
-                record.error_message = None
-                record.started_at = now
-                record.finished_at = None
-                claims.append(AssetVerificationDispatchClaim(record.id, record.attempt))
-            await session.flush()
+                job = _to_domain(record)
+                job.status = JobStatus.RUNNING
+                job.stage = "dispatching_verification"
+                job.attempt += 1
+                job.error_code = None
+                job.error_message = None
+                job.started_at = now
+                job.finished_at = None
+                await jobs.update(job)
+                claims.append(AssetVerificationDispatchClaim(job.id, job.attempt))
         return tuple(claims)
 
     async def mark_send_failed(
@@ -154,20 +157,19 @@ class SqlAlchemyAssetVerificationDispatchRepository:
         error: str,
     ) -> None:
         async with self.sessions.begin() as session:
-            await session.execute(
-                update(JobRecord)
-                .where(
-                    JobRecord.id == claim.job_id,
-                    JobRecord.status == JobStatus.RUNNING,
-                    JobRecord.stage == "dispatching_verification",
-                    JobRecord.attempt == claim.attempt,
-                )
-                .values(
-                    status=JobStatus.QUEUED,
-                    stage="verification_dispatch_retry",
-                    error_code="verification_dispatch_failed",
-                    error_message=error[:500],
-                    started_at=None,
-                    finished_at=None,
-                )
-            )
+            jobs = SqlAlchemyJobRepository(session)
+            job = await jobs.find_by_id_for_update(claim.job_id)
+            if (
+                job is None
+                or job.status is not JobStatus.RUNNING
+                or job.stage != "dispatching_verification"
+                or job.attempt != claim.attempt
+            ):
+                return
+            job.status = JobStatus.QUEUED
+            job.stage = "verification_dispatch_retry"
+            job.error_code = "verification_dispatch_failed"
+            job.error_message = "The verification task could not be dispatched."
+            job.started_at = None
+            job.finished_at = None
+            await jobs.update(job)

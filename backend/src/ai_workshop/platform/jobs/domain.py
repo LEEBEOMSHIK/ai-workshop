@@ -35,6 +35,7 @@ class Job:
     error_message: str | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
+    revision: int | None = None
 
     @classmethod
     def create(
@@ -53,6 +54,7 @@ class Job:
             asset_version_id=asset_version_id,
             type=type,
             idempotency_key=idempotency_key,
+            revision=1,
         )
 
     def start(self, *, stage: str, at: datetime | None = None) -> None:

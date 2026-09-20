@@ -7,6 +7,13 @@
 
 ## 현재 작업
 
+- 일반 Jobs 출처·보존·revision 구현 및 격리 RAG 검색 환경 준비(2026-09-20).
+  신규 Jobs의 source pin·원자 revision/CAS와 dispatch·읽기 inventory를 연결했다. 종료 상태로 writer 종료를 추정하지 않는다.
+  기존 ingestion 통합 fixture를 추적 publisher 계약에 맞추고 선택 문서 검색의 처리 프로파일 전달 누락을 수정했다.
+  격리 sandbox에서 합성 TXT 업로드→BM25·cached E5 hybrid 검색을 확인했다. 기존 실사용 DB/자료는 보존한다.
+  실행: `docs/runbooks/rag-sandbox.md`. 검증·인계: `docs/worklogs/2026-09-20-jobs-and-rag-sandbox.md`.
+  메인 488단위·37격리PG·322검색/설정/스크립트 통과, 타입11파일·린트와 독립 추가42건 통과·잔여 차단 없음. 커밋·푸시 인계한다.
+
 - HTTP 업로드 선행 예약 구현 완료(2026-09-20): 인증·예약 commit 후 본문 수신, 제한 multipart, 원본/버전/job/출처 원자 연결과 종료 확인 정리를 구현했다.
   DB·multipart·메인 API/native 통합과 독립 검증을 분리했다. 최종678단위/ASGI+26격리PG(704통과), Windows 권한 skip2건, 타입12파일·린트25파일 통과. 독립 최종47건·차단 없음.
   계획: `docs/superpowers/plans/2026-09-20-http-upload-intake.md`. 기록: `docs/worklogs/2026-09-20-http-upload-intake.md`.
@@ -1377,29 +1384,30 @@ RAG 구성에 고정하고, 관리자가 PP-StructureV3 pipeline과 하위 OCR �
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**. 상세 이력은 연결된 작업 기록에 둔다.
 
-1. HTTP 업로드 선행 예약: 인증/권한·예약 commit 전 본문 미수신, 제한 parser·원본 원자 연결·종료 확인 정리.
+1. 일반 Jobs 출처·보존·revision, dispatch와 읽기 inventory 및 격리 RAG 검색 준비.
+   합성 TXT 업로드와 선택 문서 BM25/E5 hybrid 검색 검증. LLM 답변·OCR 실검증은 후속
+   (`docs/worklogs/2026-09-20-jobs-and-rag-sandbox.md`).
+2. HTTP 업로드 선행 예약: 인증/권한·예약 commit 전 본문 미수신, 제한 parser·원본 원자 연결·종료 확인 정리.
    704통과/2skip·타입/린트·독립 검토 완료. 실사용 적용과 과거 spool 복구는 후속
    (`docs/worklogs/2026-09-20-http-upload-intake.md`).
-2. 문서 전용 임시 작업공간: 사전 예약·Windows 핸들 정리·parser/OCR/preview·목록 연결.
+3. 문서 전용 임시 작업공간: 사전 예약·Windows 핸들 정리·parser/OCR/preview·목록 연결.
    706통과/2skip·타입/린트·독립 검토 완료. OCR 잔존 보존과 기존 통합 fixture 한계를 명시했다
    (`docs/worklogs/2026-09-20-document-temporary-workspace.md`).
-3. 원본 파일 추적: 사전 예약·Windows 게시·원자 확정·실패 정리 차단·미확정 목록 구현.
+4. 원본 파일 추적: 사전 예약·Windows 게시·원자 확정·실패 정리 차단·미확정 목록 구현.
    526건 통과·Windows 권한 skip2건·타입/린트·최종 독립 검토 통과. 실사용 적용과 비Windows 쓰기는 후속
    (`docs/worklogs/2026-09-20-original-file-ownership.md`).
-4. 파일함 root 표시·이동 확인창 개선 커밋 인계: 관련 154건·타입·전체 린트·독립 검토 통과.
+5. 파일함 root 표시·이동 확인창 개선 커밋 인계: 관련 154건·타입·전체 린트·독립 검토 통과.
    기존 합성 브라우저 검증 기록을 보존하며 실사용 자료는 변경하지 않았다
    (`docs/worklogs/2026-09-13-root-move-dialog-polish.md`).
-5. 공유 별칭 종료·문서 쓰기 차단: 영속 요청 원장, fence, activation/parity와 inventory 연결.
-   관련349건·타입19파일·린트·독립 리뷰 통과. 실사용 적용과 전체 영구 삭제는 후속
-   (`docs/worklogs/2026-09-20-rag-alias-write-fence.md`).
-
 ## 다음 작업
 
-최우선(2026-09-20): 색인 출처와 공유 alias의 영속 요청/확인된 종료, RAG 색인 쓰기 차단 구현을 완료했다.
-원본·파서/OCR/뷰어 임시 작업공간과 HTTP multipart 선행 예약을 Windows 기준 구현·검증했다. 다음은 일반 Jobs 메타데이터의 출처·소유권·정리 계약이다.
-RAG 사용 테스트는 삭제 개발과 별도로 환경/DB0047/저장소 준비 후 진행할 수 있다. 정본은 local-development runbook이며 TXT검색→답변·인용→OCR 순서다.
-OCR 미확인 writer의 잔존 회수, 기존 ingestion 통합 fixture 갱신, 미활성 purge inventory 역순 잠금 해소와 비Windows native 구현도 후속으로 남는다.
-이후 전체 참여자 조립·구 writer/파일 writer 종료·잔존 재검증·실제 삭제 API/UI가 필요하다. 기존 SQL·JSON·색인/alias 구현을 반복하지 않는다.
+최우선(2026-09-20): 일반 Jobs 메타데이터 출처·보존·revision과 읽기 목록을 구현했다.
+다음은 전체 참여자 inventory 조립과 구 writer/파일 writer의 종료 확인·잔존 재검증 계약이다.
+미활성 purge inventory의 역순 잠금 해소와 정리 실행 순서를 검증한 뒤 실제 삭제 API/UI를 연결한다.
+RAG는 별도 sandbox(DB0048)에서 지금 TXT 업로드·BM25/E5 hybrid 선택 문서 검색을 테스트할 수 있다.
+실행 정본은 `docs/runbooks/rag-sandbox.md`; 로컬 LLM 실행기/모델 설정 후 답변·인용, 이후 OCR 순서다.
+기존 ingestion fixture 14건은 추적 publisher 계약으로 갱신해 통과했다. OCR 미확인 writer 회수,
+legacy 추적/backfill·실사용 DB cutover·비Windows native 구현은 후속이며 이번에 삭제를 활성화하지 않았다.
 
 최우선(2026-09-14): RAG SQL 묶음과 parsed/chunks/embeddings JSON·게시 임시 파일의 출처·revision·목록 연결을 완료했다.
 다음은 별도 소유 범위인 RAG index build·Elasticsearch, 원본 파일, 파서·OCR·뷰어의 문서 전용 임시물,

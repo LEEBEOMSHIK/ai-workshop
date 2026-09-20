@@ -42,6 +42,8 @@ class ResolvedSearchConfiguration:
     generation_profile: GenerationProfile | None = None
     generation_runtime: GenerationRuntimePort | None = None
     external_approval: ResolvedExternalApproval | None = None
+    # Semantic source selection is independent of legacy physical alias naming.
+    document_processing_profile_id: UUID | None = None
 
     def __post_init__(self) -> None:
         if self.configuration_version < 1:

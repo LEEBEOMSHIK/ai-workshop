@@ -263,6 +263,12 @@ class SearchApplicationService:
         if not set(requested_workspace_ids).issubset(configuration.workspace_ids):
             raise AppError("not_found", "The requested resource was not found.", 404)
 
+        # Resolved saved configurations carry the semantic processing profile even
+        # when the physical target uses legacy names. Alias fallback supports older
+        # callers constructing this port value directly; it never replaces an exact ID.
+        processing_profile_id = configuration.document_processing_profile_id
+        if processing_profile_id is None:
+            processing_profile_id = configuration.active_index_alias.document_processing_profile_id
         resolved_scope = await self.scope_resolver.resolve(
             actor_id=actor_id,
             workspace_ids=requested_workspace_ids,
@@ -271,9 +277,7 @@ class SearchApplicationService:
             document_ids=(
                 tuple(request.document_ids) if request.document_ids is not None else None
             ),
-            document_processing_profile_id=(
-                configuration.active_index_alias.document_processing_profile_id
-            ),
+            document_processing_profile_id=processing_profile_id,
         )
         resolved_conversation_scope = self._resolved_conversation_scope(
             conversation_scope,
@@ -290,9 +294,7 @@ class SearchApplicationService:
                 folder_ids=requested_folder_ids,
                 indexing_profile_id=configuration.indexing_profile_id,
                 document_ids=resolved_scope.document_ids,
-                document_processing_profile_id=(
-                    configuration.active_index_alias.document_processing_profile_id
-                ),
+                document_processing_profile_id=processing_profile_id,
             )
             require_authorized_identities(
                 resolved_scope.authorized_documents if required is None else required,
@@ -486,9 +488,7 @@ class SearchApplicationService:
                 result_limit=request.top_k,
                 query_max_tokens=configuration.query_max_tokens,
                 document_ids=resolved_scope.document_ids,
-                document_processing_profile_id=(
-                    configuration.active_index_alias.document_processing_profile_id
-                ),
+                document_processing_profile_id=processing_profile_id,
             )
             sources = await self.source_resolver.resolve(
                 actor_id=actor_id,

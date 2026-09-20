@@ -415,6 +415,25 @@ HTTP multipart 수신은 아래의 선행 예약 전제를 함께 적용한다. 
 파서/OCR/뷰어 임시물은 아래의 별도 저장소 설정을 사용한다.
 이 구현은 실제 영구 삭제 API/UI를 활성화하지 않는다.
 
+### 일반 Jobs 메타데이터 추적 적용
+
+신규 Job은 실제 문서/버전과 RESTRICT로 연결된 소유권 및 현재 provenance revision을 가진다.
+상태·단계·시도·오류 갱신과 재전송 처리도 같은 transaction에서 revision을 변경한다.
+migration `0048_job_metadata_ownership`은 기존 Job의 revision을 NULL로 두며 자동 backfill하지 않는다.
+실사용 적용 전 기존 writer 중지·백업·복구와 schema/code 호환 확인 절차를 따른다.
+신규 추적 Job은 부모 user/workspace/version의 CASCADE 삭제로도 사라지지 않는다.
+
+Jobs의 성공·실패·재시도 상태는 파일/큐 writer 종료 증거가 아니다. 읽기 inventory의
+`writer_unconfirmed`는 유지하며 Job/source 소유권 pin이나 provenance를 수동 제거하지 않는다.
+실제 삭제, legacy 정리와 실행 종료 확인은 별도 후속 계약이다.
+
+### 기존 자료와 분리된 RAG 테스트 환경
+
+합성 자료로 업로드→검색을 검증할 때는 [RAG sandbox 절차](rag-sandbox.md)를 따른다.
+별도 PostgreSQL/Redis/Elasticsearch와 Windows API/worker를 사용하며 기존 `.env`, DB와 자료를
+수정하지 않는다. 코드 테스트용 UUID DB와 사용자 확인용 지속 sandbox DB도 분리한다.
+이 환경의 성공은 기존 개발 DB에 migration이 적용됐다는 의미가 아니다.
+
 ### HTTP 업로드 선행 예약 활성화 전제
 
 두 문서 업로드 API는 인증과 intake 예약 commit 이후에만 본문을 읽는다.

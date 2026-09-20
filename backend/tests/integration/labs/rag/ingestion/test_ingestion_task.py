@@ -1,4 +1,5 @@
 import hashlib
+import json
 from asyncio import gather, to_thread
 from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
@@ -26,8 +27,20 @@ from ai_workshop.labs.rag.documents.models import (
     RetrievalChunkRecord,
     StructuralElementRecord,
 )
+from ai_workshop.labs.rag.ingestion.artifact_contracts import ArtifactRole
+from ai_workshop.labs.rag.ingestion.artifact_models import (
+    RagArtifactAttemptRecord,
+    RagArtifactBundleRecord,
+    RagArtifactSlotRecord,
+)
+from ai_workshop.labs.rag.ingestion.artifact_service import (
+    RagArtifactPublisher,
+    finalize_artifact,
+    prepare_artifact_admission,
+)
 from ai_workshop.labs.rag.ingestion.domain import (
     EnsureIndexedCommand,
+    RagIngestionBusy,
     RagIngestionError,
     ReadinessVerification,
 )
@@ -38,11 +51,12 @@ from ai_workshop.labs.rag.ingestion.serialization import (
     deserialize_parsed_document,
 )
 from ai_workshop.labs.rag.ingestion.service import RagIngestionService, RagIngestionWorkflow
-from ai_workshop.labs.rag.ingestion.tasks import SqlAlchemyRagIngestionLifecycle
+from ai_workshop.labs.rag.ingestion.tasks import (
+    ProductionParsingStage,
+    SqlAlchemyRagIngestionLifecycle,
+)
 from ai_workshop.labs.rag.models.models import ProfileRecord
-from ai_workshop.labs.rag.parsing import plain_text
 from ai_workshop.labs.rag.parsing.contracts import ParsingError
-from ai_workshop.labs.rag.parsing.registry import ParserRegistry
 from ai_workshop.labs.rag.parsing.service import ParsingService
 from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecord
 from ai_workshop.platform.identity.models import UserRecord
@@ -52,7 +66,9 @@ from ai_workshop.platform.workspaces.models import WorkspaceRecord
 from ai_workshop.shared.db import create_engine, create_session_factory
 from ai_workshop.worker import RAG_INGESTION_TASK, create_celery
 from alembic import command
-from tests.unit.labs.rag.parsing.test_service import FakeTemporaryService
+from tests.integration.platform.assets.original_upload_support import (
+    require_explicit_original_test_database,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -92,6 +108,7 @@ def validate_disposable_database_target(settings: Settings, database: str) -> No
 def isolated_ingestion_database(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> Iterator[None]:
+    require_explicit_original_test_database()
     base_settings = get_settings()
     database = f"{DISPOSABLE_DATABASE_PREFIX}{uuid4().hex}"
     with provision_isolated_ingestion_database(
@@ -111,6 +128,21 @@ def provision_isolated_ingestion_database(
 ) -> Iterator[None]:
     validate_disposable_database_target(base_settings, database)
     object_store_root = tmp_path_factory.mktemp("rag-ingestion-objects")
+    temporary_root = tmp_path_factory.mktemp("rag-ingestion-temp")
+    artifact_binding, temporary_binding = uuid4(), uuid4()
+    for root, marker, store_id, binding in [
+        (object_store_root, ".ai-workshop-store.json", "test_rag_artifacts", artifact_binding),
+        (
+            temporary_root,
+            ".ai-workshop-temporary-store.json",
+            "test_rag_temporary",
+            temporary_binding,
+        ),
+    ]:
+        (root / marker).write_text(
+            json.dumps({"schema_version": 1, "store_id": store_id, "binding_id": str(binding)}),
+            encoding="utf-8",
+        )
     administrative_url = database_url(base_settings.database_url, "postgres")
     isolated_url = database_url(base_settings.database_url, database)
     environment = pytest.MonkeyPatch()
@@ -119,6 +151,11 @@ def provision_isolated_ingestion_database(
         environment.setenv("AI_WORKSHOP_ENVIRONMENT", "test")
         environment.setenv("AI_WORKSHOP_DATABASE_URL", isolated_url)
         environment.setenv("AI_WORKSHOP_OBJECT_STORE_ROOT", str(object_store_root))
+        environment.setenv("AI_WORKSHOP_RAG_ARTIFACT_STORE_ID", "test_rag_artifacts")
+        environment.setenv("AI_WORKSHOP_RAG_ARTIFACT_STORE_BINDING_ID", str(artifact_binding))
+        environment.setenv("AI_WORKSHOP_TEMPORARY_STORE_ROOT", str(temporary_root))
+        environment.setenv("AI_WORKSHOP_TEMPORARY_STORE_ID", "test_rag_temporary")
+        environment.setenv("AI_WORKSHOP_TEMPORARY_STORE_BINDING_ID", str(temporary_binding))
         get_settings.cache_clear()
         with psycopg.connect(sync_url(administrative_url), autocommit=True) as connection:
             connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
@@ -248,6 +285,10 @@ async def delete_fixture(
     artifact_keys: list[str] = []
     try:
         async with sessions.begin() as session:
+            # Tracked source/artifact pins are retained until the exact disposable
+            # module database is dropped. A test teardown is not a purge executor.
+            if await session.scalar(select(JobRecord.id).where(JobRecord.user_id == requested_by)):
+                return
             artifact_rows = await session.execute(
                 select(
                     RagIngestionJobRecord.parsed_object_key,
@@ -292,24 +333,34 @@ class ExplicitVerifiedStages:
         self.object_store = object_store
 
     async def embed(self, *, projection_id: UUID, indexing_profile_id: UUID) -> int:
-        content = b'{"synthetic_normalized_vectors":[[1.0]]}'
-        key = f"rag/embeddings/{projection_id}.json"
-        stored = await self.object_store.put_if_absent(key, bytes_source(content))
-        authoritative = b"".join([part async for part in self.object_store.open(stored.key)])
-        settings = self.settings
-        engine = create_engine(settings)
+        engine = create_engine(self.settings)
         sessions = create_session_factory(engine)
         try:
+            async with sessions() as session:
+                job_id = await session.scalar(
+                    select(RagIngestionJobRecord.job_id).where(
+                        RagIngestionJobRecord.projection_id == projection_id
+                    )
+                )
+            assert job_id is not None
+            published = await RagArtifactPublisher(self.settings).publish(
+                job_id, ArtifactRole.EMBEDDINGS, b'{"synthetic_normalized_vectors":[[1.0]]}'
+            )
+            assert published is not None
+            reference, _ = published
             async with sessions.begin() as session:
                 ingestion = await session.scalar(
                     select(RagIngestionJobRecord)
-                    .where(RagIngestionJobRecord.projection_id == projection_id)
+                    .where(RagIngestionJobRecord.job_id == job_id)
                     .with_for_update()
                 )
                 assert ingestion is not None
-                ingestion.embedding_object_key = stored.key
-                ingestion.embedding_sha256 = hashlib.sha256(authoritative).hexdigest()
+                ingestion.embedding_object_key = reference.key
+                ingestion.embedding_sha256 = reference.sha256
                 ingestion.embedding_count = 1
+                await finalize_artifact(
+                    session, job_id, projection_id, ArtifactRole.EMBEDDINGS, reference
+                )
         finally:
             await engine.dispose()
         return 1
@@ -431,29 +482,43 @@ class SignalingLifecycle(SqlAlchemyRagIngestionLifecycle):
 
 
 class FailOnceOperationalLifecycle(SqlAlchemyRagIngestionLifecycle):
+    """Committed-finalization acknowledgement loss permits exact durable replay."""
+
     def __init__(self, settings) -> None:
         super().__init__(settings)
         self.lock = Lock()
         self.failed = False
 
     async def complete_parsing(self, job_id, document, artifact):
+        execution = await super().complete_parsing(job_id, document, artifact)
         with self.lock:
             if not self.failed:
                 self.failed = True
                 raise OperationalError(
-                    "synthetic parsing transition",
+                    "synthetic committed parsing acknowledgement loss",
                     {},
                     OSError("synthetic transient database failure"),
                 )
-        return await super().complete_parsing(job_id, document, artifact)
+        return execution
 
 
-def parsing_service(settings) -> ParsingService:
-    return ParsingService(
-        LocalObjectStore(settings.object_store_root),
-        ParserRegistry((plain_text.PlainTextParser(),)),
-        temporary_service=FakeTemporaryService(settings.object_store_root),
-    )
+def parsing_service(settings):
+    return ProductionParsingStage(settings, LocalObjectStore(settings.object_store_root))
+
+
+class OrderedArtifactPublisher(RagArtifactPublisher):
+    def __init__(self, settings, coordinator):
+        super().__init__(settings)
+        self.coordinator = coordinator
+
+    async def publish(self, job_id, role, content):
+        if role == ArtifactRole.PARSED:
+            with self.coordinator.lock:
+                call = self.coordinator.parsed_put_calls
+                self.coordinator.parsed_put_calls += 1
+            if call == 1:
+                assert self.coordinator.first_transition_completed.wait(timeout=10)
+        return await super().publish(job_id, role, content)
 
 
 def workflow_factory(settings, parser, *, lifecycle=None, object_store=None):
@@ -467,6 +532,11 @@ def workflow_factory(settings, parser, *, lifecycle=None, object_store=None):
         stages,
         stages,
         stages,
+        artifact_publisher=(
+            OrderedArtifactPublisher(settings, store.coordinator)
+            if isinstance(store, OrderedPublicationStore)
+            else RagArtifactPublisher(settings)
+        ),
     )
 
 
@@ -479,7 +549,9 @@ async def create_ingestion_job(
     try:
         async with sessions.begin() as session:
             return await RagIngestionService(
-                SqlAlchemyRagIngestionCommandRepository(session)
+                SqlAlchemyRagIngestionCommandRepository(
+                    session, artifact_admission=prepare_artifact_admission(settings)
+                )
             ).ensure_indexed(
                 EnsureIndexedCommand(asset_version_id, indexing_profile_id, requested_by)
             )
@@ -676,13 +748,19 @@ async def test_postgres_persists_the_complete_command_and_global_idempotency_key
     sessions = create_session_factory(engine)
     try:
         async with sessions.begin() as session:
-            service = RagIngestionService(SqlAlchemyRagIngestionCommandRepository(session))
+            service = RagIngestionService(
+                SqlAlchemyRagIngestionCommandRepository(
+                    session, artifact_admission=prepare_artifact_admission(settings)
+                )
+            )
             job_id = await service.ensure_indexed(
                 EnsureIndexedCommand(asset_version_id, indexing_profile_id, requested_by)
             )
         async with sessions.begin() as session:
             duplicate_job_id = await RagIngestionService(
-                SqlAlchemyRagIngestionCommandRepository(session)
+                SqlAlchemyRagIngestionCommandRepository(
+                    session, artifact_admission=prepare_artifact_admission(settings)
+                )
             ).ensure_indexed(
                 EnsureIndexedCommand(asset_version_id, indexing_profile_id, duplicate_requester)
             )
@@ -765,8 +843,12 @@ async def test_eager_task_reloads_job_only_payload_and_reaches_ready_idempotentl
             assert job.stage == "ready"
             assert projection is not None
             assert projection.status == ProjectionStatus.READY
-            assert ingestion.parsed_object_key == (f"rag/parsed/{ingestion.projection_id}.json")
-            assert ingestion.chunk_object_key == (f"rag/chunks/{ingestion.projection_id}.json")
+            assert ingestion.parsed_object_key == await tracked_key(
+                settings, job_id, ArtifactRole.PARSED
+            )
+            assert ingestion.chunk_object_key == await tracked_key(
+                settings, job_id, ArtifactRole.CHUNKS
+            )
             assert len(ingestion.parsed_sha256 or "") == 64
             assert len(ingestion.chunk_sha256 or "") == 64
             assert ingestion.embedding_count == ingestion.chunk_count == 1
@@ -832,7 +914,9 @@ async def test_concurrent_eager_duplicates_publish_one_authoritative_parsed_grap
                         RetrievalChunkRecord.projection_id == ingestion.projection_id
                     )
                 )
-            assert ingestion.parsed_object_key == (f"rag/parsed/{ingestion.projection_id}.json")
+            assert ingestion.parsed_object_key == await tracked_key(
+                settings, job_id, ArtifactRole.PARSED
+            )
             parsed_bytes = b"".join(
                 [part async for part in store.open(ingestion.parsed_object_key)]
             )
@@ -840,7 +924,9 @@ async def test_concurrent_eager_duplicates_publish_one_authoritative_parsed_grap
             assert hashlib.sha256(parsed_bytes).hexdigest() == ingestion.parsed_sha256
             assert persisted_element_id == authoritative.elements[0].id
             assert persisted_element_id in parser.element_ids
-            assert ingestion.chunk_object_key == (f"rag/chunks/{ingestion.projection_id}.json")
+            assert ingestion.chunk_object_key == await tracked_key(
+                settings, job_id, ArtifactRole.CHUNKS
+            )
             chunk_bytes = b"".join([part async for part in store.open(ingestion.chunk_object_key)])
             authoritative_chunks = deserialize_chunking_result(chunk_bytes)
             assert hashlib.sha256(chunk_bytes).hexdigest() == ingestion.chunk_sha256
@@ -888,11 +974,11 @@ async def test_db_operational_failure_after_publication_retries_without_terminal
                 running_job = await session.get(JobRecord, job_id)
                 assert before_retry is not None
                 projection = await session.get(RagProjectionRecord, before_retry.projection_id)
-            parsed_key = f"rag/parsed/{before_retry.projection_id}.json"
+            parsed_key = await tracked_key(settings, job_id, ArtifactRole.PARSED)
             published_bytes = b"".join([part async for part in store.open(parsed_key)])
             assert running_job is not None and running_job.status == JobStatus.RUNNING
-            assert projection is not None and projection.status == ProjectionStatus.PARSING
-            assert before_retry.parsed_object_key is None
+            assert projection is not None and projection.status == ProjectionStatus.CHUNKING
+            assert before_retry.parsed_object_key == parsed_key
 
             completed = await to_thread(app.tasks[RAG_INGESTION_TASK].delay, str(job_id))
             assert completed.get() is None
@@ -1040,3 +1126,94 @@ async def test_production_composition_rejects_profile_without_embedding_binding(
             f"synthetic/{asset_version_id}.txt"
         )
         await delete_fixture(requested_by, duplicate_requester, indexing_profile_id)
+
+
+async def tracked_key(settings, job_id, role):
+    engine = create_engine(settings)
+    try:
+        sessions = create_session_factory(engine)
+        async with sessions() as session:
+            key = await session.scalar(
+                select(RagArtifactSlotRecord.canonical_key)
+                .join(RagArtifactBundleRecord)
+                .where(
+                    RagArtifactBundleRecord.job_id == job_id,
+                    RagArtifactSlotRecord.role == role.value,
+                )
+            )
+            assert key is not None
+            return key
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_failure_before_finalization_keeps_open_attempt_and_blocks_silent_adoption():
+    """Publication alone cannot authorize recovery of an unconfirmed tracked writer."""
+    requested_by, duplicate_requester, _, version_id, profile_id = await seed_command_dependencies()
+    settings = get_settings()
+    job_id = await create_ingestion_job(requested_by, version_id, profile_id)
+
+    class BeforeFinalization(SqlAlchemyRagIngestionLifecycle):
+        async def complete_parsing(self, job_id, document, artifact):
+            raise OperationalError(
+                "synthetic unconfirmed parsing finalization",
+                {},
+                OSError("synthetic database failure"),
+            )
+
+    parser = parsing_service(settings)
+    lifecycle = BeforeFinalization(settings)
+    app = create_celery(
+        settings,
+        rag_workflow_factory=lambda _: workflow_factory(settings, parser, lifecycle=lifecycle),
+    )
+    engine = create_engine(settings)
+    sessions = create_session_factory(engine)
+    store = LocalObjectStore(settings.object_store_root)
+    try:
+        with pytest.raises(Retry):
+            await to_thread(app.tasks[RAG_INGESTION_TASK].delay, str(job_id))
+        key = await tracked_key(settings, job_id, ArtifactRole.PARSED)
+        original = b"".join([part async for part in store.open(key)])
+        async with sessions() as session:
+            slot = await session.scalar(
+                select(RagArtifactSlotRecord).where(RagArtifactSlotRecord.canonical_key == key)
+            )
+            attempts = list(
+                await session.scalars(
+                    select(RagArtifactAttemptRecord).where(
+                        RagArtifactAttemptRecord.slot_id == slot.id
+                    )
+                )
+            )
+            assert slot.state == "reserved" and len(attempts) == 1
+            attempt_id = attempts[0].id
+            assert attempts[0].state == "open"
+        with pytest.raises(RagIngestionBusy):
+            await workflow_factory(settings, parsing_service(settings)).run(job_id)
+        assert b"".join([part async for part in store.open(key)]) == original
+        async with sessions() as session:
+            attempt = await session.get(RagArtifactAttemptRecord, attempt_id)
+            ingestion = await session.get(RagIngestionJobRecord, job_id)
+            job = await session.get(JobRecord, job_id)
+            projection = await session.get(RagProjectionRecord, ingestion.projection_id)
+            assert attempt.state == "open" and attempt.closed_at is None
+            assert ingestion.parsed_object_key is None
+            assert job.status == JobStatus.RUNNING and projection.status == ProjectionStatus.PARSING
+            assert (
+                len(
+                    list(
+                        await session.scalars(
+                            select(RagArtifactAttemptRecord).where(
+                                RagArtifactAttemptRecord.slot_id == attempt.slot_id
+                            )
+                        )
+                    )
+                )
+                == 1
+            )
+    finally:
+        await engine.dispose()
+        await store.delete(f"synthetic/{version_id}.txt")
+        await delete_fixture(requested_by, duplicate_requester, profile_id)

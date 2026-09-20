@@ -20,6 +20,7 @@ from ai_workshop.platform.assets.originals import (
     OriginalService,
     SqlAlchemyOriginalRepository,
 )
+from ai_workshop.platform.assets.temporary_contracts import TemporaryContext
 from ai_workshop.platform.identity.domain import User, UserRole
 from ai_workshop.platform.identity.models import UserRecord
 from ai_workshop.platform.workspaces.domain import MembershipRole, WorkspaceKind
@@ -188,11 +189,13 @@ class RaceObjectStore:
 
 
 class NeverPdfRenderer:
-    async def inspect(self, content: bytes) -> PdfInspection:
+    async def inspect(self, content: bytes, *, context: TemporaryContext) -> PdfInspection:
         del content
         raise AssertionError("text preview never inspects PDF")
 
-    async def render_page(self, content: bytes, page_number: int) -> RenderedPdfPage:
+    async def render_page(
+        self, content: bytes, page_number: int, *, context: TemporaryContext
+    ) -> RenderedPdfPage:
         del content, page_number
         raise AssertionError("text preview never renders PDF")
 

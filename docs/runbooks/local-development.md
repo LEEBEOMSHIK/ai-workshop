@@ -411,8 +411,39 @@ Codex는 로컬에서 실행해도 질문·포함된 대화·승인 근거를 Op
 업로드 정리 시작은 `discarding`으로 먼저 확정한다. 삭제 이후 DB 응답 상실이나 callback 실패가 나면
 이 상태와 locator를 남겨 재첨부를 차단한다. 시각 경과나 job 종료만으로 원장을 지우거나 재시도하지 않는다.
 원본 없는 실패 업로드는 workspace 기준 미확정 목록에서 찾는다. 공개 응답에는 경로·해시를 내보내지 않는다.
-HTTP multipart 수신 단계의 spool, 파서/OCR/뷰어 임시물과 일반 작업 기록은 별도 후속 경계다.
+HTTP multipart 수신 단계의 spool과 일반 작업 기록은 별도 후속 경계다.
+파서/OCR/뷰어 임시물은 아래의 별도 저장소 설정을 사용한다.
 이 구현은 실제 영구 삭제 API/UI를 활성화하지 않는다.
+
+### 문서 전용 임시 작업공간 활성화 전제
+
+파싱과 PDF 원본 미리보기는 임시 파일 생성 전에 실제 source와 선택 job을 원장에 예약한다.
+원본 object store와 다른 전용 root를 준비하며 앱이 기존 OS temp나 marker를 자동 인수하지 않는다.
+설정 누락은 `temporary_storage_unavailable`(503), 파일 어댑터 문제는 안전한 작업 오류로 표시한다.
+기존 text/Markdown 원문 읽기·다운로드에는 임시 저장소 설정이 필요하지 않다.
+
+1. 승인된 적용 절차에서 백업·복구 확인 후 migration `0046_document_temporary`까지 적용한다.
+   파일명은 `0046_document_temporary_workspaces.py`다. 검증에는 격리 합성 DB만 사용했다.
+2. `AI_WORKSHOP_TEMPORARY_STORE_ROOT`, `AI_WORKSHOP_TEMPORARY_STORE_ID`,
+   `AI_WORKSHOP_TEMPORARY_STORE_BINDING_ID`를 함께 지정한다. root는 승인된 전용 경로,
+   ID는 소문자로 시작하는 80자 이하 machine identifier, binding은 새 UUID다.
+3. root의 `.ai-workshop-temporary-store.json`에는 `schema_version`(정수 1), `store_id`,
+   `binding_id`의 세 필드만 두고 설정과 정확히 맞춘다. 원본/RAG marker와 호환되지 않는다.
+   애플리케이션은 root/marker를 자동 생성하지 않는다. 현재 mutation·관측 어댑터는 Windows 전용이다.
+4. 같은 코드 버전의 API와 worker를 적용한 뒤 승인된 합성 문서로 parsing/PDF preview를 확인한다.
+   정상 작업은 `open/1 → closed/2 → cleaning/3 → cleaned/4`와 현재 provenance revision이 함께 바뀐다.
+   `cleaned`는 해당 UUID의 확인된 파일 부재이며 문서 전체 삭제 완료를 뜻하지 않는다.
+
+OCR의 불투명 런타임은 반환/실패만으로 백그라운드 writer 종료를 증명하지 못하므로 **성공해도
+open과 임시 파일을 보존한다**. PDF worker도 reap 실패·spawn 결과 불명은 open을 유지한다.
+자동 재시작 복구나 시간 경과 정리는 없다. 미등록 하위 파일/경로 교체·정리 실패는 보존하고
+`cleaning` 등 미완료 상태로 남는다. 원장 상태를 수동 변경해 정리 완료로 만들지 않는다.
+
+미검증 runtime 외부 쓰기, 과거 OS temp, HTTP spool과 일반 Jobs 출처가 남아 있어 inventory는
+보수적으로 incomplete를 반환한다. 런타임 종료 증명과 잔존 복구는 후속이며 실제 purge는 비활성이다.
+기존 purge inventory 저장 경로의 document→version 잠금은 새 예약의 version→document와 반대다.
+현재 제품 호출은 없으며 활성화 전에 잠금 순서 통합과 경쟁 검증을 완료해야 한다.
+실사용 적용·백필·과거 임시 파일 제거는 코드 구현과 별도 작업이다.
 
 ## 4. RAG ingestion, 검색과 평가
 

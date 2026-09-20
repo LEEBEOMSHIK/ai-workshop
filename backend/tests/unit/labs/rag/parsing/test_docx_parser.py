@@ -13,6 +13,7 @@ from ai_workshop.labs.rag.ocr.contracts import (
 )
 from ai_workshop.labs.rag.parsing.contracts import ParseRequest
 from ai_workshop.labs.rag.parsing.docx import DOCX_MEDIA_TYPE, DocxStructureParser
+from tests.unit.labs.rag.parsing.test_service import FakeWorkspace
 
 _PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
@@ -74,7 +75,10 @@ def test_docx_preserves_body_order_and_ocr_image_provenance(tmp_path: Path) -> N
     parsed = DocxStructureParser(
         ocr_runtime=runtime,
         ocr_profile=_profile(tmp_path),
-    ).parse(ParseRequest(path, DOCX_MEDIA_TYPE, path.name, uuid4()))
+    ).parse(
+        ParseRequest(path, DOCX_MEDIA_TYPE, path.name, uuid4(),
+                     FakeWorkspace(path.parent), lambda: None)
+    )
 
     assert [item.kind for item in parsed.elements] == [
         "heading",
@@ -98,7 +102,46 @@ def test_docx_deduplicates_equal_image_ocr_within_asset_version(tmp_path: Path) 
     parsed = DocxStructureParser(
         ocr_runtime=runtime,
         ocr_profile=_profile(tmp_path),
-    ).parse(ParseRequest(path, DOCX_MEDIA_TYPE, path.name, uuid4()))
+    ).parse(
+        ParseRequest(path, DOCX_MEDIA_TYPE, path.name, uuid4(),
+                     FakeWorkspace(path.parent), lambda: None)
+    )
 
     assert len(runtime.requests) == 1
     assert [element.text for element in parsed.elements].count("운용 한도 7%") == 2
+
+
+def test_docx_ocr_requires_explicit_workspace(tmp_path: Path) -> None:
+    import pytest
+
+    from ai_workshop.labs.rag.parsing.contracts import ParsingError
+
+    runtime = FakeOcrRuntime()
+    path = _document(tmp_path)
+    with pytest.raises(ParsingError, match="Tracked temporary workspace required"):
+        DocxStructureParser(ocr_runtime=runtime, ocr_profile=_profile(tmp_path)).parse(
+            ParseRequest(path, DOCX_MEDIA_TYPE, path.name, uuid4())
+        )
+    assert runtime.requests == []
+
+
+def test_docx_marks_opaque_writer_before_runtime_and_allocates_once(tmp_path: Path) -> None:
+    started = []
+    workspace = FakeWorkspace(tmp_path)
+
+    class CheckedRuntime(FakeOcrRuntime):
+        def recognize(self, request, profile):
+            assert started == [True]
+            assert request.image_path.parent == workspace.root
+            assert request.image_path.read_bytes() == _PNG
+            return super().recognize(request, profile)
+
+    runtime = CheckedRuntime()
+    path = _document(tmp_path, repeated_image=True)
+    DocxStructureParser(ocr_runtime=runtime, ocr_profile=_profile(tmp_path)).parse(
+        ParseRequest(path, DOCX_MEDIA_TYPE, path.name, uuid4(), workspace,
+                     lambda: started.append(True))
+    )
+    assert len(workspace.files) == 1
+    assert len(runtime.requests) == 1
+    assert workspace.files[0].exists()

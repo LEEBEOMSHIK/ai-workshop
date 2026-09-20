@@ -15,6 +15,10 @@ from ai_workshop.infrastructure.document_formats.pdf_preview import (
     PdfPreviewRenderer,
     PdfPreviewTimeoutError,
 )
+from tests.unit.infrastructure.document_formats.temporary_preview_support import (
+    CONTEXT,
+    FakeTemporaryService,
+)
 
 
 def two_page_pdf() -> bytes:
@@ -27,16 +31,19 @@ def two_page_pdf() -> bytes:
 
 
 @pytest.mark.asyncio
-async def test_actual_two_page_pdf_is_inspected_and_rendered_in_worker() -> None:
+async def test_actual_two_page_pdf_is_inspected_and_rendered_in_worker(
+    temporary_service: FakeTemporaryService,
+) -> None:
     renderer = PdfPreviewRenderer(
+        temporary_service=temporary_service,
         max_pages=2,
         max_pixels=20_000,
         timeout_seconds=5,
         max_concurrent=1,
     )
 
-    inspection = await renderer.inspect(two_page_pdf())
-    rendered = await renderer.render_page(two_page_pdf(), 2)
+    inspection = await renderer.inspect(two_page_pdf(), context=CONTEXT)
+    rendered = await renderer.render_page(two_page_pdf(), 2, context=CONTEXT)
 
     assert inspection.page_count == 2
     assert rendered.page_count == 2
@@ -46,9 +53,12 @@ async def test_actual_two_page_pdf_is_inspected_and_rendered_in_worker() -> None
 
 
 @pytest.mark.asyncio
-async def test_invalid_page_pdf_and_pixel_bounds_are_explicit() -> None:
+async def test_invalid_page_pdf_and_pixel_bounds_are_explicit(
+    temporary_service: FakeTemporaryService,
+) -> None:
     content = two_page_pdf()
     renderer = PdfPreviewRenderer(
+        temporary_service=temporary_service,
         max_pages=2,
         max_pixels=19_999,
         timeout_seconds=5,
@@ -56,15 +66,16 @@ async def test_invalid_page_pdf_and_pixel_bounds_are_explicit() -> None:
     )
 
     with pytest.raises(PdfPreviewLimitError):
-        await renderer.render_page(content, 1)
+        await renderer.render_page(content, 1, context=CONTEXT)
     with pytest.raises(PdfPageError):
-        await renderer.render_page(content, 3)
+        await renderer.render_page(content, 3, context=CONTEXT)
     with pytest.raises(PdfInvalidError):
-        await renderer.inspect(b"%PDF-1.7\nnot-a-valid-pdf")
+        await renderer.inspect(b"%PDF-1.7\nnot-a-valid-pdf", context=CONTEXT)
 
 
 @pytest.mark.asyncio
 async def test_input_limit_rejects_before_starting_worker(
+    temporary_service: FakeTemporaryService,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def forbidden(*_args: object, **_kwargs: object) -> object:
@@ -72,6 +83,7 @@ async def test_input_limit_rejects_before_starting_worker(
 
     monkeypatch.setattr(preview_module.subprocess, "Popen", forbidden)
     renderer = PdfPreviewRenderer(
+        temporary_service=temporary_service,
         max_input_bytes=16,
         max_pages=2,
         max_pixels=20_000,
@@ -80,11 +92,12 @@ async def test_input_limit_rejects_before_starting_worker(
     )
 
     with pytest.raises(PdfPreviewLimitError):
-        await renderer.inspect(b"x" * 17)
+        await renderer.inspect(b"x" * 17, context=CONTEXT)
 
 
 @pytest.mark.asyncio
 async def test_worker_spawn_failure_is_a_safe_operational_error(
+    temporary_service: FakeTemporaryService,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def fail_spawn(*_args: object, **_kwargs: object) -> object:
@@ -92,6 +105,7 @@ async def test_worker_spawn_failure_is_a_safe_operational_error(
 
     monkeypatch.setattr(preview_module.subprocess, "Popen", fail_spawn)
     renderer = PdfPreviewRenderer(
+        temporary_service=temporary_service,
         max_pages=2,
         max_pixels=20_000,
         timeout_seconds=5,
@@ -99,7 +113,7 @@ async def test_worker_spawn_failure_is_a_safe_operational_error(
     )
 
     with pytest.raises(preview_module.PdfPreviewWorkerError) as failure:
-        await renderer.inspect(two_page_pdf())
+        await renderer.inspect(two_page_pdf(), context=CONTEXT)
 
     assert "sensitive" not in str(failure.value)
 
@@ -107,8 +121,7 @@ async def test_worker_spawn_failure_is_a_safe_operational_error(
 def _slow_worker(tmp_path: Path) -> Path:
     worker = tmp_path / "slow_worker.py"
     worker.write_text(
-        "import time\n"
-        "time.sleep(30)\n",
+        "import time\ntime.sleep(30)\n",
         encoding="utf-8",
     )
     return worker
@@ -164,6 +177,7 @@ async def _event_is_set(event: threading.Event) -> None:
 
 @pytest.mark.asyncio
 async def test_timeout_terminates_reaps_and_releases_slot(
+    temporary_service: FakeTemporaryService,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -185,6 +199,7 @@ async def test_timeout_terminates_reaps_and_releases_slot(
 
     monkeypatch.setattr(preview_module.subprocess, "Popen", first_worker_is_slow)
     renderer = PdfPreviewRenderer(
+        temporary_service=temporary_service,
         max_pages=2,
         max_pixels=20_000,
         timeout_seconds=1,
@@ -192,8 +207,8 @@ async def test_timeout_terminates_reaps_and_releases_slot(
     )
 
     with pytest.raises(PdfPreviewTimeoutError):
-        await renderer.inspect(two_page_pdf())
-    result = await renderer.inspect(two_page_pdf())
+        await renderer.inspect(two_page_pdf(), context=CONTEXT)
+    result = await renderer.inspect(two_page_pdf(), context=CONTEXT)
 
     assert result.page_count == 2
     assert processes[0].returncode is not None
@@ -201,6 +216,7 @@ async def test_timeout_terminates_reaps_and_releases_slot(
 
 @pytest.mark.asyncio
 async def test_cancellation_terminates_reaps_and_releases_slot(
+    temporary_service: FakeTemporaryService,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -222,19 +238,20 @@ async def test_cancellation_terminates_reaps_and_releases_slot(
 
     monkeypatch.setattr(preview_module.subprocess, "Popen", first_worker_is_slow)
     renderer = PdfPreviewRenderer(
+        temporary_service=temporary_service,
         max_pages=2,
         max_pixels=20_000,
         timeout_seconds=5,
         max_concurrent=1,
     )
-    task = asyncio.create_task(renderer.inspect(two_page_pdf()))
+    task = asyncio.create_task(renderer.inspect(two_page_pdf(), context=CONTEXT))
     while not processes:
         await asyncio.sleep(0)
 
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    result = await renderer.inspect(two_page_pdf())
+    result = await renderer.inspect(two_page_pdf(), context=CONTEXT)
 
     assert result.page_count == 2
     assert processes[0].returncode is not None
@@ -242,6 +259,7 @@ async def test_cancellation_terminates_reaps_and_releases_slot(
 
 @pytest.mark.asyncio
 async def test_repeated_cancellation_cannot_release_slot_before_reap(
+    temporary_service: FakeTemporaryService,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -250,12 +268,13 @@ async def test_repeated_cancellation_cannot_release_slot_before_reap(
         _slow_worker(tmp_path),
     )
     renderer = PdfPreviewRenderer(
+        temporary_service=temporary_service,
         max_pages=2,
         max_pixels=20_000,
         timeout_seconds=5,
         max_concurrent=1,
     )
-    owner = asyncio.create_task(renderer.inspect(two_page_pdf()))
+    owner = asyncio.create_task(renderer.inspect(two_page_pdf(), context=CONTEXT))
     contender: asyncio.Task[object] | None = None
     try:
         while not processes:
@@ -265,7 +284,7 @@ async def test_repeated_cancellation_cannot_release_slot_before_reap(
         owner.cancel()
         await asyncio.sleep(0)
         owner.cancel()
-        contender = asyncio.create_task(renderer.inspect(two_page_pdf()))
+        contender = asyncio.create_task(renderer.inspect(two_page_pdf(), context=CONTEXT))
         await asyncio.sleep(0.05)
 
         assert not owner.done()
@@ -292,6 +311,7 @@ async def test_repeated_cancellation_cannot_release_slot_before_reap(
 
 @pytest.mark.asyncio
 async def test_cancellation_during_timeout_cleanup_waits_for_reap_and_releases_slot(
+    temporary_service: FakeTemporaryService,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -300,19 +320,20 @@ async def test_cancellation_during_timeout_cleanup_waits_for_reap_and_releases_s
         _slow_worker(tmp_path),
     )
     renderer = PdfPreviewRenderer(
+        temporary_service=temporary_service,
         max_pages=2,
         max_pixels=20_000,
         timeout_seconds=1,
         max_concurrent=1,
     )
-    owner = asyncio.create_task(renderer.inspect(two_page_pdf()))
+    owner = asyncio.create_task(renderer.inspect(two_page_pdf(), context=CONTEXT))
     contender: asyncio.Task[object] | None = None
     try:
         await _event_is_set(terminate_called)
         owner.cancel()
         await asyncio.sleep(0)
         owner.cancel()
-        contender = asyncio.create_task(renderer.inspect(two_page_pdf()))
+        contender = asyncio.create_task(renderer.inspect(two_page_pdf(), context=CONTEXT))
         await asyncio.sleep(0.05)
 
         assert not owner.done()
@@ -339,6 +360,7 @@ async def test_cancellation_during_timeout_cleanup_waits_for_reap_and_releases_s
 
 @pytest.mark.asyncio
 async def test_worker_concurrency_never_exceeds_configured_slots(
+    temporary_service: FakeTemporaryService,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -356,12 +378,15 @@ async def test_worker_concurrency_never_exceeds_configured_slots(
 
     monkeypatch.setattr(preview_module.subprocess, "Popen", every_worker_is_slow)
     renderer = PdfPreviewRenderer(
+        temporary_service=temporary_service,
         max_pages=2,
         max_pixels=20_000,
         timeout_seconds=5,
         max_concurrent=2,
     )
-    tasks = [asyncio.create_task(renderer.inspect(two_page_pdf())) for _ in range(3)]
+    tasks = [
+        asyncio.create_task(renderer.inspect(two_page_pdf(), context=CONTEXT)) for _ in range(3)
+    ]
     while len(processes) < 2:
         await asyncio.sleep(0)
     await asyncio.sleep(0.05)
@@ -372,3 +397,8 @@ async def test_worker_concurrency_never_exceeds_configured_slots(
         task.cancel()
     await asyncio.gather(*tasks, return_exceptions=True)
     assert all(process.returncode is not None for process in processes)
+
+
+@pytest.fixture
+def temporary_service(tmp_path: Path) -> FakeTemporaryService:
+    return FakeTemporaryService(tmp_path)

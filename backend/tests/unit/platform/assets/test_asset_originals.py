@@ -25,6 +25,8 @@ from ai_workshop.platform.assets.originals import (
     OriginalService,
 )
 from ai_workshop.platform.assets.originals_api import get_original_service
+from ai_workshop.platform.assets.provenance_contracts import SourceIdentity
+from ai_workshop.platform.assets.temporary_contracts import TemporaryContext
 from ai_workshop.platform.identity.api import get_current_user
 from ai_workshop.platform.identity.domain import User, UserRole
 from ai_workshop.shared.errors import AppError
@@ -157,14 +159,19 @@ class MemoryObjectStore:
 class MemoryPdfRenderer:
     def __init__(self) -> None:
         self.inspected: list[bytes] = []
+        self.contexts: list[TemporaryContext] = []
         self.rendered: list[tuple[bytes, int]] = []
 
-    async def inspect(self, content: bytes) -> PdfInspection:
+    async def inspect(self, content: bytes, *, context: TemporaryContext) -> PdfInspection:
         self.inspected.append(content)
+        self.contexts.append(context)
         return PdfInspection(page_count=2)
 
-    async def render_page(self, content: bytes, page_number: int) -> RenderedPdfPage:
+    async def render_page(
+        self, content: bytes, page_number: int, *, context: TemporaryContext
+    ) -> RenderedPdfPage:
         self.rendered.append((content, page_number))
+        self.contexts.append(context)
         return RenderedPdfPage(
             content=b"\x89PNG\r\n\x1a\nsynthetic",
             page_count=2,
@@ -176,11 +183,13 @@ class FailingPdfRenderer(MemoryPdfRenderer):
         super().__init__()
         self.error = error
 
-    async def inspect(self, content: bytes) -> PdfInspection:
+    async def inspect(self, content: bytes, *, context: TemporaryContext) -> PdfInspection:
         del content
         raise self.error
 
-    async def render_page(self, content: bytes, page_number: int) -> RenderedPdfPage:
+    async def render_page(
+        self, content: bytes, page_number: int, *, context: TemporaryContext
+    ) -> RenderedPdfPage:
         del content, page_number
         raise self.error
 
@@ -335,9 +344,7 @@ async def test_pdf_requires_pdf_bytes_and_uses_same_verified_bytes_for_worker() 
         renderer,
     )
 
-    metadata = await service.preview(
-        user=member(), document_id=DOCUMENT_ID, version_id=VERSION_ID
-    )
+    metadata = await service.preview(user=member(), document_id=DOCUMENT_ID, version_id=VERSION_ID)
     page = await service.pdf_page(
         user=member(), document_id=DOCUMENT_ID, version_id=VERSION_ID, page_number=2
     )
@@ -347,6 +354,10 @@ async def test_pdf_requires_pdf_bytes_and_uses_same_verified_bytes_for_worker() 
     assert page == b"\x89PNG\r\n\x1a\nsynthetic"
     assert renderer.inspected == [content]
     assert renderer.rendered == [(content, 2)]
+    assert (
+        renderer.contexts
+        == [TemporaryContext(SourceIdentity(resource.workspace_id, DOCUMENT_ID, VERSION_ID))] * 2
+    )
 
     invalid = b"not a pdf"
     invalid_resource = original_resource(invalid, suffix=".pdf")
@@ -401,20 +412,15 @@ async def test_unsupported_preview_is_metadata_only_but_download_remains_availab
         MemoryObjectStore({resource.object_key: content}),
     )
 
-    preview = await service.preview(
-        user=member(), document_id=DOCUMENT_ID, version_id=VERSION_ID
-    )
-    download = await service.content(
-        user=member(), document_id=DOCUMENT_ID, version_id=VERSION_ID
-    )
+    preview = await service.preview(user=member(), document_id=DOCUMENT_ID, version_id=VERSION_ID)
+    download = await service.content(user=member(), document_id=DOCUMENT_ID, version_id=VERSION_ID)
 
     assert preview.kind == "unsupported"
     assert preview.text is None
     assert preview.page_count is None
     assert download.content == content
     assert download.content_disposition == (
-        "attachment; filename=\"report.html\"; "
-        "filename*=UTF-8''report.html"
+        "attachment; filename=\"report.html\"; filename*=UTF-8''report.html"
     )
 
 
@@ -472,9 +478,7 @@ def test_pdf_page_route_returns_only_bounded_png_with_private_headers() -> None:
     app.dependency_overrides[get_original_service] = lambda: service
 
     with TestClient(app) as client:
-        response = client.get(
-            f"/api/v1/documents/{DOCUMENT_ID}/versions/{VERSION_ID}/pdf/pages/2"
-        )
+        response = client.get(f"/api/v1/documents/{DOCUMENT_ID}/versions/{VERSION_ID}/pdf/pages/2")
 
     assert response.status_code == 200
     assert response.headers["content-type"] == "image/png"
@@ -502,9 +506,7 @@ def test_original_route_errors_are_private_for_auth_validation_and_app_errors() 
     app_error_app.dependency_overrides[get_current_user] = member
     app_error_app.dependency_overrides[get_original_service] = lambda: missing_service
     with TestClient(app_error_app) as client:
-        missing = client.get(
-            f"/api/v1/documents/{DOCUMENT_ID}/versions/{VERSION_ID}/preview"
-        )
+        missing = client.get(f"/api/v1/documents/{DOCUMENT_ID}/versions/{VERSION_ID}/preview")
 
     def unauthorized() -> User:
         raise AppError("authentication_required", "Authentication is required.", 401)
@@ -513,9 +515,7 @@ def test_original_route_errors_are_private_for_auth_validation_and_app_errors() 
     auth_app.dependency_overrides[get_current_user] = unauthorized
     auth_app.dependency_overrides[get_original_service] = lambda: missing_service
     with TestClient(auth_app) as client:
-        auth = client.get(
-            f"/api/v1/documents/{DOCUMENT_ID}/versions/{VERSION_ID}/content"
-        )
+        auth = client.get(f"/api/v1/documents/{DOCUMENT_ID}/versions/{VERSION_ID}/content")
 
     validation_app = create_app()
     validation_app.dependency_overrides[get_current_user] = member

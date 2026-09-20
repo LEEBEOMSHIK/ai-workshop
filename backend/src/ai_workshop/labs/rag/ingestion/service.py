@@ -22,6 +22,7 @@ from ai_workshop.labs.rag.ingestion.serialization import (
 from ai_workshop.labs.rag.models.document_processing import DocumentProcessingSpec
 from ai_workshop.platform.assets.domain import AssetVersion
 from ai_workshop.platform.assets.storage import StoredObject
+from ai_workshop.platform.assets.temporary_contracts import TemporaryContext
 
 if TYPE_CHECKING:
     from ai_workshop.labs.rag.ingestion.artifact_service import RagArtifactPublisher
@@ -75,6 +76,7 @@ class ParsingPort(Protocol):
         asset_version: AssetVersion,
         filename: str,
         *,
+        context: TemporaryContext | None = None,
         processing_spec: DocumentProcessingSpec | None = None,
     ) -> ParsedDocument: ...
 
@@ -142,7 +144,14 @@ class RagIngestionWorkflow:
         execution = await self.lifecycle.begin(job_id)
         while execution.status is not ProjectionStatus.READY:
             if execution.status is ProjectionStatus.PARSING:
-                if execution.document_processing_spec is None:
+                if execution.temporary_context is not None:
+                    document = await self.parser.materialize_and_parse(
+                        execution.asset_version,
+                        execution.filename,
+                        context=execution.temporary_context,
+                        processing_spec=execution.document_processing_spec,
+                    )
+                elif execution.document_processing_spec is None:
                     document = await self.parser.materialize_and_parse(
                         execution.asset_version, execution.filename
                     )

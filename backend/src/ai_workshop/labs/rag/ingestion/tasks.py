@@ -57,6 +57,12 @@ from ai_workshop.labs.rag.parsing.registry import ParserRegistry
 from ai_workshop.labs.rag.parsing.service import ParsingService
 from ai_workshop.platform.assets.domain import AssetVersion, VersionStatus
 from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecord
+from ai_workshop.platform.assets.provenance_contracts import SourceIdentity
+from ai_workshop.platform.assets.temporary_contracts import (
+    TemporaryContext,
+    TemporaryOwnershipError,
+)
+from ai_workshop.platform.assets.temporary_factory import create_temporary_service
 from ai_workshop.platform.jobs.domain import Job, JobStatus
 from ai_workshop.platform.jobs.repository import SqlAlchemyJobRepository
 from ai_workshop.shared.db import create_engine, create_session_factory
@@ -447,6 +453,10 @@ class SqlAlchemyRagIngestionLifecycle:
     def _execution(self, rows: _IngestionRows) -> IngestionExecution:
         return IngestionExecution(
             job_id=rows.ingestion.job_id,
+            temporary_context=TemporaryContext(
+                SourceIdentity(rows.document.workspace_id, rows.document.id, rows.asset.id),
+                rows.ingestion.job_id,
+            ),
             projection_id=rows.ingestion.projection_id,
             asset_version=AssetVersion(
                 id=rows.asset.id,
@@ -523,19 +533,45 @@ def _chunking_config(profile_config: dict[str, Any]) -> ChunkingConfig:
     return ChunkingConfig(target, overlap, ceiling)
 
 
+class ProductionParsingStage:
+    """Reserve only after lifecycle.begin has released its source/job transaction."""
+
+    def __init__(self, settings: Settings, object_store: LocalObjectStore) -> None:
+        self.settings = settings
+        self.object_store = object_store
+
+    async def materialize_and_parse(
+        self, asset_version: AssetVersion, filename: str, *,
+        context: TemporaryContext | None = None,
+        processing_spec: DocumentProcessingSpec | None = None,
+    ) -> ParsedDocument:
+        if context is None:
+            raise TemporaryOwnershipError("source_mismatch")
+        engine = create_engine(self.settings)
+        try:
+            sessions = create_session_factory(engine)
+            service = ParsingService(
+                self.object_store,
+                ParserRegistry((PlainTextParser(), MarkdownParser(), PdfParser())),
+                temporary_service=create_temporary_service(self.settings, sessions),
+                profile_parser_factory=lambda media_type, spec: _profile_parser(
+                    media_type, spec, self.settings
+                ),
+            )
+            return await service.materialize_and_parse(
+                asset_version, filename, context=context, processing_spec=processing_spec
+            )
+        finally:
+            await engine.dispose()
+
+
 def create_rag_ingestion_workflow(settings: Settings) -> RagIngestionWorkflow:
     object_store = LocalObjectStore(settings.object_store_root)
     runtime_provider = EmbeddingRuntimeProvider()
     return RagIngestionWorkflow(
         SqlAlchemyRagIngestionLifecycle(settings),
         object_store,
-        ParsingService(
-            object_store,
-            ParserRegistry((PlainTextParser(), MarkdownParser(), PdfParser())),
-            profile_parser_factory=lambda media_type, spec: _profile_parser(
-                media_type, spec, settings
-            ),
-        ),
+        ProductionParsingStage(settings, object_store),
         ProductionChunkingStage(settings, runtime_provider),
         ProductionEmbeddingStage(settings, object_store, runtime_provider=runtime_provider),
         ProductionIndexingStage(settings, object_store),

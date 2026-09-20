@@ -72,6 +72,7 @@ from tests.integration.rag_isolation_support import (
 from tests.integration.rag_isolation_support import (
     isolated_rag_resources,  # noqa: F401
 )
+from tests.unit.labs.rag.parsing.test_service import FakeTemporaryService
 
 pytestmark = pytest.mark.integration
 
@@ -382,7 +383,10 @@ def workflow(
     return RagIngestionWorkflow(
         lifecycle or SqlAlchemyRagIngestionLifecycle(settings),
         store,
-        ParsingService(store, ParserRegistry((PlainTextParser(),))),
+        ParsingService(
+            store, ParserRegistry((PlainTextParser(),)),
+            temporary_service=FakeTemporaryService(settings.object_store_root),
+        ),
         AsyncTestChunker(),
         ProductionEmbeddingStage(settings, store, embedding_factory=fake_embedding),
         indexing or ProductionIndexingStage(settings, store),

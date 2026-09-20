@@ -7,11 +7,17 @@
 
 ## 현재 작업
 
+- 문서 전용 임시 작업공간 구현 완료(2026-09-20): 생성 전 원장 예약·Windows 소유 파일 정리·parser/OCR/preview 문맥과 종료 확인을 연결했다.
+  DB·파일·RAG 구현과 별도 검토를 분리했다. 최종699단위/7격리PG(706통과), Windows 권한 skip2건, 타입18파일·린트39파일 통과. 독립200통과/1skip·현재 코드 차단 없음.
+  기존 ingestion 통합 fixture는 파싱 전 artifact_binding_missing 8실패/5통과, ES 통합은 미실행이며 전체 ingestion 통합 통과로 보고하지 않는다.
+  계획: `docs/superpowers/plans/2026-09-20-document-temporary-workspace.md`. 기록: `docs/worklogs/2026-09-20-document-temporary-workspace.md`.
+  OCR 종료 미확인은 성공해도 open/파일을 보존한다. Windows 전용이며 실사용 적용·서버 재시작·과거 임시물 삭제는 하지 않았다. 다음은 HTTP spool 선행 예약과 일반 Jobs 출처다.
+
 - 문서 전용 임시 작업공간 상세 설계 작성(2026-09-20): 원본 추적 다음 단계로 parser·DOCX/OCR·PDF preview의 생성 전 예약과 종료 확인을 구체화했다.
   높은 위험의 모듈 경계·소유권 작업이다. 메인은 시스템/요구·문서, RAG 담당은 호출 경로, DBA는 예약 잠금·작업 보존, 별도 검토자는 삭제/프라이버시를 검토한다.
   HTTP multipart spool과 일반 Job revision은 별도 후속으로 나누며, 이 경계가 남은 동안 전체 복제본 추적 완료로 판정하지 않는다.
   상세안: `docs/superpowers/specs/2026-09-20-document-temporary-workspace-design.md`. 독립 검토의 하위 파일 소유권과 잠금 순서 지적을 보완했다.
-  기록: `docs/worklogs/2026-09-20-document-temporary-workspace-design.md`. 상세안 확인 후 구현 계획으로 진행한다. 제품 구현·실사용 적용·과거 임시 파일 삭제는 하지 않았다.
+  기록: `docs/worklogs/2026-09-20-document-temporary-workspace-design.md`. 이후 사용자 바로 구현 지시에 따라 위 구현을 완료했다. 실사용 적용·과거 임시 파일 삭제는 하지 않았다.
 
 - 원본 파일 추적 구현 완료(2026-09-20): 생성 전 영속 예약, Windows 추적 게시, 원본/버전/job/출처 원자 확정, 실패 정리 차단과 읽기 목록을 연결했다.
   DB·파일·목록 구현과 독립 검증을 분리했다. 파일 교체 경쟁과 DB 정리 결과 불명 위험을 보완하고 최종 재검토를 통과했다.
@@ -1360,26 +1366,27 @@ RAG 구성에 고정하고, 관리자가 PP-StructureV3 pipeline과 하위 OCR �
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**. 상세 이력은 연결된 작업 기록에 둔다.
 
-1. 원본 파일 추적: 사전 예약·Windows 게시·원자 확정·실패 정리 차단·미확정 목록 구현.
+1. 문서 전용 임시 작업공간: 사전 예약·Windows 핸들 정리·parser/OCR/preview·목록 연결.
+   706통과/2skip·타입/린트·독립 검토 완료. OCR 잔존 보존과 기존 통합 fixture 한계를 명시했다
+   (`docs/worklogs/2026-09-20-document-temporary-workspace.md`).
+2. 원본 파일 추적: 사전 예약·Windows 게시·원자 확정·실패 정리 차단·미확정 목록 구현.
    526건 통과·Windows 권한 skip2건·타입/린트·최종 독립 검토 통과. 실사용 적용과 비Windows 쓰기는 후속
    (`docs/worklogs/2026-09-20-original-file-ownership.md`).
-2. 파일함 root 표시·이동 확인창 개선 커밋 인계: 관련 154건·타입·전체 린트·독립 검토 통과.
+3. 파일함 root 표시·이동 확인창 개선 커밋 인계: 관련 154건·타입·전체 린트·독립 검토 통과.
    기존 합성 브라우저 검증 기록을 보존하며 실사용 자료는 변경하지 않았다
    (`docs/worklogs/2026-09-13-root-move-dialog-polish.md`).
-3. 공유 별칭 종료·문서 쓰기 차단: 영속 요청 원장, fence, activation/parity와 inventory 연결.
+4. 공유 별칭 종료·문서 쓰기 차단: 영속 요청 원장, fence, activation/parity와 inventory 연결.
    관련349건·타입19파일·린트·독립 리뷰 통과. 실사용 적용과 전체 영구 삭제는 후속
    (`docs/worklogs/2026-09-20-rag-alias-write-fence.md`).
-4. RAG 색인 출처 구현: build 사전 등록·시도/UUID·activation/parity revision·실물 목록 연결.
+5. RAG 색인 출처 구현: build 사전 등록·시도/UUID·activation/parity revision·실물 목록 연결.
    단위278건·PG/ES 통합33건·legacy parity4건·타입15파일·린트 및 독립150건·최종 리뷰 통과. 실사용 적용·삭제는 후속
    (`docs/worklogs/2026-09-20-rag-index-provenance.md`).
-5. RAG 파싱·청킹·임베딩 파일 출처: 생성 전 등록·추적 게시·ingestion·실물 대조 구현.
-   관련634건·타입14파일 및 worker 최종 재검증·린트24파일·개별/최종 보완 독립 검토 통과. Windows 권한 skip1건, 실사용 적용·삭제 미활성화
-   (`docs/worklogs/2026-09-14-rag-artifact-provenance.md`).
+
 ## 다음 작업
 
 최우선(2026-09-20): 색인 출처와 공유 alias의 영속 요청/확인된 종료, RAG 색인 쓰기 차단 구현을 완료했다.
-원본 파일 추적 코드를 Windows 기준 구현·검증했다. 파서/OCR/뷰어 임시 작업공간 상세안을 작성했고 사용자 확인 후 구현 계획으로 진행한다.
-그 다음은 HTTP multipart 선행 예약과 일반 작업 메타데이터의 소유권·정리 계약이다. 비Windows 원본 쓰기의 안전한 native 구현도 후속으로 남는다.
+원본과 파서/OCR/뷰어 임시 작업공간을 Windows 기준 구현·검증했다. 다음은 HTTP multipart 선행 예약과 일반 작업 메타데이터의 소유권·정리 계약이다.
+OCR 미확인 writer의 잔존 회수, 기존 ingestion 통합 fixture 갱신, 미활성 purge inventory 역순 잠금 해소와 비Windows native 구현도 후속으로 남는다.
 이후 전체 참여자 조립·구 writer/파일 writer 종료·잔존 재검증·실제 삭제 API/UI가 필요하다. 기존 SQL·JSON·색인/alias 구현을 반복하지 않는다.
 
 최우선(2026-09-14): RAG SQL 묶음과 parsed/chunks/embeddings JSON·게시 임시 파일의 출처·revision·목록 연결을 완료했다.

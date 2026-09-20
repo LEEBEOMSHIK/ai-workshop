@@ -6,12 +6,18 @@ import math
 import os
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import Any, NoReturn, cast
 
 import pymupdf
+
+from ai_workshop.platform.assets.temporary_contracts import (
+    TemporaryContext,
+    TemporaryOwnershipError,
+)
+from ai_workshop.platform.assets.temporary_service import TemporaryServicePort
 
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _METADATA_MAX_BYTES = 1024
@@ -141,6 +147,8 @@ class PdfPreviewRenderer:
         timeout_seconds: float,
         max_concurrent: int,
         max_input_bytes: int = 50 * 1024 * 1024,
+        temporary_service: TemporaryServicePort | None = None,
+        slots: asyncio.Semaphore | None = None,
     ) -> None:
         if (
             max_input_bytes < 1
@@ -155,17 +163,29 @@ class PdfPreviewRenderer:
         self.max_pages = max_pages
         self.max_pixels = max_pixels
         self.timeout_seconds = timeout_seconds
-        self._slots = asyncio.Semaphore(max_concurrent)
+        self._slots = slots if slots is not None else asyncio.Semaphore(max_concurrent)
+        self._temporary_service = temporary_service
         self._max_output_bytes = max_pixels * 4 + 1024 * 1024
 
-    async def inspect(self, content: bytes) -> PdfInspection:
-        result = await self._run("inspect", content, page_number=None)
+    async def inspect(
+        self,
+        content: bytes,
+        *,
+        context: TemporaryContext | None = None,
+    ) -> PdfInspection:
+        result = await self._run("inspect", content, page_number=None, context=context)
         return PdfInspection(page_count=result["page_count"])
 
-    async def render_page(self, content: bytes, page_number: int) -> RenderedPdfPage:
+    async def render_page(
+        self,
+        content: bytes,
+        page_number: int,
+        *,
+        context: TemporaryContext | None = None,
+    ) -> RenderedPdfPage:
         if page_number < 1:
             raise PdfPageError("The PDF page number is invalid.")
-        result = await self._run("render", content, page_number=page_number)
+        result = await self._run("render", content, page_number=page_number, context=context)
         output = result["content"]
         return RenderedPdfPage(content=output, page_count=result["page_count"])
 
@@ -175,16 +195,18 @@ class PdfPreviewRenderer:
         content: bytes,
         *,
         page_number: int | None,
+        context: TemporaryContext | None,
     ) -> dict[str, Any]:
         try:
             return await self._run_process(
                 operation,
                 content,
                 page_number=page_number,
+                context=context,
             )
         except (PdfPreviewError, asyncio.CancelledError):
             raise
-        except (OSError, subprocess.SubprocessError) as exc:
+        except (OSError, subprocess.SubprocessError, TemporaryOwnershipError) as exc:
             raise PdfPreviewWorkerError("The PDF worker is unavailable.") from exc
 
     async def _run_process(
@@ -193,15 +215,29 @@ class PdfPreviewRenderer:
         content: bytes,
         *,
         page_number: int | None,
+        context: TemporaryContext | None,
     ) -> dict[str, Any]:
         if len(content) > self.max_input_bytes:
             raise PdfPreviewLimitError("The PDF exceeds the configured input limit.")
+        if self._temporary_service is None or context is None:
+            raise PdfPreviewWorkerError("Tracked PDF storage is unavailable.")
         async with self._slots:
-            with TemporaryDirectory(prefix="ai-workshop-pdf-preview-") as directory:
-                root = Path(directory)
-                input_path = root / "input.pdf"
-                output_path = root / "page.png"
-                metadata_path = root / "result.json"
+            lease = await self._temporary_service.open(
+                context,
+                "pdf_preview",
+                coverage="runtime_unverified",
+            )
+            writer_confirmed = True  # No process has been started yet.
+
+            def reaped() -> None:
+                nonlocal writer_confirmed
+                writer_confirmed = True
+
+            try:
+                root = lease.workspace.root
+                input_path = lease.workspace.create_file("input.pdf")
+                output_path = lease.workspace.create_file("page.png")
+                metadata_path = lease.workspace.create_file("result.json")
                 input_path.write_bytes(content)
                 command = [
                     sys.executable,
@@ -219,6 +255,8 @@ class PdfPreviewRenderer:
                 ]
                 if page_number is not None:
                     command.append(str(page_number))
+                # Even a Popen failure can leave uncertain child creation; fail closed.
+                writer_confirmed = False
                 process = subprocess.Popen(
                     command,
                     stdin=subprocess.DEVNULL,
@@ -227,13 +265,9 @@ class PdfPreviewRenderer:
                     shell=False,
                     close_fds=True,
                     env=_minimal_worker_environment(root),
-                    creationflags=(
-                        subprocess.CREATE_NO_WINDOW
-                        if os.name == "nt"
-                        else 0
-                    ),
+                    creationflags=(subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0),
                 )
-                exit_code = await self._wait(process)
+                exit_code = await self._wait(process, on_reaped=reaped)
                 if exit_code != 0:
                     _raise_worker_exit(exit_code)
                 metadata = _read_metadata(metadata_path, operation)
@@ -254,24 +288,36 @@ class PdfPreviewRenderer:
                     "page_count": metadata["page_count"],
                     "content": rendered,
                 }
+            finally:
+                await lease.finish(writer_confirmed=writer_confirmed)
 
-    async def _wait(self, process: subprocess.Popen[bytes]) -> int:
+    async def _wait(
+        self,
+        process: subprocess.Popen[bytes],
+        *,
+        on_reaped: Callable[[], None],
+    ) -> int:
         waiter = asyncio.create_task(asyncio.to_thread(process.wait))
         try:
-            return await asyncio.wait_for(
+            result = await asyncio.wait_for(
                 asyncio.shield(waiter),
                 timeout=self.timeout_seconds,
             )
+            on_reaped()
+            return result
         except TimeoutError as exc:
             cancelled = await _terminate_reap_uninterruptibly(process, waiter)
+            on_reaped()
             if cancelled:
                 raise asyncio.CancelledError from None
             raise PdfPreviewTimeoutError("The PDF worker timed out.") from exc
         except asyncio.CancelledError:
             await _terminate_reap_uninterruptibly(process, waiter)
+            on_reaped()
             raise
         except BaseException:
             cancelled = await _terminate_reap_uninterruptibly(process, waiter)
+            on_reaped()
             if cancelled:
                 raise asyncio.CancelledError from None
             raise
@@ -336,9 +382,7 @@ def _read_metadata(path: Path, operation: str) -> dict[str, int]:
         not isinstance(value, dict)
         or set(value) != keys
         or any(
-            not isinstance(value[key], int)
-            or isinstance(value[key], bool)
-            or value[key] < 1
+            not isinstance(value[key], int) or isinstance(value[key], bool) or value[key] < 1
             for key in keys
         )
     ):

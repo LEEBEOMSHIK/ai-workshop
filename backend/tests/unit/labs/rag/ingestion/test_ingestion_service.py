@@ -798,3 +798,29 @@ def test_readiness_requires_real_count_and_alias_verification() -> None:
     assert ReadinessVerification(1, 2, 2, 2, True).is_complete is True
     assert ReadinessVerification(1, 2, 1, 2, True).is_complete is False
     assert ReadinessVerification(1, 2, 2, 2, False).is_complete is False
+
+
+async def test_workflow_forwards_exact_temporary_context_after_begin() -> None:
+    from ai_workshop.platform.assets.provenance_contracts import SourceIdentity
+    from ai_workshop.platform.assets.temporary_contracts import TemporaryContext
+
+    execution = ingestion_execution_fixture(job_id=uuid4(), asset_version_id=uuid4(),
+                                             projection_id=uuid4())
+    context = TemporaryContext(SourceIdentity(uuid4(), execution.asset_version.document_id,
+                                               execution.asset_version.id), execution.job_id)
+    execution = replace(execution, temporary_context=context)
+    lifecycle = MemoryLifecycle(execution)
+
+    class ContextParser:
+        async def materialize_and_parse(
+            self, asset_version, filename, *, context, processing_spec=None
+        ):
+            assert lifecycle.statuses[-1] == ProjectionStatus.PARSING
+            assert context == execution.temporary_context
+            raise RuntimeError("forwarded")
+
+    stages = ForbiddenStages()
+    workflow = RagIngestionWorkflow(lifecycle, MemoryObjectStore(), ContextParser(), None,
+                                    stages, stages, stages)
+    with pytest.raises(RuntimeError, match="forwarded"):
+        await workflow.run(execution.job_id)

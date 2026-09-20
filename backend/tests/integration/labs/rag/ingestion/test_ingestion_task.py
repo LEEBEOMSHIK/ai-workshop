@@ -52,6 +52,7 @@ from ai_workshop.platform.workspaces.models import WorkspaceRecord
 from ai_workshop.shared.db import create_engine, create_session_factory
 from ai_workshop.worker import RAG_INGESTION_TASK, create_celery
 from alembic import command
+from tests.unit.labs.rag.parsing.test_service import FakeTemporaryService
 
 pytestmark = pytest.mark.integration
 
@@ -327,12 +328,14 @@ class FailOnceParser:
         self.delegate = delegate
         self.attempts = 0
 
-    async def materialize_and_parse(self, asset_version, filename, *, processing_spec=None):
+    async def materialize_and_parse(
+        self, asset_version, filename, *, context=None, processing_spec=None
+    ):
         self.attempts += 1
         if self.attempts == 1:
             raise OSError("synthetic transient parser failure")
         return await self.delegate.materialize_and_parse(
-            asset_version, filename, processing_spec=processing_spec
+            asset_version, filename, context=context, processing_spec=processing_spec
         )
 
 
@@ -341,7 +344,9 @@ class ExplicitFailingParser:
         self.calls = 0
         self.fallback_calls = 0
 
-    async def materialize_and_parse(self, asset_version, filename, *, processing_spec=None):
+    async def materialize_and_parse(
+        self, asset_version, filename, *, context=None, processing_spec=None
+    ):
         del processing_spec
         self.calls += 1
         raise ParsingError("synthetic_parser_failure", "The explicit parser failed.")
@@ -354,9 +359,11 @@ class BarrierParser:
         self.lock = Lock()
         self.element_ids: list[UUID] = []
 
-    async def materialize_and_parse(self, asset_version, filename, *, processing_spec=None):
+    async def materialize_and_parse(
+        self, asset_version, filename, *, context=None, processing_spec=None
+    ):
         document = await self.delegate.materialize_and_parse(
-            asset_version, filename, processing_spec=processing_spec
+            asset_version, filename, context=context, processing_spec=processing_spec
         )
         with self.lock:
             self.element_ids.append(document.elements[0].id)
@@ -445,6 +452,7 @@ def parsing_service(settings) -> ParsingService:
     return ParsingService(
         LocalObjectStore(settings.object_store_root),
         ParserRegistry((plain_text.PlainTextParser(),)),
+        temporary_service=FakeTemporaryService(settings.object_store_root),
     )
 
 

@@ -4,7 +4,6 @@ import hashlib
 import posixpath
 from collections.abc import Iterable
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from uuid import uuid4
 from zipfile import BadZipFile, ZipFile
 
@@ -109,125 +108,124 @@ class DocxStructureParser:
             )
             char_offset = max(char_offset, actual_location.char_end) + 1
 
-        with TemporaryDirectory(prefix="rag-docx-images-") as image_dir:
-            for child in document.element.body.iterchildren():
-                if child.tag == qn("w:p"):
-                    paragraph = Paragraph(child, document)
-                    text = paragraph.text.strip()
-                    if text:
-                        kind = _paragraph_kind(paragraph)
-                        if kind == "heading":
-                            level = _heading_level(paragraph)
-                            section_path[:] = section_path[: max(level - 1, 0)]
-                            section_path.append(text)
-                        append(kind, text)
-                    for relationship_id in _image_relationship_ids(paragraph):
-                        relationship = document.part.rels[relationship_id]
-                        if relationship.is_external:
-                            raise ExternalDocxRelationshipError()
-                        part = relationship.target_part
-                        media_type = str(part.content_type).lower()
-                        if media_type not in _SUPPORTED_IMAGES:
-                            raise UnsupportedEmbeddedImageError()
-                        source_part = _safe_source_part(str(relationship.target_ref))
-                        blob = bytes(part.blob)
-                        digest = hashlib.sha256(blob).hexdigest()
-                        try:
-                            image = Image.from_blob(blob)
-                        except UnrecognizedImageError as exc:
-                            raise UnsupportedEmbeddedImageError() from exc
-                        if self.ocr_runtime is None or self.ocr_profile is None:
-                            element_id = uuid4()
-                            append(
-                                "image",
-                                "",
-                                location=SourceLocation.docx_image(
-                                    element_id=element_id,
-                                    char_start=char_offset,
-                                    char_end=char_offset,
-                                    source_part=source_part,
-                                    image_sha256=digest,
-                                    bbox=(0.0, 0.0, 1.0, 1.0),
-                                ),
-                                confidence=None,
-                                evidence_eligible=False,
-                                warnings=("ocr_disabled",),
-                            )
-                            continue
-                        suffix = _SUPPORTED_IMAGES[media_type]
-                        image_path = Path(image_dir) / f"{digest}{suffix}"
-                        if not image_path.exists():
-                            image_path.write_bytes(blob)
-                        cache_key = (digest, self.ocr_profile.pipeline_version)
-                        result = ocr_cache.get(cache_key)
-                        if result is None:
-                            result = self.ocr_runtime.recognize(
-                                OcrRequest(
-                                    image_path=image_path,
-                                    media_type=media_type,
-                                    source_part=source_part,
-                                    image_sha256=digest,
-                                    pixel_width=image.px_width,
-                                    pixel_height=image.px_height,
-                                ),
-                                self.ocr_profile,
-                            )
-                            ocr_cache[cache_key] = result
-                        for unit in result.text_units:
-                            element_id = uuid4()
-                            append(
-                                "ocr_text",
-                                unit.text,
-                                location=SourceLocation.docx_image(
-                                    element_id=element_id,
-                                    char_start=char_offset,
-                                    char_end=char_offset + len(unit.text),
-                                    source_part=source_part,
-                                    image_sha256=digest,
-                                    bbox=unit.bbox,
-                                ),
-                                confidence=unit.confidence,
-                                evidence_eligible=unit.evidence_eligible,
-                                warnings=(
-                                    ("ocr_confidence_below_threshold",)
-                                    if not unit.evidence_eligible
-                                    else ()
-                                ),
-                            )
-                        for cell in result.table_cells:
-                            element_id = uuid4()
-                            table_cell = (
-                                TableCellLocation(cell.row_index, cell.column_index)
-                                if cell.row_index is not None and cell.column_index is not None
-                                else None
-                            )
-                            append(
-                                "ocr_table_cell",
-                                cell.text,
-                                location=SourceLocation.docx_image(
-                                    element_id=element_id,
-                                    char_start=char_offset,
-                                    char_end=char_offset + len(cell.text),
-                                    source_part=source_part,
-                                    image_sha256=digest,
-                                    bbox=cell.bbox,
-                                    table_cell=table_cell,
-                                ),
-                                confidence=cell.confidence,
-                                evidence_eligible=cell.evidence_eligible,
-                                warnings=(
-                                    ("ocr_confidence_below_threshold",)
-                                    if not cell.evidence_eligible
-                                    else ()
-                                ),
-                            )
-                elif child.tag == qn("w:tbl"):
-                    table = Table(child, document)
-                    for row in table.rows:
-                        for cell in row.cells:
-                            text = cell.text.strip()
-                            if text:
-                                append("table_cell", text)
+        for child in document.element.body.iterchildren():
+            if child.tag == qn("w:p"):
+                paragraph = Paragraph(child, document)
+                text = paragraph.text.strip()
+                if text:
+                    kind = _paragraph_kind(paragraph)
+                    if kind == "heading":
+                        level = _heading_level(paragraph)
+                        section_path[:] = section_path[: max(level - 1, 0)]
+                        section_path.append(text)
+                    append(kind, text)
+                for relationship_id in _image_relationship_ids(paragraph):
+                    relationship = document.part.rels[relationship_id]
+                    if relationship.is_external:
+                        raise ExternalDocxRelationshipError()
+                    part = relationship.target_part
+                    media_type = str(part.content_type).lower()
+                    if media_type not in _SUPPORTED_IMAGES:
+                        raise UnsupportedEmbeddedImageError()
+                    source_part = _safe_source_part(str(relationship.target_ref))
+                    blob = bytes(part.blob)
+                    digest = hashlib.sha256(blob).hexdigest()
+                    try:
+                        image = Image.from_blob(blob)
+                    except UnrecognizedImageError as exc:
+                        raise UnsupportedEmbeddedImageError() from exc
+                    if self.ocr_runtime is None or self.ocr_profile is None:
+                        element_id = uuid4()
+                        append(
+                            "image",
+                            "",
+                            location=SourceLocation.docx_image(
+                                element_id=element_id,
+                                char_start=char_offset,
+                                char_end=char_offset,
+                                source_part=source_part,
+                                image_sha256=digest,
+                                bbox=(0.0, 0.0, 1.0, 1.0),
+                            ),
+                            confidence=None,
+                            evidence_eligible=False,
+                            warnings=("ocr_disabled",),
+                        )
+                        continue
+                    suffix = _SUPPORTED_IMAGES[media_type]
+                    cache_key = (digest, self.ocr_profile.pipeline_version)
+                    result = ocr_cache.get(cache_key)
+                    if result is None:
+                        image_path = request.create_temporary_file(f"{uuid4()}{suffix}")
+                        image_path.write_bytes(blob)
+                        request.mark_opaque_runtime_started()
+                        result = self.ocr_runtime.recognize(
+                            OcrRequest(
+                                image_path=image_path,
+                                media_type=media_type,
+                                source_part=source_part,
+                                image_sha256=digest,
+                                pixel_width=image.px_width,
+                                pixel_height=image.px_height,
+                            ),
+                            self.ocr_profile,
+                        )
+                        ocr_cache[cache_key] = result
+                    for unit in result.text_units:
+                        element_id = uuid4()
+                        append(
+                            "ocr_text",
+                            unit.text,
+                            location=SourceLocation.docx_image(
+                                element_id=element_id,
+                                char_start=char_offset,
+                                char_end=char_offset + len(unit.text),
+                                source_part=source_part,
+                                image_sha256=digest,
+                                bbox=unit.bbox,
+                            ),
+                            confidence=unit.confidence,
+                            evidence_eligible=unit.evidence_eligible,
+                            warnings=(
+                                ("ocr_confidence_below_threshold",)
+                                if not unit.evidence_eligible
+                                else ()
+                            ),
+                        )
+                    for cell in result.table_cells:
+                        element_id = uuid4()
+                        table_cell = (
+                            TableCellLocation(cell.row_index, cell.column_index)
+                            if cell.row_index is not None and cell.column_index is not None
+                            else None
+                        )
+                        append(
+                            "ocr_table_cell",
+                            cell.text,
+                            location=SourceLocation.docx_image(
+                                element_id=element_id,
+                                char_start=char_offset,
+                                char_end=char_offset + len(cell.text),
+                                source_part=source_part,
+                                image_sha256=digest,
+                                bbox=cell.bbox,
+                                table_cell=table_cell,
+                            ),
+                            confidence=cell.confidence,
+                            evidence_eligible=cell.evidence_eligible,
+                            warnings=(
+                                ("ocr_confidence_below_threshold",)
+                                if not cell.evidence_eligible
+                                else ()
+                            ),
+                        )
+            elif child.tag == qn("w:tbl"):
+                table = Table(child, document)
+                for row in table.rows:
+                    for cell in row.cells:
+                        text = cell.text.strip()
+                        if text:
+                            append("table_cell", text)
 
         return ParsedDocument(
             asset_version_id=request.asset_version_id,

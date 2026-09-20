@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -6,12 +7,32 @@ from uuid import UUID
 from ai_workshop.labs.rag.documents.domain import ParsedDocument
 
 
+class ParserTemporaryWorkspace(Protocol):
+    def create_file(self, name: str) -> Path: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ParseRequest:
     path: Path
     media_type: str
     filename: str
     asset_version_id: UUID
+    temporary_workspace: ParserTemporaryWorkspace | None = None
+    opaque_runtime_started: Callable[[], None] | None = None
+
+    def mark_opaque_runtime_started(self) -> None:
+        if self.temporary_workspace is None or self.opaque_runtime_started is None:
+            raise ParsingError(
+                "temporary_workspace_required", "Tracked temporary workspace required."
+            )
+        self.opaque_runtime_started()
+
+    def create_temporary_file(self, name: str) -> Path:
+        if self.temporary_workspace is None or self.opaque_runtime_started is None:
+            raise ParsingError(
+                "temporary_workspace_required", "Tracked temporary workspace required."
+            )
+        return self.temporary_workspace.create_file(name)
 
 
 class ParserPort(Protocol):

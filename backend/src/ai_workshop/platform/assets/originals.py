@@ -22,7 +22,9 @@ from ai_workshop.infrastructure.document_formats.pdf_preview import (
 )
 from ai_workshop.platform.assets.domain import VersionStatus
 from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecord
+from ai_workshop.platform.assets.provenance_contracts import SourceIdentity
 from ai_workshop.platform.assets.storage import ObjectStore
+from ai_workshop.platform.assets.temporary_contracts import TemporaryContext
 from ai_workshop.platform.identity.domain import User
 from ai_workshop.platform.workspaces.models import (
     WorkspaceMembershipRecord,
@@ -85,8 +87,14 @@ class OriginalRepository(Protocol):
 
 
 class PdfRenderer(Protocol):
-    async def inspect(self, content: bytes) -> PdfInspection: ...
-    async def render_page(self, content: bytes, page_number: int) -> RenderedPdfPage: ...
+    async def inspect(self, content: bytes, *, context: TemporaryContext) -> PdfInspection: ...
+    async def render_page(
+        self,
+        content: bytes,
+        page_number: int,
+        *,
+        context: TemporaryContext,
+    ) -> RenderedPdfPage: ...
 
 
 class SqlAlchemyOriginalRepository:
@@ -205,7 +213,12 @@ class OriginalService:
         elif kind == "pdf":
             _require_pdf_signature(content)
             try:
-                page_count = (await self.pdf_renderer.inspect(content)).page_count
+                page_count = (
+                    await self.pdf_renderer.inspect(
+                        content,
+                        context=_temporary_context(resource),
+                    )
+                ).page_count
             except _PDF_PREVIEW_ERRORS as exc:
                 _raise_pdf_error(exc)
         await self._final_recheck(user.id, document_id, version_id, resource)
@@ -234,7 +247,11 @@ class OriginalService:
         content = await self._verified_bytes(resource)
         _require_pdf_signature(content)
         try:
-            rendered = await self.pdf_renderer.render_page(content, page_number)
+            rendered = await self.pdf_renderer.render_page(
+                content,
+                page_number,
+                context=_temporary_context(resource),
+            )
         except _PDF_PREVIEW_ERRORS as exc:
             _raise_pdf_error(exc)
         await self._final_recheck(user.id, document_id, version_id, resource)
@@ -348,6 +365,16 @@ _PDF_PREVIEW_ERRORS = (
     PdfPreviewTimeoutError,
     PdfPreviewWorkerError,
 )
+
+
+def _temporary_context(resource: OriginalResource) -> TemporaryContext:
+    return TemporaryContext(
+        SourceIdentity(
+            resource.workspace_id,
+            resource.document_id,
+            resource.asset_version_id,
+        )
+    )
 
 
 def _kind_for_suffix(suffix: str) -> OriginalKind:

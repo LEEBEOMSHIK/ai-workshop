@@ -13,6 +13,7 @@ from ai_workshop.labs.rag.parsing.contracts import ParseRequest, ParsingError
 from ai_workshop.labs.rag.parsing.pdf_ocr import PdfOcrParser
 from tests.fixtures.rag.scanned_pdf import create_mixed_page_pdf
 from tests.unit.labs.rag.parsing.test_pdf_ocr_parser import SyntheticRuntime, profile
+from tests.unit.labs.rag.parsing.test_service import FakeWorkspace
 
 
 def parse_mixed(path, runtime, *, parser_version="2", max_page_pixels=16_000_000):
@@ -23,7 +24,10 @@ def parse_mixed(path, runtime, *, parser_version="2", max_page_pixels=16_000_000
         max_page_pixels=max_page_pixels,
         max_pages=200,
         parser_version=parser_version,
-    ).parse(ParseRequest(path, "application/pdf", path.name, uuid4()))
+    ).parse(
+        ParseRequest(path, "application/pdf", path.name, uuid4(),
+                     FakeWorkspace(path.parent), lambda: None)
+    )
 
 
 @pytest.mark.parametrize(
@@ -44,7 +48,7 @@ def test_mixed_regions_map_fractional_rotated_crop_to_page(tmp_path, rotation, b
     assert result.parser_version == "2"
     assert all(e.parser_version == "2" for e in result.elements)
     assert runtime.dimensions == ([(201, 121)] if rotation % 180 == 0 else [(121, 201)])
-    assert not runtime.requests[0].image_path.parent.exists()
+    assert runtime.requests[0].image_path.parent.exists()
 
 
 def test_v1_retains_text_only_semantics_for_mixed_page(tmp_path):
@@ -68,7 +72,7 @@ def test_empty_decorative_region_is_allowed_but_runtime_failure_propagates(tmp_p
     with pytest.raises(OcrRuntimeError) as error:
         parse_mixed(source, runtime)
     assert "PRIVATE" not in str(error.value)
-    assert not runtime.requests[0].image_path.parent.exists()
+    assert runtime.requests[0].image_path.parent.exists()
 
 
 def test_overlapping_images_render_once_and_separate_occurrences_survive(tmp_path):

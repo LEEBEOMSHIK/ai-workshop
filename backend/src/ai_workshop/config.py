@@ -77,9 +77,10 @@ class Settings(BaseSettings):
     object_store_root: Path = Path(".local-data/objects")
     original_store_id: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{0,79}$")
     original_store_binding_id: UUID | None = None
-    rag_artifact_store_id: str | None = Field(
-        default=None, pattern=r"^[a-z][a-z0-9_]{0,79}$"
-    )
+    temporary_store_root: Path | None = None
+    temporary_store_id: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{0,79}$")
+    temporary_store_binding_id: UUID | None = None
+    rag_artifact_store_id: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{0,79}$")
     rag_artifact_store_binding_id: UUID | None = None
     library_page_size: int = Field(default=50, strict=True, ge=1, le=200)
     library_max_page_size: int = Field(default=200, strict=True, ge=1, le=200)
@@ -167,6 +168,19 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def require_complete_temporary_store_binding(self) -> Self:
+        configured = (
+            self.temporary_store_root is not None,
+            self.temporary_store_id is not None,
+            self.temporary_store_binding_id is not None,
+        )
+        if any(configured) and not all(configured):
+            raise ValueError(
+                "temporary store root, identifier and binding must be configured together"
+            )
+        return self
+
+    @model_validator(mode="after")
     def require_paired_rag_index_binding(self) -> Self:
         if (self.rag_index_store_id is None) != (self.rag_index_cluster_uuid is None):
             raise ValueError("RAG index store ID and cluster UUID must be configured together.")
@@ -174,9 +188,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def require_paired_rag_artifact_store_binding(self) -> Self:
-        if (self.rag_artifact_store_id is None) != (
-            self.rag_artifact_store_binding_id is None
-        ):
+        if (self.rag_artifact_store_id is None) != (self.rag_artifact_store_binding_id is None):
             raise ValueError("RAG artifact store ID and binding ID must be configured together.")
         return self
 

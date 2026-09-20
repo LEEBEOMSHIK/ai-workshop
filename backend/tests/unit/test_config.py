@@ -8,6 +8,33 @@ from pydantic import ValidationError
 from ai_workshop.config import Settings
 
 
+@pytest.mark.parametrize(
+    "missing", ["temporary_store_root", "temporary_store_id", "temporary_store_binding_id"]
+)
+def test_temporary_store_requires_all_three_settings(missing):
+    values = {
+        "temporary_store_root": ".local-data/synthetic-temporary",
+        "temporary_store_id": "temporary_test",
+        "temporary_store_binding_id": "11111111-1111-4111-8111-111111111111",
+    }
+    values.pop(missing)
+    with pytest.raises(ValidationError):
+        Settings(secret_key="synthetic-test-secret-at-least-32-chars", _env_file=None, **values)
+
+
+def test_temporary_store_settings_do_not_create_directories(tmp_path):
+    target = tmp_path / "uncreated"
+    settings = Settings(
+        secret_key="synthetic-test-secret-at-least-32-chars",
+        _env_file=None,
+        temporary_store_root=target,
+        temporary_store_id="temporary_test",
+        temporary_store_binding_id="11111111-1111-4111-8111-111111111111",
+    )
+    assert settings.temporary_store_root == target
+    assert not target.exists()
+
+
 def test_rag_artifact_store_binding_settings_are_optional_as_a_pair() -> None:
     settings = Settings(secret_key="x" * 32, _env_file=None)
 
@@ -21,9 +48,7 @@ def test_rag_artifact_store_binding_settings_are_optional_as_a_pair() -> None:
         _env_file=None,
     )
     assert configured.rag_artifact_store_id == "rag_ingestion_artifacts"
-    assert configured.rag_artifact_store_binding_id == UUID(
-        "11111111-1111-4111-8111-111111111111"
-    )
+    assert configured.rag_artifact_store_binding_id == UUID("11111111-1111-4111-8111-111111111111")
 
 
 @pytest.mark.parametrize(

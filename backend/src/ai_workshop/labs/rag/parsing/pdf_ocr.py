@@ -1,7 +1,5 @@
 from hashlib import sha256
 from math import ceil, floor, isfinite
-from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import Any
 from unicodedata import normalize
 from uuid import uuid4
@@ -103,9 +101,9 @@ class PdfOcrParser:
                             confidence=1.0,
                         )
                     if self.parser_version == "2":
-                        self._ocr_image_regions(page, page_number, elements)
+                        self._ocr_image_regions(page, page_number, elements, request)
                 else:
-                    self._ocr_page(page, page_number, elements)
+                    self._ocr_page(page, page_number, elements, request)
         finally:
             document.close()
         return ParsedDocument(
@@ -113,7 +111,7 @@ class PdfOcrParser:
         )
 
     def _ocr_image_regions(
-        self, page: Any, page_number: int, elements: list[StructuralElement]
+        self, page: Any, page_number: int, elements: list[StructuralElement], request: ParseRequest
     ) -> None:
         regions: list[Any] = []
         try:
@@ -145,13 +143,14 @@ class PdfOcrParser:
             raise PdfProcessingLimitError()
         native = tuple(e for e in elements if e.location.page == page_number)
         for region in sorted(regions, key=lambda rect: (rect.y0, rect.x0, rect.y1, rect.x1)):
-            self._ocr_page(page, page_number, elements, region=region, native=native)
+            self._ocr_page(page, page_number, elements, request, region=region, native=native)
 
     def _ocr_page(
         self,
         page: Any,
         page_number: int,
         elements: list[StructuralElement],
+        request: ParseRequest,
         *,
         region: Any = None,
         native: tuple[StructuralElement, ...] = (),
@@ -165,30 +164,30 @@ class PdfOcrParser:
             or ceil(width * scale) * ceil(height * scale) > self.max_page_pixels
         ):
             raise PdfProcessingLimitError()
-        with TemporaryDirectory(prefix="ai-workshop-pdf-ocr-") as directory:
-            image_path = Path(directory) / f"page-{page_number}.png"
-            try:
-                pixmap = page.get_pixmap(
-                    dpi=self.raster_dpi, colorspace=pymupdf.csRGB, alpha=False, clip=region
-                )
-                blob = pixmap.tobytes("png")
-                image_path.write_bytes(blob)
-            except (RuntimeError, ValueError, OSError):
-                raise InvalidPdfError() from None
-            try:
-                result = self.ocr_runtime.recognize(
-                    OcrRequest(
-                        image_path=image_path,
-                        media_type="image/png",
-                        source_part=f"pdf/pages/{page_number}",
-                        image_sha256=sha256(blob).hexdigest(),
-                        pixel_width=pixmap.width,
-                        pixel_height=pixmap.height,
-                    ),
-                    self.ocr_profile,
-                )
-            except OcrRuntimeError as error:
-                raise OcrRuntimeError(error.code, "Configured PDF OCR processing failed.") from None
+        image_path = request.create_temporary_file(f"{uuid4()}.png")
+        try:
+            pixmap = page.get_pixmap(
+                dpi=self.raster_dpi, colorspace=pymupdf.csRGB, alpha=False, clip=region
+            )
+            blob = pixmap.tobytes("png")
+            image_path.write_bytes(blob)
+        except (RuntimeError, ValueError, OSError):
+            raise InvalidPdfError() from None
+        request.mark_opaque_runtime_started()
+        try:
+            result = self.ocr_runtime.recognize(
+                OcrRequest(
+                    image_path=image_path,
+                    media_type="image/png",
+                    source_part=f"pdf/pages/{page_number}",
+                    image_sha256=sha256(blob).hexdigest(),
+                    pixel_width=pixmap.width,
+                    pixel_height=pixmap.height,
+                ),
+                self.ocr_profile,
+            )
+        except OcrRuntimeError as error:
+            raise OcrRuntimeError(error.code, "Configured PDF OCR processing failed.") from None
         count_before = len(elements)
         units: tuple[OcrTextUnit | OcrTableCell, ...] = (*result.text_units, *result.table_cells)
         for unit in units:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Coroutine
 from functools import lru_cache
 from typing import Annotated, Any, Literal
@@ -10,7 +11,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ai_workshop.config import Settings, get_settings
@@ -21,6 +22,7 @@ from ai_workshop.platform.assets.originals import (
     OriginalService,
     SqlAlchemyOriginalRepository,
 )
+from ai_workshop.platform.assets.temporary_factory import ConfiguredTemporaryService
 from ai_workshop.platform.identity.api import get_current_user
 from ai_workshop.platform.identity.domain import User
 from ai_workshop.shared.db import get_session
@@ -122,35 +124,33 @@ class OriginalPreviewResponse(BaseModel):
 
 
 @lru_cache(maxsize=16)
-def _renderer(
-    original_max_bytes: int,
-    pdf_max_pages: int,
-    pdf_max_pixels: int,
-    pdf_timeout_seconds: int,
-    pdf_max_concurrent: int,
-) -> PdfPreviewRenderer:
-    return PdfPreviewRenderer(
-        max_input_bytes=original_max_bytes,
-        max_pages=pdf_max_pages,
-        max_pixels=pdf_max_pixels,
-        timeout_seconds=pdf_timeout_seconds,
-        max_concurrent=pdf_max_concurrent,
-    )
+def _preview_slots(max_concurrent: int) -> asyncio.Semaphore:
+    return asyncio.Semaphore(max_concurrent)
 
 
 def get_original_service(
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> OriginalService:
+    temporary_service = (
+        ConfiguredTemporaryService(
+            settings,
+            async_sessionmaker(session.bind, expire_on_commit=False),
+        )
+        if isinstance(session.bind, AsyncEngine)
+        else None
+    )
     return OriginalService(
         SqlAlchemyOriginalRepository(session),
         LocalObjectStore(settings.object_store_root),
-        _renderer(
-            settings.original_max_bytes,
-            settings.pdf_max_pages,
-            settings.pdf_max_pixels,
-            settings.pdf_timeout_seconds,
-            settings.pdf_max_concurrent,
+        PdfPreviewRenderer(
+            max_input_bytes=settings.original_max_bytes,
+            max_pages=settings.pdf_max_pages,
+            max_pixels=settings.pdf_max_pixels,
+            timeout_seconds=settings.pdf_timeout_seconds,
+            max_concurrent=settings.pdf_max_concurrent,
+            temporary_service=temporary_service,
+            slots=_preview_slots(settings.pdf_max_concurrent),
         ),
         original_max_bytes=settings.original_max_bytes,
         text_preview_max_bytes=settings.text_preview_max_bytes,

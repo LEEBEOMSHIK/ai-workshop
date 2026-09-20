@@ -18,6 +18,7 @@ from ai_workshop.labs.rag.ocr.contracts import (
 from ai_workshop.labs.rag.parsing.contracts import ParseRequest, ParsingError
 from tests.fixtures.rag.sample_pdf import create_image_only_pdf, create_sample_pdf
 from tests.fixtures.rag.scanned_pdf import create_scanned_pdf
+from tests.unit.labs.rag.parsing.test_service import FakeWorkspace
 
 
 def profile(tmp_path: Path) -> OcrProfileSpec:
@@ -72,7 +73,10 @@ def parse(path: Path, runtime: SyntheticRuntime, **limits: int) -> ParsedDocumen
         raster_dpi=limits.get("raster_dpi", 144),
         max_page_pixels=limits.get("max_page_pixels", 16_000_000),
         max_pages=limits.get("max_pages", 200),
-    ).parse(ParseRequest(path, "application/pdf", path.name, uuid4()))
+    ).parse(
+        ParseRequest(path, "application/pdf", path.name, uuid4(),
+                     FakeWorkspace(path.parent), lambda: None)
+    )
 
 
 @pytest.mark.parametrize(
@@ -104,8 +108,8 @@ def test_scanned_page_ocr_uses_displayed_crop_and_rotation_coordinates(
     assert [element.text for element in parsed.elements] == ["SCAN", "42"]
     assert parsed.elements[1].location.table_cell.row == 1
     assert parsed.elements[1].location.table_cell.column == 2
-    assert not runtime.requests[0].image_path.exists()
-    assert not runtime.requests[0].image_path.parent.exists()
+    assert runtime.requests[0].image_path.exists()
+    assert runtime.requests[0].image_path.parent.exists()
     assert runtime.corner_pixels[0][rotation // 90] == (255, 0, 0)
 
 
@@ -240,17 +244,17 @@ def test_empty_ocr_page_is_an_explicit_failure(tmp_path: Path, result: OcrResult
     with pytest.raises(ParsingError) as error:
         parse(source, runtime)
     assert error.value.code == "pdf_ocr_empty"
-    assert not runtime.requests[0].image_path.parent.exists()
+    assert runtime.requests[0].image_path.parent.exists()
 
 
-def test_runtime_failure_is_safe_and_cleans_page_image(tmp_path: Path) -> None:
+def test_runtime_failure_is_safe_and_preserves_page_image(tmp_path: Path) -> None:
     source = create_scanned_pdf(tmp_path / "scan.pdf")
     runtime = SyntheticRuntime(fail=True)
     with pytest.raises(OcrRuntimeError) as error:
         parse(source, runtime)
     assert error.value.code == "ocr_inference_failed"
     assert "PRIVATE" not in str(error.value)
-    assert not runtime.requests[0].image_path.parent.exists()
+    assert runtime.requests[0].image_path.parent.exists()
 
 
 @pytest.mark.parametrize("limits", [{"max_pages": 1}, {"max_page_pixels": 100}])
@@ -275,3 +279,39 @@ def test_malformed_pdf_is_a_safe_failure(tmp_path: Path) -> None:
         parse(source, SyntheticRuntime())
     assert error.value.code == "pdf_invalid"
     assert str(source) not in str(error.value)
+
+
+def test_pdf_ocr_requires_explicit_workspace(tmp_path: Path) -> None:
+    from ai_workshop.labs.rag.parsing.pdf_ocr import PdfOcrParser
+
+    path = create_scanned_pdf(tmp_path / "scan.pdf")
+    runtime = SyntheticRuntime()
+    with pytest.raises(ParsingError, match="Tracked temporary workspace required"):
+        PdfOcrParser(ocr_runtime=runtime, ocr_profile=profile(tmp_path), raster_dpi=144,
+                     max_page_pixels=16_000_000, max_pages=200).parse(
+            ParseRequest(path, "application/pdf", path.name, uuid4())
+        )
+    assert runtime.requests == []
+
+
+def test_pdf_marks_opaque_writer_before_runtime(tmp_path: Path) -> None:
+    from ai_workshop.labs.rag.parsing.pdf_ocr import PdfOcrParser
+
+    started = []
+    workspace = FakeWorkspace(tmp_path)
+
+    class CheckedRuntime(SyntheticRuntime):
+        def recognize(self, request, spec):
+            assert started == [True]
+            assert request.image_path.parent == workspace.root
+            return super().recognize(request, spec)
+
+    path = create_scanned_pdf(tmp_path / "scan.pdf")
+    runtime = CheckedRuntime()
+    PdfOcrParser(ocr_runtime=runtime, ocr_profile=profile(tmp_path), raster_dpi=144,
+                 max_page_pixels=16_000_000, max_pages=200).parse(
+        ParseRequest(path, "application/pdf", path.name, uuid4(), workspace,
+                     lambda: started.append(True))
+    )
+    assert len(workspace.files) == 1
+    assert workspace.files[0].exists()

@@ -9,6 +9,7 @@ from ai_workshop.labs.rag.models.document_processing import (
     DocumentProcessingSpec,
 )
 from ai_workshop.platform.assets.domain import AssetVersion
+from ai_workshop.platform.assets.temporary_contracts import TemporaryContext
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +65,7 @@ class IngestionExecution:
     embedding_artifact: ArtifactReference | None = None
     document_processing_profile_id: UUID = LEGACY_DOCUMENT_PROCESSING_PROFILE_ID
     document_processing_spec: DocumentProcessingSpec | None = None
+    temporary_context: TemporaryContext | None = None
 
 
 class RagIngestionError(Exception):

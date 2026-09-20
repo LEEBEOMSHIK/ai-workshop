@@ -1,6 +1,6 @@
 # 문서 전용 임시 작업공간 추적
 
-작성일: 2026-09-20. 상태: 독립 검토 지적 보완, 사용자 상세안 확인 전·구현 전.
+작성일: 2026-09-20. 상태: 사용자 바로 구현 승인에 따라 구현·독립 검토 완료. 실사용 적용 전.
 
 ## 1. 목적과 이번 범위
 
@@ -111,6 +111,10 @@ job → asset_version → document → 임시 원장으로 고정한다. job 없
 생략한다. document gate를 먼저 잠근 뒤 job/version FK를 검사하지 않는다. 문서 gate만
 보유하는 경로는 뒤에서 job/version 잠금을 추가하지 않아야 하며, 구현 전에 해당 경로도
 검사한다. 서로 다른 session의 예약/worker/gate 경쟁을 통합 테스트에 포함한다.
+
+구현 검토에서 아직 제품 호출이 없는 `PurgeInventoryRepository._require_exact_batch_targets`의
+document→version 역순 잠금을 확인했다. 해당 purge 저장 경로의 활성화는 순서 통합과 추가
+경쟁 검증 전까지 금지한다. 이번 구현은 기존 미활성 purge 경로까지 교착 방지를 완성한 것이 아니다.
 
 예약은 exact source/job 소속, 현재 generation과 쓰기 허용 상태를 검증하고 삭제 gate와
 직렬화한다. 허용 상태는 기존 문서 쓰기 gate와 일치시키며 trash/purging 또는 세대 변경 시

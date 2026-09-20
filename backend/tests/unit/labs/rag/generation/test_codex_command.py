@@ -199,8 +199,11 @@ def test_real_prompt_envelope_builds_exact_non_executing_command_plan(
     assert not request_directory.exists()
 
 
-def test_argv_has_stable_exact_contract_and_no_shell_command(tmp_path: Path) -> None:
-    runner = _runner(tmp_path)
+@pytest.mark.parametrize("cli_version", ["0.153.4", "0.155.1"])
+def test_argv_has_stable_exact_contract_and_no_shell_command(
+    tmp_path: Path, cli_version: str,
+) -> None:
+    runner = replace(_runner(tmp_path), expected_cli_version=cli_version)
     request_directory = runner.request_root / "request-synthetic"
 
     plan = _build(tmp_path, runner=runner, request_directory=request_directory)
@@ -243,6 +246,19 @@ def test_argv_has_stable_exact_contract_and_no_shell_command(tmp_path: Path) -> 
         "-",
     )
     assert isinstance(plan.process_request.argv, tuple)
+    assert plan.cli_contract_version == cli_version
+
+
+@pytest.mark.parametrize("cli_version", ["0.155.0", "0.155.2", "0.155.1-beta", "0.156.0"])
+def test_unreviewed_cli_contract_versions_are_rejected(
+    tmp_path: Path, cli_version: str,
+) -> None:
+    runner = replace(_runner(tmp_path), expected_cli_version=cli_version)
+
+    with pytest.raises(CodexCommandError) as error:
+        _build(tmp_path, runner=runner)
+
+    assert error.value.code == "codex_command_contract_unsupported"
 
 
 def test_toml_developer_instructions_round_trip_without_config_injection(

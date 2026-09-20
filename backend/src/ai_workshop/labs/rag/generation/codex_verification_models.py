@@ -46,7 +46,7 @@ class CodexVerificationAttemptRecord(Base):
     )
     checked_by: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
     checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    binding: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    binding: Mapped[dict[str, object] | None] = mapped_column(JSONB(none_as_null=True))
     success: Mapped[bool] = mapped_column(Boolean)
     usage_present: Mapped[bool] = mapped_column(Boolean)
     safe_error_code: Mapped[str | None] = mapped_column(String(80))

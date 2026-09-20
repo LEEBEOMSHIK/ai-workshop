@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from dataclasses import replace
 from uuid import UUID
 
 import pytest
@@ -131,6 +132,79 @@ def _policy(
         require_complete_provenance=True,
         conflict_mode="separate_sources",
     )
+
+
+def test_keyword_coverage_prefers_answer_sentence_over_earlier_product_heading() -> None:
+    heading = _source(1, "가상 상품 AM-LAB-730")
+    sentence = _source(2, "상품 코드 AM-LAB-730의 이름은 오로라 연구 채권형입니다.")
+    body = replace(
+        sentence.chunk.evidence_units[0],
+        chunk_id=heading.chunk.chunk_id,
+        projection_id=heading.chunk.projection_id,
+        ordinal=1,
+    )
+    source = replace(
+        heading,
+        chunk=replace(heading.chunk, evidence_units=(*heading.chunk.evidence_units, body)),
+    )
+
+    result = EvidenceSelector(RecordingEmbedding()).select(
+        query="AM-LAB-730의 상품 이름은 무엇인가요?",
+        sources=(source,),
+        policy=_policy(min_keyword_coverage=0.4),
+    )
+
+    assert result.answer is not None
+    assert result.answer.evidence.id == body.id
+    assert result.answer.keyword_coverage == pytest.approx(5 / 6)
+
+
+def test_keyword_coverage_precedes_retrieval_score_but_retains_ties() -> None:
+    partial = _source(1, "quartz lighthouse")
+    first_complete = _source(3, "quartz lighthouse blue lantern")
+    second_complete = _source(2, "blue lantern quartz lighthouse")
+
+    result = EvidenceSelector(RecordingEmbedding()).select(
+        query="quartz lighthouse blue lantern",
+        sources=(partial, first_complete, second_complete),
+        policy=_policy(min_keyword_coverage=0.5),
+    )
+
+    assert result.answer is not None
+    assert result.answer.source == first_complete
+    assert result.answer.keyword_coverage == 1.0
+
+
+def test_equal_keyword_coverage_retains_evidence_order_within_chunk() -> None:
+    first = _source(2, "quartz lighthouse")
+    later = replace(first.chunk.evidence_units[0], id=UUID(int=1), ordinal=1)
+    source = replace(
+        first,
+        chunk=replace(first.chunk, evidence_units=(*first.chunk.evidence_units, later)),
+    )
+
+    result = EvidenceSelector(RecordingEmbedding()).select(
+        query="quartz lighthouse", sources=(source,), policy=_policy(),
+    )
+
+    assert result.answer is not None
+    assert result.answer.evidence.id == first.chunk.evidence_units[0].id
+
+
+def test_partial_keyword_match_still_precedes_perfect_semantic_match() -> None:
+    semantic = _source(1, "unrelated synthetic words")
+    keyword = _source(2, "quartz lighthouse")
+
+    result = EvidenceSelector(RepeatingEmbedding()).select(
+        query="quartz lighthouse blue lantern",
+        sources=(semantic, keyword),
+        policy=_policy(min_keyword_coverage=0.5),
+    )
+
+    assert result.answer is not None
+    assert result.answer.source == keyword
+    assert result.answer.keyword_coverage == 0.5
+    assert result.answer.semantic_score is None
 
 
 def test_v1_answer_policy_rejects_optional_provenance() -> None:

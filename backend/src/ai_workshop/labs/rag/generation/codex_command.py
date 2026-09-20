@@ -34,7 +34,7 @@ from ai_workshop.labs.rag.generation.codex_runner_registry import (
 )
 from ai_workshop.labs.rag.generation.windows_process import ProcessLimits, ProcessRequest
 
-_CLI_CONTRACT_VERSION = "0.153.4"
+_CLI_CONTRACT_VERSIONS = frozenset({"0.153.4", "0.155.1"})
 _SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
 _MODEL_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,199}\Z")
 _MAX_PROCESS_BYTES = 64 * 1024 * 1024
@@ -191,14 +191,14 @@ def _build_codex_command(
         output_schema=payload.output_schema,
         runner_configuration_sha256=runner.configuration_sha256,
         payload_sha256=payload_sha256,
-        cli_contract_version=_CLI_CONTRACT_VERSION,
+        cli_contract_version=runner.expected_cli_version,
     )
 
 
 def _validate_runner(runner: ResolvedCodexRunner) -> None:
     if not is_safe_codex_runner_reference(runner.reference):
         _invalid("codex_command_input_invalid")
-    if runner.expected_cli_version != _CLI_CONTRACT_VERSION:
+    if runner.expected_cli_version not in _CLI_CONTRACT_VERSIONS:
         _invalid("codex_command_contract_unsupported")
     if not _valid_sha256(runner.executable_sha256) or not _valid_sha256(
         runner.configuration_sha256

@@ -335,9 +335,14 @@ class ProductionEvaluationSearch(EvaluationSearchPort):
             for evidence in source.chunk.evidence_units
             if evidence.id not in selected_ids
         )
+        # Retrieval returns chunks, but the frozen metric/DB contract ranks unique
+        # evidence units. Preserve expansion order and bound that ranking to K;
+        # answer/related/highlight surfaces above remain intact for leak checks.
         retrieved_ids = tuple(
-            evidence.id for source in sources for evidence in source.chunk.evidence_units
-        )
+            dict.fromkeys(
+                evidence.id for source in sources for evidence in source.chunk.evidence_units
+            )
+        )[: candidate.retrieval_k]
         highlights = tuple(
             ("answer" if selected_item is answer else "conflict", selected_item, item)
             for selected_item in selected

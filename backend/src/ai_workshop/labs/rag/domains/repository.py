@@ -168,6 +168,7 @@ class SqlAlchemyDomainRepository:
         record.display_name = domain.display_name
         record.description = domain.description
         await self.session.flush()
+        await self.session.refresh(record, attribute_names=["updated_at"])
         return _to_domain(record)
 
     async def next_connection_version(self, domain_id: UUID) -> int:
@@ -224,6 +225,7 @@ class SqlAlchemyDomainRepository:
                 raise AppError("not_found", "The requested resource was not found.", 404)
         record.active_connection_version_id = connection_version_id
         await self.session.flush()
+        await self.session.refresh(record, attribute_names=["updated_at"])
         return _to_domain(record)
 
     async def _connection(

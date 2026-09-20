@@ -282,6 +282,13 @@ class EvidenceSelector:
                     warnings=_provenance_warnings(source, evidence),
                 )
             )
+        # Stable sorting preserves retrieval/evidence order for equal coverage.
+        answers.sort(
+            key=lambda answer: (
+                answer.keyword_coverage if answer.keyword_coverage is not None else -1.0
+            ),
+            reverse=True,
+        )
         return tuple(answers)
 
     def _semantic_answers(

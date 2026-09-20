@@ -5,7 +5,7 @@ from typing import Annotated
 from uuid import UUID, uuid4
 
 from fastapi import Depends
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from ai_workshop.config import Settings, get_settings
 from ai_workshop.infrastructure.object_store.local import LocalObjectStore
@@ -277,5 +277,37 @@ def get_asset_upload_coordinator(
     assets: Annotated[AssetService, Depends(get_asset_service)],
     jobs: Annotated[JobService, Depends(get_job_service)],
     session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> AssetUploadCoordinator:
-    return AssetUploadCoordinator(assets, jobs, commit=session.commit)
+    # Separate composition from the legacy coordinator used by explicit in-memory tests.
+    from ai_workshop.infrastructure.object_store.originals import TrackedOriginalStore
+    from ai_workshop.platform.assets.tracked_uploads import TrackedAssetUploadCoordinator
+    from ai_workshop.platform.assets.upload_contracts import (
+        OriginalStoreBinding,
+        UploadOwnershipError,
+    )
+    from ai_workshop.platform.assets.upload_repository import UploadJournal
+
+    if (
+        settings.original_store_id is None
+        or settings.original_store_binding_id is None
+        or not isinstance(session.bind, AsyncEngine)
+    ):
+        raise AppError(
+            "original_upload_unavailable", "Original upload storage is not ready.", 503
+        )
+    try:
+        store = TrackedOriginalStore(
+            settings.object_store_root,
+            OriginalStoreBinding(settings.original_store_id, settings.original_store_binding_id),
+        )
+        store.verify_binding()
+    except (UploadOwnershipError, OSError):
+        raise AppError(
+            "original_upload_unavailable", "Original upload storage is not ready.", 503
+        ) from None
+    return TrackedAssetUploadCoordinator(
+        assets, jobs, session=session,
+        journal=UploadJournal(async_sessionmaker(session.bind, expire_on_commit=False)),
+        store=store,
+    )

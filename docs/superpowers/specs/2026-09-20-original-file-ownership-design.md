@@ -1,6 +1,8 @@
 # 원본 파일 생성 전 소유권 등록
 
-- 상태: 상세 설계와 독립 검토 완료. 사용자 상세안 확인 전이며 구현·실사용 적용은 하지 않았다.
+- 상태: 사용자 2026-09-20 구현 진행 지시에 따라 Windows 코드 구현·자동 검증·독립 검토 완료. 실사용 적용은 하지 않았다.
+- 구현 결과: [검증 기록](../../worklogs/2026-09-20-original-file-ownership.md).
+- 구현 계획: [원본 추적 구현](../plans/2026-09-20-original-file-ownership.md).
 - 검증 및 인계: [작업 기록](../../worklogs/2026-09-20-original-file-ownership-design.md).
 - 사용자 목적: 문서를 영구 삭제할 때 원본과 실패한 업로드의 파일 위치를 잃지 않고, 다른 문서의 파일을 잘못 지우지 않는다.
 - 상위 계약: [삭제 대상 추적과 최소 증명](2026-09-14-asset-purge-provenance-design.md).
@@ -48,12 +50,13 @@ locator와 원본 해시는 Assets 전용 제한 저장소에만 두고 공통 �
 canonical/임시 key는 UUID와 허용된 확장자에서 결정하고 쓰기 전에 모두 고정한다.
 같은 attempt를 재사용해 내용을 다시 쓰지 않는다. 다시 업로드하면 새로운 attempt와 파일 이름을 사용한다.
 
-상태는 `open`, `published`, `attached`, `abandoned`를 구분한다.
+상태는 `open/1`, `published/2`, `attached/3`, `discarding/3`, `abandoned/2 또는 4`를 구분한다.
 
 - `open`: 예약은 확정됐지만 파일 상태나 writer 종료가 확인되지 않았다.
 - `published`: canonical 파일의 게시와 writer 종료를 관찰했다. 원본 DB commit은 아직 확정되지 않았다.
 - `attached`: 문서·버전·검증 job·현재 source relation과 함께 확정됐다. 원본 파일은 계속 존재한다.
-- `abandoned`: 원본에 연결되지 않았으며 writer 종료와 예약된 두 파일의 부재를 확인했다.
+- `discarding`: 게시된 원본의 실패 정리를 시작하기 전에 독립 commit한 재첨부 차단 상태다. 파일 부재 또는 정리 완료를 뜻하지 않는다.
+- `abandoned`: 원본에 연결되지 않았으며 writer 종료와 예약된 두 파일의 부재를 확인했다. 미게시 예약은 revision 2, 게시 후 정리는 revision 4다.
 
 timeout, 취소, 오래된 시각, 일반 job의 terminal 상태만으로 상태를 전진시키지 않는다.
 revision과 예상 상태를 대조해 갱신하고 다른 실행의 관찰 결과를 재사용하지 않는다.
@@ -70,6 +73,8 @@ revision과 예상 상태를 대조해 갱신하고 다른 실행의 관찰 결�
 5. 최종 요청 트랜잭션에서 현재 권한·폴더 소속/상태·문서 lifecycle/generation을 다시 확인한다.
    기존 콘텐츠 중복 advisory lock을 유지한다. 기존 문서 버전 번호는 잠금 후 현재 DB 값에서 결정한다.
 6. 문서/버전, 검증 job 및 기존 dispatch 상태, 원본 source relation, 예약의 `attached` 전이를 같은 트랜잭션에 둔다.
+   prepare 단계는 claim과 같은 root/nested transaction의 증명을 발급하고 attach는 이를 검증·소진한다.
+   원본 resource 및 source relation의 revision은 1이며 업로드 원장 상태 revision과 구분한다.
    버전 ID는 처음 예약한 ID를 사용한다. 이 전체 commit을 확인한 뒤 기존 성공 응답을 반환한다.
 
 독립 예약은 요청 transaction rollback으로 사라지지 않아야 한다.
@@ -103,6 +108,10 @@ canonical 게시 뒤 DB 확정 실패는 **확실한 rollback**과 **commit 결�
 DB에 연결돼 있거나 판단 불가능하면 보존한다. 열린 세션의 미확정 결과를 바탕으로 삭제하지 않는다.
 취소 처리에서도 writer 종료 및 파일 부재 확인을 완료하지 못하면 open/published 상태와 locator를 남긴다.
 `Exception`을 잡는 것만으로 취소 안전성을 주장하지 않는다.
+
+게시된 파일의 정리는 원장의 published 상태와 현재 소유권을 잠금 아래 확인하고 먼저 `discarding/3`을 독립 commit한다.
+이 commit의 성공 응답을 받기 전에는 물리 삭제를 시작하지 않는다. 원장 잠금 아래 실제 부재를 확인한 뒤 `abandoned/4`를 commit한다.
+삭제 이후 commit이 실패해도 discarding 상태가 남아 동일 claim의 재첨부를 거부한다. 이미 attached이면 정리 callback 자체를 실행하지 않는다.
 
 시작 시 임시 폴더 전체 스캔이나 prefix 기반 삭제는 하지 않는다.
 프로세스 재시작 후 open 예약은 경과 시간만으로 정리하지 않고, 후속 복구 절차가 이전 writer의 종료를 증명해야 한다.
@@ -169,6 +178,12 @@ OCR 모델 provision 캐시는 문서 전용 임시물에서 제외한다.
 독립 DB 검증과 프라이버시/코드 리뷰는 구현 담당과 분리한다.
 
 ## 9. 운영 경계
+
+현재 추적 publish/discard는 Windows에서만 지원한다. 경로 기반 unlink의 검사/삭제 경쟁을 피하기 위해
+열린 파일 핸들·상위 디렉터리·marker를 고정하고 정확한 핸들에 삭제를 요청한다.
+안전한 게시·정리를 구현하지 않은 다른 운영체제는 명시 거절하며 observe와 기존 원본 읽기는 유지한다.
+Linux 원본 업로드 지원은 별도 후속이며, 이를 모든 플랫폼 구현 완료로 보고하지 않는다.
+HTTP multipart spool도 이번 object store 예약 밖의 임시물로서 후속 추적 대상이다.
 
 기존 실사용 object store marker 설정, backfill, DB migration 적용, 서버 재시작은 별도 적용 절차다.
 추적 쓰기 준비가 안 된 환경에서 조용히 기존 untracked 업로드로 전환하지 않는다.

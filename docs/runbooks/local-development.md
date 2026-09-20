@@ -387,6 +387,33 @@ Codex는 로컬에서 실행해도 질문·포함된 대화·승인 근거를 Op
 사용자 공간에 임시 문서나 폴더를 만들거나 승인 상태를 바꾸지 않는다. 실제 브라우저 검증은
 이미 보관 중인 합성 문서 읽기만 수행하며, 별도 형식의 실제 UI 검증 여부를 구분해 기록한다.
 
+### 원본 업로드 추적 활성화 전제
+
+원본 추적 코드는 업로드 bytes를 object store에 쓰기 전에 독립 예약을 확정한다.
+설정 또는 marker가 준비되지 않으면 `original_upload_unavailable`(503)로 거절하며 기존 미추적
+업로드로 전환하지 않는다. 기존 원본 읽기와 파일함 탐색은 이 업로드 준비 상태와 별개다.
+
+1. 승인된 적용 대상의 백업·복구를 확인한 뒤 migration `0045_original_upload_ownership`까지 적용한다.
+   코드만 바꾸고 기존 schema로 API를 재시작하지 않는다. 이번 구현 검증은 격리 합성 DB에서만 했다.
+2. 실제 `AI_WORKSHOP_OBJECT_STORE_ROOT`와 기존 원본의 접근 경로를 유지한다. 새 경로로 옮기거나
+   과거 원본·임시 파일을 이름으로 추정해 자동 등록하지 않는다.
+3. `AI_WORKSHOP_ORIGINAL_STORE_ID`와 `AI_WORKSHOP_ORIGINAL_STORE_BINDING_ID`를 함께 설정한다.
+   전자는 소문자로 시작하는 80자 이하 machine identifier, 후자는 운영에서 새로 발급한 UUID다.
+4. 실제 root의 `.ai-workshop-original-store.json`에는 `schema_version`(정수 1), `store_id`,
+   `binding_id`의 세 필드만 둔다. 설정값과 정확히 일치해야 한다. 애플리케이션은 marker를 자동 생성하지 않는다.
+   RAG 산출물용 `.ai-workshop-store.json`과 다른 marker이며 서로 대체하지 않는다.
+5. 현재 추적 쓰기·자동 실패 정리는 Windows 파일 핸들 기반 구현만 지원한다. 그 외 운영체제의
+   `publish`/`discard`는 안전한 원자성 구현 전까지 거절한다. 읽기 관찰(`observe`)은 유지한다.
+   Linux 배포의 업로드 지원이 완료된 것으로 취급하지 않는다.
+6. 적용 후 승인된 합성 업로드로 예약→게시→원본/검증 job/관계 원자 확정과 원본 읽기를 검증한다.
+   과거 미등록 원본은 별도 dry-run/backfill 전까지 inventory에서 incomplete다.
+
+업로드 정리 시작은 `discarding`으로 먼저 확정한다. 삭제 이후 DB 응답 상실이나 callback 실패가 나면
+이 상태와 locator를 남겨 재첨부를 차단한다. 시각 경과나 job 종료만으로 원장을 지우거나 재시도하지 않는다.
+원본 없는 실패 업로드는 workspace 기준 미확정 목록에서 찾는다. 공개 응답에는 경로·해시를 내보내지 않는다.
+HTTP multipart 수신 단계의 spool, 파서/OCR/뷰어 임시물과 일반 작업 기록은 별도 후속 경계다.
+이 구현은 실제 영구 삭제 API/UI를 활성화하지 않는다.
+
 ## 4. RAG ingestion, 검색과 평가
 
 ### 추적 RAG 색인 활성화 전제

@@ -40,6 +40,7 @@ from ai_workshop.platform.assets import (
 from ai_workshop.platform.assets import purge_models as asset_purge_models  # noqa: F401
 from ai_workshop.platform.assets import purge_proof_models as asset_purge_proof_models  # noqa: F401
 from ai_workshop.platform.assets import trash_models as asset_trash_models  # noqa: F401
+from ai_workshop.platform.assets import upload_models as asset_upload_models  # noqa: F401
 from ai_workshop.platform.identity import authorization_models  # noqa: F401
 from ai_workshop.platform.identity import models as identity_models  # noqa: F401
 from ai_workshop.platform.jobs import models as job_models  # noqa: F401

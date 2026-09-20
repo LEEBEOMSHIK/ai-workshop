@@ -74,11 +74,12 @@ class Document:
         sha256: str,
         media_type: str,
         size: int,
+        version_id: UUID | None = None,
     ) -> AssetVersion:
         version = AssetVersion(
-            id=uuid4(),
+            id=version_id if version_id is not None else uuid4(),
             document_id=self.id,
-            number=len(self.versions) + 1,
+            number=max((item.number for item in self.versions), default=0) + 1,
             object_key=object_key,
             sha256=sha256,
             media_type=media_type,

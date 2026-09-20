@@ -75,6 +75,8 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://ai_workshop:ai_workshop@127.0.0.1:5432/ai_workshop"
     redis_url: str = "redis://127.0.0.1:6379/0"
     object_store_root: Path = Path(".local-data/objects")
+    original_store_id: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_]{0,79}$")
+    original_store_binding_id: UUID | None = None
     rag_artifact_store_id: str | None = Field(
         default=None, pattern=r"^[a-z][a-z0-9_]{0,79}$"
     )
@@ -157,6 +159,12 @@ class Settings(BaseSettings):
         if value is not None and fullmatch(r"[A-Za-z0-9_-]{1,128}", value) is None:
             raise ValueError("RAG index cluster UUID must be an opaque cluster identifier.")
         return value
+
+    @model_validator(mode="after")
+    def require_paired_original_store_binding(self) -> Self:
+        if (self.original_store_id is None) != (self.original_store_binding_id is None):
+            raise ValueError("Original store ID and binding ID must be configured together.")
+        return self
 
     @model_validator(mode="after")
     def require_paired_rag_index_binding(self) -> Self:

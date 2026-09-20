@@ -21,6 +21,7 @@ interface SourceViewerProps {
 const highlightLabels: Record<HighlightSpan["kind"], string> = {
   keyword: "정확·키워드 일치",
   semantic: "의미 일치",
+  context: "답변 문맥 근거",
 };
 
 export function SourceViewer({
@@ -166,6 +167,7 @@ export function SourceViewer({
       <div className="highlight-legend" aria-label="하이라이트 범례">
         <span className="match-badge keyword">정확·키워드 일치</span>
         <span className="match-badge semantic">의미 일치</span>
+        {highlights.some((item) => item.kind === "context") ? <span className="match-badge context">답변 문맥 근거</span> : null}
       </div>
 
       {document.media_type === "application/pdf" ? (

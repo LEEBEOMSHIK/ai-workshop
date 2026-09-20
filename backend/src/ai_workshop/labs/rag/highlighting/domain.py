@@ -14,6 +14,7 @@ class AnswerStatus(StrEnum):
 class HighlightKind(StrEnum):
     KEYWORD = "keyword"
     SEMANTIC = "semantic"
+    CONTEXT = "context"
 
 
 class ConflictState(StrEnum):
@@ -85,3 +86,4 @@ class EvidenceSelection:
     conflict_state: ConflictState
     conflicts: tuple[EvidenceAnswer, ...]
     warnings: tuple[str, ...] = ()
+    candidates: tuple[EvidenceAnswer, ...] = ()

@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 
 import { ConversationAnswer } from "./ConversationAnswer";
-import type { DomainSearchResult } from "./api";
+import type { DomainSearchResult, Evidence } from "./api";
 import type { CompletedTurn } from "./types";
 
 it("labels the server-confirmed selected scope with document names and opens its exact used version", async () => {
@@ -34,3 +34,34 @@ function result(selectedScope: NonNullable<DomainSearchResult["selected_scope"]>
     selected_scope: selectedScope,
   };
 }
+
+
+it("resolves additional contextual citations and blocks unknown evidence ids", async () => {
+  const item = {
+    excerpt: "Synthetic context", highlights: [], keyword_coverage: 0, semantic_score: null,
+    warnings: [], source: {
+      document_id: "doc", asset_version_id: "asset", asset_version_number: 1,
+      workspace_id: "space", folder_id: null, projection_id: "projection", chunk_id: "chunk",
+      evidence_unit_id: "additional", element_id: "element", title: "Synthetic source",
+      media_type: "text/plain", section_path: [], location: {
+        element_id: "element", char_start: 0, char_end: 17, page: null, bbox: null,
+        source_kind: "normalized_text", source_part: null, image_sha256: null, table_cell: null,
+      },
+    },
+  } satisfies Evidence;
+  const response = result(null);
+  response.grounding_evidence = [item];
+  response.generation = { ...response.generation, status: "answered", text: "Grounded answer",
+    citations: [{ claim_index: 0, evidence_ids: ["additional"] }] };
+  const turn: CompletedTurn = { type: "answer", query: "Synthetic query", result: response,
+    scope: { workspaceIds: [], workspaceNames: [], folderIds: [], folderNames: [],
+      documentIds: null, documentNames: [], documents: [] } };
+  const open = vi.fn();
+  const { rerender } = render(<ConversationAnswer turn={turn} onOpenEvidence={open} onOpenSelectedVersion={vi.fn()} />);
+  await userEvent.setup().click(screen.getByRole("button", { name: "인용 1: Synthetic source" }));
+  expect(open).toHaveBeenCalledWith(item);
+  expect(screen.getByText("Grounded answer")).toBeVisible();
+  rerender(<ConversationAnswer turn={{ ...turn, result: { ...response, grounding_evidence: [] } }} onOpenEvidence={open} onOpenSelectedVersion={vi.fn()} />);
+  expect(screen.queryByText("Grounded answer")).not.toBeInTheDocument();
+  expect(screen.getByRole("alert")).toHaveTextContent("원문 근거가 누락");
+});

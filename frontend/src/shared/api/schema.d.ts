@@ -2085,24 +2085,38 @@ export interface components {
             /** Technology Key */
             technology_key: string | null;
         };
-        /** Body_upload_document_api_v1_workspaces__workspace_id__documents_post */
-        Body_upload_document_api_v1_workspaces__workspace_id__documents_post: {
-            /** File */
-            file: string;
-            /** Folder Id */
-            folder_id?: string | null;
-        };
-        /** Body_upload_document_version_api_v1_documents__document_id__versions_post */
-        Body_upload_document_version_api_v1_documents__document_id__versions_post: {
-            /** File */
-            file: string;
-        };
         Box: [
             components["schemas"]["Coordinate"],
             components["schemas"]["Coordinate"],
             components["schemas"]["Coordinate"],
             components["schemas"]["Coordinate"]
         ];
+        /** CandidateDiagnosticResponse */
+        CandidateDiagnosticResponse: {
+            /** Dense Rank */
+            dense_rank: number | null;
+            /** Dense Score */
+            dense_score: number | null;
+            /** Eligible */
+            eligible: boolean;
+            /** Evidence Unit Id */
+            evidence_unit_id: string | null;
+            /** Fused Rank */
+            fused_rank: number;
+            /** Keyword Coverage */
+            keyword_coverage: number | null;
+            /** Reason */
+            reason: string;
+            /** Selected */
+            selected: boolean;
+            /** Semantic Score */
+            semantic_score: number | null;
+            source: components["schemas"]["RelatedSourceResponse"];
+            /** Sparse Rank */
+            sparse_rank: number | null;
+            /** Sparse Score */
+            sparse_score: number | null;
+        };
         /**
          * CandidateStatus
          * @enum {string}
@@ -2750,6 +2764,11 @@ export interface components {
             folder_ids?: string[];
             /** History */
             history?: components["schemas"]["ConversationTurnRequest"][];
+            /**
+             * Include Diagnostics
+             * @default false
+             */
+            include_diagnostics: boolean;
             /** Query */
             query: string;
             /**
@@ -2767,10 +2786,13 @@ export interface components {
             conflict_state: components["schemas"]["ConflictState"];
             /** Conflicts */
             conflicts: components["schemas"]["EvidenceAnswerResponse"][];
+            diagnostics?: components["schemas"]["SearchDiagnosticsResponse"] | null;
             domain_context: components["schemas"]["DomainSearchContextResponse"];
             /** Experimental */
             experimental: boolean;
             generation: components["schemas"]["GenerationResponse"];
+            /** Grounding Evidence */
+            grounding_evidence?: components["schemas"]["EvidenceAnswerResponse"][];
             /** Related Sources */
             related_sources: components["schemas"]["RelatedSourceResponse"][];
             /** Resolved Query */
@@ -3460,7 +3482,7 @@ export interface components {
          * HighlightKind
          * @enum {string}
          */
-        HighlightKind: "keyword" | "semantic";
+        HighlightKind: "keyword" | "semantic" | "context";
         /** HighlightSpanResponse */
         HighlightSpanResponse: {
             /** Bbox */
@@ -4206,6 +4228,27 @@ export interface components {
             /** Workspace Ids */
             workspace_ids: string[];
         };
+        /** SearchDiagnosticsResponse */
+        SearchDiagnosticsResponse: {
+            /**
+             * Candidate Scope
+             * @default returned_hits
+             * @constant
+             */
+            candidate_scope: "returned_hits";
+            /** Candidates */
+            candidates: components["schemas"]["CandidateDiagnosticResponse"][];
+            /** Min Keyword Coverage */
+            min_keyword_coverage: number;
+            /** Min Semantic Score */
+            min_semantic_score: number;
+            /** Stages Ms */
+            stages_ms: {
+                [key: string]: number | null;
+            };
+            /** Warning */
+            warning?: string | null;
+        };
         /** SearchRequest */
         SearchRequest: {
             codex_input_approval?: components["schemas"]["CodexInputApprovalRequest"] | null;
@@ -4225,6 +4268,11 @@ export interface components {
             folder_ids?: string[];
             /** History */
             history?: components["schemas"]["ConversationTurnRequest"][];
+            /**
+             * Include Diagnostics
+             * @default false
+             */
+            include_diagnostics: boolean;
             /** Query */
             query: string;
             /**
@@ -4242,9 +4290,12 @@ export interface components {
             conflict_state: components["schemas"]["ConflictState"];
             /** Conflicts */
             conflicts: components["schemas"]["EvidenceAnswerResponse"][];
+            diagnostics?: components["schemas"]["SearchDiagnosticsResponse"] | null;
             /** Experimental */
             experimental: boolean;
             generation: components["schemas"]["GenerationResponse"];
+            /** Grounding Evidence */
+            grounding_evidence?: components["schemas"]["EvidenceAnswerResponse"][];
             /** Related Sources */
             related_sources: components["schemas"]["RelatedSourceResponse"][];
             /** Resolved Query */
@@ -8242,7 +8293,10 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "multipart/form-data": components["schemas"]["Body_upload_document_version_api_v1_documents__document_id__versions_post"];
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
             };
         };
         responses: {
@@ -11764,7 +11818,12 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "multipart/form-data": components["schemas"]["Body_upload_document_api_v1_workspaces__workspace_id__documents_post"];
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                    /** Format: uuid */
+                    folder_id?: string;
+                };
             };
         };
         responses: {

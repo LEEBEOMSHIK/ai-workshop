@@ -1,7 +1,7 @@
 import { apiRequest } from "../../../shared/api/client";
 import type { components } from "../../../shared/api/schema";
 
-export type DomainSearchRequest = components["schemas"]["DomainSearchRequest"];
+export type DomainSearchRequest = Omit<components["schemas"]["DomainSearchRequest"], "include_diagnostics"> & { include_diagnostics?: boolean };
 export type DomainSearchResult = components["schemas"]["DomainSearchResponse"];
 export type Evidence = components["schemas"]["EvidenceAnswerResponse"];
 export type Folder = components["schemas"]["FolderResponse"];

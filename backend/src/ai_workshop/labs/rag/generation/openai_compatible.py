@@ -25,8 +25,10 @@ from ai_workshop.labs.rag.generation.domain import (
     GeneratedClaim,
     GenerationProfile,
     GenerationRequest,
+    GenerationStatus,
     StructuredGeneration,
 )
+from ai_workshop.labs.rag.generation.evidence_payload import evidence_payload, is_context_abstention
 from ai_workshop.labs.rag.generation.execution import (
     GenerationProviderError,
     ProviderContextualizationResult,
@@ -133,20 +135,24 @@ class LocalOpenAICompatibleRuntime:
                         {"role": turn.role.value, "content": turn.content}
                         for turn in request.history
                     ],
-                    "evidence": [
-                        {"evidence_id": str(item.evidence_id), "text": item.text}
-                        for item in request.evidence
-                    ],
+                    "evidence": evidence_payload(
+                    request.evidence, contextual=request.profile.evidence_budget is not None,
+                ),
                 },
                 ensure_ascii=False,
             ),
         )
         content = self._message_content(payload)
+        if request.profile.evidence_budget is not None and is_context_abstention(content):
+            return ProviderGenerationResult(
+                None, self._metadata(started),
+                status=GenerationStatus.INSUFFICIENT_EVIDENCE,
+            )
         generation = _safe_generation(
             content,
             expected_schema_version=request.profile.response_schema_version,
         )
-        if generation is None:
+        if generation is None or not generation.claims:
             raise GenerationProviderError(
                 "provider_invalid_response", retryable=False
             ) from None

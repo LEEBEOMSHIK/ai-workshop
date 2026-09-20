@@ -507,6 +507,16 @@ Generation Profile과 Deployment·Model 연결, 현재 환경과 최신 health�
 
 ## 12. 첫 AI 검색 완료 기준
 
+문맥 근거와 테스트 진단의 상세 계약은
+[문맥 근거 설계](../../superpowers/specs/2026-09-21-contextual-rag-evidence-design.md)를 따른다.
+`rag-codex-answer-v4`와 `rag-answer-v2`는 명시적 `context_evidence` 예산을 요구한다.
+적격 문장 또는 적격 문맥이 있는 검색 청크의 원문 단위를 그룹 단위로 전달하고, 문서·버전·projection·위치와 표 좌표를 보존한다.
+기존 추출 답변과 생성 근거 목록 `grounding_evidence`를 구분한다. 모든 생성 인용은 후자의 원문 위치로 연결한다.
+`context` 하이라이트는 생성에 함께 전달된 문맥이며, `keyword`/`semantic` 일치와 구분한다.
+선택적 `include_diagnostics`는 반환된 권한 내 후보의 원점수·cosine·선택 사유·실측 시간을 반환하며 응답을 캐시하지 않는다.
+진단만을 위한 계산 실패는 경고와 미계산으로 표시하고 생성 근거 선택을 바꾸지 않는다.
+기존 프로파일은 그대로 유지하며, 새 프로파일의 실제 양성·음성 생성 평가 전에 기본 구성으로 승격하지 않는다.
+
 - 모든 정상 검색 결과가 권한이 허용된 원문 위치로 이동한다.
 - 전사, 개인, 임시 첨부의 검색 범위를 정확히 분리한다.
 - 권한 밖 문서 노출 사례가 없다.

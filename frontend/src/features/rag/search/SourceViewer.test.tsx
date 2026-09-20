@@ -9,6 +9,14 @@ afterEach(() => {
 });
 
 describe("SourceViewer", () => {
+  it("labels context highlights separately from semantic similarity", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(normalizedText("text/plain"))));
+    render(<SourceViewer assetVersionId="asset-version-1" projectionId="projection-1"
+      highlights={[highlight("context", 0, 2, "환매")]} />);
+    expect(await screen.findByText("환매", { selector: "mark.context-highlight" }))
+      .toHaveAttribute("aria-label", "답변 문맥 근거");
+  });
+
   it("maps multiple non-overlapping original offsets without interpreting source text as HTML", async () => {
     let captured: [RequestInfo | URL, RequestInit | undefined] | undefined;
     vi.stubGlobal(

@@ -809,3 +809,28 @@ async def test_health_does_not_accept_a_nearby_model_alias() -> None:
 
     assert result.ready is False
     assert result.observed_provider_model_id is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("contextual", [False, True])
+async def test_empty_claims_are_abstention_only_for_contextual_prompt(contextual):
+    from ai_workshop.labs.rag.models.context_evidence import EvidenceBudget
+
+    async def handler(request):
+        return httpx.Response(200, json=response_payload(text='{"schema_version":1,"claims":[]}'))
+
+    request = generation_request()
+    if contextual:
+        request = replace(request, profile=replace(request.profile,
+            prompt_ref="rag-answer-v2", evidence_budget=EvidenceBudget(8, 32, 12000)))
+    async with transport_for(httpx.MockTransport(handler)) as transport:
+        runtime = OpenAIResponsesRuntime._for_test(deployment=deployment(),
+            endpoint="https://api.example.invalid/v1", api_key="synthetic-secret",
+            transport=transport)
+        if contextual:
+            result = await runtime.generate(request)
+            assert result.status == "insufficient_evidence"
+            assert result.generation is None
+        else:
+            with pytest.raises(GenerationProviderError):
+                await runtime.generate(request)

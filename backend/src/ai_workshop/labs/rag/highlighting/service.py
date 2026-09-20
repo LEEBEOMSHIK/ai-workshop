@@ -253,6 +253,7 @@ class EvidenceSelector:
             conflict_state=conflict_state,
             conflicts=tuple(conflicts),
             warnings=selection_warnings,
+            candidates=tuple(answers),
         )
 
     @staticmethod
@@ -455,6 +456,8 @@ def _explicit_polarity(text: str) -> tuple[str, bool] | None:
 def _cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
     if not left or len(left) != len(right):
         raise ValueError("Evidence vectors must have matching non-zero dimensions.")
+    if not all(math.isfinite(float(value)) for value in (*left, *right)):
+        raise ValueError("Evidence vectors must be finite.")
     dot = sum(float(a) * float(b) for a, b in zip(left, right, strict=True))
     left_norm = math.sqrt(sum(float(item) ** 2 for item in left))
     right_norm = math.sqrt(sum(float(item) ** 2 for item in right))

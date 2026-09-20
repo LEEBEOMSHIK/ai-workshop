@@ -57,6 +57,7 @@ class DomainSearchRequest(BaseModel):
     folder_ids: list[UUID] = Field(default_factory=list)
     document_ids: list[UUID] | None = None
     top_k: int = Field(default=10, ge=1, le=50)
+    include_diagnostics: bool = False
     history: list[ConversationTurnRequest] = Field(default_factory=list, max_length=20)
     codex_input_approval: CodexInputApprovalRequest | None = None
 

@@ -129,6 +129,31 @@ describe("ConversationPage", () => {
     });
   });
 
+  it("sends optional diagnostics without widening the selected document scope", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("/folders")) return jsonResponse([]);
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return jsonResponse({ ...searchResult(1), selected_scope: selectedScope() });
+    }));
+    const user = userEvent.setup();
+    render(<ConversationPage domain={domain()} initialSelection={selectionFromDocuments([selectedDocument()])} />);
+
+    expect(screen.getByRole("checkbox", { name: "검색 진단 포함" })).not.toBeChecked();
+    await user.click(screen.getByRole("checkbox", { name: "검색 진단 포함" }));
+    await user.type(screen.getByRole("textbox", { name: "질문" }), "선택 문서 질문");
+    await user.click(screen.getByRole("button", { name: "질문 보내기" }));
+    await screen.findByText("답변 1");
+
+    expect(bodies[0]).toMatchObject({
+      workspace_ids: ["workspace-1"],
+      folder_ids: [],
+      document_ids: ["document-1"],
+      history: [],
+      include_diagnostics: true,
+    });
+  });
+
   it("keeps an explicit empty selection after the last document is removed and blocks sending", async () => {
     const fetcher = vi.fn(async (...args: Parameters<typeof fetch>) => {
       const [input] = args;

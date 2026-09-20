@@ -188,3 +188,5 @@ class FusedHit:
     sparse_rank: int | None
     dense_rank: int | None
     chunk: RetrievedChunk | None = None
+    sparse_score: float | None = None
+    dense_score: float | None = None

@@ -48,6 +48,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
   const [foldersByWorkspace, setFoldersByWorkspace] = useState<Record<string, Folder[]>>({});
   const [scopeOpen, setScopeOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [includeDiagnostics, setIncludeDiagnostics] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptItem[]>([]);
   const [pendingQuery, setPendingQuery] = useState("");
   const [searching, setSearching] = useState(false);
@@ -208,6 +209,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
         folder_ids: scope.folderIds,
         ...(scope.documentIds !== null ? { document_ids: scope.documentIds } : {}),
         top_k: 10,
+        ...(includeDiagnostics ? { include_diagnostics: true } : {}),
         history,
         ...(codexProcessing && classification ? { codex_input_approval: {
           classification, consented: true, disclosure_version: domain.generation_execution_preview.disclosure_version,
@@ -430,6 +432,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
           />
         </label>
         <div className="composer-actions">
+          <label><input type="checkbox" checked={includeDiagnostics} disabled={searching} onChange={(event) => setIncludeDiagnostics(event.target.checked)} />검색 진단 포함</label>
           <button type="submit" disabled={!canSend}>질문 보내기</button>
           {searching ? <button type="button" className="secondary-button" onClick={() => cancelCurrent()}>답변 취소</button> : null}
           <span>Enter 전송 · Shift+Enter 줄바꿈</span>

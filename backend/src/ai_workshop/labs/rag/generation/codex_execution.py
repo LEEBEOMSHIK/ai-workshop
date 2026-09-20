@@ -59,7 +59,8 @@ def _codex_deployment(profile: GenerationProfile) -> ModelDeploymentVersion:
         or deployment.runner_ref is None
         or profile.runtime_model != deployment.provider_model_id
         or profile.model_id != deployment.model_definition_id
-        or profile.prompt_ref != "rag-codex-answer-v3"
+        or profile.prompt_ref not in {"rag-codex-answer-v3", "rag-codex-answer-v4"}
+        or (profile.prompt_ref == "rag-codex-answer-v4" and profile.evidence_budget is None)
         or profile.context_prompt_ref != "rag-codex-contextualize-v1"
         or type(profile.response_schema_version) is not int
         or profile.response_schema_version != 2

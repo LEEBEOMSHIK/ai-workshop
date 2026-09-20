@@ -353,6 +353,12 @@ def _validate_generation_profile(
     bindings: tuple[ProfileModelBinding, ...],
     deployment_version_id: UUID | None,
 ) -> None:
+    from ai_workshop.labs.rag.models.context_evidence import resolve_evidence_budget
+
+    try:
+        resolve_evidence_budget(config)
+    except ValueError as exc:
+        raise ProfileValidationError(str(exc)) from exc
     required = {
         "prompt_ref",
         "context_prompt_ref",

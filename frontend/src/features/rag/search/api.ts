@@ -7,7 +7,7 @@ export type HighlightSpan = components["schemas"]["HighlightSpanResponse"];
 export type NormalizedTextData = components["schemas"]["NormalizedTextResponse"];
 export type RelatedSourceData = components["schemas"]["RelatedSourceResponse"];
 export type SavedConfiguration = components["schemas"]["SavedRagConfigurationResponse"];
-export type SearchRequest = components["schemas"]["SearchRequest"];
+export type SearchRequest = Omit<components["schemas"]["SearchRequest"], "include_diagnostics"> & { include_diagnostics?: boolean };
 export type SearchResult = components["schemas"]["SearchResponse"];
 export type WorkspaceOption = components["schemas"]["WorkspaceResponse"];
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Annotated, Protocol
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_workshop.config import Settings, get_settings
@@ -33,8 +33,7 @@ from ai_workshop.labs.rag.search.configuration_port import ResolvedSearchConfigu
 from ai_workshop.labs.rag.search.schemas import SearchRequest
 from ai_workshop.labs.rag.search.service import SearchApplicationService
 from ai_workshop.platform.identity.api import get_current_user, require_owner
-from ai_workshop.platform.identity.domain import UserRole
-from ai_workshop.platform.identity.domain import User
+from ai_workshop.platform.identity.domain import User, UserRole
 from ai_workshop.shared.db import get_session
 
 router = APIRouter(prefix="/api/v1/rag/domains", tags=["rag-domains"])
@@ -112,6 +111,7 @@ class DomainSearchExecutor:
             "workspace_ids": list(context.workspace_ids),
             "folder_ids": list(context.folder_ids),
             "top_k": request.top_k,
+            "include_diagnostics": request.include_diagnostics,
             "experimental": configuration.experimental,
             "history": request.history,
             "codex_input_approval": request.codex_input_approval,
@@ -176,10 +176,13 @@ async def domain_search(
     slug: str,
     request: DomainSearchRequest,
     transport: Request,
+    response: Response,
     user: Annotated[User, Depends(get_current_user)],
     executor: Annotated[DomainSearchExecutorPort, Depends(get_domain_search_executor)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> DomainSearchResponse:
+    if request.include_diagnostics:
+        response.headers["Cache-Control"] = "no-store"
     if request.codex_input_approval is not None:
         require_codex_mutation(transport, settings)
     return await run_until_disconnect(

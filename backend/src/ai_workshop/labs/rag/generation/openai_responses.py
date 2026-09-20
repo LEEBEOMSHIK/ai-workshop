@@ -21,8 +21,10 @@ from ai_workshop.labs.rag.generation.domain import (
     ConversationTurn,
     GenerationProfile,
     GenerationRequest,
+    GenerationStatus,
     StructuredGeneration,
 )
+from ai_workshop.labs.rag.generation.evidence_payload import evidence_payload, is_context_abstention
 from ai_workshop.labs.rag.generation.execution import (
     GenerationProviderError,
     ProviderContextualizationResult,
@@ -156,10 +158,9 @@ class OpenAIResponsesRuntime:
                 "schema_version": request.profile.response_schema_version,
                 "question": request.question,
                 "resolved_query": request.resolved_query,
-                "evidence": [
-                    {"evidence_id": str(item.evidence_id), "text": item.text}
-                    for item in request.evidence
-                ],
+                "evidence": evidence_payload(
+                    request.evidence, contextual=request.profile.evidence_budget is not None,
+                ),
             },
             ensure_ascii=False,
         )
@@ -182,6 +183,11 @@ class OpenAIResponsesRuntime:
             raise GenerationProviderError(
                 "provider_invalid_response", retryable=False
             ) from None
+        if request.profile.evidence_budget is not None and is_context_abstention(output_text):
+            return ProviderGenerationResult(
+                None, self._metadata(started, input_tokens=usage[0], output_tokens=usage[1]),
+                status=GenerationStatus.INSUFFICIENT_EVIDENCE,
+            )
         generation = _safe_generation(
             output_text,
             allowed_evidence_ids={item.evidence_id for item in request.evidence},

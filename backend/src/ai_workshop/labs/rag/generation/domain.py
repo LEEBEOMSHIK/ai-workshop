@@ -9,6 +9,8 @@ from ai_workshop.labs.rag.deployments.domain import (
     ModelDeploymentVersion,
     ProviderKind,
 )
+from ai_workshop.labs.rag.documents.domain import TableCellLocation
+from ai_workshop.labs.rag.models.context_evidence import EvidenceBudget
 
 type ExternalGenerationDisclosureVersion = Literal[
     "external-generation-v1", "codex-external-generation-v1"
@@ -140,6 +142,7 @@ class GenerationProfile:
     temperature: float
     response_schema_version: int
     deployment: ModelDeploymentVersion | None = None
+    evidence_budget: EvidenceBudget | None = None
 
     def __post_init__(self) -> None:
         string_fields = (
@@ -199,6 +202,11 @@ class GroundingEvidence:
     char_start: int
     char_end: int
     bbox: tuple[float, float, float, float] | None
+    section_path: tuple[str, ...] = ()
+    ordinal: int = 0
+    source_kind: str = "normalized_text"
+    source_part: str | None = None
+    table_cell: TableCellLocation | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -4,6 +4,18 @@ from ai_workshop.labs.rag.retrieval.domain import RankedHit
 from ai_workshop.labs.rag.retrieval.rrf import rrf_fuse
 
 
+def test_rrf_preserves_raw_branch_scores_without_inventing_missing_scores():
+    from ai_workshop.labs.rag.retrieval.domain import DenseHit, SparseHit
+    from tests.unit.labs.rag.highlighting.test_evidence_selector import _source
+
+    chunk = _source(1, "synthetic").chunk
+    hit = rrf_fuse([SparseHit(chunk, 2, 8.2)], [DenseHit(chunk, 1, 0.77)])[0]
+    assert hit.sparse_score == 8.2
+    assert hit.dense_score == 0.77
+    assert hit.score == pytest.approx(1 / 62 + 1 / 61)
+    assert rrf_fuse([RankedHit("unscored", 1)], [])[0].dense_score is None
+
+
 def test_rrf_orders_disjoint_hits_by_rank_then_immutable_chunk_id() -> None:
     result = rrf_fuse(
         sparse=[RankedHit("s1", 1), RankedHit("s2", 2)],

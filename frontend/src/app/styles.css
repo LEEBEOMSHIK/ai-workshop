@@ -2449,6 +2449,13 @@ mark.keyword-highlight {
   text-underline-offset: 0.18rem;
 }
 
+mark.context-highlight {
+  padding: 0.08rem;
+  color: inherit;
+  background: rgb(120 150 240 / 22%);
+  border-bottom: 2px dotted #7896f0;
+}
+
 mark.semantic-highlight {
   padding: 0.08rem;
   border-bottom: 2px dashed #d6a974;
@@ -2484,6 +2491,11 @@ mark.semantic-highlight {
 
 .pdf-highlight.keyword-highlight {
   border: 3px solid #197c73;
+}
+
+.pdf-highlight.context-highlight {
+  border: 3px dotted #526ac2;
+  background: rgb(120 150 240 / 22%);
 }
 
 .pdf-highlight.semantic-highlight {

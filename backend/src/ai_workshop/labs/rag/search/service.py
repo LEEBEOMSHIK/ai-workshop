@@ -14,6 +14,7 @@ from ai_workshop.labs.rag.deployments.domain import (
     ProviderKind,
 )
 from ai_workshop.labs.rag.embeddings.contracts import EmbeddingRuntimeUnavailableError
+from ai_workshop.labs.rag.embeddings.request_cache import RequestScopedEmbedding
 from ai_workshop.labs.rag.generation.audit import (
     GenerationExecutionAudit,
     WorkspacePolicyAuditSnapshot,
@@ -57,11 +58,18 @@ from ai_workshop.labs.rag.generation.prompts import (
     PromptNotFoundError,
     prompt_reference_version,
 )
+from ai_workshop.labs.rag.highlighting.context import (
+    ContextSelection,
+    EvidenceBudget,
+    select_context,
+)
 from ai_workshop.labs.rag.highlighting.domain import (
+    EvidenceAnswer,
     EvidenceSelection,
     EvidenceSource,
+    HighlightKind,
 )
-from ai_workshop.labs.rag.highlighting.service import EvidenceSelector
+from ai_workshop.labs.rag.highlighting.service import EvidenceSelector, semantic_highlight
 from ai_workshop.labs.rag.policies.domain import (
     PolicyDecision,
     exact_external_approval_is_current,
@@ -82,6 +90,7 @@ from ai_workshop.labs.rag.search.configuration_port import (
     ResolvedSearchConfiguration,
     SearchConfigurationResolverPort,
 )
+from ai_workshop.labs.rag.search.diagnostics import SearchDiagnostics
 from ai_workshop.shared.errors import AppError
 from ai_workshop.shared.request_context import correlation_id_context
 
@@ -159,6 +168,8 @@ class SearchResult:
     resolved_query: str = ""
     generation: GenerationOutcome = GenerationOutcome(status=GenerationStatus.NOT_REQUESTED)
     selected_scope: SelectedSearchScope | None = None
+    grounding_evidence: tuple[EvidenceAnswer, ...] = ()
+    diagnostics: SearchDiagnostics | None = None
 
 
 class SearchApplicationService:
@@ -251,6 +262,12 @@ class SearchApplicationService:
                 "The selected configuration requires explicit experimental opt-in.",
                 409,
             )
+        started = perf_counter()
+        stages: dict[str, float | None] = {
+            "retrieval": None, "selection": None, "contextualization": None,
+            "generation": None, "total": None,
+        }
+        embedding = RequestScopedEmbedding(configuration.embedding)
         policy = configuration.answer_policy
         if configuration.answer_policy_version_id is None or policy is None:
             raise AppError(
@@ -415,6 +432,7 @@ class SearchApplicationService:
             assert prepared_generation is not None
             assert generation_runtime is not None
             await revalidate_access()
+            contextualization_started = perf_counter()
             try:
                 contextualization = await generation_runtime.contextualize(
                     ContextualizationRequest(
@@ -438,6 +456,7 @@ class SearchApplicationService:
                     raise _safe_generation_error("provider_invalid_response")
                 resolved_query = contextualization.resolved_query
                 contextualization_execution = contextualization.execution
+                stages["contextualization"] = _elapsed_ms(contextualization_started)
             except GenerationProviderError as exc:
                 code = _approved_provider_code(exc.code)
                 await self._record_audit(
@@ -470,10 +489,12 @@ class SearchApplicationService:
                 )
                 raise _safe_generation_error("provider_invalid_response") from None
 
+        retrieval_started = perf_counter()
+        context_selection = None
         try:
             retrieval = HybridRetrievalService(
                 scope_resolver=_ResolvedScopeResolver(resolved_scope, revalidate_access),
-                embedding=configuration.embedding,
+                embedding=embedding,
                 sparse_retriever=self.sparse_retriever,
                 dense_retriever=self.dense_retriever,
             )
@@ -503,11 +524,48 @@ class SearchApplicationService:
                     "The search scope changed. Select sources again.",
                     409,
                 )
-            selection = EvidenceSelector(configuration.embedding).select(
+            stages["retrieval"] = _elapsed_ms(retrieval_started)
+            selection_started = perf_counter()
+            selection = EvidenceSelector(embedding).select(
                 query=resolved_query,
                 sources=sources,
                 policy=policy,
             )
+            generation_answers = (
+                *((selection.answer,) if selection.answer is not None else ()),
+                *selection.conflicts,
+            )
+            budget = generation_profile.evidence_budget if generation_profile else None
+            if budget is not None or request.include_diagnostics:
+                diagnostic_budget = EvidenceBudget(
+                    max(1, len(sources)),
+                    max(1, len(sources), sum(len(s.chunk.evidence_units) for s in sources)),
+                    max(1, sum(len(u.text) for s in sources for u in s.chunk.evidence_units)),
+                )
+                try:
+                    context_selection = select_context(
+                        query=resolved_query, sources=sources, extractive=selection, policy=policy,
+                        budget=budget or diagnostic_budget, embedding=embedding,
+                        include_diagnostics=request.include_diagnostics,
+                    )
+                except (EmbeddingRuntimeUnavailableError, ValueError):
+                    if budget is not None:
+                        raise AppError(
+                            "evidence_context_unavailable",
+                            "Context evidence is temporarily unavailable.", 503,
+                        ) from None
+                    context_selection = ContextSelection(
+                        (), (), diagnostic_warning="diagnostic_embedding_unavailable",
+                    )
+                if budget is not None:
+                    generation_answers = tuple(
+                        EvidenceAnswer(group.source, unit, unit.text, (
+                            replace(semantic_highlight(unit, score=0),
+                                    kind=HighlightKind.CONTEXT, score=None),
+                        ), None, None)
+                        for group in context_selection.groups for unit in group.units
+                    )
+            stages["selection"] = _elapsed_ms(selection_started)
             required_sources = tuple(
                 SelectedDocumentIdentity(
                     source.document_id,
@@ -550,6 +608,9 @@ class SearchApplicationService:
                     provider_execution=contextualization_execution,
                 )
             raise
+        if generation_profile is None:
+            generation_answers = ()
+        generation_started = perf_counter()
         generation = await self._generate(
             actor_id=actor_id,
             original_query=request.query.strip(),
@@ -557,10 +618,30 @@ class SearchApplicationService:
             history=bounded_history,
             configuration=configuration,
             selection=selection,
+            evidence=_grounding_evidence(generation_answers),
             prepared_generation=prepared_generation,
             contextualization_execution=contextualization_execution,
             conversation_scope=resolved_conversation_scope,
         )
+        if generation_profile is not None and generation_answers:
+            stages["generation"] = _elapsed_ms(generation_started)
+        stages["total"] = _elapsed_ms(started)
+        diagnostics = None
+        if request.include_diagnostics and context_selection is not None:
+            sent_ids = {answer.evidence.id for answer in generation_answers}
+            sent_chunks = {answer.source.chunk.chunk_id for answer in generation_answers}
+            candidates = tuple(replace(
+                item, selected=(item.evidence_id in sent_ids if item.evidence_id else
+                                item.chunk_id in sent_chunks),
+                reason=(item.reason if budget is not None else
+                        "legacy_selected" if (item.evidence_id in sent_ids if item.evidence_id
+                                              else item.chunk_id in sent_chunks)
+                        else "not_transmitted"),
+            ) for item in context_selection.diagnostics)
+            diagnostics = SearchDiagnostics(
+                candidates, hits, sources, stages, policy.min_keyword_coverage,
+                policy.min_semantic_score, context_selection.diagnostic_warning,
+            )
         return SearchResult(
             selection=selection,
             configuration=configuration,
@@ -570,6 +651,8 @@ class SearchApplicationService:
             ),
             resolved_query=resolved_query,
             generation=generation,
+            grounding_evidence=generation_answers,
+            diagnostics=diagnostics,
             selected_scope=(
                 SelectedSearchScope(
                     identities=resolved_scope.selected_documents,
@@ -808,6 +891,7 @@ class SearchApplicationService:
         history: tuple[ConversationTurn, ...],
         configuration: ResolvedSearchConfiguration,
         selection: EvidenceSelection,
+        evidence: tuple[GroundingEvidence, ...],
         prepared_generation: PreparedGeneration | None,
         contextualization_execution: ProviderExecutionMetadata | None,
         conversation_scope: ConversationScopeBinding | None,
@@ -816,7 +900,7 @@ class SearchApplicationService:
         if profile is None:
             return GenerationOutcome(status=GenerationStatus.NOT_REQUESTED)
         assert prepared_generation is not None
-        if selection.status.value == "insufficient_evidence":
+        if not evidence:
             await self._record_audit(
                 actor_id=actor_id,
                 configuration=configuration,
@@ -832,7 +916,6 @@ class SearchApplicationService:
             )
         generation_runtime = prepared_generation.runtime
         assert self.turn_signer is not None
-        evidence = _generation_evidence(selection)
         generation_started = perf_counter()
         try:
             generation_result = await generation_runtime.generate(
@@ -1258,6 +1341,10 @@ def _generation_evidence(
         *((selection.answer,) if selection.answer is not None else ()),
         *selection.conflicts,
     )
+    return _grounding_evidence(answers)
+
+
+def _grounding_evidence(answers: tuple[EvidenceAnswer, ...]) -> tuple[GroundingEvidence, ...]:
     return tuple(
         GroundingEvidence(
             evidence_id=answer.evidence.id,
@@ -1271,6 +1358,11 @@ def _generation_evidence(
             char_start=answer.evidence.location.char_start,
             char_end=answer.evidence.location.char_end,
             bbox=answer.evidence.location.bbox,
+            section_path=answer.source.chunk.section_path,
+            ordinal=answer.evidence.ordinal,
+            source_kind=answer.evidence.location.source_kind.value,
+            source_part=answer.evidence.location.source_part,
+            table_cell=answer.evidence.location.table_cell,
         )
         for answer in answers
     )

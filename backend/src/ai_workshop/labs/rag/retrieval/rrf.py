@@ -1,3 +1,4 @@
+import math
 from collections.abc import Sequence
 
 from ai_workshop.labs.rag.retrieval.domain import (
@@ -41,6 +42,8 @@ def rrf_fuse(
                 sparse_rank=sparse_rank,
                 dense_rank=dense_rank,
                 chunk=chunks.get(chunk_id),
+                sparse_score=_branch_score(sparse, chunk_id, sparse_rank),
+                dense_score=_branch_score(dense, chunk_id, dense_rank),
             )
         )
 
@@ -50,6 +53,17 @@ def rrf_fuse(
             key=lambda hit: (-hit.score, hit.best_rank, str(hit.chunk_id)),
         )
     )
+
+
+def _branch_score(
+    hits: Sequence[RankedInput], chunk_id: ChunkIdentifier, rank: int | None,
+) -> float | None:
+    for hit in hits:
+        if hit.chunk_id == chunk_id and hit.rank == rank and not isinstance(hit, RankedHit):
+            if not math.isfinite(hit.score):
+                raise ValueError("Search scores must be finite.")
+            return hit.score
+    return None
 
 
 def _best_ranks(hits: Sequence[RankedInput]) -> dict[ChunkIdentifier, int]:

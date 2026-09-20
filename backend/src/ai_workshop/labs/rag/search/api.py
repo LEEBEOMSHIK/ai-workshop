@@ -122,10 +122,13 @@ def get_viewer_service(
 async def search(
     request: SearchRequest,
     transport: Request,
+    response: Response,
     user: Annotated[User, Depends(get_current_user)],
     service: Annotated[SearchApplicationService, Depends(get_search_service)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> SearchResponse:
+    if request.include_diagnostics:
+        response.headers["Cache-Control"] = "no-store"
     if request.codex_input_approval is not None:
         require_codex_mutation(transport, settings)
     return SearchResponse.from_domain(

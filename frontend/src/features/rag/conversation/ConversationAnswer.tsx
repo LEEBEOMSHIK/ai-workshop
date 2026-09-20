@@ -3,6 +3,7 @@ import type { CompletedTurn } from "./types";
 import type { DocumentSummary } from "../../assets/api";
 import { scopeSummary } from "./types";
 import { CodexModelIdentity } from "./CodexModelIdentity";
+import { SearchDiagnostics } from "./SearchDiagnostics";
 
 export function ConversationAnswer({ turn, onOpenEvidence, onOpenSelectedVersion }: {
   turn: CompletedTurn;
@@ -10,11 +11,12 @@ export function ConversationAnswer({ turn, onOpenEvidence, onOpenSelectedVersion
   onOpenSelectedVersion: (document: DocumentSummary, versionId: string) => void;
 }) {
   const evidenceById = new Map(
-    [turn.result.answer, ...turn.result.conflicts]
+    [turn.result.answer, ...turn.result.conflicts, ...(turn.result.grounding_evidence ?? [])]
       .filter((item): item is Evidence => item !== null)
       .map((item) => [item.source.evidence_unit_id, item]),
   );
   const generation = turn.result.generation;
+  const missingCitation = generation.citations.some((citation) => citation.evidence_ids.some((id) => !evidenceById.has(id)));
   const citations = generation.citations.flatMap((citation) => citation.evidence_ids.flatMap((evidenceId) => {
     const evidence = evidenceById.get(evidenceId);
     return evidence ? [{ claimIndex: citation.claim_index, evidence }] : [];
@@ -25,7 +27,8 @@ export function ConversationAnswer({ turn, onOpenEvidence, onOpenSelectedVersion
       <section className="assistant-message">
         <h2>AI 답변</h2>
         {generation.execution ? <CodexModelIdentity execution={generation.execution} /> : null}
-        {generation.status === "answered" && generation.text ? <p>{generation.text}</p> : null}
+        {generation.status === "answered" && generation.text && !missingCitation ? <p>{generation.text}</p> : null}
+        {missingCitation ? <p role="alert">답변 인용에 연결할 원문 근거가 누락되어 답변을 표시하지 않았습니다.</p> : null}
         {generation.status === "insufficient_evidence" ? (
           <div className="answer-state insufficient" role="status"><strong>답변할 근거가 부족합니다.</strong><p>질문을 구체화하거나 검색 범위를 조정해 주세요.</p></div>
         ) : null}
@@ -56,6 +59,7 @@ export function ConversationAnswer({ turn, onOpenEvidence, onOpenSelectedVersion
         {turn.result.answer ? (
           <details className="conversation-evidence"><summary>확인된 근거</summary><blockquote>{turn.result.answer.excerpt}</blockquote><button type="button" onClick={() => onOpenEvidence(turn.result.answer!)}>원문에서 확인</button></details>
         ) : null}
+        {turn.result.diagnostics ? <SearchDiagnostics diagnostics={turn.result.diagnostics} query={turn.result.resolved_query} /> : null}
       </section>
     </article>
   );

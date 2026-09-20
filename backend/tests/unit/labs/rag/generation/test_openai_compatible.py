@@ -429,3 +429,32 @@ async def test_redirect_response_is_rejected_without_following_location() -> Non
 
     assert caught.value.code == "provider_invalid_response"
     assert len(requests) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("contextual", [False, True])
+async def test_empty_claims_are_abstention_only_for_contextual_prompt(contextual):
+    from dataclasses import replace
+
+    from ai_workshop.labs.rag.models.context_evidence import EvidenceBudget
+
+    async def handler(request):
+        return httpx.Response(200, json={"choices": [{"message": {
+            "content": '{"schema_version":1,"claims":[]}'}}]})
+
+    selected = profile()
+    if contextual:
+        selected = replace(selected, prompt_ref="rag-answer-v2",
+                           evidence_budget=EvidenceBudget(8, 32, 12000))
+    request = GenerationRequest(question="synthetic question", resolved_query="query",
+        history=(), evidence=(evidence(),), profile=selected, correlation_id="synthetic")
+    async with client_for(httpx.MockTransport(handler)) as client:
+        runtime = LocalOpenAICompatibleRuntime(deployment=local_deployment(),
+            endpoint="http://127.0.0.1:11434", client=client)
+        if contextual:
+            result = await runtime.generate(request)
+            assert result.status == "insufficient_evidence"
+            assert result.generation is None
+        else:
+            with pytest.raises(GenerationProviderError):
+                await runtime.generate(request)

@@ -10,6 +10,7 @@ from ai_workshop.labs.rag.generation.domain import (
     ContextualizationRequest,
     GenerationRequest,
 )
+from ai_workshop.labs.rag.generation.evidence_payload import evidence_payload
 from ai_workshop.labs.rag.generation.prompts import (
     PromptNotFoundError,
     load_prompt,
@@ -81,14 +82,15 @@ def _trusted_selection(
 ) -> tuple[str, str, int, dict[str, Any]]:
     profile = request.profile
     if (
-        profile.prompt_ref not in (_ANSWER_REF, _WIRE_ANSWER_REF)
+        profile.prompt_ref not in (_ANSWER_REF, _WIRE_ANSWER_REF, "rag-codex-answer-v4")
         or profile.context_prompt_ref != _CONTEXTUALIZE_REF
         or profile.response_schema_version != 2
+        or (profile.prompt_ref == "rag-codex-answer-v4" and profile.evidence_budget is None)
     ):
         _raise_invalid_profile()
     if isinstance(request, GenerationRequest):
-        if profile.prompt_ref == _WIRE_ANSWER_REF:
-            return _WIRE_ANSWER_REF, "codex-grounded-wire-v1", 1, CODEX_GROUNDED_WIRE_SCHEMA_V1
+        if profile.prompt_ref in (_WIRE_ANSWER_REF, "rag-codex-answer-v4"):
+            return profile.prompt_ref, "codex-grounded-wire-v1", 1, CODEX_GROUNDED_WIRE_SCHEMA_V1
         return _ANSWER_REF, "grounded-generation-v2", 2, GROUNDED_GENERATION_SCHEMA_V2
     return _CONTEXTUALIZE_REF, "contextualization-v1", 1, CONTEXTUALIZATION_SCHEMA_V1
 
@@ -115,10 +117,9 @@ def _payload(request: ContextualizationRequest | GenerationRequest) -> dict[str,
     }
     if isinstance(request, GenerationRequest):
         payload["resolved_query"] = request.resolved_query
-        payload["evidence"] = [
-            {"evidence_id": str(evidence.evidence_id), "text": evidence.text}
-            for evidence in request.evidence
-        ]
+        payload["evidence"] = evidence_payload(
+            request.evidence, contextual=request.profile.evidence_budget is not None,
+        )
     return payload
 
 

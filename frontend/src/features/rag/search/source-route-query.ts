@@ -48,6 +48,7 @@ export function parseSourceQuery(searchParams: SourceSearchParams): {
   const values: Array<{ kind: HighlightSpan["kind"]; value: string }> = [
     ...allValues(searchParams.keyword).map((value) => ({ kind: "keyword" as const, value })),
     ...allValues(searchParams.semantic).map((value) => ({ kind: "semantic" as const, value })),
+    ...allValues(searchParams.context).map((value) => ({ kind: "context" as const, value })),
   ];
   const highlights = values.slice(0, MAX_HIGHLIGHTS).flatMap(({ kind, value }) => {
     const parsed = parseHighlight(kind, value);

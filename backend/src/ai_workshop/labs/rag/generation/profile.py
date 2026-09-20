@@ -2,6 +2,9 @@ from collections.abc import Mapping
 
 from ai_workshop.labs.rag.deployments.domain import ModelDeploymentVersion
 from ai_workshop.labs.rag.generation.domain import ContextPolicy, GenerationProfile
+from ai_workshop.labs.rag.models.context_evidence import (
+    resolve_evidence_budget as resolve_evidence_budget,
+)
 from ai_workshop.labs.rag.models.domain import ModelDefinition, ModelKind, Profile, ProfileKind
 
 
@@ -58,6 +61,7 @@ def resolve_generation_profile(
             "response schema version",
         ),
         deployment=deployment,
+        evidence_budget=resolve_evidence_budget(profile.config),
     )
 
 

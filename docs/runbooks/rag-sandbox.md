@@ -1,5 +1,10 @@
 ﻿# 합성 RAG sandbox
 
+> 2026-09-20: 본래 개발 환경으로 전환하여 이 sandbox의 API·worker·beat·frontend는 중지했다.
+> DB·파일·volume은 이관 검증 전까지 보존한다. 사용자 기본 실행은 [WORKBOARD](../../WORKBOARD.md)와
+> [로컬 개발 실행서](local-development.md)를 따른다. 아래 Runtime 명령을 실행하면 본래 환경의
+> 18000/5173 포트와 충돌한다. 별도 환경 생성·확장은 명시 요청 없이 반복하지 않는다.
+
 실사용 `.env`, DB, 업로드 데이터와 기존 Docker 서비스를 바꾸지 않는 Windows 전용 검증 환경이다.
 현재 원본/임시/RAG 산출물 쓰기는 Windows native adapter를 요구하므로 Docker에는 PostgreSQL,
 Redis, Elasticsearch만 두고 API, worker, beat와 frontend는 호스트에서 실행한다.

@@ -5,49 +5,71 @@
 - 전체 상태: 불변 Document Processing Profile, 10개 고정 PP-StructureV3 모델,
   DOCX 내장 이미지 OCR·provenance·검색 원문 뷰어와 관리자 전체 구성이 구현됐다.
 
-## 서버 실행 방법 — RAG 테스트 환경
+## 서버 실행 방법 — 본래 개발 환경
 
-2026-09-20 확인: **백엔드와 프론트엔드 실행 중**. 아래 주소의 health와 로그인 화면 모두 HTTP 200이다.
-이 안내는 기존 자료와 분리한 RAG sandbox 기준이며, 현재 환경은 준비·migration까지 완료됐다.
+2026-09-20: 기존 `.env`의 `ai_workshop_local_clean` DB를 사용하는 API·worker·beat·frontend로 복구했다.
+**기존 마스터 계정으로 로그인한다.** 별도 sandbox 계정은 이 주소에서 사용하지 않는다.
 
 - 프론트엔드: http://127.0.0.1:5173/login
-- 백엔드: http://127.0.0.1:18000 (상태 확인: `/api/v1/health`)
-- 로그인 정보: 로컬 `.local-data/rag-sandbox/credentials.json`
-- 상세 운영 정본: [RAG sandbox 실행서](docs/runbooks/rag-sandbox.md)
+- 백엔드: http://127.0.0.1:18000 (상태: `/api/v1/health`)
+- 정본: [로컬 개발 실행서](docs/runbooks/local-development.md)
+- 검색 확인: 로그인 후 `/workshop/rag/search`에서 `E5 하이브리드 검색` 선택. 기존 LLM 구성과 기본값은 유지한다.
 
-**PC 재시작 등으로 서버가 모두 꺼졌을 때**, Docker Desktop을 켜고 PowerShell에서 실행한다.
+서버가 꺼져 있으면 Docker Desktop을 켠 뒤 저장소 루트의 PowerShell에서 기존 인프라를 시작한다.
 
 ```powershell
 Set-Location C:\projects\ai-workshop
-.\scripts\prepare_rag_sandbox.ps1 -Phase Infrastructure
-.\scripts\prepare_rag_sandbox.ps1 -Phase Runtime
+docker start ai-workshop-postgres-1 ai-workshop-redis-1 ai-workshop-elasticsearch-1
 ```
 
-`Infrastructure`는 전용 PostgreSQL·Redis·Elasticsearch를 시작한다. `Runtime`은 백엔드 API,
-업로드/색인용 worker·beat와 프론트엔드를 숨김 창으로 시작한다. 일부 프로세스라도 기록상 살아
-있으면 중복 실행을 거절한다. 이미 준비된 환경에 `Prepare`나 `Migrate`를 매번 실행하지 않는다.
-
-**개별 서버만 꺼졌을 때**는 인프라가 실행 중인지 확인한 뒤 필요한 명령 하나만 별도 PowerShell
-창에서 실행한다. 아래 명령은 창을 유지하는 foreground 실행이며 `Ctrl+C`로 해당 서버를 종료한다.
-worker·beat도 같은 종류가 이미 실행 중이면 추가로 실행하지 않는다.
+아래 환경 로딩을 **각 서버를 실행할 PowerShell 창마다** 먼저 수행한다. 비밀값은 출력하지 않는다.
 
 ```powershell
 Set-Location C:\projects\ai-workshop
+$inheritedKeys = @([Environment]::GetEnvironmentVariables('Process').Keys | Where-Object { $_ -like 'AI_WORKSHOP_*' })
+foreach ($key in $inheritedKeys) {
+    [Environment]::SetEnvironmentVariable($key, $null, 'Process')
+}
+$localSettings = (& backend\.venv\Scripts\python.exe -c "import json; from dotenv import dotenv_values; print(json.dumps(dotenv_values('.env')))" | ConvertFrom-Json)
+foreach ($setting in $localSettings.PSObject.Properties) {
+    if ($null -ne $setting.Value) {
+        [Environment]::SetEnvironmentVariable($setting.Name, [string]$setting.Value, 'Process')
+    }
+}
+$env:HF_HUB_OFFLINE = '1'
+$env:TRANSFORMERS_OFFLINE = '1'
+```
+
+필요한 서버만 각각 별도 창에서 실행한다. 이미 실행 중인 API/worker/beat/frontend는 중복 실행하지 않는다.
+
+```powershell
 # 백엔드 API
-backend\.venv\Scripts\python.exe scripts\prepare_rag_sandbox.py api
-# 프론트엔드 (다른 PowerShell 창)
-backend\.venv\Scripts\python.exe scripts\prepare_rag_sandbox.py frontend
-# 업로드/색인 worker와 예약 작업 (필요하면 각각 다른 창)
-backend\.venv\Scripts\python.exe scripts\prepare_rag_sandbox.py worker
-backend\.venv\Scripts\python.exe scripts\prepare_rag_sandbox.py beat
+backend\.venv\Scripts\python.exe -m uvicorn ai_workshop.main:app --loop ai_workshop.shared.asyncio_policy:create_selector_event_loop --host 127.0.0.1 --port $env:API_PORT
+# 업로드·색인 worker (다른 창)
+backend\.venv\Scripts\python.exe -m celery -A ai_workshop.worker:celery_app worker --pool=solo --loglevel=INFO
+# 예약 작업 beat (다른 창)
+backend\.venv\Scripts\python.exe -m celery -A ai_workshop.worker:celery_app beat --loglevel=INFO --schedule .local-data/celerybeat-schedule
+# 프론트엔드 (다른 창)
+pnpm --dir frontend dev
 ```
 
-확인 명령: `Invoke-WebRequest http://127.0.0.1:18000/api/v1/health -UseBasicParsing`.
-프론트 경유 확인은 `http://127.0.0.1:5173/api/v1/health`를 사용한다.
-백그라운드 실행 로그는 `.local-data/rag-sandbox/logs/`, 프로세스 기록은 `processes.json`에 있다.
-기존 일반 개발 환경의 실행·migration은 [로컬 개발 실행서](docs/runbooks/local-development.md)를 따른다.
+확인: `Invoke-WebRequest http://127.0.0.1:18000/api/v1/health -UseBasicParsing`.
+프론트 경유는 `http://127.0.0.1:5173/api/v1/health`다. 현재 숨김 실행 로그/PID는
+`.local-data/dev-logs/original-rag-*.log`와 `original-rag-processes.json`에 있다.
+DB0048과 저장소 marker는 적용됐다. 평상시 시작에 migration·계정 초기화를 반복하지 않는다.
+
+별도로 만들었던 sandbox는 실행 프로세스만 중지했다. DB·파일·volume은 이관 검증 완료 전까지 보존한다.
+`prepare_rag_sandbox.ps1 -Phase Runtime`을 다시 실행하면 본래 포트와 충돌하므로 사용하지 않는다.
 
 ## 현재 작업
+
+- 본래 환경 복구·RAG 적용(2026-09-20): 백업 실제 복원/리허설 후 기존 DB0034→0048 적용, 기존 계정·권한·원본30파일 보존 확인.
+  API·worker·beat·frontend를 기존18000/5173에 복구하고 health200·기존문서BM25/hybrid 출처 검증을 완료했다.
+  기존 프로파일을 재사용한 `E5 하이브리드 검색` 구성1개를 연결했다. 문서·계정·프로파일·재색인 추가0.
+  남은 확인: 실제 마스터 암호 로그인과 화면 사용. 기존 failed legacy ingestion1건은 상태를 보존했다.
+  sandbox는 프로세스만 중지하고 DB·파일·volume을 보존한다. 필요 내용 반영·사용 확인 전 삭제하지 않는다.
+  복원 검증용 일시DB는 비교 완료 후 정리했다. 기록: `docs/worklogs/2026-09-20-original-environment-rag-cutover.md`.
+  메인 통합·DBA 사전검사·RAG 실행 검증·독립 보존 검토를 분리했다.
 
 - 일반 Jobs 출처·보존·revision 구현 및 격리 RAG 검색 환경 준비(2026-09-20).
   신규 Jobs의 source pin·원자 revision/CAS와 dispatch·읽기 inventory를 연결했다. 종료 상태로 writer 종료를 추정하지 않는다.
@@ -1446,8 +1468,9 @@ RAG 구성에 고정하고, 관리자가 PP-StructureV3 pipeline과 하위 OCR �
 최우선(2026-09-20): 일반 Jobs 메타데이터 출처·보존·revision과 읽기 목록을 구현했다.
 다음은 전체 참여자 inventory 조립과 구 writer/파일 writer의 종료 확인·잔존 재검증 계약이다.
 미활성 purge inventory의 역순 잠금 해소와 정리 실행 순서를 검증한 뒤 실제 삭제 API/UI를 연결한다.
-RAG는 별도 sandbox(DB0048)에서 지금 TXT 업로드·BM25/E5 hybrid 선택 문서 검색을 테스트할 수 있다.
-실행 정본은 `docs/runbooks/rag-sandbox.md`; 로컬 LLM 실행기/모델 설정 후 답변·인용, 이후 OCR 순서다.
+RAG는 본래 환경(DB0048)의 기존 자료로 BM25/E5 hybrid 검색을 검증했다. 실제 마스터 로그인·화면 사용 확인을 마친다.
+실행 정본은 `docs/runbooks/local-development.md`와 이 보드 상단이다. sandbox는 필요한 내용 인계·검증 전까지 삭제하지 않는다.
+LLM 답변·인용과 OCR 품질은 별도 실검증이며 검색 성공과 구분한다.
 기존 ingestion fixture 14건은 추적 publisher 계약으로 갱신해 통과했다. OCR 미확인 writer 회수,
 legacy 추적/backfill·실사용 DB cutover·비Windows native 구현은 후속이며 이번에 삭제를 활성화하지 않았다.
 

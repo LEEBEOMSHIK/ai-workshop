@@ -1,9 +1,20 @@
 # 로컬 개발 실행서
 
 - 상태: 현재 구현 기준
-- 기준일: 2026-09-03
+- 기준일: 2026-09-20
 
 이 문서는 AI Workshop 기반을 로컬에서 설치하고 실행·검증하는 절차의 정본이다. 원본 문서와 비밀값은 Git에 추가하지 않는다.
+
+### 현재 본래 환경 적용 상태 (2026-09-20)
+
+기존 `.env`의 PostgreSQL `127.0.0.1:15432/ai_workshop_local_clean`, Redis `6379/3`,
+Elasticsearch `9200`과 `.local-data/objects`를 유지한다. API `18000`, frontend `5173`은
+이 본래 환경이며 기존 마스터 계정을 사용한다. sandbox 계정으로 안내하지 않는다.
+백업의 실제 복원과 0034→0048 리허설 후 본래 DB에도 `0048_job_metadata_ownership`을 적용했다.
+계정·권한과 기존 데이터는 보존했으며 원본/RAG/임시 저장소 marker와 실제 ES cluster binding을
+설정했다. 기존 원본·색인·Jobs의 추적 revision은 임의 backfill하지 않았다.
+시작 명령은 [WORKBOARD 상단](../../WORKBOARD.md)에 있다. 평상시 시작에 migration·bootstrap을 반복하지 않는다.
+별도 sandbox는 런타임만 중지했으며 본래 환경 검증과 필요한 내용 인계가 끝나기 전 삭제하지 않는다.
 
 ### 게임형 공개 입구 실행
 

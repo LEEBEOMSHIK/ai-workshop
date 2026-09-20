@@ -7,6 +7,12 @@
 
 ## 현재 작업
 
+- HTTP 업로드 임시물 선행 예약 상세 설계·독립 검토 및 RAG 테스트 조건 확인 완료(2026-09-20).
+  메인은 수신/저장·요구/문서, 별도 담당은 인증·multipart·원본 결합, 독립 검토자는 DB/프라이버시, RAG 담당은 실행 환경을 읽기 전용 확인했다.
+  상세안: `docs/superpowers/specs/2026-09-20-http-upload-intake-design.md`. 확인 후 구현 계획으로 진행한다. 제품 코드는 아직 변경하지 않았다.
+  RAG는 삭제 개발 완료 전 별도 테스트 가능하나 현재 API/frontend/DB/Redis/ES 접속 불가, 추적 binding/marker 미설정이다. 현재 DB migration과 모델 readiness는 미확인이다.
+  기록: `docs/worklogs/2026-09-20-http-intake-and-rag-readiness.md`. 실행 환경·승인된 적용 후 TXT검색→답변·인용→OCR 순서다. 실사용 변경·모델 호출은 하지 않았다.
+
 - 문서 전용 임시 작업공간 구현 완료(2026-09-20): 생성 전 원장 예약·Windows 소유 파일 정리·parser/OCR/preview 문맥과 종료 확인을 연결했다.
   DB·파일·RAG 구현과 별도 검토를 분리했다. 최종699단위/7격리PG(706통과), Windows 권한 skip2건, 타입18파일·린트39파일 통과. 독립200통과/1skip·현재 코드 차단 없음.
   기존 ingestion 통합 fixture는 파싱 전 artifact_binding_missing 8실패/5통과, ES 통합은 미실행이며 전체 ingestion 통합 통과로 보고하지 않는다.

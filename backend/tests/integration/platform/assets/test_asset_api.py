@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from ai_workshop.config import get_settings
 from ai_workshop.main import create_app
 from ai_workshop.platform.assets.domain import AssetVersion, Document, Folder, VersionStatus
+from ai_workshop.platform.assets.intake_service import get_upload_intake_service
 from ai_workshop.platform.assets.library import (
     AssetVersionPage,
     LibraryFolder,
@@ -15,7 +16,6 @@ from ai_workshop.platform.assets.library import (
 )
 from ai_workshop.platform.assets.service import (
     AssetUploadResult,
-    get_asset_upload_coordinator,
 )
 from ai_workshop.platform.identity.api import get_current_user
 from ai_workshop.platform.identity.domain import User, UserRole
@@ -45,7 +45,7 @@ def owner() -> User:
     )
 
 
-class UploadCoordinatorStub:
+class UploadIntakeStub:
     def __init__(self, result: AssetUploadResult) -> None:
         self.result = result
 
@@ -54,10 +54,8 @@ class UploadCoordinatorStub:
         *,
         user: User,
         workspace_id: UUID,
-        folder_id: UUID | None,
-        filename: str,
-        media_type: str,
-        content: AsyncIterator[bytes],
+        stream: AsyncIterator[bytes],
+        content_type: str,
     ) -> AssetUploadResult:
         return self.result
 
@@ -105,7 +103,7 @@ def test_upload_returns_durable_job_id_and_dispatches_after_response() -> None:
     dispatcher = RecordingDispatcher()
     app = create_app()
     app.dependency_overrides[get_current_user] = lambda: user
-    app.dependency_overrides[get_asset_upload_coordinator] = lambda: UploadCoordinatorStub(
+    app.dependency_overrides[get_upload_intake_service] = lambda: UploadIntakeStub(
         AssetUploadResult(document, job, job_created=True)
     )
     app.dependency_overrides[get_job_dispatcher] = lambda: dispatcher
@@ -178,9 +176,7 @@ def test_library_endpoints_serialize_scoped_metadata_and_versions() -> None:
 
     with TestClient(app) as client:
         browse = client.get(f"/api/v1/workspaces/{workspace.id}/library")
-        detail = client.get(
-            f"/api/v1/workspaces/{workspace.id}/library/documents/{document.id}"
-        )
+        detail = client.get(f"/api/v1/workspaces/{workspace.id}/library/documents/{document.id}")
         versions = client.get(
             f"/api/v1/workspaces/{workspace.id}/library/documents/{document.id}/versions"
         )

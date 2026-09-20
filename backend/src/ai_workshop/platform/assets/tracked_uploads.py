@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_workshop.platform.assets.domain import Document
+from ai_workshop.platform.assets.intake_service import UploadIntakeLease
 from ai_workshop.platform.assets.provenance_contracts import SourceIdentity
 from ai_workshop.platform.assets.service import (
     AssetService,
@@ -112,6 +113,39 @@ class TrackedAssetUploadCoordinator(AssetUploadCoordinator):
         except UploadOwnershipError as error:
             raise _public_error(error) from None
 
+    async def upload_intake(
+        self,
+        *,
+        user: User,
+        intake: UploadIntakeLease,
+        filename: str,
+        media_type: str,
+        folder_id: UUID | None,
+        content: AsyncIterator[bytes],
+    ) -> AssetUploadResult:
+        source = intake.claim.source
+        if intake.claim.user_id != user.id:
+            raise UploadOwnershipError("identity_mismatch")
+        await self.assets.repository.require_workspace_write(user.id, source.workspace_id)
+        if intake.claim.new_document:
+            document = Document(source.document_id, source.workspace_id, folder_id, filename)
+        else:
+            current = await self.assets.repository.find_document_for_user(
+                user.id, source.document_id
+            )
+            if current is None or current.workspace_id != source.workspace_id:
+                raise UploadOwnershipError("source_unavailable")
+            document = current
+        return await self._upload(
+            user,
+            document,
+            filename,
+            media_type,
+            content,
+            new_document=intake.claim.new_document,
+            intake=intake,
+        )
+
     async def _upload(
         self,
         user: User,
@@ -121,21 +155,27 @@ class TrackedAssetUploadCoordinator(AssetUploadCoordinator):
         content: AsyncIterator[bytes],
         *,
         new_document: bool,
+        intake: UploadIntakeLease | None = None,
     ) -> AssetUploadResult:
         suffix = Path(filename).suffix.casefold()
         if suffix not in ALLOWED_ORIGINAL_SUFFIXES:
             raise AppError("unsupported_document", "This document format is not supported.", 422)
-        claim = await self.journal.reserve(
-            UploadClaim(
-                attempt_id=uuid4(),
-                source=SourceIdentity(document.workspace_id, document.id, uuid4()),
-                user_id=user.id,
-                folder_id=document.folder_id,
-                new_document=new_document,
-                binding=self.store.binding,
-                suffix=suffix,
-            )
+        claim = UploadClaim(
+            attempt_id=uuid4(),
+            source=intake.claim.source
+            if intake
+            else SourceIdentity(document.workspace_id, document.id, uuid4()),
+            user_id=user.id,
+            folder_id=document.folder_id,
+            new_document=new_document,
+            binding=self.store.binding,
+            suffix=suffix,
+            generation=intake.claim.generation if intake else None,
         )
+        if intake is None:
+            claim = await self.journal.reserve(claim)
+        else:
+            await intake.reserve_original(claim)
 
         async def bounded_content() -> AsyncIterator[bytes]:
             size = 0
@@ -149,12 +189,26 @@ class TrackedAssetUploadCoordinator(AssetUploadCoordinator):
             stored = await self.store.publish(claim, bounded_content())
         except BaseException:
             # publish has unwound its own writer. Only exact absence permits closure.
-            await self._abandon_if_absent(claim, expected_state="open")
+            confirmed = await self._abandon_if_absent(claim, expected_state="open")
+            if intake and not confirmed:
+                intake.mark_uncertain()
             raise
-        validate_stored(claim, stored)
-        # A failed/uncertain journal commit leaves the canonical file and reservation intact.
-        await self.journal.published(claim, stored)
         try:
+            validate_stored(claim, stored)
+        except BaseException:
+            if intake:
+                intake.mark_uncertain()
+            raise
+        # A failed/uncertain journal commit leaves the canonical file and reservation intact.
+        try:
+            await self.journal.published(claim, stored)
+        except BaseException:
+            if intake:
+                intake.mark_uncertain()
+            raise
+        try:
+            if intake:
+                await intake.prepare_attachment(self.session, claim)
             current = await self.journal.prepare_attachment(self.session, claim)
             if (current is None) != new_document:
                 raise UploadOwnershipError("attachment_mismatch")
@@ -185,14 +239,24 @@ class TrackedAssetUploadCoordinator(AssetUploadCoordinator):
                 asset_version_id=version.id,
             )
             await self.journal.attach(self.session, claim, stored)
+            pending_intake = await intake.attach(self.session, claim) if intake else None
         except BaseException:
-            await self._rollback_and_discard(claim, stored)
+            confirmed = await self._rollback_and_discard(claim, stored)
+            if intake and not confirmed:
+                intake.mark_uncertain()
             raise
         # Never include this in the cleanup block: an exception may follow a durable commit.
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except BaseException:
+            if intake:
+                intake.mark_uncertain()
+            raise
+        if intake and pending_intake is not None:
+            intake.acknowledge(pending_intake)
         return AssetUploadResult(document, creation.job, creation.created)
 
-    async def _rollback_and_discard(self, claim: UploadClaim, stored: StoredObject) -> None:
+    async def _rollback_and_discard(self, claim: UploadClaim, stored: StoredObject) -> bool:
         try:
             await self.session.rollback()
             await self.journal.cleanup(
@@ -204,8 +268,10 @@ class TrackedAssetUploadCoordinator(AssetUploadCoordinator):
         except BaseException:
             # Keep the durable locator; do not hide the original failure or log private paths.
             _logger.warning("original_upload_cleanup_incomplete")
+            return False
+        return True
 
-    async def _abandon_if_absent(self, claim: UploadClaim, *, expected_state: str) -> None:
+    async def _abandon_if_absent(self, claim: UploadClaim, *, expected_state: str) -> bool:
         try:
             await self.journal.cleanup(
                 claim,
@@ -215,6 +281,8 @@ class TrackedAssetUploadCoordinator(AssetUploadCoordinator):
             )
         except BaseException:
             _logger.warning("original_upload_cleanup_incomplete")
+            return False
+        return True
 
 
 def _public_error(error: UploadOwnershipError) -> AppError:

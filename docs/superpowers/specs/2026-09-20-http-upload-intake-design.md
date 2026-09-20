@@ -1,13 +1,13 @@
 # HTTP 업로드 임시물의 선행 예약
 
 - 날짜: 2026-09-20
-- 상태: 독립 검토 완료·사용자 상세안 확인 전, 제품 구현 전
+- 상태: 사용자 구현 승인·구현 및 독립 검토 완료, 실사용 적용 전
 - 목적: HTTP 수신 bytes가 디스크에 기록되기 전에 소유자를 등록하고 신규 문서/새 버전의 원본 예약과 연결한다.
 - 선행: [원본 추적](2026-09-20-original-file-ownership-design.md), [문서 임시 작업공간](2026-09-20-document-temporary-workspace-design.md)
 
-## 1. 현재 빈틈과 범위
+## 1. 구현 전 빈틈과 범위
 
-현재 upload route의 File/Form은 FastAPI가 인증 dependency 실행 전에 request.form을 호출하게
+구현 전 upload route의 File/Form은 FastAPI가 인증 dependency 실행 전에 request.form을 호출하게
 한다. Starlette는 파일이 메모리 spool 한도를 넘으면 OS 임시 파일을 만든다. 원본 coordinator의
 예약은 이 뒤이므로 HTTP 수신 복사본은 추적하지 못한다. dependency 순서를 바꾸는 것만으로
 해결되지 않는다.
@@ -175,3 +175,5 @@ legacy 미추적 blocker는 유지한다. 아직 존재하지 않는 source의 �
 
 실제 사용자 파일이나 실사용 DB를 테스트 fixture로 쓰지 않는다. 기존 ingestion fixture의
 산출물 설정 실패는 이 HTTP 계약 검증과 구분하고 전체 RAG 통합 통과로 보고하지 않는다.
+
+구현 결과와 검증 한계: [작업 기록](../../worklogs/2026-09-20-http-upload-intake.md).

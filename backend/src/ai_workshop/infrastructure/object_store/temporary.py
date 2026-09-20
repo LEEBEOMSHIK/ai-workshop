@@ -210,16 +210,21 @@ class TrackedTemporaryStore:
 
     def create(self, claim: TemporaryClaim) -> TemporaryWorkspace:
         self._validate(claim)
+        return self._create_allocation(claim.id, claim.binding)
+
+    def _create_allocation(self, token: UUID, binding: TemporaryBinding) -> TemporaryWorkspace:
+        """Physical allocation boundary; ownership is validated by the typed wrapper."""
+        self._validate_allocation(token, binding)
         if os.name != "nt":
             raise TemporaryOwnershipError("store_unavailable")
-        if claim.id in self._attempted:
+        if token in self._attempted:
             raise TemporaryOwnershipError("ownership_unconfirmed")
-        self._attempted.add(claim.id)
+        self._attempted.add(token)
         pins = ExitStack()
         try:
             parent_fd = self._pin(pins)
-            fd = _native_new(parent_fd, str(claim.id), directory=True)
-            return TemporaryWorkspace(self.root / str(claim.id), fd, pins)
+            fd = _native_new(parent_fd, str(token), directory=True)
+            return TemporaryWorkspace(self.root / str(token), fd, pins)
         except OSError:
             pins.close()
             raise TemporaryOwnershipError("store_unavailable") from None
@@ -229,11 +234,21 @@ class TrackedTemporaryStore:
 
     def observe(self, claim: TemporaryClaim) -> bool:
         self._validate(claim)
+        return self._observe_allocation(claim.id, claim.binding)
+
+    def _validate_allocation(self, token: UUID, binding: TemporaryBinding) -> None:
+        if type(token) is not UUID or type(binding) is not TemporaryBinding:
+            raise TemporaryOwnershipError("invalid_claim")
+        if binding != self.binding:
+            raise TemporaryOwnershipError("binding_mismatch")
+
+    def _observe_allocation(self, token: UUID, binding: TemporaryBinding) -> bool:
+        self._validate_allocation(token, binding)
         try:
             with ExitStack() as pins:
                 self._pin(pins)
                 names = {entry.name for entry in self.root.iterdir()}
-                name = str(claim.id)
+                name = str(token)
                 if any(value.casefold() == name and value != name for value in names):
                     raise TemporaryOwnershipError("unsafe_path")
                 if name not in names:

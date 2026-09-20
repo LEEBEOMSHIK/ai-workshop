@@ -7,9 +7,14 @@
 
 ## 현재 작업
 
+- HTTP 업로드 선행 예약 구현 완료(2026-09-20): 인증·예약 commit 후 본문 수신, 제한 multipart, 원본/버전/job/출처 원자 연결과 종료 확인 정리를 구현했다.
+  DB·multipart·메인 API/native 통합과 독립 검증을 분리했다. 최종678단위/ASGI+26격리PG(704통과), Windows 권한 skip2건, 타입12파일·린트25파일 통과. 독립 최종47건·차단 없음.
+  계획: `docs/superpowers/plans/2026-09-20-http-upload-intake.md`. 기록: `docs/worklogs/2026-09-20-http-upload-intake.md`.
+  commit/close 불확실 시 파일을 보존하며 과거 spool의 legacy 차단은 유지한다. 테스트 DB 종료·다른 서비스 보존 확인. 실사용 적용과 RAG 실행 환경은 변경하지 않았다.
+
 - HTTP 업로드 임시물 선행 예약 상세 설계·독립 검토 및 RAG 테스트 조건 확인 완료(2026-09-20).
   메인은 수신/저장·요구/문서, 별도 담당은 인증·multipart·원본 결합, 독립 검토자는 DB/프라이버시, RAG 담당은 실행 환경을 읽기 전용 확인했다.
-  상세안: `docs/superpowers/specs/2026-09-20-http-upload-intake-design.md`. 확인 후 구현 계획으로 진행한다. 제품 코드는 아직 변경하지 않았다.
+  상세안: `docs/superpowers/specs/2026-09-20-http-upload-intake-design.md`. 이후 사용자 구현 승인에 따라 위 구현·검증을 완료했다.
   RAG는 삭제 개발 완료 전 별도 테스트 가능하나 현재 API/frontend/DB/Redis/ES 접속 불가, 추적 binding/marker 미설정이다. 현재 DB migration과 모델 readiness는 미확인이다.
   기록: `docs/worklogs/2026-09-20-http-intake-and-rag-readiness.md`. 실행 환경·승인된 적용 후 TXT검색→답변·인용→OCR 순서다. 실사용 변경·모델 호출은 하지 않았다.
 
@@ -1372,26 +1377,27 @@ RAG 구성에 고정하고, 관리자가 PP-StructureV3 pipeline과 하위 OCR �
 
 최근 완료 작업은 가장 최신 항목부터 **최대 5개만 유지한다**. 상세 이력은 연결된 작업 기록에 둔다.
 
-1. 문서 전용 임시 작업공간: 사전 예약·Windows 핸들 정리·parser/OCR/preview·목록 연결.
+1. HTTP 업로드 선행 예약: 인증/권한·예약 commit 전 본문 미수신, 제한 parser·원본 원자 연결·종료 확인 정리.
+   704통과/2skip·타입/린트·독립 검토 완료. 실사용 적용과 과거 spool 복구는 후속
+   (`docs/worklogs/2026-09-20-http-upload-intake.md`).
+2. 문서 전용 임시 작업공간: 사전 예약·Windows 핸들 정리·parser/OCR/preview·목록 연결.
    706통과/2skip·타입/린트·독립 검토 완료. OCR 잔존 보존과 기존 통합 fixture 한계를 명시했다
    (`docs/worklogs/2026-09-20-document-temporary-workspace.md`).
-2. 원본 파일 추적: 사전 예약·Windows 게시·원자 확정·실패 정리 차단·미확정 목록 구현.
+3. 원본 파일 추적: 사전 예약·Windows 게시·원자 확정·실패 정리 차단·미확정 목록 구현.
    526건 통과·Windows 권한 skip2건·타입/린트·최종 독립 검토 통과. 실사용 적용과 비Windows 쓰기는 후속
    (`docs/worklogs/2026-09-20-original-file-ownership.md`).
-3. 파일함 root 표시·이동 확인창 개선 커밋 인계: 관련 154건·타입·전체 린트·독립 검토 통과.
+4. 파일함 root 표시·이동 확인창 개선 커밋 인계: 관련 154건·타입·전체 린트·독립 검토 통과.
    기존 합성 브라우저 검증 기록을 보존하며 실사용 자료는 변경하지 않았다
    (`docs/worklogs/2026-09-13-root-move-dialog-polish.md`).
-4. 공유 별칭 종료·문서 쓰기 차단: 영속 요청 원장, fence, activation/parity와 inventory 연결.
+5. 공유 별칭 종료·문서 쓰기 차단: 영속 요청 원장, fence, activation/parity와 inventory 연결.
    관련349건·타입19파일·린트·독립 리뷰 통과. 실사용 적용과 전체 영구 삭제는 후속
    (`docs/worklogs/2026-09-20-rag-alias-write-fence.md`).
-5. RAG 색인 출처 구현: build 사전 등록·시도/UUID·activation/parity revision·실물 목록 연결.
-   단위278건·PG/ES 통합33건·legacy parity4건·타입15파일·린트 및 독립150건·최종 리뷰 통과. 실사용 적용·삭제는 후속
-   (`docs/worklogs/2026-09-20-rag-index-provenance.md`).
 
 ## 다음 작업
 
 최우선(2026-09-20): 색인 출처와 공유 alias의 영속 요청/확인된 종료, RAG 색인 쓰기 차단 구현을 완료했다.
-원본과 파서/OCR/뷰어 임시 작업공간을 Windows 기준 구현·검증했다. 다음은 HTTP multipart 선행 예약과 일반 작업 메타데이터의 소유권·정리 계약이다.
+원본·파서/OCR/뷰어 임시 작업공간과 HTTP multipart 선행 예약을 Windows 기준 구현·검증했다. 다음은 일반 Jobs 메타데이터의 출처·소유권·정리 계약이다.
+RAG 사용 테스트는 삭제 개발과 별도로 환경/DB0047/저장소 준비 후 진행할 수 있다. 정본은 local-development runbook이며 TXT검색→답변·인용→OCR 순서다.
 OCR 미확인 writer의 잔존 회수, 기존 ingestion 통합 fixture 갱신, 미활성 purge inventory 역순 잠금 해소와 비Windows native 구현도 후속으로 남는다.
 이후 전체 참여자 조립·구 writer/파일 writer 종료·잔존 재검증·실제 삭제 API/UI가 필요하다. 기존 SQL·JSON·색인/alias 구현을 반복하지 않는다.
 

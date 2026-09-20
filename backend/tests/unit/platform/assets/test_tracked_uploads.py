@@ -305,3 +305,78 @@ async def test_oversize_stream_is_rejected_before_publication(tmp_path):
     assert exc.value.code == "file_too_large"
     assert store.canonical is None
     assert journal.state == "abandoned"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [None, "commit", "published", "abandon", "stored"])
+async def test_http_intake_keeps_planned_identity_and_acknowledges_only_after_commit(
+    tmp_path, failure
+):
+    from ai_workshop.platform.assets.intake_contracts import UploadIntakeClaim
+    from ai_workshop.platform.assets.provenance_contracts import SourceIdentity
+    from ai_workshop.platform.assets.temporary_contracts import TemporaryBinding
+
+    service, journal, store, session, events = setup(tmp_path)
+    user = owner()
+    planned = UploadIntakeClaim(
+        uuid4(),
+        SourceIdentity(uuid4(), uuid4(), uuid4()),
+        user.id,
+        True,
+        TemporaryBinding("intake_test", uuid4()),
+    )
+
+    class Intake:
+        claim = planned
+        uncertain = False
+
+        async def reserve_original(self, original):
+            await journal.reserve(original)
+
+        async def prepare_attachment(self, session, original):
+            events.append("intake_prepare")
+
+        async def attach(self, session, original):
+            events.append("intake_attach")
+            return planned
+
+        def acknowledge(self, pending):
+            events.append("intake_ack")
+
+        def mark_uncertain(self):
+            self.uncertain = True
+
+    intake = Intake()
+    if failure == "commit":
+        session.commit.side_effect = RuntimeError("lost response")
+    elif failure == "published":
+        journal.fail_published = True
+    elif failure == "abandon":
+        store.publish = AsyncMock(side_effect=RuntimeError("writer failed"))
+        journal.cleanup = AsyncMock(side_effect=RuntimeError("cleanup commit lost"))
+    elif failure == "stored":
+        store.publish = AsyncMock(return_value=StoredObject("foreign", 5, "a" * 64))
+    if failure:
+        with pytest.raises((RuntimeError, UploadOwnershipError)):
+            await service.upload_intake(
+                user=user,
+                intake=intake,
+                filename="test.txt",
+                media_type="text/plain",
+                folder_id=None,
+                content=content(),
+            )
+        assert intake.uncertain
+        assert "intake_ack" not in events
+        return
+    result = await service.upload_intake(
+        user=user,
+        intake=intake,
+        filename="test.txt",
+        media_type="text/plain",
+        folder_id=None,
+        content=content(),
+    )
+    assert result.document.id == planned.source.document_id
+    assert result.document.versions[0].id == planned.source.asset_version_id
+    assert events[-5:] == ["intake_prepare", "attach", "intake_attach", "commit", "intake_ack"]

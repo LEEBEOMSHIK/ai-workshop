@@ -411,9 +411,31 @@ Codex는 로컬에서 실행해도 질문·포함된 대화·승인 근거를 Op
 업로드 정리 시작은 `discarding`으로 먼저 확정한다. 삭제 이후 DB 응답 상실이나 callback 실패가 나면
 이 상태와 locator를 남겨 재첨부를 차단한다. 시각 경과나 job 종료만으로 원장을 지우거나 재시도하지 않는다.
 원본 없는 실패 업로드는 workspace 기준 미확정 목록에서 찾는다. 공개 응답에는 경로·해시를 내보내지 않는다.
-HTTP multipart 수신 단계의 spool과 일반 작업 기록은 별도 후속 경계다.
+HTTP multipart 수신은 아래의 선행 예약 전제를 함께 적용한다. 일반 작업 기록은 별도 후속 경계다.
 파서/OCR/뷰어 임시물은 아래의 별도 저장소 설정을 사용한다.
 이 구현은 실제 영구 삭제 API/UI를 활성화하지 않는다.
+
+### HTTP 업로드 선행 예약 활성화 전제
+
+두 문서 업로드 API는 인증과 intake 예약 commit 이후에만 본문을 읽는다.
+File/Form 자동 spool을 사용하지 않으며 파일 1개(최대 50MiB)와 신규 문서의 선택 folder_id만 받는다.
+file/folder_id의 전송 순서는 모두 허용한다. 중복·알 수 없는 필드, 잘린 종료 경계와
+추가 epilogue는 `upload_multipart_invalid`(422), 실제 수신 한도 초과는 `upload_too_large`(413)다.
+
+1. 승인된 적용 절차에서 백업·복구 확인 후 `0047_http_upload_intake`까지 migration을 적용한다.
+   이 구현 작업은 격리 합성 DB만 검증했으며 실사용 DB는 변경하지 않았다.
+2. 위 원본 저장소와 아래 임시 저장소의 root·ID·binding·marker를 모두 준비한다.
+   HTTP intake는 같은 전용 임시 저장소의 별도 UUID 작업공간을 사용한다.
+   임시 설정 누락은 `http_intake_unavailable`(503)이며 미추적 저장소로 전환하지 않는다.
+3. 같은 코드 버전의 API·worker를 적용한 뒤 합성 TXT의 신규 업로드와 새 버전을 확인한다.
+   응답·조건부 job 전달을 확인하고 intake의 attached/cleaned 및 현재 출처 revision을 대조한다.
+
+commit 응답 유실이나 파일 종료 확인 실패는 원장과 파일을 보존한다. 정리만 실패한 경우
+이미 확정된 업로드의 성공 응답을 실패로 바꾸지 않는다. 원장 상태 수동 변경·시간 경과만으로
+정리 완료를 선언하지 않는다. 과거 spool은 자동 회수하지 않으며 inventory의
+`legacy_untracked`는 유지한다. 읽기 inventory 어댑터는 실제 영구 삭제를 활성화하지 않는다.
+
+계약: [HTTP intake 설계](../superpowers/specs/2026-09-20-http-upload-intake-design.md).
 
 ### 문서 전용 임시 작업공간 활성화 전제
 
@@ -439,7 +461,7 @@ open과 임시 파일을 보존한다**. PDF worker도 reap 실패·spawn 결과
 자동 재시작 복구나 시간 경과 정리는 없다. 미등록 하위 파일/경로 교체·정리 실패는 보존하고
 `cleaning` 등 미완료 상태로 남는다. 원장 상태를 수동 변경해 정리 완료로 만들지 않는다.
 
-미검증 runtime 외부 쓰기, 과거 OS temp, HTTP spool과 일반 Jobs 출처가 남아 있어 inventory는
+미검증 runtime 외부 쓰기, 과거 OS temp/HTTP spool과 일반 Jobs 출처가 남아 있어 inventory는
 보수적으로 incomplete를 반환한다. 런타임 종료 증명과 잔존 복구는 후속이며 실제 purge는 비활성이다.
 기존 purge inventory 저장 경로의 document→version 잠금은 새 예약의 version→document와 반대다.
 현재 제품 호출은 없으며 활성화 전에 잠금 순서 통합과 경쟁 검증을 완료해야 한다.

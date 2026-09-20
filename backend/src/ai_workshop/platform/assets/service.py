@@ -14,6 +14,7 @@ from ai_workshop.platform.assets.folder_names import folder_name_key
 from ai_workshop.platform.assets.movement import FolderHierarchy
 from ai_workshop.platform.assets.repository import AssetRepository, SqlAlchemyAssetRepository
 from ai_workshop.platform.assets.storage import ObjectStore
+from ai_workshop.platform.assets.upload_policy import MAX_UPLOAD_BYTES
 from ai_workshop.platform.identity.domain import User
 from ai_workshop.platform.jobs.domain import Job
 from ai_workshop.platform.jobs.service import JobService, get_job_service
@@ -268,7 +269,7 @@ def get_asset_service(
     return AssetService(
         SqlAlchemyAssetRepository(session),
         LocalObjectStore(settings.object_store_root),
-        max_upload_bytes=50 * 1024 * 1024,
+        max_upload_bytes=MAX_UPLOAD_BYTES,
         max_depth=settings.library_max_depth,
     )
 
@@ -293,9 +294,7 @@ def get_asset_upload_coordinator(
         or settings.original_store_binding_id is None
         or not isinstance(session.bind, AsyncEngine)
     ):
-        raise AppError(
-            "original_upload_unavailable", "Original upload storage is not ready.", 503
-        )
+        raise AppError("original_upload_unavailable", "Original upload storage is not ready.", 503)
     try:
         store = TrackedOriginalStore(
             settings.object_store_root,
@@ -307,7 +306,9 @@ def get_asset_upload_coordinator(
             "original_upload_unavailable", "Original upload storage is not ready.", 503
         ) from None
     return TrackedAssetUploadCoordinator(
-        assets, jobs, session=session,
+        assets,
+        jobs,
+        session=session,
         journal=UploadJournal(async_sessionmaker(session.bind, expire_on_commit=False)),
         store=store,
     )

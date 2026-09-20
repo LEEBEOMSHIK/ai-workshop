@@ -1,9 +1,12 @@
-from collections.abc import AsyncIterator
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 
+from ai_workshop.platform.assets.intake_service import (
+    HttpUploadIntakeService,
+    get_upload_intake_service,
+)
 from ai_workshop.platform.assets.library_api import router as library_router
 from ai_workshop.platform.assets.movement import AssetMovementService, get_asset_movement_service
 from ai_workshop.platform.assets.originals_api import router as originals_router
@@ -18,9 +21,7 @@ from ai_workshop.platform.assets.schemas import (
 )
 from ai_workshop.platform.assets.service import (
     AssetService,
-    AssetUploadCoordinator,
     get_asset_service,
-    get_asset_upload_coordinator,
 )
 from ai_workshop.platform.identity.api import get_current_user
 from ai_workshop.platform.identity.domain import User
@@ -29,6 +30,22 @@ from ai_workshop.worker import CeleryJobDispatcher, get_job_dispatcher
 router = APIRouter(prefix="/api/v1", tags=["assets"])
 router.include_router(library_router)
 router.include_router(originals_router)
+
+
+def _upload_schema(*, folder: bool) -> dict[str, object]:
+    properties = {"file": {"type": "string", "format": "binary"}}
+    if folder:
+        properties["folder_id"] = {"type": "string", "format": "uuid"}
+    return {
+        "requestBody": {
+            "required": True,
+            "content": {
+                "multipart/form-data": {
+                    "schema": {"type": "object", "required": ["file"], "properties": properties}
+                }
+            },
+        }
+    }
 
 
 @router.post("/workspaces/{workspace_id}/documents/{document_id}/move")
@@ -134,31 +151,22 @@ async def list_documents(
     "/workspaces/{workspace_id}/documents",
     response_model=DocumentResponse,
     status_code=201,
+    openapi_extra=_upload_schema(folder=True),
 )
 async def upload_document(
     workspace_id: UUID,
     user: Annotated[User, Depends(get_current_user)],
-    coordinator: Annotated[AssetUploadCoordinator, Depends(get_asset_upload_coordinator)],
+    intakes: Annotated[HttpUploadIntakeService, Depends(get_upload_intake_service)],
     dispatcher: Annotated[CeleryJobDispatcher, Depends(get_job_dispatcher)],
     background_tasks: BackgroundTasks,
-    file: Annotated[UploadFile, File()],
-    folder_id: Annotated[UUID | None, Form()] = None,
+    request: Request,
 ) -> DocumentResponse:
-    async def content() -> AsyncIterator[bytes]:
-        while chunk := await file.read(1024 * 1024):
-            yield chunk
-
-    try:
-        result = await coordinator.upload(
-            user=user,
-            workspace_id=workspace_id,
-            folder_id=folder_id,
-            filename=file.filename or "unnamed",
-            media_type=file.content_type or "application/octet-stream",
-            content=content(),
-        )
-    finally:
-        await file.close()
+    result = await intakes.upload(
+        user=user,
+        workspace_id=workspace_id,
+        stream=request.stream(),
+        content_type=request.headers.get("content-type", ""),
+    )
     if result.job_created:
         background_tasks.add_task(dispatcher.verify_asset, result.job.id)
     return DocumentResponse.from_domain(result.document, job_id=result.job.id)
@@ -168,29 +176,22 @@ async def upload_document(
     "/documents/{document_id}/versions",
     response_model=DocumentResponse,
     status_code=201,
+    openapi_extra=_upload_schema(folder=False),
 )
 async def upload_document_version(
     document_id: UUID,
     user: Annotated[User, Depends(get_current_user)],
-    coordinator: Annotated[AssetUploadCoordinator, Depends(get_asset_upload_coordinator)],
+    intakes: Annotated[HttpUploadIntakeService, Depends(get_upload_intake_service)],
     dispatcher: Annotated[CeleryJobDispatcher, Depends(get_job_dispatcher)],
     background_tasks: BackgroundTasks,
-    file: Annotated[UploadFile, File()],
+    request: Request,
 ) -> DocumentResponse:
-    async def content() -> AsyncIterator[bytes]:
-        while chunk := await file.read(1024 * 1024):
-            yield chunk
-
-    try:
-        result = await coordinator.upload_version(
-            user=user,
-            document_id=document_id,
-            filename=file.filename or "unnamed",
-            media_type=file.content_type or "application/octet-stream",
-            content=content(),
-        )
-    finally:
-        await file.close()
+    result = await intakes.upload(
+        user=user,
+        document_id=document_id,
+        stream=request.stream(),
+        content_type=request.headers.get("content-type", ""),
+    )
     if result.job_created:
         background_tasks.add_task(dispatcher.verify_asset, result.job.id)
     return DocumentResponse.from_domain(result.document, job_id=result.job.id)

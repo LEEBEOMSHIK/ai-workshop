@@ -32,6 +32,7 @@ from ai_workshop.labs.rag.ingestion import artifact_models as rag_artifact_model
 from ai_workshop.labs.rag.ingestion import models as rag_ingestion_models  # noqa: F401
 from ai_workshop.labs.rag.models import models as rag_model_models  # noqa: F401
 from ai_workshop.labs.rag.policies import models as rag_policy_models  # noqa: F401
+from ai_workshop.platform.assets import intake_models as asset_intake_models  # noqa: F401
 from ai_workshop.platform.assets import models as asset_models  # noqa: F401
 from ai_workshop.platform.assets import provenance_models as asset_provenance_models  # noqa: F401
 from ai_workshop.platform.assets import (

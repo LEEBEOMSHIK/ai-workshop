@@ -5,6 +5,48 @@
 - 전체 상태: 불변 Document Processing Profile, 10개 고정 PP-StructureV3 모델,
   DOCX 내장 이미지 OCR·provenance·검색 원문 뷰어와 관리자 전체 구성이 구현됐다.
 
+## 서버 실행 방법 — RAG 테스트 환경
+
+2026-09-20 확인: **백엔드와 프론트엔드 실행 중**. 아래 주소의 health와 로그인 화면 모두 HTTP 200이다.
+이 안내는 기존 자료와 분리한 RAG sandbox 기준이며, 현재 환경은 준비·migration까지 완료됐다.
+
+- 프론트엔드: http://127.0.0.1:5173/login
+- 백엔드: http://127.0.0.1:18000 (상태 확인: `/api/v1/health`)
+- 로그인 정보: 로컬 `.local-data/rag-sandbox/credentials.json`
+- 상세 운영 정본: [RAG sandbox 실행서](docs/runbooks/rag-sandbox.md)
+
+**PC 재시작 등으로 서버가 모두 꺼졌을 때**, Docker Desktop을 켜고 PowerShell에서 실행한다.
+
+```powershell
+Set-Location C:\projects\ai-workshop
+.\scripts\prepare_rag_sandbox.ps1 -Phase Infrastructure
+.\scripts\prepare_rag_sandbox.ps1 -Phase Runtime
+```
+
+`Infrastructure`는 전용 PostgreSQL·Redis·Elasticsearch를 시작한다. `Runtime`은 백엔드 API,
+업로드/색인용 worker·beat와 프론트엔드를 숨김 창으로 시작한다. 일부 프로세스라도 기록상 살아
+있으면 중복 실행을 거절한다. 이미 준비된 환경에 `Prepare`나 `Migrate`를 매번 실행하지 않는다.
+
+**개별 서버만 꺼졌을 때**는 인프라가 실행 중인지 확인한 뒤 필요한 명령 하나만 별도 PowerShell
+창에서 실행한다. 아래 명령은 창을 유지하는 foreground 실행이며 `Ctrl+C`로 해당 서버를 종료한다.
+worker·beat도 같은 종류가 이미 실행 중이면 추가로 실행하지 않는다.
+
+```powershell
+Set-Location C:\projects\ai-workshop
+# 백엔드 API
+backend\.venv\Scripts\python.exe scripts\prepare_rag_sandbox.py api
+# 프론트엔드 (다른 PowerShell 창)
+backend\.venv\Scripts\python.exe scripts\prepare_rag_sandbox.py frontend
+# 업로드/색인 worker와 예약 작업 (필요하면 각각 다른 창)
+backend\.venv\Scripts\python.exe scripts\prepare_rag_sandbox.py worker
+backend\.venv\Scripts\python.exe scripts\prepare_rag_sandbox.py beat
+```
+
+확인 명령: `Invoke-WebRequest http://127.0.0.1:18000/api/v1/health -UseBasicParsing`.
+프론트 경유 확인은 `http://127.0.0.1:5173/api/v1/health`를 사용한다.
+백그라운드 실행 로그는 `.local-data/rag-sandbox/logs/`, 프로세스 기록은 `processes.json`에 있다.
+기존 일반 개발 환경의 실행·migration은 [로컬 개발 실행서](docs/runbooks/local-development.md)를 따른다.
+
 ## 현재 작업
 
 - 일반 Jobs 출처·보존·revision 구현 및 격리 RAG 검색 환경 준비(2026-09-20).

@@ -30,6 +30,9 @@ const publicApiTarget = resolvePublicApiTarget(combinedEnv);
 
 const nextConfig: NextConfig = {
   agentRules: false,
+  // Local retrieval plus contextualization/generation can exceed Next's 30s proxy default.
+  // Keep a finite transport budget; provider execution and disconnect cleanup stay bounded.
+  experimental: { proxyTimeout: 300_000 },
   ...(distDir ? { distDir } : {}),
   env: {
     ...(apiTarget ? { AI_WORKSHOP_API_TARGET: apiTarget } : {}),

@@ -82,3 +82,21 @@ v2에서는 합성 문서 질문의 생성 답변·검증된 인용과 음성 �
 별도 검토자가 각 수정의 계약·회귀를 검토하고 독립 집중 테스트를 통과했다.
 기존 `test_codex_command.py` 전체에 대한 strict mypy는 원래의 동적 부정 입력 테스트 등
 26개 오류가 남아 있으며, 제품 코드 타입 검사와 구분한다. 새 DB·테스트 계정은 만들지 않았다.
+
+## 브라우저 프록시 후속 수정
+
+사용자의 실제 브라우저 요청에서는 `request_failed`가 발생했다. 프론트 로그에
+도메인 search 프록시 `ECONNRESET/socket hang up`, 백엔드에는 연결 종료 watcher에 따른
+CancelledError가 있었다. 설치 Next16.3.4의 rewrite 프록시는 기본30초이고 설정에 별도
+대기 시간이 없었다. 앞선 직접 서비스 호출 검증은 이 전송 경계를 통과하지 않았다.
+
+`experimental.proxyTimeout=300_000`으로 유한한 대기 시간을 지정했다. 이 설정은
+API rewrite 전체에 적용된다. provider 단계의 실행 제한과 사용자 취소 시 upstream 종료는 유지한다.
+실행 중인 Next 개발 서버가 설정을 다시 읽어 적용한 것도 확인했다.
+
+기존 마스터로 로그인된 실제 Chrome 탭에서 `RAG 합성 참조 자료` 범위와 합성 입력 동의를
+사용해 `AM-LAB-730의 상품 이름은 무엇인가요?`를 전송했다. 화면에
+`오로라 연구 채권형` 답변과 `asset-management-reference.md` 인용이 표시됐으며
+동일 대화 POST는 HTTP200이었다. 새 계정·환경·인증 토큰을 만들지 않았다.
+프론트 `pnpm typecheck`, `node node_modules/eslint/bin/eslint.js next.config.ts --max-warnings 0`,
+diff 검사와 독립 설정 검토를 통과했다.

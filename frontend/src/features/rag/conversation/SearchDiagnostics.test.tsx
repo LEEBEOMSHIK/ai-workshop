@@ -16,7 +16,7 @@ it("separates raw scores, cosine, missing values and stage times without claimin
       eligible: true, selected: true, reason: "selected",
     }],
   }} />);
-  await userEvent.setup().click(screen.getByText("검색·근거 진단"));
+  await userEvent.setup().click(screen.getByText(/검색 근거·유사도/));
   expect(screen.getByText("resolved synthetic question")).toBeVisible();
   expect(screen.getByText("문맥 코사인 유사도")).toBeVisible();
   expect(screen.getByText("8.2000")).toBeVisible();

@@ -22,7 +22,7 @@ export function SearchDiagnostics({ diagnostics, query }: {
   const contexts = new Map(diagnostics.candidates.filter((item) => item.evidence_unit_id === null)
     .map((item) => [item.source.chunk_id, item.semantic_score]));
   return <details className="conversation-evidence">
-    <summary>검색·근거 진단</summary>
+    <summary>검색 근거·유사도 · {new Set(diagnostics.candidates.map(item => item.source.asset_version_id)).size}개 문서</summary>
     <p>실제 검색 질문: <span>{query}</span></p>
     {diagnostics.warning ? <p role="status">일부 진단 점수를 계산하지 못했습니다. 미계산 값은 선택 점수로 사용하지 않았습니다.</p> : null}
     <p>반환된 검색 후보만 표시합니다. 점수는 정답 확률이 아닙니다. BM25·벡터 원점수·RRF·코사인 유사도는 서로 다른 척도입니다.</p>

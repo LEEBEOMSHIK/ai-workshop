@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, vi } from "vitest";
+import { afterEach, beforeEach, vi } from "vitest";
 
 import type { Domain } from "../domains/api";
 import type { DomainSearchResult, Evidence } from "./api";
@@ -13,6 +13,35 @@ function ConversationPage(props: React.ComponentProps<typeof ConversationPageImp
 }
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+
+
+// Scope, consent and source-viewer tests use a session-service seam. The separate
+// ConversationSessions suite exercises the real session transport and persistence UI.
+vi.mock("./sessions-api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./sessions-api")>();
+  const { searchDomain } = await import("./api");
+  const sessions = new Map<string, import("./sessions-api").ConversationDetail>();
+  return {...actual,
+    listConversations: async () => [],
+    createConversation: async () => {
+      const detail = {id: crypto.randomUUID(), title: "새 대화 2026-09-21", revision: 1, created_at: "2026-09-21", updated_at: "2026-09-21", turns: []};
+      sessions.set(detail.id, detail); return detail;
+    },
+    sendConversationTurn: async (slug: string, id: string, request: import("./sessions-api").TurnRequest, signal?: AbortSignal) => {
+      const response = await searchDomain(slug, request, signal);
+      const previous = sessions.get(id)!;
+      const detail = {...previous, revision: previous.revision + 1, turns: [...previous.turns, {
+        id: request.request_id, request_id: request.request_id, sequence: previous.turns.length + 1, status: "completed" as const,
+        query: request.query, response, request_scope: {connection_version_id: request.connection_version_id, workspace_ids: request.workspace_ids, folder_ids: request.folder_ids ?? [], document_ids: request.document_ids ?? null},
+        segment: 1, error_code: null, redacted: false, execution_terminated: true, created_at: "2026-09-21", updated_at: "2026-09-21",
+      }]};
+      sessions.set(id, detail); return detail;
+    },
+    getConversation: async (_slug: string, id: string) => sessions.get(id)!,
+    cancelConversationTurn: async (_slug: string, id: string) => sessions.get(id)!,
+  };
+});
+beforeEach(() => window.history.replaceState(null, "", "/"));
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -125,11 +154,10 @@ describe("ConversationPage", () => {
       workspace_ids: ["workspace-1"],
       folder_ids: [],
       document_ids: ["document-1"],
-      history: [],
     });
   });
 
-  it("sends optional diagnostics without widening the selected document scope", async () => {
+  it("collects diagnostics by default without widening the selected document scope", async () => {
     const bodies: Array<Record<string, unknown>> = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input).includes("/folders")) return jsonResponse([]);
@@ -139,8 +167,6 @@ describe("ConversationPage", () => {
     const user = userEvent.setup();
     render(<ConversationPage domain={domain()} initialSelection={selectionFromDocuments([selectedDocument()])} />);
 
-    expect(screen.getByRole("checkbox", { name: "검색 진단 포함" })).not.toBeChecked();
-    await user.click(screen.getByRole("checkbox", { name: "검색 진단 포함" }));
     await user.type(screen.getByRole("textbox", { name: "질문" }), "선택 문서 질문");
     await user.click(screen.getByRole("button", { name: "질문 보내기" }));
     await screen.findByText("답변 1");
@@ -149,7 +175,6 @@ describe("ConversationPage", () => {
       workspace_ids: ["workspace-1"],
       folder_ids: [],
       document_ids: ["document-1"],
-      history: [],
       include_diagnostics: true,
     });
   });
@@ -227,7 +252,7 @@ describe("ConversationPage", () => {
     expect(screen.getByLabelText("이번 질문과 전송 이력의 분류")).toHaveValue("");
     expect(calls).toHaveLength(1);
   });
-  it("sends signed assistant history only within the current scope segment", async () => {
+  it("sends no client-owned history across questions", async () => {
     const bodies: Array<Record<string, unknown>> = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input).includes("/folders")) return jsonResponse([]);
@@ -250,20 +275,16 @@ describe("ConversationPage", () => {
     await user.click(screen.getByRole("button", { name: "질문 보내기" }));
     expect(await screen.findByText("답변 2")).toBeVisible();
 
-    expect(bodies[0]).toEqual({
+    expect(bodies[0]).toMatchObject({
       connection_version_id: "connection-1",
       query: "위험 한도는 얼마야?",
       workspace_ids: ["workspace-1", "workspace-2"],
       folder_ids: [],
       top_k: 10,
-      history: [],
     });
-    expect(bodies[1]).toMatchObject({
-      history: [
-        { role: "user", content: "위험 한도는 얼마야?", turn_id: null, validation_token: null },
-        { role: "assistant", content: "답변 1", turn_id: "turn-1", validation_token: "signed-1" },
-      ],
-    });
+    expect(bodies[0]).not.toHaveProperty("history");
+    expect(bodies[1]).not.toHaveProperty("history");
+    expect(bodies[1]).toMatchObject({include_diagnostics: true});
   });
 
   it("preserves the transcript and answer scopes while a folder change clears next-request history", async () => {
@@ -296,7 +317,7 @@ describe("ConversationPage", () => {
     await user.type(textbox, "새 범위 질문");
     await user.click(screen.getByRole("button", { name: "질문 보내기" }));
     expect(await screen.findByText("답변 2")).toBeVisible();
-    expect(bodies[1]).toMatchObject({ folder_ids: ["folder-1"], history: [] });
+    expect(bodies[1]).toMatchObject({ folder_ids: ["folder-1"] });
     expect(screen.getByRole("article", { name: "새 범위 질문에 대한 답변" })).toHaveTextContent(
       "응답 범위: 회사 규정 · 폴더 리스크",
     );
@@ -758,7 +779,7 @@ describe("ConversationPage", () => {
     await user.click(screen.getByRole("button", { name: "질문 보내기" }));
     await screen.findByText("답변 2");
 
-    expect(bodies[1]).toMatchObject({ history: [] });
+    expect(bodies[1]).not.toHaveProperty("history");
   });
 });
 

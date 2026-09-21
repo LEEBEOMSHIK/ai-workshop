@@ -538,3 +538,12 @@ Generation Profile과 Deployment·Model 연결, 현재 환경과 최신 health�
   묶인 서버 서명을 검증하고, 매 turn 권한과 근거 범위를 다시 검사한다.
 - 직접 답할 근거가 없으면 관련 문서가 있어도 INSUFFICIENT_EVIDENCE를 반환한다.
 - 사용자가 저장한 RAG 구성만 저장 목록과 비교 대상에 추가된다.
+
+## 영속 대화 세션
+
+[세션·첨부 설계](../../superpowers/specs/2026-09-21-rag-conversation-sessions-ux-design.md)에 따라
+RAG conversations 모듈이 소유자·도메인별 세션과 서버 turn을 저장한다. 클라이언트는 history snapshot을 제출하지 않는다.
+권한 철회된 근거와 그 파생 응답은 표시·history 양쪽에서 제외하고, 외부 history에는 현재 전송 승인을 추가 검증한다.
+범위 identity 변경은 새 문맥 구간으로 분리하며, request ID/revision 및 종료 기록으로 재실행·늦은 완료를 차단한다.
+입력창 첨부는 기존 Asset upload 예약 계약을 사용하고 정확한 활성 index build까지 준비 상태를 확인한다.
+삭제 시 원본 참조·writer 종료가 불명확하면 정리 대기 이유를 보존한다. 대화 삭제가 기존 선택 원본이나 audit의 삭제 권한이 되지 않는다.

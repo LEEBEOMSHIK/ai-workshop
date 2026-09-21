@@ -4,6 +4,7 @@ import type { DocumentSummary } from "../../assets/api";
 import { scopeSummary } from "./types";
 import { CodexModelIdentity } from "./CodexModelIdentity";
 import { SearchDiagnostics } from "./SearchDiagnostics";
+import { buildSourceHref } from "../search/source-route-query";
 
 export function ConversationAnswer({ turn, onOpenEvidence, onOpenSelectedVersion }: {
   turn: CompletedTurn;
@@ -30,7 +31,7 @@ export function ConversationAnswer({ turn, onOpenEvidence, onOpenSelectedVersion
         {generation.status === "answered" && generation.text && !missingCitation ? <p>{generation.text}</p> : null}
         {missingCitation ? <p role="alert">답변 인용에 연결할 원문 근거가 누락되어 답변을 표시하지 않았습니다.</p> : null}
         {generation.status === "insufficient_evidence" ? (
-          <div className="answer-state insufficient" role="status"><strong>답변할 근거가 부족합니다.</strong><p>질문을 구체화하거나 검색 범위를 조정해 주세요.</p></div>
+          <div className="answer-state insufficient" role="status"><strong>답변할 근거가 부족합니다.</strong><p>{insufficientReason(generation.reason_codes)}</p></div>
         ) : null}
         {generation.status === "citation_validation_failed" ? (
           <div className="answer-state insufficient" role="alert"><strong>인용을 검증하지 못해 생성 답변을 표시하지 않았습니다.</strong><p>확인 가능한 원문 근거만 검토해 주세요.</p></div>
@@ -45,7 +46,10 @@ export function ConversationAnswer({ turn, onOpenEvidence, onOpenSelectedVersion
             return document ? <li key={identity.document_id}>
               <span>실제 사용 문서: {document.name}</span>
               <button type="button" aria-label={`${document.name} 사용 버전 원문 열기`} onClick={() => onOpenSelectedVersion(document, identity.asset_version_id)}>사용 버전 원문 열기</button>
-            </li> : <li key={identity.document_id}>선택 문서 정보를 표시할 수 없습니다.</li>;
+            </li> : <li key={identity.document_id}>
+              <span>{[...evidenceById.values()].find(evidence => evidence.source.document_id === identity.document_id)?.source.title ?? "사용 문서"}</span>
+              <a href={buildSourceHref(identity.asset_version_id, identity.projection_id)}>사용 버전 원문 열기</a>
+            </li>;
           })}
         </ul> : null}
         {generation.status === "answered" && generation.citations.length > 0 ? (
@@ -59,8 +63,19 @@ export function ConversationAnswer({ turn, onOpenEvidence, onOpenSelectedVersion
         {turn.result.answer ? (
           <details className="conversation-evidence"><summary>확인된 근거</summary><blockquote>{turn.result.answer.excerpt}</blockquote><button type="button" onClick={() => onOpenEvidence(turn.result.answer!)}>원문에서 확인</button></details>
         ) : null}
-        {turn.result.diagnostics ? <SearchDiagnostics diagnostics={turn.result.diagnostics} query={turn.result.resolved_query} /> : null}
+        {turn.result.diagnostics ? <SearchDiagnostics diagnostics={turn.result.diagnostics} query={turn.result.resolved_query} /> : <details className="conversation-evidence"><summary>검색 근거·유사도</summary><p>이 응답에는 진단 기록이 없습니다.</p></details>}
       </section>
     </article>
   );
+}
+
+function insufficientReason(codes: string[]): string {
+  const messages: Record<string, string> = {
+    no_search_results: "선택한 범위에서 검색 결과를 찾지 못했습니다.",
+    no_eligible_evidence: "검색 결과에서 생성에 전달할 근거가 선택되지 않았습니다. 검색 근거·유사도에서 임계값과 입력 예산에 따른 선택 사유를 확인해 주세요.",
+    evidence_below_threshold: "검색된 자료가 근거 선택 기준을 충족하지 못했습니다.",
+    evidence_budget_exceeded: "생성 입력 예산 안에 필요한 근거를 담지 못했습니다.",
+    evidence_content_insufficient: "전달된 근거의 내용만으로 질문에 답할 수 없습니다.",
+  };
+  return codes.map(code => messages[code]).filter(Boolean).join(" ") || "기록된 상세 사유가 없습니다. 검색 근거·유사도에서 검색 결과와 선택 사유를 확인해 주세요.";
 }

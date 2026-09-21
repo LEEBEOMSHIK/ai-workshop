@@ -936,3 +936,13 @@ node node_modules/vitest/vitest.mjs run --pool=threads --maxWorkers=1 --reporter
 - OpenAPI 타입 불일치: 백엔드 계약을 바꾼 뒤 `pnpm --dir frontend api:generate`를 실행하고 생성 파일을 함께 커밋한다.
 
 볼륨 삭제는 PostgreSQL, Redis, Elasticsearch 색인, 모델 cache와 업로드 문서를 복구하기 어렵게 제거하므로 일반 문제 해결 절차로 사용하지 않는다. smoke에서도 `down -v`나 `down --volumes`를 사용하지 않는다.
+
+### 서버 대화 저장 적용 후 확인
+
+2026-09-21 본래 DB는 migration0050이다. 기존 계정으로 로그인하고 도메인 대화의 왼쪽 목록에서 저장된 대화를 다시 연다.
+새 대화는 기존 세션을 보존한다. 도입 전에 화면 메모리에서 사라진 대화는 복구되지 않는다.
+입력창 `+`의 기존 문서 선택은 읽기 전용이며, PC 첨부는 현재 도메인이 허용한 사용자 소유 개인/임시 공간이 있어야 한다.
+현재 자산운용 도메인은 공용 합성 공간만 연결되어 PC 첨부를 사용할 수 없다. 임의의 새 환경이나 공용 저장 fallback을 만들지 않는다.
+응답의 검색 진단에서 문장/문맥 cosine, BM25/dense/RRF 원점수, 선택 사유와 단계별 시간을 구분해 확인한다.
+삭제된 첨부의 보존 이유는 소유자 API `/api/v1/rag/domains/{slug}/conversation-attachment-cleanup`에 고정 코드로 남는다.
+`cleanup_waiting`은 종료 또는 참조 증거가 부족한 상태이며 삭제 실패를 숨기는 성공 상태가 아니다. 실제 원본 자동 삭제는 활성화하지 않았다.

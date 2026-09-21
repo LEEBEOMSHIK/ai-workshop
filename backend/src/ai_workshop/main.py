@@ -2,6 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from ai_workshop.labs.rag.configurations.api import router as rag_configuration_router
+from ai_workshop.labs.rag.conversations.api import router as rag_conversation_router
+from ai_workshop.labs.rag.conversations.attachment_api import (
+    cleanup_router as rag_attachment_cleanup_router,
+)
+from ai_workshop.labs.rag.conversations.attachment_api import router as rag_attachment_router
 from ai_workshop.labs.rag.deployments.api import router as rag_deployment_router
 from ai_workshop.labs.rag.domains.api import admin_router as rag_domain_admin_router
 from ai_workshop.labs.rag.domains.api import router as rag_domain_router
@@ -49,6 +54,7 @@ def create_app() -> FastAPI:
     )
     application.add_middleware(CorrelationIdMiddleware)
     application.add_middleware(AuthorizationCacheControlMiddleware)
+    application.add_middleware(NoStoreMiddleware, path_prefix="/api/v1/rag/domains")
     application.add_middleware(
         NoStoreMiddleware,
         path_prefix="/api/v1/admin/publishing",
@@ -66,6 +72,9 @@ def create_app() -> FastAPI:
     application.include_router(rag_evidence_request_router)
     application.include_router(rag_deployment_router)
     application.include_router(rag_domain_router)
+    application.include_router(rag_conversation_router)
+    application.include_router(rag_attachment_router)
+    application.include_router(rag_attachment_cleanup_router)
     application.include_router(rag_domain_admin_router)
     application.include_router(rag_evaluation_router)
     application.include_router(rag_authoring_router)

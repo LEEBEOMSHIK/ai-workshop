@@ -15,12 +15,11 @@ import type { DocumentSummary } from "../../assets/api";
 import { LibraryViewer } from "../../assets/LibraryViewer";
 import type { Domain } from "../domains/api";
 import { DomainNavigation } from "../domains/DomainNavigation";
+import { getDomainLibraryDocument } from "../domains/library-api";
 import {
-  type DomainSearchRequest,
   type Evidence,
   type Folder,
   listConversationFolders,
-  searchDomain,
 } from "./api";
 import { ConversationAnswer } from "./ConversationAnswer";
 import { EvidencePanel } from "./EvidencePanel";
@@ -30,7 +29,8 @@ import { DocumentSelectionPanel } from "./DocumentSelectionPanel";
 import { buildScopeSnapshot, ScopeSelector } from "./ScopeSelector";
 import { selectionFromDocuments, type ScopeMode, type ScopeSnapshot, type Selection, type TranscriptItem } from "./types";
 
-const MAX_HISTORY_ITEMS = 20;
+import { cancelConversationTurn, createConversation, deleteConversation, getConversation, listConversations, renameConversation, sendConversationTurn, type ConversationDetail, type ConversationSummary, type TurnRequest } from "./sessions-api";
+import { ConversationAttachments } from "./ConversationAttachments";
 
 export function ConversationPage({ domain, initialSelection = null, initialWorkspaceIds = [] }: { domain: Domain; initialSelection?: Selection; initialWorkspaceIds?: string[] }) {
   const preview = domain.generation_execution_preview;
@@ -40,6 +40,9 @@ export function ConversationPage({ domain, initialSelection = null, initialWorks
 
 function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: { domain: Domain; initialSelection: Selection; initialWorkspaceIds: string[] }) {
   const [selection, setSelection] = useState<Selection>(initialSelection);
+  const selectionRef = useRef(selection);
+  function updateSelection(value: Selection) { selectionRef.current = value; setSelection(value); }
+  const [knownDocuments, setKnownDocuments] = useState<DocumentSummary[]>(initialSelection?.documents ?? []);
   const [scopeMode, setScopeMode] = useState<ScopeMode>(initialSelection === null ? "workspace" : "documents");
   const [workspaceIds, setWorkspaceIds] = useState(() => initialSelection === null
     ? domain.workspace_options.filter(({ id }) => initialWorkspaceIds.includes(id)).map(({ id }) => id)
@@ -48,7 +51,18 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
   const [foldersByWorkspace, setFoldersByWorkspace] = useState<Record<string, Folder[]>>({});
   const [scopeOpen, setScopeOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [includeDiagnostics, setIncludeDiagnostics] = useState(false);
+  const [sessions, setSessions] = useState<ConversationSummary[]>([]);
+  const [session, setSession] = useState<ConversationDetail | null>(null);
+  const sessionRef = useRef<ConversationDetail | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(false);
+  const [sessionError, setSessionError] = useState("");
+  const [editingTitle, setEditingTitle] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [attachmentBusy, setAttachmentBusy] = useState(false);
+  const pendingRequest = useRef<{sessionId: string; request: TurnRequest} | null>(null);
+  const creatingSession = useRef<Promise<ConversationDetail> | null>(null);
   const [transcript, setTranscript] = useState<TranscriptItem[]>([]);
   const [pendingQuery, setPendingQuery] = useState("");
   const [searching, setSearching] = useState(false);
@@ -96,6 +110,25 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
     if (stickToBottom.current) transcriptEndRef.current?.scrollIntoView?.({ block: "end" });
   }, [pendingQuery, transcript]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    void listConversations(domain.slug, controller.signal).then(rows => {
+      if (!controller.signal.aborted) setSessions(current => [...current, ...rows.filter(row => !current.some(item => item.id === row.id))]);
+    }).catch(() => {
+      if (!controller.signal.aborted) setSessionError("대화 목록을 불러오지 못했습니다.");
+    });
+    const id = new URL(window.location.href).searchParams.get("conversation");
+    if (id) void selectSession(id);
+    const onPopState = () => {
+      const selected = new URL(window.location.href).searchParams.get("conversation");
+      if (selected) void selectSession(selected); else startNewConversation();
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => { controller.abort(); window.removeEventListener("popstate", onPopState); };
+    // This component is remounted when the domain or connection changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [domain.slug]);
+
   const externalProcessing = domain.generation_execution_preview?.external_transfer === true;
   const codexProcessing = domain.generation_execution_preview?.provider === "development_codex_exec";
   const canSend = domain.ready
@@ -107,6 +140,9 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
     && (scopeMode !== "documents" || (selection !== null && selection.documentIds.length > 0))
     && query.trim().length >= 2
     && !searching
+    && !sessionLoading
+    && !attachmentBusy
+    && !session?.turns.some(turn => turn.status === "running" || (turn.status === "cancelled" && !turn.execution_terminated))
     && !requiresDomainReentry
     && !requiresScopeRevision
     && !requiresContextReset
@@ -116,6 +152,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
 
   function markScopeChange(): boolean {
     if (searching) return false;
+    pendingRequest.current = null;
     setExternalConfirmed(false);
     setClassification("");
     setError("");
@@ -123,7 +160,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
     setRequiresScopeRevision(false);
     setRequiresContextReset(false);
     setTranscript((current) => {
-      if (!current.some((item) => item.type === "answer") || current.at(-1)?.type === "scope-divider") {
+      if ((!session?.turns.length && !current.some((item) => item.type === "answer")) || current.at(-1)?.type === "scope-divider") {
         return current;
       }
       return [...current, { type: "scope-divider", key: Date.now() }];
@@ -133,40 +170,93 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
 
   function applyScope(mode: Exclude<ScopeMode, "documents">, nextWorkspaceIds: string[], nextFolderIds: string[]) {
     if (!markScopeChange()) return;
-    setScopeMode(mode); setSelection(null); setWorkspaceIds(nextWorkspaceIds); setFolderIds(nextFolderIds); setScopeOpen(false);
+    setScopeMode(mode); updateSelection(null); setWorkspaceIds(nextWorkspaceIds); setFolderIds(nextFolderIds); setScopeOpen(false);
   }
 
   function currentScope(): ScopeSnapshot {
     return buildScopeSnapshot(domain, workspaceIds, folderIds, foldersByWorkspace, selection);
   }
 
-  function segmentHistory(): DomainSearchRequest["history"] {
-    let lastDivider = -1;
-    for (let index = transcript.length - 1; index >= 0; index -= 1) {
-      if (transcript[index].type === "scope-divider") {
-        lastDivider = index;
-        break;
-      }
-    }
-    return transcript.slice(lastDivider + 1).flatMap((item) => {
-      if (item.type !== "answer") return [];
-      if (
-        item.result.generation.status !== "answered"
-        || !item.result.generation.text
-        || !item.result.generation.turn_id
-        || !item.result.generation.validation_token
-      ) return [];
-      const turns: NonNullable<DomainSearchRequest["history"]> = [
-        { role: "user", content: item.query, turn_id: null, validation_token: null },
-        {
-          role: "assistant",
-          content: item.result.generation.text,
-          turn_id: item.result.generation.turn_id,
-          validation_token: item.result.generation.validation_token,
-        },
-      ];
-      return turns;
-    }).slice(-MAX_HISTORY_ITEMS);
+  function saveSession(detail: ConversationDetail) {
+    sessionRef.current = detail;
+    setSession(detail);
+    setSessions(current => [detail, ...current.filter(item => item.id !== detail.id)]);
+  }
+
+  function updateUrl(id: string | null) {
+    const url = new URL(window.location.href);
+    if (id) url.searchParams.set("conversation", id); else url.searchParams.delete("conversation");
+    window.history.replaceState(null, "", url);
+  }
+
+  async function ensureSession() {
+    if (sessionRef.current) return sessionRef.current;
+    const generation = requestGeneration.current;
+    if (!creatingSession.current) creatingSession.current = createConversation(domain.slug);
+    const creation = creatingSession.current;
+    try {
+      const created = await creation;
+      if (requestGeneration.current === generation) { saveSession(created); updateUrl(created.id); }
+      return created;
+    } finally { if (creatingSession.current === creation) creatingSession.current = null; }
+  }
+
+  async function selectSession(id: string) {
+    requestGeneration.current += 1;
+    const generation = requestGeneration.current;
+    requestController.current?.abort();
+    setSearching(false); setPendingQuery(""); setTranscript([]); setSession(null); sessionRef.current = null;
+    setKnownDocuments([]);
+    pendingRequest.current = null;
+    setQuery(""); setError(""); setRetryQuery(""); setSessionError(""); setSessionLoading(true);
+    setExternalConfirmed(false); setClassification(""); setSelectedEvidence(null); setSelectedOriginal(null);
+    setRequiresContextReset(false); setRequiresScopeRevision(false); setRequiresDomainReentry(false);
+    setEditingTitle(null); setConfirmDelete(false); setUploadOpen(false); setAttachmentMenuOpen(false);
+    updateUrl(id);
+    try {
+      const detail = await getConversation(domain.slug, id);
+      if (requestGeneration.current !== generation) return;
+      saveSession(detail);
+      const last = detail.turns.filter(turn => !turn.redacted).at(-1);
+      if (last?.request_scope) {
+        setWorkspaceIds(last.request_scope.workspace_ids); setFolderIds(last.request_scope.folder_ids ?? []);
+        const ids = last.request_scope.document_ids ?? null;
+        updateSelection(ids === null ? null : {documentIds: ids, documentNames: [], documents: []});
+        setScopeMode(ids !== null ? "documents" : last.request_scope.folder_ids?.length ? "folder" : "workspace");
+        if (ids?.length) {
+          const workspaces = last.request_scope.workspace_ids;
+          const documents = await Promise.all(ids.map(async documentId => {
+            for (const workspaceId of workspaces) {
+              try { return await getDomainLibraryDocument(domain.slug, workspaceId, documentId); }
+              catch (caught) { if (!(caught instanceof ApiError) || caught.status !== 404) throw caught; }
+            }
+            throw new Error("selected_document_unavailable");
+          }));
+          if (requestGeneration.current !== generation) return;
+          updateSelection(selectionFromDocuments(documents)); setKnownDocuments(documents);
+        }
+      } else { updateSelection(null); setWorkspaceIds([]); setFolderIds([]); setScopeMode("workspace"); }
+    } catch { if (requestGeneration.current === generation) { setSessionError("대화 또는 선택 문서를 불러오지 못했습니다. 접근 권한과 연결 상태를 확인해 주세요."); setRequiresScopeRevision(true); } }
+    finally { if (requestGeneration.current === generation) setSessionLoading(false); }
+  }
+
+  async function editTitle() {
+    if (!session || !editingTitle?.trim()) return;
+    const generation = requestGeneration.current;
+    try { const detail = await renameConversation(domain.slug, session, editingTitle.trim()); if (requestGeneration.current === generation) { saveSession(detail); setEditingTitle(null); } }
+    catch { setSessionError("대화 제목을 저장하지 못했습니다. 대화를 다시 열어 최신 상태를 확인해 주세요."); }
+  }
+
+  async function removeSession() {
+    if (!session) return;
+    const generation = requestGeneration.current;
+    try {
+      const current = searching || session.turns.some(turn => turn.status === "running")
+        ? await getConversation(domain.slug, session.id) : session;
+      await deleteConversation(domain.slug, current);
+      setSessions(current => current.filter(item => item.id !== session.id));
+      if (requestGeneration.current === generation) startNewConversation();
+    } catch { setSessionError("대화를 삭제하지 못했습니다. 대화를 다시 열어 최신 상태를 확인해 주세요."); }
   }
 
   async function sendQuestion(question: string) {
@@ -174,6 +264,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
     const scope = currentScope();
     if (
       normalized.length < 2
+      || searching || sessionLoading || attachmentBusy
       || !domain.ready
       || !domain.connection_version
       || !domain.generation_execution_preview
@@ -195,28 +286,32 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
     requestController.current = controller;
     const generation = requestGeneration.current + 1;
     requestGeneration.current = generation;
-    const history = segmentHistory();
     setSearching(true);
     setPendingQuery(normalized);
     setQuery("");
     setError("");
     setRetryQuery("");
     try {
-      const result = await searchDomain(domain.slug, {
+      const active = await ensureSession();
+      if (requestGeneration.current !== generation || controller.signal.aborted) return;
+      const request: TurnRequest = pendingRequest.current?.sessionId === active.id && pendingRequest.current.request.query === normalized
+        ? pendingRequest.current.request : {
         connection_version_id: domain.connection_version.id,
         query: normalized,
         workspace_ids: scope.workspaceIds,
         folder_ids: scope.folderIds,
         ...(scope.documentIds !== null ? { document_ids: scope.documentIds } : {}),
         top_k: 10,
-        ...(includeDiagnostics ? { include_diagnostics: true } : {}),
-        history,
+        include_diagnostics: true,
+        request_id: crypto.randomUUID(), expected_revision: active.revision,
         ...(codexProcessing && classification ? { codex_input_approval: {
           classification, consented: true, disclosure_version: domain.generation_execution_preview.disclosure_version,
         } } : {}),
-      }, controller.signal);
+      };
+      pendingRequest.current = {sessionId: active.id, request};
+      const detail = await sendConversationTurn(domain.slug, active.id, request, controller.signal);
       if (requestGeneration.current === generation && !controller.signal.aborted) {
-        setTranscript((current) => [...current, { type: "answer", query: normalized, result, scope }]);
+        saveSession(detail); pendingRequest.current = null; setTranscript([]);
       }
     } catch (caught) {
       if (requestGeneration.current === generation && !controller.signal.aborted) {
@@ -245,24 +340,35 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
   function cancelCurrent({ restoreQuery = true }: { restoreQuery?: boolean } = {}) {
     setExternalConfirmed(false); setClassification("");
     requestGeneration.current += 1;
-    requestController.current?.abort();
-    requestController.current = null;
+    requestController.current?.abort(); requestController.current = null;
     if (restoreQuery && pendingQuery) setQuery(pendingQuery);
-    setPendingQuery("");
-    setSearching(false);
+    setPendingQuery(""); setSearching(false);
+    const pending = pendingRequest.current;
+    const running = sessionRef.current?.turns.find(turn => turn.status === "running");
+    const sessionId = pending?.sessionId ?? sessionRef.current?.id;
+    const requestId = pending?.request.request_id ?? running?.request_id;
+    pendingRequest.current = null;
+    if (sessionId && requestId) {
+      const generation = requestGeneration.current;
+      setSessionLoading(true);
+      void cancelConversationTurn(domain.slug, sessionId, requestId).then(detail => {
+        if (requestGeneration.current === generation) saveSession(detail);
+      }).catch(() => { if (requestGeneration.current === generation) setSessionError("취소 상태를 확인하지 못했습니다. 대화를 다시 열어 확인해 주세요."); })
+        .finally(() => { if (requestGeneration.current === generation) setSessionLoading(false); });
+    }
   }
 
   function startNewConversation() {
-    if (requiresDomainReentry || requiresScopeRevision) return;
-    cancelCurrent({ restoreQuery: false });
-    setTranscript([]);
-    setQuery("");
-    setError("");
-    setRetryQuery("");
-    setExternalConfirmed(false);
-    setSelectedEvidence(null);
-    setRequiresContextReset(false);
-    setRequiresScopeRevision(false);
+    requestGeneration.current += 1; requestController.current?.abort(); requestController.current = null;
+    pendingRequest.current = null; sessionRef.current = null; creatingSession.current = null;
+    setSession(null); setSessionLoading(false); updateUrl(null);
+    setTranscript([]); setQuery(""); setPendingQuery(""); setSearching(false); setError(""); setSessionError("");
+    setRetryQuery(""); setExternalConfirmed(false); setClassification(""); setSelectedEvidence(null); setSelectedOriginal(null);
+    setRequiresContextReset(false); setRequiresScopeRevision(false); setRequiresDomainReentry(false);
+    setEditingTitle(null); setConfirmDelete(false); setUploadOpen(false); setAttachmentMenuOpen(false);
+    updateSelection(initialSelection); setWorkspaceIds(initialSelection ? unique(initialSelection.documents.map(document => document.workspace_id)) : initialWorkspaceIds); setFolderIds([]);
+    setKnownDocuments(initialSelection?.documents ?? []);
+    setScopeMode(initialSelection ? "documents" : "workspace");
   }
 
   function handleQuestionKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -292,7 +398,8 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
   function applyDocuments(documents: DocumentSummary[]) {
     if (!markScopeChange()) return;
     setScopeMode("documents");
-    setSelection(selectionFromDocuments(documents));
+    updateSelection(selectionFromDocuments(documents));
+    setKnownDocuments(current => [...current.filter(item => !documents.some(document => document.id === item.id)), ...documents]);
     if (documents.length > 0) {
       const documentWorkspaceIds = unique(documents.map(({ workspace_id }) => workspace_id));
       const allowedFolderIds = new Set(documentWorkspaceIds.flatMap((workspaceId) => (foldersByWorkspace[workspaceId] ?? []).map(({ id }) => id)));
@@ -333,23 +440,21 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
         </div>
       </header>
 
-      <ScopeSelector
-        key={`${scopeMode}:${scopeOpen ? `open:${workspaceIds.join(",")}:${folderIds.join(",")}` : "closed"}`}
-        domain={domain}
-        workspaceIds={workspaceIds}
-        folderIds={folderIds}
-        foldersByWorkspace={foldersByWorkspace}
-        open={scopeOpen}
-        searching={searching || requiresDomainReentry}
-        folderError={folderError}
-        mode={scopeMode}
-        selection={selection}
-        onOpenDocuments={openDocumentPanel}
-        onApplyScope={applyScope}
-        onToggleOpen={() => setScopeOpen((current) => !current)}
-      />
-
-      <ProcessingDisclosure domain={domain} />
+      <div className="conversation-layout">
+      <aside className="conversation-sidebar" aria-label="대화 목록">
+        <details open><summary>내 대화</summary>
+        {sessions.length === 0 ? <p>저장된 대화가 없습니다.</p> : <ul>{sessions.map(item => <li key={item.id}><button type="button" aria-current={session?.id === item.id ? "page" : undefined} onClick={() => void selectSession(item.id)}>{item.title}</button></li>)}</ul>}
+      </details></aside>
+      <div className="conversation-main">
+      {sessionError ? <p role="alert">{sessionError}</p> : null}
+      {sessionLoading ? <p role="status">대화를 불러오는 중…</p> : null}
+      {session ? <div className="conversation-session-heading"><h2>{session.title}</h2>
+        <button type="button" aria-label="대화 이름 변경" disabled={searching} onClick={() => setEditingTitle(session.title)}>이름 변경</button>
+        <button type="button" aria-label="대화 삭제" onClick={() => setConfirmDelete(true)}>삭제</button>
+        {editingTitle !== null ? <div><label>대화 제목<input value={editingTitle} maxLength={180} onChange={event => setEditingTitle(event.target.value)} /></label><button type="button" disabled={!editingTitle.trim()} onClick={() => void editTitle()}>제목 저장</button><button type="button" onClick={() => setEditingTitle(null)}>취소</button></div> : null}
+        {confirmDelete ? <div role="alert"><p>이 대화를 삭제할까요?</p><button type="button" onClick={() => void removeSession()}>삭제 확인</button><button type="button" onClick={() => setConfirmDelete(false)}>유지</button></div> : null}
+      </div> : null}
+      <details className="conversation-processing"><summary>모델 및 처리 안내</summary><ProcessingDisclosure domain={domain} /></details>
 
       {!domain.ready || !domain.connection_version ? (
         <section className="conversation-unavailable" role="alert">
@@ -369,10 +474,24 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
           stickToBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
         }}
       >
-        <p className="conversation-notice">현재 대화는 이 브라우저 화면에서만 유지되며 새로고침하면 초기화됩니다.</p>
-        {transcript.length === 0 && !pendingQuery ? (
+
+        {transcript.length === 0 && !session?.turns.length && !pendingQuery ? (
           <section className="conversation-welcome"><h2>무엇을 확인할까요?</h2><p>답변의 인용을 열어 원문과 일치 여부를 확인할 수 있습니다.</p></section>
         ) : null}
+        {session?.turns.map((turn, index) => <div key={turn.id}>
+          {index > 0 && session.turns[index - 1].segment !== turn.segment ? <div className="scope-divider" role="separator">검색 범위·문맥 변경</div> : null}
+          {turn.redacted || !turn.request_scope ? <article className="conversation-turn"><p role="status">현재 권한으로 이 대화 내용을 표시할 수 없습니다.</p></article>
+            : turn.response ? <ConversationAnswer turn={{type: "answer", query: turn.query, result: turn.response, scope: {
+              workspaceIds: turn.request_scope.workspace_ids,
+              workspaceNames: domain.workspace_options.filter(item => turn.request_scope?.workspace_ids.includes(item.id)).map(item => item.name),
+              folderIds: turn.request_scope.folder_ids ?? [], folderNames: Object.values(foldersByWorkspace).flat().filter(folder => turn.request_scope?.folder_ids?.includes(folder.id)).map(folder => folder.name), documentIds: turn.request_scope.document_ids ?? null,
+              documentNames: knownDocuments.filter(item => turn.request_scope?.document_ids?.includes(item.id)).map(item => item.name), documents: knownDocuments,
+            }}} onOpenEvidence={openEvidence} onOpenSelectedVersion={openSelectedVersion} />
+            : <article className="conversation-turn"><p className="user-message"><strong>나</strong>{turn.query}</p><p role="status">{turn.status === "cancelled" ? (turn.execution_terminated ? "답변 생성을 취소했습니다." : "취소를 요청했습니다. 실행 종료 확인 중입니다.") : turn.status === "interrupted" ? "답변 생성이 중단되었습니다. 새 질문으로 다시 요청할 수 있습니다." : turn.status === "running" ? "답변 생성 중입니다. 상태를 새로고침해 확인할 수 있습니다." : conversationFailure(new ApiError("", 500, turn.error_code ?? "generation_failed")).message}</p>
+              {turn.status === "running" ? <><button type="button" onClick={() => cancelCurrent()}>답변 취소</button><button type="button" onClick={() => void selectSession(session.id)}>상태 새로고침</button></> : null}
+              {turn.status === "cancelled" && !turn.execution_terminated ? <button type="button" onClick={() => void selectSession(session.id)}>상태 새로고침</button> : null}
+            </article>}
+        </div>)}
         {transcript.map((item) => item.type === "scope-divider" ? (
           <div className="scope-divider" role="separator" key={`divider-${item.key}`}><span>검색 범위 변경</span></div>
         ) : (
@@ -388,6 +507,28 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
       </div>
 
       <form className="conversation-composer" onSubmit={handleSubmit}>
+      <ScopeSelector
+        key={`${scopeMode}:${scopeOpen ? `open:${workspaceIds.join(",")}:${folderIds.join(",")}` : "closed"}`}
+        domain={domain}
+        workspaceIds={workspaceIds}
+        folderIds={folderIds}
+        foldersByWorkspace={foldersByWorkspace}
+        open={scopeOpen}
+        searching={searching || requiresDomainReentry}
+        folderError={folderError}
+        mode={scopeMode}
+        selection={selection}
+        onOpenDocuments={openDocumentPanel}
+        onApplyScope={applyScope}
+        onToggleOpen={() => setScopeOpen((current) => !current)}
+      />
+
+
+        <div className="conversation-file-chips" aria-label="선택한 문서">{selection?.documentIds.map((id, index) => <span key={id}>{selection.documentNames[index] ?? "선택 문서"}<button type="button" disabled={searching} aria-label={`${selection.documentNames[index] ?? "선택 문서" } 제외`} onClick={() => {
+          if (!markScopeChange()) return;
+          updateSelection({...selection, documentIds: selection.documentIds.filter(value => value !== id), documentNames: selection.documentNames.filter((_, candidate) => candidate !== index), documents: selection.documents.filter(document => document.id !== id)});
+        }}>×</button></span>)}</div>
+        {uploadOpen ? <ConversationAttachments slug={domain.slug} sessionId={session?.id ?? null} ensureSession={ensureSession} onBusy={setAttachmentBusy} onSelect={documents => applyDocuments([...(selectionRef.current?.documents ?? []).filter(item => !documents.some(document => document.id === item.id)), ...documents])} /> : null}
         {error ? (
           <div className="conversation-error" role="alert">
             <p>{error}</p>
@@ -432,17 +573,21 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
           />
         </label>
         <div className="composer-actions">
-          <label><input type="checkbox" checked={includeDiagnostics} disabled={searching} onChange={(event) => setIncludeDiagnostics(event.target.checked)} />검색 진단 포함</label>
+          <div className="conversation-add-menu">
+            <button type="button" aria-label="문서 추가" aria-expanded={attachmentMenuOpen} disabled={searching || sessionLoading} onClick={() => setAttachmentMenuOpen(current => !current)}>＋</button>
+            {attachmentMenuOpen ? <div role="group" aria-label="문서 추가 방법"><button type="button" onClick={event => {openDocumentPanel(event.currentTarget); setAttachmentMenuOpen(false);}}>기존 문서 선택</button><button type="button" onClick={() => {setUploadOpen(true); setAttachmentMenuOpen(false);}}>PC 파일 첨부</button></div> : null}
+          </div>
           <button type="submit" disabled={!canSend}>질문 보내기</button>
           {searching ? <button type="button" className="secondary-button" onClick={() => cancelCurrent()}>답변 취소</button> : null}
           <span>Enter 전송 · Shift+Enter 줄바꿈</span>
         </div>
       </form>
 
+      </div></div>
       {selectedEvidence ? <EvidencePanel evidence={selectedEvidence} onClose={closeEvidence} /> : null}
       {selectionPanelOpen ? <DocumentSelectionPanel slug={domain.slug} currentDocuments={selection?.documents ?? []} workspaceIds={workspaceIds} folderIds={folderIds} foldersByWorkspace={foldersByWorkspace} onApply={applyDocuments} onClose={() => setSelectionPanelOpen(false)} returnFocus={selectionReturnFocus} onSelectionInvalidated={() => {
         setRequiresScopeRevision(true);
-        setSelection(null);
+        updateSelection(null);
         setExternalConfirmed(false);
         setClassification("");
         setRetryQuery("");

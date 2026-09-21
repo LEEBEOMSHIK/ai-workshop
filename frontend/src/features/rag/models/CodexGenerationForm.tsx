@@ -19,6 +19,7 @@ export function CodexGenerationForm({ deployments, runners, onSaved }: {
         kind: "generation", name: String(form.get("name")).trim(), version: Number(form.get("version")),
         deployment_version_id: deployment.version_id, bindings: [],
         config: { prompt_ref: prompt.answer_ref, context_prompt_ref: prompt.context_ref, citation_mode: "required",
+          ...(prompt.context_evidence ? { context_evidence: prompt.context_evidence } : {}),
           context_policy: { max_history_turns: Number(form.get("historyTurns")), max_history_tokens: Number(form.get("historyTokens")) },
           generation: { timeout_seconds: Number(form.get("timeout")), max_output_tokens: Number(form.get("output")), temperature: 0, response_schema_version: prompt.response_schema_version } },
       }));

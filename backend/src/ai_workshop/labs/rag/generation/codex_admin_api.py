@@ -92,6 +92,7 @@ class CodexPromptOption(BaseModel):
     control_text: str
     answer_text: str
     context_text: str
+    context_evidence: dict[str, int] | None = None
 
 
 class CodexRunnerLimitsResponse(BaseModel):
@@ -170,7 +171,22 @@ async def list_codex_runners(
             control_text=load_prompt("rag-codex-control-v1"),
             answer_text=load_prompt("rag-codex-answer-v3"),
             context_text=load_prompt("rag-codex-contextualize-v1"),
-        )
+        ),
+        CodexPromptOption(
+            answer_ref="rag-codex-answer-v4",
+            context_ref="rag-codex-contextualize-v1",
+            response_schema_version=2,
+            control_ref="rag-codex-control-v1",
+            control_text=load_prompt("rag-codex-control-v1"),
+            answer_text=load_prompt("rag-codex-answer-v4"),
+            context_text=load_prompt("rag-codex-contextualize-v1"),
+            context_evidence={
+                "version": 1,
+                "max_groups": 8,
+                "max_units": 32,
+                "max_characters": 12000,
+            },
+        ),
     ]
     result = []
     for name, runner in sorted(settings.codex_runner_refs.items()):

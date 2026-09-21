@@ -37,7 +37,7 @@ export function scopeSummary(scope: ScopeSnapshot): string {
   if (scope.documentIds !== null) {
     return scope.documentNames.length > 0
       ? `선택 문서 ${scope.documentNames.join(", ")}`
-      : "선택 문서 없음";
+      : scope.documentIds.length > 0 ? `선택 문서 ${scope.documentIds.length}개` : "선택 문서 없음";
   }
   const workspaces = scope.workspaceNames.join(", ") || "선택 없음";
   const folders = scope.folderNames.length > 0 ? `폴더 ${scope.folderNames.join(", ")}` : "선택 공간 전체";

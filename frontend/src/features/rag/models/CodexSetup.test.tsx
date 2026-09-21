@@ -58,15 +58,17 @@ it("creates a runner deployment with editable model identity and no credentials"
   expect(document.querySelector('input[type="password"]')).toBeNull();
 });
 
-it("saves an unverified deployment generation profile using trusted prompt options", async () => {
+it.each([null, { version: 1, max_groups: 8, max_units: 32, max_characters: 12000 }])("saves an unverified generation profile with the server context budget %j", async (budget) => {
   const fetcher = vi.fn<typeof fetch>(async () => json({ id: "profile" })); vi.stubGlobal("fetch", fetcher);
-  render(<CodexGenerationForm deployments={[deployment]} runners={[runner]} onSaved={() => {}} />);
+  const contextualRunner = { ...runner, prompt_options: runner.prompt_options.map(option => ({ ...option, context_evidence: budget })) };
+  render(<CodexGenerationForm deployments={[deployment]} runners={[contextualRunner]} onSaved={() => {}} />);
   expect(screen.getByText("Trusted control")).toBeVisible();
   fireEvent.change(screen.getByLabelText("생성 프로파일 이름"), { target: { value: "New profile" } });
   fireEvent.click(screen.getByRole("button", { name: "Codex 생성 프로파일 등록" }));
   await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
   const wire = JSON.parse(JSON.parse(fetcher.mock.calls[0][1]!.body as string).content);
   expect(wire).toMatchObject({ deployment_version_id: "dv", config: { prompt_ref: "answer-test", context_prompt_ref: "context-test", citation_mode: "required" } });
+  expect(wire.config.context_evidence).toEqual(budget ?? undefined);
 });
 
 it("shows empty runner catalog without inventing an executable option", () => {

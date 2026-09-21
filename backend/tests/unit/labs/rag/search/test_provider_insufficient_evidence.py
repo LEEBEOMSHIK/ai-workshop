@@ -153,7 +153,7 @@ async def test_provider_abstention_preserves_retrieval_and_checks_identity(
     assert outcome.status is GenerationStatus.INSUFFICIENT_EVIDENCE
     assert outcome.text is None
     assert outcome.citations == ()
-    assert outcome.reason_codes == ()
+    assert outcome.reason_codes == ("evidence_content_insufficient",)
     assert outcome.turn_id is None
     assert outcome.validation_token is None
     assert outcome.execution is not None

@@ -625,6 +625,10 @@ class SearchApplicationService:
         )
         if generation_profile is not None and generation_answers:
             stages["generation"] = _elapsed_ms(generation_started)
+        if generation.status is GenerationStatus.INSUFFICIENT_EVIDENCE and not generation_answers:
+            generation = replace(generation, reason_codes=(
+                "no_search_results" if not sources else "no_eligible_evidence",
+            ))
         stages["total"] = _elapsed_ms(started)
         diagnostics = None
         if request.include_diagnostics and context_selection is not None:
@@ -1005,6 +1009,7 @@ class SearchApplicationService:
             return GenerationOutcome(
                 status=GenerationStatus.INSUFFICIENT_EVIDENCE,
                 execution=actual_execution,
+                reason_codes=("evidence_content_insufficient",),
             )
         assert draft is not None
         outcome = CitationValidator().validate(draft, allowed_evidence=evidence)

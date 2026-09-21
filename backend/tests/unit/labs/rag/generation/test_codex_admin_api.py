@@ -390,6 +390,15 @@ def test_safe_runner_metadata_contains_prompts_limits_and_no_host_or_auth_paths(
     assert item["local_preflight_passed"] and item["limits"]["max_concurrent"] == 1
     assert item["prompt_options"][0]["answer_ref"] == "rag-codex-answer-v3"
     assert item["prompt_options"][0]["control_text"]
+    contextual = next(
+        option for option in item["prompt_options"] if option["answer_ref"] == "rag-codex-answer-v4"
+    )
+    assert contextual["context_evidence"] == {
+        "version": 1,
+        "max_groups": 8,
+        "max_units": 32,
+        "max_characters": 12000,
+    }
     assert str(tmp_path) not in response.text and "executable" not in response.text
 
 

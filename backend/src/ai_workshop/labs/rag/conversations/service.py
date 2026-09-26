@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import re
 from contextlib import AbstractAsyncContextManager
 from datetime import UTC, datetime
+from enum import StrEnum
+from pathlib import Path
 from typing import Protocol
 from uuid import UUID, uuid4
 
@@ -19,6 +23,57 @@ from ai_workshop.labs.rag.domains.schemas import DomainSearchRequest, DomainSear
 from ai_workshop.labs.rag.domains.service import DomainService
 from ai_workshop.labs.rag.search.schemas import ConversationTurnRequest
 from ai_workshop.shared.errors import AppError
+
+logger = logging.getLogger(__name__)
+
+
+class ExecutionPhase(StrEnum):
+    HISTORY = "history"
+    RESERVE_DEPENDENCIES = "reserve_dependencies"
+    PREPARE_REQUEST = "prepare_request"
+    EXECUTE = "execute"
+    MONITOR_EXECUTION = "monitor_execution"
+
+
+def _log_execution_failure(exc: Exception, phase: ExecutionPhase, request_id: UUID) -> None:
+    """Record code coordinates, never exception text, source lines, locals or paths."""
+    source_file, source_function, source_line = "unknown", "unknown", 0
+    trace = exc.__traceback__
+    while trace is not None:
+        code = trace.tb_frame.f_code
+        filename = Path(code.co_filename).name
+        source_file = (
+            filename if re.fullmatch(r"[A-Za-z0-9_.-]{1,120}\.py", filename) else "unknown"
+        )
+        source_function = (
+            code.co_name
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,79}", code.co_name)
+            else "unknown"
+        )
+        source_line = trace.tb_lineno
+        trace = trace.tb_next
+    typename = type(exc).__name__
+    exception_type = (
+        typename if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,79}", typename) else "unknown"
+    )
+    diagnostic = {
+        "phase": phase.value,
+        "exception_type": exception_type,
+        "request_id": str(request_id),
+        "source_file": source_file,
+        "source_function": source_function,
+        "source_line": source_line,
+    }
+    logger.error(
+        "conversation_execution_failed phase=%s exception_type=%s request_id=%s source=%s:%s:%s",
+        phase.value,
+        exception_type,
+        str(request_id),
+        source_file,
+        source_function,
+        source_line,
+        extra=diagnostic,
+    )
 
 
 class ConversationRepository(Protocol):
@@ -148,8 +203,10 @@ class ConversationService:
         result: DomainSearchResponse | None = None
         error: str | None = None
         cancelled = False
+        phase = ExecutionPhase.HISTORY
         try:
             history, dependencies = await self._history(item, turn, request)
+            phase = ExecutionPhase.RESERVE_DEPENDENCIES
             async with self.repository.locked(actor_id, domain_id, id) as current:
                 target = next(value for value in current.turns if value.id == turn.id)
                 if target.status != "running":
@@ -158,18 +215,22 @@ class ConversationService:
                     current.touch(target.updated_at)
                     return await self._view(current)
                 target.dependencies = dependencies
+            phase = ExecutionPhase.PREPARE_REQUEST
             data = request.model_dump(exclude={"request_id", "expected_revision"})
             if data.get("document_ids") is None:
                 data.pop("document_ids", None)
             data["history"] = history
+            execution_request = DomainSearchRequest.model_validate(data)
+            phase = ExecutionPhase.EXECUTE
             task = asyncio.create_task(
                 self.executor.execute(
                     slug=slug,
                     actor_id=actor_id,
-                    request=DomainSearchRequest.model_validate(data),
+                    request=execution_request,
                 )
             )
             while not task.done():
+                phase = ExecutionPhase.MONITOR_EXECUTION
                 done, _ = await asyncio.wait({task}, timeout=0.5)
                 if done:
                     break
@@ -179,12 +240,14 @@ class ConversationService:
                         cancelled = True
                         task.cancel()
                         break
+            phase = ExecutionPhase.EXECUTE
             result = await task
         except asyncio.CancelledError:
             cancelled = True
         except AppError as exc:
             error = exc.code
-        except Exception:
+        except Exception as exc:
+            _log_execution_failure(exc, phase, request.request_id)
             # Never persist provider exception messages or private tracebacks.
             error = "conversation_execution_failed"
         finally:

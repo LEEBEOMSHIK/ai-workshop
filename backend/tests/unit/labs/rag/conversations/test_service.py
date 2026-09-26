@@ -309,3 +309,37 @@ async def test_cancel_before_execution_prevents_provider_call(setup):
     finished = await pending
     assert executor.execute.await_count == 0
     assert finished.turns[0].status == "cancelled" and finished.turns[0].execution_terminated
+
+
+@pytest.mark.asyncio
+async def test_unexpected_execution_failure_logs_only_safe_diagnostics(setup, caplog):
+    import logging
+
+    service, repo, _, executor, actor, incoming = setup
+    secret = "PRIVATE-DOCUMENT-SECRET api-token=do-not-log"
+
+    async def explode(**kwargs):
+        raise RuntimeError(secret)
+
+    executor.execute.side_effect = explode
+    incoming = incoming.model_copy(update={"query": "PRIVATE-QUESTION-NEVER-LOG"})
+    created = await service.create("domain", actor, None)
+    with caplog.at_level(logging.ERROR):
+        result = await service.submit("domain", actor, created.id, incoming)
+    assert result.turns[0].error_code == "conversation_execution_failed"
+    diagnostic = next(
+        record
+        for record in caplog.records
+        if record.name == "ai_workshop.labs.rag.conversations.service"
+    )
+    assert diagnostic.phase == "execute"
+    assert diagnostic.exception_type == "RuntimeError"
+    assert diagnostic.request_id == str(incoming.request_id)
+    assert diagnostic.source_file == "test_service.py"
+    assert diagnostic.source_function == "explode"
+    assert diagnostic.source_line > 0
+    assert diagnostic.exc_info is None
+    assert secret not in caplog.text
+    assert incoming.query not in caplog.text
+    assert str(incoming.request_id) in caplog.text
+    assert "RuntimeError" in caplog.text

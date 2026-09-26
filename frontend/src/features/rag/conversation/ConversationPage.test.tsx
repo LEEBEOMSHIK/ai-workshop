@@ -46,6 +46,28 @@ beforeEach(() => window.history.replaceState(null, "", "/"));
 afterEach(() => vi.unstubAllGlobals());
 
 describe("ConversationPage", () => {
+  it("accepts dropped files without widening a missing private upload destination", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => Response.json(String(input).endsWith("attachment-options") ? { workspaces: [], reason_code: "no_private_attachment_workspace" } : []));
+    vi.stubGlobal("fetch", fetcher);
+    render(<ConversationPage domain={domain()} />);
+    const target = screen.getByLabelText("현재 대화");
+    fireEvent.dragEnter(target, { dataTransfer: { types: ["Files"] } });
+    expect(screen.getByText("파일을 놓아 대화에 첨부")).toBeVisible();
+    fireEvent.drop(target, { dataTransfer: { types: ["Files"], files: [new File(["synthetic"], "drop.txt")] } });
+    expect(await screen.findByText(/첨부할 수 있는 개인 공간이 없습니다/)).toBeVisible();
+    expect(screen.getByText("drop.txt")).toBeVisible();
+    expect(screen.queryByText("파일을 놓아 대화에 첨부")).not.toBeInTheDocument();
+    expect(fetcher.mock.calls.some(([input]) => String(input).includes("attachments?workspace_id="))).toBe(false);
+  });
+  it("dismisses the attachment popover with Escape and preserves composer focus", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json([])));
+    const user = userEvent.setup();
+    render(<ConversationPage domain={domain()} />);
+    await user.click(screen.getByRole("button", { name: "문서 추가" }));
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("button", { name: "기존 문서 선택" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "문서 추가" })).toHaveFocus();
+  });
   it("uses the composer plus as the only document selection entry", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json([])));
     const user = userEvent.setup();
@@ -360,6 +382,8 @@ describe("ConversationPage", () => {
     await user.click(screen.getByRole("button", { name: "범위 적용" }));
     await user.click(screen.getByRole("button", { name: "질문 보내기" }));
     expect(screen.getByRole("button", { name: "검색 범위 열기" })).toBeDisabled();
+    fireEvent.drop(screen.getByLabelText("현재 대화"), { dataTransfer: { types: ["Files"], files: [new File(["synthetic"], "blocked.txt")] } });
+    expect(screen.queryByRole("region", { name: "PC 파일 첨부" })).not.toBeInTheDocument();
     resolveSearch(jsonResponse(searchResult(1)));
     await screen.findByText("답변 1");
   });

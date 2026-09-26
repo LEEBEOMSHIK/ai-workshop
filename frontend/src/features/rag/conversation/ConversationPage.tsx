@@ -60,6 +60,12 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [draggingFiles, setDraggingFiles] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const questionRef = useRef<HTMLTextAreaElement>(null);
+  const dragDepth = useRef(0);
   const [attachmentBusy, setAttachmentBusy] = useState(false);
   const pendingRequest = useRef<{sessionId: string; request: TurnRequest} | null>(null);
   const creatingSession = useRef<Promise<ConversationDetail> | null>(null);
@@ -87,6 +93,32 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
   const attachmentButtonRef = useRef<HTMLButtonElement>(null);
   const [selectionReturnFocus, setSelectionReturnFocus] = useState<HTMLElement | null>(null);
   const originalReturnFocus = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const textarea = questionRef.current;
+    if (textarea) { textarea.style.height = "auto"; textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`; }
+  }, [query]);
+
+  useEffect(() => {
+    if (!attachmentMenuOpen) return;
+    function closeOutside(event: PointerEvent) {
+      if (event.target instanceof Node && !menuRef.current?.contains(event.target)) setAttachmentMenuOpen(false);
+    }
+    function closeEscape(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape") { setAttachmentMenuOpen(false); attachmentButtonRef.current?.focus(); }
+    }
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeEscape);
+    return () => { document.removeEventListener("pointerdown", closeOutside); document.removeEventListener("keydown", closeEscape); };
+  }, [attachmentMenuOpen]);
+
+  function receiveFiles(files: File[]) {
+    if (!files.length || searching || sessionLoading || requiresDomainReentry || attachmentBusy) return;
+    setPendingFiles(current => [...current, ...files]);
+    setUploadOpen(true);
+    setExternalConfirmed(false);
+    setAttachmentMenuOpen(false);
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -212,7 +244,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
     setQuery(""); setError(""); setRetryQuery(""); setSessionError(""); setSessionLoading(true);
     setExternalConfirmed(false); setClassification(""); setSelectedEvidence(null); setSelectedOriginal(null);
     setRequiresContextReset(false); setRequiresScopeRevision(false); setRequiresDomainReentry(false);
-    setEditingTitle(null); setConfirmDelete(false); setUploadOpen(false); setAttachmentMenuOpen(false);
+    setEditingTitle(null); setConfirmDelete(false); setUploadOpen(false); setPendingFiles([]); setDraggingFiles(false); dragDepth.current = 0; setAttachmentMenuOpen(false);
     updateUrl(id);
     try {
       const detail = await getConversation(domain.slug, id);
@@ -366,7 +398,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
     setTranscript([]); setQuery(""); setPendingQuery(""); setSearching(false); setError(""); setSessionError("");
     setRetryQuery(""); setExternalConfirmed(false); setClassification(""); setSelectedEvidence(null); setSelectedOriginal(null);
     setRequiresContextReset(false); setRequiresScopeRevision(false); setRequiresDomainReentry(false);
-    setEditingTitle(null); setConfirmDelete(false); setUploadOpen(false); setAttachmentMenuOpen(false);
+    setEditingTitle(null); setConfirmDelete(false); setUploadOpen(false); setPendingFiles([]); setDraggingFiles(false); dragDepth.current = 0; setAttachmentMenuOpen(false);
     updateSelection(initialSelection); setWorkspaceIds(initialSelection ? unique(initialSelection.documents.map(document => document.workspace_id)) : initialWorkspaceIds); setFolderIds([]);
     setKnownDocuments(initialSelection?.documents ?? []);
     setScopeMode(initialSelection ? "documents" : "workspace");
@@ -446,7 +478,22 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
         <details open><summary>내 대화</summary>
         {sessions.length === 0 ? <p>저장된 대화가 없습니다.</p> : <ul>{sessions.map(item => <li key={item.id}><button type="button" aria-current={session?.id === item.id ? "page" : undefined} onClick={() => void selectSession(item.id)}>{item.title}</button></li>)}</ul>}
       </details></aside>
-      <div className="conversation-main">
+      <div className="conversation-main" onDragEnter={event => {
+        if (!event.dataTransfer.types.includes("Files")) return;
+        event.preventDefault(); dragDepth.current += 1; setDraggingFiles(true);
+      }} onDragOver={event => {
+        if (!event.dataTransfer.types.includes("Files")) return;
+        event.preventDefault(); event.dataTransfer.dropEffect = searching || attachmentBusy || sessionLoading || requiresDomainReentry ? "none" : "copy";
+      }} onDragLeave={event => {
+        if (!event.dataTransfer.types.includes("Files")) return;
+        event.preventDefault(); dragDepth.current = Math.max(0, dragDepth.current - 1);
+        if (!dragDepth.current) setDraggingFiles(false);
+      }} onDrop={event => {
+        if (!event.dataTransfer.types.includes("Files")) return;
+        event.preventDefault(); dragDepth.current = 0; setDraggingFiles(false);
+        receiveFiles(Array.from(event.dataTransfer.files));
+      }}>
+      {draggingFiles ? <div className="conversation-drop-overlay" role="status"><strong>{searching || attachmentBusy || sessionLoading || requiresDomainReentry ? "현재 작업이 끝난 뒤 첨부하세요" : "파일을 놓아 대화에 첨부"}</strong><span>허용된 개인 공간에 저장합니다</span></div> : null}
       {sessionError ? <p role="alert">{sessionError}</p> : null}
       {sessionLoading ? <p role="status">대화를 불러오는 중…</p> : null}
       {session ? <div className="conversation-session-heading"><h2>{session.title}</h2>
@@ -528,7 +575,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
           if (!markScopeChange()) return;
           updateSelection({...selection, documentIds: selection.documentIds.filter(value => value !== id), documentNames: selection.documentNames.filter((_, candidate) => candidate !== index), documents: selection.documents.filter(document => document.id !== id)});
         }}>×</button></span>)}</div>
-        {uploadOpen ? <ConversationAttachments slug={domain.slug} sessionId={session?.id ?? null} ensureSession={ensureSession} onBusy={setAttachmentBusy} onSelect={documents => applyDocuments([...(selectionRef.current?.documents ?? []).filter(item => !documents.some(document => document.id === item.id)), ...documents])} /> : null}
+        {uploadOpen ? <ConversationAttachments slug={domain.slug} sessionId={session?.id ?? null} ensureSession={ensureSession} pendingFiles={pendingFiles} onFilesConsumed={() => setPendingFiles([])} onBusy={setAttachmentBusy} onSelect={documents => applyDocuments([...(selectionRef.current?.documents ?? []).filter(item => !documents.some(document => document.id === item.id)), ...documents])} /> : null}
         {error ? (
           <div className="conversation-error" role="alert">
             <p>{error}</p>
@@ -559,10 +606,11 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
             <small>관리자가 저장한 전송 승인과 별개로, 매 질문 전에 전송 범위를 확인하는 절차입니다.</small>
           </label>
         ) : null}
-        <label>
-          질문
+        <label className="conversation-question">
+          <span className="visually-hidden">질문</span>
           <textarea
-            rows={3}
+            ref={questionRef}
+            rows={1}
             value={query}
             disabled={searching || !domain.ready || requiresDomainReentry}
             onChange={(event) => { setQuery(event.target.value); if (codexProcessing) setExternalConfirmed(false); }}
@@ -573,11 +621,12 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
           />
         </label>
         <div className="composer-actions">
-          <div className="conversation-add-menu">
+          <input ref={fileInputRef} type="file" multiple hidden aria-label="대화에 파일 첨부" onChange={event => { receiveFiles(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
+          <div ref={menuRef} className="conversation-add-menu">
             <button ref={attachmentButtonRef} type="button" aria-label="문서 추가" aria-expanded={attachmentMenuOpen} disabled={searching || sessionLoading} onClick={() => setAttachmentMenuOpen(current => !current)}>＋</button>
-            {attachmentMenuOpen ? <div role="group" aria-label="문서 추가 방법"><button type="button" onClick={() => {openDocumentPanel(); setAttachmentMenuOpen(false);}}>기존 문서 선택</button><button type="button" onClick={() => {setUploadOpen(true); setAttachmentMenuOpen(false);}}>PC 파일 첨부</button></div> : null}
+            {attachmentMenuOpen ? <div role="group" aria-label="문서 추가 방법"><button type="button" onClick={() => {openDocumentPanel(); setAttachmentMenuOpen(false);}}>기존 문서 선택</button><button type="button" disabled={attachmentBusy} onClick={() => {fileInputRef.current?.click(); setAttachmentMenuOpen(false);}}>PC 파일 첨부</button><small>파일을 대화창에 끌어다 놓으세요</small></div> : null}
           </div>
-          <button type="submit" disabled={!canSend}>질문 보내기</button>
+          <button type="submit" aria-label="질문 보내기" disabled={!canSend}>↑</button>
           {searching ? <button type="button" className="secondary-button" onClick={() => cancelCurrent()}>답변 취소</button> : null}
           <span>Enter 전송 · Shift+Enter 줄바꿈</span>
         </div>

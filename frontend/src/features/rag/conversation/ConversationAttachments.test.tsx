@@ -5,11 +5,63 @@ import { ConversationAttachments } from "./ConversationAttachments";
 const json = (value: unknown) => new Response(JSON.stringify(value), {headers: {"content-type": "application/json"}});
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
+it("retains dropped files while options load and uploads them sequentially", async () => {
+  let resolveOptions!: (response: Response) => void;
+  let resolveFirst!: (response: Response) => void;
+  const posts: string[] = [];
+  const consumed = vi.fn();
+  vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (String(url).endsWith("attachment-options")) return new Promise<Response>(resolve => { resolveOptions = resolve; });
+    if (init?.method === "POST") {
+      posts.push(((init.body as FormData).get("file") as File).name);
+      if (posts.length === 1) return new Promise<Response>(resolve => { resolveFirst = resolve; });
+      return json({id: "second", status: "processing", document: null});
+    }
+    return json([]);
+  }));
+  const files = [new File(["synthetic"], "first.txt"), new File(["synthetic"], "second.txt")];
+  render(<ConversationAttachments slug="example" sessionId="session" ensureSession={vi.fn()} onBusy={vi.fn()} onSelect={vi.fn()} pendingFiles={files} onFilesConsumed={consumed} />);
+  expect(await screen.findByText("first.txt")).toBeVisible();
+  expect(posts).toEqual([]);
+  await act(async () => { resolveOptions(json({workspaces: [{id: "private", name: "개인", kind: "personal"}]})); });
+  expect(posts).toEqual(["first.txt"]);
+  await act(async () => { resolveFirst(json({id: "first", status: "processing", document: null})); });
+  await waitFor(() => expect(posts).toEqual(["first.txt", "second.txt"]));
+  expect(consumed).toHaveBeenCalledTimes(1);
+});
+
 it("disables PC upload when no eligible private workspace exists", async () => {
   vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL) => json(String(url).endsWith("attachment-options") ? {workspaces: [], reason_code: "no_private_attachment_workspace"} : [])));
   render(<ConversationAttachments slug="example" sessionId="session" ensureSession={vi.fn()} onBusy={vi.fn()} onSelect={vi.fn()} />);
   expect(await screen.findByText(/첨부할 수 있는 개인 공간이 없습니다/)).toBeVisible();
   expect(screen.getByLabelText("PC 파일 선택")).toBeDisabled();
+});
+
+it("keeps a dropped file removable without uploading to an ineligible workspace", async () => {
+  const busy = vi.fn();
+  const fetcher = vi.fn(async (url: RequestInfo | URL) => json(String(url).endsWith("attachment-options") ? {workspaces: []} : []));
+  vi.stubGlobal("fetch", fetcher);
+  render(<ConversationAttachments slug="example" sessionId="session" ensureSession={vi.fn()} onBusy={busy} onSelect={vi.fn()} pendingFiles={[new File(["synthetic"], "waiting.txt")]} />);
+  expect(await screen.findByText(/첨부할 수 있는 개인 공간이 없습니다/)).toBeVisible();
+  expect(screen.getByText("waiting.txt")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", {name: "waiting.txt 첨부 취소"}));
+  expect(busy).toHaveBeenLastCalledWith(false);
+  expect(fetcher.mock.calls.every(([url]) => !String(url).includes("workspace_id="))).toBe(true);
+});
+
+it("waits for an explicit destination when multiple private workspaces are eligible", async () => {
+  const posts: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (String(url).endsWith("attachment-options")) return json({workspaces: [{id: "one", name: "개인 1"}, {id: "two", name: "개인 2"}]});
+    if (init?.method === "POST") { posts.push(String(url)); return json({id: "attached", status: "processing", document: null}); }
+    return json([]);
+  }));
+  render(<ConversationAttachments slug="example" sessionId="session" ensureSession={vi.fn()} onBusy={vi.fn()} onSelect={vi.fn()} pendingFiles={[new File(["synthetic"], "waiting.txt")]} />);
+  const workspace = await screen.findByLabelText("첨부 저장 위치");
+  expect(posts).toEqual([]);
+  fireEvent.change(workspace, {target: {value: "two"}});
+  await waitFor(() => expect(posts).toHaveLength(1));
+  expect(posts[0]).toContain("workspace_id=two");
 });
 
 it("keeps sending blocked when polling returns no row during the upload POST", async () => {

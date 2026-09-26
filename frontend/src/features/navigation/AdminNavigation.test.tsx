@@ -16,7 +16,8 @@ describe("AdminNavigation", () => {
       />,
     );
 
-    expect(within(screen.getByRole("navigation", { name: "관리자 운영" })).getAllByRole("link")).toHaveLength(6);
+    expect(within(screen.getByRole("navigation", { name: "관리자 운영" })).getAllByRole("link")).toHaveLength(7);
+    expect(screen.getByRole("link", { name: "문제·개선 이력" })).toHaveAttribute("href", "/admin/system/issues");
     expect(within(screen.getByRole("navigation", { name: "영역 이동" })).getByRole("link", { name: "비공개 작업소" })).toHaveAttribute("href", routes.workshopHome);
     expect(screen.getByRole("link", { name: "RAG 구성" })).toHaveAttribute(
       "href",

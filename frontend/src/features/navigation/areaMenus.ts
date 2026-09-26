@@ -22,6 +22,7 @@ export const areaMenus: Record<Area, { label: string; items: readonly MenuItem[]
     { label: "공개 연구 관리", href: routes.adminPublishing, prefixes: [routes.adminPublishing] },
     { label: "권한 관리", href: routes.adminSystemAccess, prefixes: [routes.adminSystemAccess] },
     { label: "시스템 런타임", href: routes.adminSystemRuntime, prefixes: [routes.adminSystemRuntime] },
+    { label: "문제·개선 이력", href: routes.adminSystemIssues, prefixes: [routes.adminSystemIssues] },
   ] },
 };
 

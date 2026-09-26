@@ -13,6 +13,7 @@ export const routes = {
   adminRagModels: "/admin/rag/models",
   adminSystemRuntime: "/admin/system/runtime",
   adminSystemAccess: "/admin/system/access",
+  adminSystemIssues: "/admin/system/issues",
   adminPublishing: "/admin/publishing",
 } as const;
 

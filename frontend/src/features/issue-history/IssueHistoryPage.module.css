@@ -1,0 +1,50 @@
+.page { max-width: 90rem; margin: 0 auto; padding: clamp(1rem, 3vw, 2rem); color: #e2e8ef; overflow-wrap: anywhere; }
+.heading { display: flex; justify-content: space-between; align-items: start; gap: 1rem; margin-bottom: 1.5rem; }
+.heading h1 { margin: .35rem 0 .65rem; font-size: clamp(1.4rem, 3vw, 1.9rem); }
+.heading p { margin: 0; color: #a4b2c2; line-height: 1.6; }
+.heading .eyebrow { color: #91b6e6; font-size: .75rem; }
+.heading .updated { flex-shrink: 0; font-size: .8rem; padding-top: .4rem; }
+.summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; margin: 0 0 1.25rem; }
+.summary > div { padding: .9rem 1rem; border: 1px solid #293342; border-radius: .65rem; background: #121a25; }
+.summary dt { color: #a4b2c2; font-size: .8rem; }
+.summary dd { font-size: 1.55rem; font-weight: 650; margin: .4rem 0 0; }
+.filters { display: flex; gap: .75rem; align-items: end; flex-wrap: wrap; }
+.filters label { display: grid; gap: .4rem; font-size: .8rem; color: #b8c5d4; }
+.search { flex: 1; min-width: min(18rem, 100%); }
+.filters input, .filters select, .filters button { min-height: 2.6rem; border: 1px solid #364356; border-radius: .5rem; background: #111923; color: #e2e8ef; padding: .55rem .7rem; font: inherit; }
+.filters button { cursor: pointer; font-size: .8rem; }
+.resultCount { margin: .85rem 0; color: #a4b2c2; font-size: .8rem; }
+.layout { display: grid; grid-template-columns: minmax(16rem, .8fr) minmax(0, 2fr); gap: 1rem; align-items: start; }
+.issueList { margin: 0; padding: 0; list-style: none; display: grid; gap: .5rem; }
+.issueButton { display: grid; gap: .65rem; width: 100%; text-align: left; color: #e2e8ef; border: 1px solid #293342; border-radius: .65rem; padding: 1rem; background: #111923; cursor: pointer; font: inherit; }
+.issueButton:hover { background: #192536; }
+.issueButton[aria-pressed="true"] { background: #1a2c42; border-color: #729fda; box-shadow: inset 3px 0 #8bb7f2; }
+.issueButton strong { font-size: .95rem; line-height: 1.5; }
+.issueId { margin: 0; color: #a9bbd0; font-size: .75rem; }
+.issueMeta { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; font-size: .72rem; color: #a4b2c2; }
+.badge { display: inline-block; border-radius: .3rem; padding: .2rem .45rem; font-size: .72rem; font-weight: 500; }
+.open { color: #f2c487; background: #3b2c18; }
+.implemented { color: #b4cfff; background: #243650; }
+.verified { color: #9ee0bd; background: #1e3a30; }
+.detail { min-width: 0; border: 1px solid #293342; border-radius: .7rem; background: #111923; padding: clamp(1rem, 2.5vw, 1.65rem); }
+.detailHeader { padding-bottom: 1.2rem; border-bottom: 1px solid #293342; }
+.detail h2 { font-size: 1.3rem; margin: .5rem 0 .75rem; line-height: 1.5; }
+.detail h3 { font-size: .9rem; margin: 0 0 .6rem; color: #dbe6f2; }
+.detail section { margin-top: 1.4rem; }
+.detail section p { font-size: .875rem; line-height: 1.75; margin: 0; white-space: pre-wrap; }
+.checks { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.checks section { border: 1px solid #293342; border-radius: .5rem; padding: 1rem; }
+.checks .remaining { border-color: #4c412f; background: #201d18; }
+.textList, .sources { margin: 0; padding-left: 1.1rem; font-size: .85rem; line-height: 1.7; }
+.textList li + li, .sources li + li { margin-top: .45rem; }
+.timeline { list-style: none; margin: 0; padding-left: 1rem; border-left: 2px solid #364356; }
+.timeline li + li { margin-top: 1rem; }
+.timeline time { display: block; font-size: .75rem; color: #a9bbd0; margin-bottom: .3rem; }
+.sources a { color: #a9cbff; text-underline-offset: .2rem; }
+.commits { display: flex; flex-wrap: wrap; gap: .5rem; list-style: none; padding: 0; margin: 0; }
+.commits code { display: inline-block; padding: .3rem .5rem; background: #202c3b; border-radius: .3rem; font-size: .8rem; }
+.muted { color: #9caebe; }
+.empty { border: 1px dashed #364356; border-radius: .65rem; padding: 3rem 1rem; text-align: center; color: #a4b2c2; }
+.page :is(button, input, select, a):focus-visible { outline: 2px solid #a9cbff; outline-offset: 3px; }
+@media (max-width: 800px) { .heading { flex-direction: column; } .layout { grid-template-columns: 1fr; } .issueList { max-height: 19rem; overflow-y: auto; padding: 3px; } .checks { grid-template-columns: 1fr; gap: 0; } }
+@media (max-width: 480px) { .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .filters label { width: 100%; } }

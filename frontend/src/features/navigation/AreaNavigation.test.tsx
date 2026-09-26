@@ -78,7 +78,7 @@ it("keeps only administration menus in the lower row with exact page selection",
   render(<AdminNavigation user={owner} />);
   expect(screen.getByRole("link", { name: "관리자" })).toHaveAttribute("aria-current", "location");
   expect(screen.getByRole("link", { name: "RAG 모델" })).toHaveAttribute("aria-current", "page");
-  expect(within(screen.getByRole("navigation", { name: "관리자 운영" })).getAllByRole("link")).toHaveLength(6);
+  expect(within(screen.getByRole("navigation", { name: "관리자 운영" })).getAllByRole("link")).toHaveLength(7);
   expect(screen.getByRole("link", { name: "권한 관리" })).toHaveAttribute("href", "/admin/system/access");
   expect(screen.queryByRole("link", { name: "파일함" })).not.toBeInTheDocument();
   expect(screen.getByRole("link", { name: "AI Workshop" })).toBeVisible();

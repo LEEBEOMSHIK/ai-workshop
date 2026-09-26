@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime
 from uuid import UUID
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     Date,
@@ -50,10 +51,13 @@ class Issue(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         UniqueConstraint("issue_key", name="uq_issues_issue_key"),
         PrimaryKeyConstraint("id", name="pk_issues"),
         CheckConstraint("revision > 0", name="ck_issues_1"),
+        CheckConstraint("issue_key ~ '^ISSUE-[0-9]{5,}$'", name="ck_issues_neutral_key"),
+        CheckConstraint("jsonb_typeof(legacy_keys) = 'array'", name="ck_issues_legacy_keys_array"),
         CheckConstraint("status IN ('open','implemented','verified')", name="ck_issues_2"),
         Index("ix_issues_updated_id", "updated_at", "id"),
     )
     issue_key: Mapped[str] = mapped_column(String(100), unique=False)
+    legacy_keys: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
     category_id: Mapped[UUID] = mapped_column(
         Uuid,
         ForeignKey("issue_categories.id", ondelete="RESTRICT", name="fk_issues_issue_categories"),
@@ -195,3 +199,25 @@ class IssueCommand(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
+
+
+class IssueIdentifier(Base):
+    __tablename__ = "issue_identifiers"
+    __table_args__ = (PrimaryKeyConstraint("key", name="pk_issue_identifiers"),)
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    issue_id: Mapped[UUID] = mapped_column(
+        Uuid,
+        ForeignKey("issues.id", ondelete="RESTRICT", name="fk_issue_identifiers_issue"),
+        index=True,
+    )
+
+
+class IssueNumberSequence(Base):
+    __tablename__ = "issue_number_sequences"
+    __table_args__ = (
+        PrimaryKeyConstraint("scope", name="pk_issue_number_sequences"),
+        CheckConstraint("scope = 'global'", name="ck_issue_number_sequences_scope"),
+        CheckConstraint("next_value > 0", name="ck_issue_number_sequences_positive"),
+    )
+    scope: Mapped[str] = mapped_column(String(20), primary_key=True)
+    next_value: Mapped[int] = mapped_column(BigInteger)

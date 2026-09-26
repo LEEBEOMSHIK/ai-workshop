@@ -13,11 +13,18 @@ def test_document_utf8_byte_limit():
 
 def test_issue_rejects_invalid_status():
     with pytest.raises(ValidationError):
-        IssueCreate(
-            request_id=uuid4(), issue_key="TEST-1", category_id=uuid4(), title="Test", status="done"
-        )
+        IssueCreate(request_id=uuid4(), category_id=uuid4(), title="Test", status="done")
 
 
 def test_document_surrogate_is_validation_error():
     with pytest.raises(ValidationError):
         DocumentCreate(request_id=uuid4(), title="Document", content="\ud800")
+
+
+def test_issue_create_allocates_key_without_manual_input():
+    request = IssueCreate(request_id=uuid4(), category_id=uuid4(), title="Automatic number")
+    assert "issue_key" not in request.model_dump()
+    with pytest.raises(ValidationError):
+        IssueCreate(
+            request_id=uuid4(), category_id=uuid4(), title="Manual number", issue_key="CUSTOM-1"
+        )

@@ -954,7 +954,8 @@ node node_modules/vitest/vitest.mjs run --pool=threads --maxWorkers=1 --reporter
 저장소의 `docs/issues/issues.json`은 최초 이관 보존 자료다. 런타임은 Markdown 파일을 읽지 않는다.
 
 같은 날 `0052_issue_category_hierarchy`를 추가 적용했다. 현재 분류는 상위 RAG/공통 플랫폼과
-기존 8개 하위다. 신규 설치의 목표 migration은 0052이며 아래 명령도 이를 따른다.
+기존 8개 하위다. 이후 `0053_issue_numbers`는 표시 번호를 `ISSUE-00001` 전역 자동 번호로 전환하고
+기존 번호를 이전 번호로 보존한다. 신규 설치의 목표 migration은 0053이며 아래 명령도 이를 따른다.
 0051의 기존 카테고리 중 초기 8개 이외에 이미 문제를 배정한 사용자 분류가 있으면
 자동으로 분류하지 않고 migration을 중단하므로 명시적인 상위 매핑을 먼저 준비한다.
 
@@ -968,7 +969,7 @@ from ai_workshop.shared.asyncio_policy import configure_windows_selector_policy
 configure_windows_selector_policy()
 from alembic.config import Config
 from alembic import command
-command.upgrade(Config('backend/alembic.ini'), '0052_issue_category_hierarchy')
+command.upgrade(Config('backend/alembic.ini'), '0053_issue_numbers')
 '@ | backend/.venv/Scripts/python.exe -
 # 기본값은 파일 사전검사만 하는 dry-run이다.
 backend/.venv/Scripts/python.exe backend/tools/import_issue_history.py
@@ -984,7 +985,7 @@ backend/.venv/Scripts/python.exe backend/tools/import_issue_history.py --verify
 관련 문서만 배포 서버에 다시 복사하는 것으로 DB의 본문이 갱신되지 않는다.
 
 ```powershell
-# 외부 트랜잭션으로 모든 시험 쓰기를 롤백한다. 기존 owner와 migration0052가 필요하다.
+# 외부 트랜잭션으로 모든 시험 쓰기를 롤백한다. 기존 owner와 migration0053이 필요하다.
 $env:AI_WORKSHOP_VERIFY_ORIGINAL_ISSUES='1'
 backend/.venv/Scripts/python.exe -m pytest -c backend/pyproject.toml backend/tests/integration/platform/issue_history -q
 Remove-Item Env:AI_WORKSHOP_VERIFY_ORIGINAL_ISSUES
@@ -994,5 +995,11 @@ Remove-Item Env:AI_WORKSHOP_VERIFY_ORIGINAL_ISSUES
 Origin, JSON 및 `x-publishing-request: 1` 헤더와 request_id가 필요하다. 수정 시
 expected_revision을 전송한다. 재시도는 같은 요청 ID·본문을 유지하고 409 충돌 때
 최신 내용을 비교한다. 문서·문제 본문이나 인증 값을 로그에 남기지 않는다.
+
+문제 생성은 `issue_key` 입력 없이 서버가 번호를 발급한다. 상세 GET은 UUID·현재 번호·이전 번호를 지원하며
+변경 요청은 UUID를 사용한다. 카테고리 이동은 번호를 바꾸지 않는다. 0053은 기존 UUID와 사건·문서 연결을
+보존하고 번호 전환 사건을 추가한다. 과거 명령 응답·문서 스냅샷은 당시 내용으로 유지한다.
+DB downgrade로 이전 번호를 삭제하지 않는다. 앱 롤백이 필요하면 스키마·데이터를 보존하고 구 클라이언트의
+수동 번호 생성이 새 DB 제약에 막히는 제한을 확인한다.
 
 적용 결과·복구 제한은 [작업 기록](../worklogs/2026-09-27-issue-history-database.md)을 따른다.

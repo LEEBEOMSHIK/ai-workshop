@@ -4187,8 +4187,6 @@ export interface components {
             cause: string;
             /** Commits */
             commits?: string[];
-            /** Issue Key */
-            issue_key: string;
             /** Remaining */
             remaining?: string[];
             /**
@@ -4247,6 +4245,8 @@ export interface components {
             id: string;
             /** Issue Key */
             issue_key: string;
+            /** Legacy Keys */
+            legacy_keys?: string[];
             /** Remaining */
             remaining?: string[];
             /**
@@ -4466,6 +4466,8 @@ export interface components {
             id: string;
             /** Issue Key */
             issue_key: string;
+            /** Legacy Keys */
+            legacy_keys?: string[];
             /** Remaining */
             remaining?: string[];
             /**

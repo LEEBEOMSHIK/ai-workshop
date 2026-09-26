@@ -40,7 +40,6 @@ async def issue(service: IssueHistoryService, category_id: UUID) -> s.IssueDetai
     return await service.create_issue(
         s.IssueCreate(
             request_id=uuid4(),
-            issue_key=f"VERIFY-{uuid4().hex}",
             category_id=category_id,
             title="Synthetic hierarchy verification",
         )

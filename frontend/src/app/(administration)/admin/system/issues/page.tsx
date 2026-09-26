@@ -15,10 +15,11 @@ export default async function IssueHistoryRoute({searchParams}: {searchParams: P
   const filters = {q: param("q"), status: param("status"), category_id: param("category_id"), parent_category_id: param("parent_category_id"), offset: Number.isSafeInteger(offset) && offset >= 0 ? offset : 0};
   const {list, categories} = await loadIssueLedger(filters);
   const requested = param("issue");
-  const issueId = list.items.find(item => item.id === requested || item.issue_key === requested)?.id ?? (requested && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requested) ? requested : list.items[0]?.id);
+  const reference = requested ?? list.items[0]?.id;
+  const selected = reference ? await loadIssueDetail(reference) : null;
+  const issueId = selected?.id;
   const legacy = param("document") !== undefined;
   const document = !legacy && issueId && param("document_id") && param("version") ? await loadIssueDocument(issueId, param("document_id")!, param("version")!) : null;
-  const selected = issueId && !document ? await loadIssueDetail(issueId) : null;
   return {list,categories,filters,selected,document,legacy,issueId};
  });
  if (!result.ok) return <ServerRouteFailure failure={result.failure}/>;

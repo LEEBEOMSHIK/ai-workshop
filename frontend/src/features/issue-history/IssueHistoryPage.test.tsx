@@ -9,7 +9,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock("../../shared/api/client", async (original) => ({ ...await original<typeof import('../../shared/api/client')>(), apiRequest: vi.fn() }));
 const root = {id: "rag", code: "rag", name: "RAG", parent_id: null, is_active: true, sort_order: 0, revision: 1} as Category;
 const category = {parent_id: "rag",  id: "cat", code: "ui", name: "대화 화면", sort_order: 0, is_active: true, revision: 1 } as Category;
-const issue = { id: "issue", issue_key: "TEST-1", category_id: "cat", title: "화면 개선", status: "implemented", symptom: "화면이 큼", cause: "높이 설정", resolution: "줄임", verification: ["단위 검증"], remaining: ["실제 확인"], commits: [], revision: 1, created_at: "2026-09-27", updated_at: "2026-09-27", events: [], documents: [{ document_id: "doc", version: 1, current_version: 2, title: "설계 기록", source_path: "docs/example.md", sort_order: 0 }] } as IssueDetail;
+const issue = { id: "issue", issue_key: "ISSUE-00001", legacy_keys: ["RAG-0001"], category_id: "cat", title: "화면 개선", status: "implemented", symptom: "화면이 큼", cause: "높이 설정", resolution: "줄임", verification: ["단위 검증"], remaining: ["실제 확인"], commits: [], revision: 1, created_at: "2026-09-27", updated_at: "2026-09-27", events: [], documents: [{ document_id: "doc", version: 1, current_version: 2, title: "설계 기록", source_path: "docs/example.md", sort_order: 0 }] } as IssueDetail;
 it("shows Korean categories and pinned versions separately from current versions", () => {
     render(<IssueHistoryPage list={{ items: [issue], total: 1, status_counts: { open: 0, implemented: 1, verified: 0 } }} categories={[root, category]} selected={issue} filters={{}}/>);
     expect(screen.getByRole("option", { name: "RAG" })).toBeVisible();
@@ -99,4 +99,23 @@ it("registers a child category with its selected parent",async()=>{
  const form=screen.getByLabelText("고유 코드").closest("form")!;
  await user.click(within(form).getByRole("button",{name:"저장"}));
  expect(vi.mocked(apiRequest).mock.calls.find(([path])=>path.endsWith("/categories"))?.[1]?.json).toMatchObject({parent_id:"rag",name:"새 하위 분류"});
+});
+it("shows neutral issue numbering and the previous number without changing category",()=>{
+ render(<IssueHistoryPage list={{items:[issue],total:1,status_counts:{open:0,implemented:1,verified:0}}} categories={[root,category]} selected={issue} filters={{}}/>);
+ const detail=screen.getByRole("region",{name:"문제 상세"});
+ expect(within(detail).getByText("ISSUE-00001 · RAG > 대화 화면")).toBeVisible();
+ expect(within(detail).getByText("이전 번호: RAG-0001")).toBeVisible();
+});
+it("creates an issue without sending a user-defined number",async()=>{
+ vi.mocked(apiRequest).mockClear();vi.mocked(apiRequest).mockImplementation(async path=>path.endsWith("/documents")?{items:[]}:{});
+ const user=userEvent.setup();render(<IssueManagement categories={[root,category]} issue={issue} onSaved={vi.fn()}/>);
+ await user.click(screen.getByText("문제 등록"));
+ expect(screen.queryByLabelText("문제 번호")).not.toBeInTheDocument();
+ const title=screen.getAllByLabelText("문제 제목")[0];const form=title.closest("form")!;
+ await user.type(title,"새 문제");
+ await user.selectOptions(within(form).getByLabelText("상위 카테고리"),"rag");
+ await user.selectOptions(within(form).getByLabelText("하위 카테고리"),"cat");
+ await user.click(within(form).getByRole("button",{name:"저장"}));
+ const payload=vi.mocked(apiRequest).mock.calls.find(([path])=>path.endsWith("/issues"))?.[1]?.json;
+ expect(payload).toMatchObject({title:"새 문제",category_id:"cat"});expect(payload).not.toHaveProperty("issue_key");
 });

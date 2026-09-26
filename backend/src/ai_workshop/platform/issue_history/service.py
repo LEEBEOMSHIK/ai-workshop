@@ -159,7 +159,11 @@ class IssueHistoryService:
             items=[s.IssueView.model_validate(x) for x in rows], total=total, status_counts=counts
         )
 
-    async def detail(self, identity: UUID) -> s.IssueDetail:
+    async def detail(self, identity: UUID | str) -> s.IssueDetail:
+        resolved = await self.repository.resolve_issue_id(identity)
+        if resolved is None:
+            raise AppError("issue_history_not_found", "Record not found.", 404)
+        identity = resolved
         row = await self._get(Issue, identity)
         links = await self.repository.links(identity)
         return s.IssueDetail(
@@ -231,7 +235,8 @@ class IssueHistoryService:
     async def create_issue(self, request: s.IssueCreate) -> s.IssueDetail:
         async def action() -> s.IssueDetail:
             await self._category(request.category_id)
-            row = Issue(**request.model_dump(exclude={"request_id"}))
+            key = await self.repository.allocate_key()
+            row = Issue(issue_key=key, legacy_keys=[], **request.model_dump(exclude={"request_id"}))
             self.session.add(row)
             await self.session.flush()
             self._event(row, "created", "Issue registered.", None)

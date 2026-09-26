@@ -147,6 +147,7 @@ async def test_repeated_link_changes_do_not_snapshot_prior_events():
     row = Issue(
         id=uuid4(),
         issue_key="TEST-1",
+        legacy_keys=[],
         category_id=uuid4(),
         title="Test",
         status="open",

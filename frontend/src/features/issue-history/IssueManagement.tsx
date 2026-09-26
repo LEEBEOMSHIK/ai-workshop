@@ -8,6 +8,9 @@ import styles from "./IssueHistoryPage.module.css";
 const labels = { open: "진행 중", implemented: "구현됨 · 검증 남음", verified: "검증 완료" };
 const value = (data: FormData, name: string) => String(data.get(name) ?? "");
 const lines = (data: FormData, name: string) => value(data, name).split("\n").map(s => s.trim()).filter(Boolean);
+function AutoNumberNotice() {
+    return <p className={styles.muted}>문제 번호는 저장 시 자동 발급됩니다. 카테고리를 바꿔도 번호는 유지됩니다.</p>;
+}
 function CategoryParentSelect({categories, category}: {categories: Category[]; category?: Category}) {
     const hasChildren = !!category && categories.some(item => item.parent_id === category.id);
     const roots = categories.filter(item => !item.parent_id && item.id !== category?.id && (item.is_active || item.id === category?.parent_id));
@@ -81,11 +84,11 @@ export function IssueManagement({ categories, issue, onSaved }: {
     } }).catch(() => { if (active)
         setError("문서 목록을 불러오지 못했습니다."); }); return () => { active = false; }; }, [generation]);
     const saved = () => { setGeneration(n => n + 1); onSaved(); };
-    function issueFields(current: IssueDetail | null) { return <>{!current && <Field name="issue_key" label="문제 번호" required max={80}/>}<Field name="title" label="문제 제목" initial={current?.title} required max={200}/><CategorySelect categories={categories} initialChild={current?.category_id} mode="assignment"/><label>상태<select name="status" defaultValue={current?.status ?? "open"}>{Object.entries(labels).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>{([['symptom', '증상'], ['cause', '원인'], ['resolution', '수정 내용']] as const).map(([key, label]) => <Field key={key} name={key} label={label} initial={current?.[key]} large/>)}{([['verification', '검증 기록'], ['remaining', '남은 작업'], ['commits', '커밋']] as const).map(([key, label]) => <Field key={key} name={key} label={`${label} (한 줄에 하나)`} initial={current?.[key]?.join("\n")} large/>)}</>; }
+    function issueFields(current: IssueDetail | null) { return <>{!current && <AutoNumberNotice/>}<Field name="title" label="문제 제목" initial={current?.title} required max={200}/><CategorySelect categories={categories} initialChild={current?.category_id} mode="assignment"/><label>상태<select name="status" defaultValue={current?.status ?? "open"}>{Object.entries(labels).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>{([['symptom', '증상'], ['cause', '원인'], ['resolution', '수정 내용']] as const).map(([key, label]) => <Field key={key} name={key} label={label} initial={current?.[key]} large/>)}{([['verification', '검증 기록'], ['remaining', '남은 작업'], ['commits', '커밋']] as const).map(([key, label]) => <Field key={key} name={key} label={`${label} (한 줄에 하나)`} initial={current?.[key]?.join("\n")} large/>)}</>; }
     const issuePayload = (data: FormData) => ({ title: value(data, "title"), category_id: value(data, "category_id"), status: value(data, "status"), symptom: value(data, "symptom"), cause: value(data, "cause"), resolution: value(data, "resolution"), verification: lines(data, "verification"), remaining: lines(data, "remaining"), commits: lines(data, "commits") });
     return <section className={styles.management} aria-label="이력 관리">
  <h2>이력 관리</h2><p>변경 사항과 진행 기록은 DB에 보존됩니다. 문서의 새 버전은 기존 문제 연결을 바꾸지 않습니다.</p>
- <SaveForm title="문제 등록" path="issues" payload={data => ({ ...issuePayload(data), issue_key: value(data, "issue_key") })} onSaved={saved}>{issueFields(null)}</SaveForm>
+ <SaveForm title="문제 등록" path="issues" payload={issuePayload} onSaved={saved}>{issueFields(null)}</SaveForm>
  {issue && <><SaveForm key={`edit-${issue.id}`} title="선택한 문제 편집" path={`issues/${issue.id}`} method="PUT" payload={data => ({ ...issuePayload(data), expected_revision: issue.revision })} onSaved={saved}>{issueFields(issue)}</SaveForm>
  <SaveForm key={`event-${issue.id}`} title="진행 이력 추가" path={`issues/${issue.id}/events`} payload={data => ({ expected_revision: issue.revision, event_date: value(data, "event_date"), description: value(data, "description") })} onSaved={saved}><Field name="event_date" label="진행 날짜" type="date" required/><Field name="description" label="진행 내용" large required/></SaveForm></>}
  <details className={styles.editor}><summary>카테고리 관리</summary><label>편집할 카테고리<select value={categoryId} onChange={e => setCategoryId(e.target.value)}><option value="">새 카테고리</option>{categories.map(c => <option value={c.id} key={c.id}>{categoryPath(categories, c.id)}{!c.is_active ? " (비활성)" : ""}</option>)}</select></label>

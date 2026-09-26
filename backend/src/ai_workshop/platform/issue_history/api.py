@@ -65,7 +65,7 @@ async def create_issue(request: s.IssueCreate, service: Service) -> s.IssueDetai
 
 
 @router.get("/issues/{identity}", response_model=s.IssueDetail)
-async def issue(identity: UUID, service: Service) -> s.IssueDetail:
+async def issue(identity: str, service: Service) -> s.IssueDetail:
     return await service.detail(identity)
 
 

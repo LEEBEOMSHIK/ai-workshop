@@ -65,7 +65,7 @@ class IssueFields(DTO):
 
 
 class IssueCreate(IssueFields, Command):
-    issue_key: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
+    pass
 
 
 class IssueUpdate(IssueFields, Update):
@@ -75,6 +75,7 @@ class IssueUpdate(IssueFields, Update):
 class IssueView(IssueFields):
     id: UUID
     issue_key: str
+    legacy_keys: list[str] = Field(default_factory=list)
     revision: int
     created_at: datetime
     updated_at: datetime

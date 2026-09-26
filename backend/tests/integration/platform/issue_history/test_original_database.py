@@ -14,8 +14,10 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import event as sqlalchemy_event
 from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.engine import Connection
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from ai_workshop.config import Settings
 from ai_workshop.platform.identity.domain import User, UserRole
@@ -45,11 +47,22 @@ pytestmark = [
 ]
 
 
-@pytest.fixture
-async def service() -> AsyncIterator[IssueHistoryService]:
+def create_rollback_engine() -> AsyncEngine:
+    """Reject every outer COMMIT; SAVEPOINT release remains permitted."""
     root = Path(__file__).resolve().parents[5]
     settings = Settings(_env_file=root / ".env")  # type: ignore[call-arg]
     engine = create_engine(settings)
+
+    @sqlalchemy_event.listens_for(engine.sync_engine, "commit")
+    def reject_outer_commit(_connection: Connection) -> None:
+        raise AssertionError("Original database verification must never COMMIT.")
+
+    return engine
+
+
+@pytest.fixture
+async def service() -> AsyncIterator[IssueHistoryService]:
+    engine = create_rollback_engine()
     try:
         async with engine.connect() as connection:
             transaction = await connection.begin()
@@ -77,6 +90,7 @@ async def service() -> AsyncIterator[IssueHistoryService]:
                     await session.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
             finally:
                 await transaction.rollback()
+                assert not connection.in_transaction()
     finally:
         await engine.dispose()
 
@@ -95,7 +109,6 @@ async def test_commands_replay_conflict_inactive_and_audit(service: IssueHistory
     )
     request = s.IssueCreate(
         request_id=uuid4(),
-        issue_key=f"VERIFY-{uuid4().hex}",
         category_id=category.id,
         title="Synthetic rollback issue",
     )
@@ -134,7 +147,6 @@ async def test_commands_replay_conflict_inactive_and_audit(service: IssueHistory
         await service.create_issue(
             s.IssueCreate(
                 request_id=uuid4(),
-                issue_key=f"VERIFY-{uuid4().hex}",
                 category_id=category.id,
                 title="Blocked inactive assignment",
             )
@@ -168,7 +180,6 @@ async def test_document_versions_links_and_history_are_pinned(service: IssueHist
     issue = await service.create_issue(
         s.IssueCreate(
             request_id=uuid4(),
-            issue_key=f"VERIFY-{uuid4().hex}",
             category_id=category.id,
             title="Synthetic rollback issue",
         )
@@ -273,8 +284,7 @@ async def test_original_import_replay_and_manifest_conflict(
 
 
 async def test_concurrent_version_waits_for_document_lock() -> None:
-    root = Path(__file__).resolve().parents[5]
-    engine = create_engine(Settings(_env_file=root / ".env"))  # type: ignore[call-arg]
+    engine = create_rollback_engine()
     task: asyncio.Task[s.IssueDocumentVersionView] | None = None
     try:
         async with engine.connect() as first, engine.connect() as second:
@@ -333,5 +343,6 @@ async def test_concurrent_version_waits_for_document_lock() -> None:
                 if first_transaction.is_active:
                     await first_transaction.rollback()
                 await second_transaction.rollback()
+                assert not first.in_transaction() and not second.in_transaction()
     finally:
         await engine.dispose()

@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import String, cast, delete, func, or_, select, text
+from sqlalchemy import String, cast, delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_workshop.platform.issue_history.models import (
@@ -11,6 +11,8 @@ from ai_workshop.platform.issue_history.models import (
     IssueDocumentLink,
     IssueDocumentVersion,
     IssueEvent,
+    IssueIdentifier,
+    IssueNumberSequence,
 )
 
 
@@ -46,6 +48,40 @@ class IssueRepository:
 
     async def command(self, actor: UUID, operation: str, request_id: UUID) -> IssueCommand | None:
         return await self.session.get(IssueCommand, (actor, operation, request_id))
+
+    async def allocate_key(self, reserved: set[str] | None = None) -> str:
+        """Transactional row allocation; caller rollback restores the counter."""
+        while True:
+            number = await self.session.scalar(
+                update(IssueNumberSequence)
+                .where(IssueNumberSequence.scope == "global")
+                .values(next_value=IssueNumberSequence.next_value + 1)
+                .returning(IssueNumberSequence.next_value - 1)
+            )
+            if number is None:
+                from ai_workshop.shared.errors import AppError
+
+                raise AppError(
+                    "issue_numbering_unavailable", "Issue numbering is unavailable.", 503
+                )
+            key = f"ISSUE-{number:05d}"
+            if (
+                key not in (reserved or set())
+                and await self.session.get(IssueIdentifier, key) is None
+            ):
+                return key
+
+    async def resolve_issue_id(self, reference: UUID | str) -> UUID | None:
+        if isinstance(reference, UUID):
+            return reference
+        try:
+            identity = UUID(reference)
+        except ValueError:
+            identity = None
+        if identity is not None and await self.session.get(Issue, identity) is not None:
+            return identity
+        row = await self.session.get(IssueIdentifier, reference)
+        return row.issue_id if row else None
 
     async def categories(self) -> list[IssueCategory]:
         return list(
@@ -89,6 +125,7 @@ class IssueRepository:
                             Issue.cause,
                             Issue.resolution,
                             cast(Issue.remaining, String),
+                            cast(Issue.legacy_keys, String),
                         )
                     )
                 )

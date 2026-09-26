@@ -196,8 +196,10 @@ async def _apply_import(
         IssueDocumentLink,
         IssueDocumentVersion,
         IssueEvent,
+        IssueIdentifier,
         IssueImportRun,
     )
+    from ai_workshop.platform.issue_history.repository import IssueRepository
     from ai_workshop.shared.errors import AppError
 
     actor = await session.get(UserRecord, actor_id)
@@ -219,7 +221,7 @@ async def _apply_import(
             )
         return {**manifest.summary(), "result": "unchanged"}
     for model, column, keys in (
-        (Issue, Issue.issue_key, [item.id for item in manifest.issues]),
+        (IssueIdentifier, IssueIdentifier.key, [item.id for item in manifest.issues]),
         (IssueCategory, IssueCategory.code, list({item.area for item in manifest.issues})),
         (
             IssueDocument,
@@ -295,13 +297,16 @@ async def _apply_import(
             )
         )
     await session.flush()
-    for original in manifest.issues:
+    repository = IssueRepository(session)
+    reserved_keys = {item.id for item in manifest.issues}
+    for original in sorted(manifest.issues, key=lambda item: item.id):
         issue_id = import_id(source_key, "issue", original.id)
         values = original.model_dump(exclude={"id", "area", "history", "evidence"})
         session.add(
             Issue(
                 id=issue_id,
-                issue_key=original.id,
+                issue_key=await repository.allocate_key(reserved_keys),
+                legacy_keys=[original.id],
                 category_id=categories[original.area],
                 revision=1,
                 **values,
@@ -380,7 +385,7 @@ async def verify_import(
         issue = await session.get(Issue, issue_id)
         require(issue is not None)
         assert issue is not None
-        require(issue.issue_key == original.id and issue.revision == 1)
+        require(original.id in issue.legacy_keys and issue.issue_key.startswith("ISSUE-"))
         for key, expected in original.model_dump(
             exclude={"id", "area", "history", "evidence"}
         ).items():
@@ -403,7 +408,9 @@ async def verify_import(
         events = list(
             (await session.scalars(select(IssueEvent).where(IssueEvent.issue_id == issue_id))).all()
         )
-        require(len(events) == len(original.history))
+        renumber_events = [event for event in events if event.kind == "key_renumbered"]
+        require(len(events) == len(original.history) + len(renumber_events))
+        require(issue.revision == 1 + len(renumber_events))
         for index, event in enumerate(original.history):
             stored = next(
                 (

@@ -7,6 +7,19 @@
 
 ## 목적과 성공 기준
 
+### 2026-09-27 승인된 번호·분류 분리
+
+- 문제의 내부 UUID와 문서·사건 연결을 유지한다. 표시 번호는 `ISSUE-00001`부터 기술과 무관한 전역 순번으로 자동 발급한다.
+- 카테고리 변경이나 하위 분류 이동은 번호를 바꾸지 않는다. 생성 요청에서는 사용자가 번호를 입력하지 않는다.
+- DB의 원자적 할당으로 동시 생성 중복을 방지하고 같은 request_id 재시도는 같은 문제·번호를 반환한다.
+- 기존 표시 번호를 이전 번호로 보존한다. 응답의 `legacy_keys` 배열, 목록 검색과 상세 조회에서 이전 번호를 지원한다.
+- 상세 GET은 UUID·현재 번호·이전 번호를 허용한다. 변경 API와 새 화면 링크는 UUID를 사용한다.
+- 기존 기록의 UUID·내용·문서 버전·연결·사건 스냅샷은 보존한다. 번호 전환은 별도 사건으로 남긴다.
+- 최초 파일 이관도 중립 번호를 할당하고 원래 번호를 이전 번호로 저장한다. 보존 JSON/Markdown과 과거 명령 응답은 소급 수정하지 않는다.
+- 이관은 백업 후 기존 DB에 적용하며 별도 DB·계정은 만들지 않는다. 번호는 식별자이며 연속성 자체는 업무 보장이 아니다.
+
+아래 최초 이관 설계의 기존 ID 보존은 UUID와 이전 번호 보존으로 해석한다.
+
 운영 중 발견한 문제를 카테고리로 분류하고 수정·검증·재발을 같은 문제에 누적한다. 관련 문서는 서버 체크아웃 없이도 당시 내용을 읽을 수 있어야 한다. 기존 8개 문제의 ID·내용·날짜·검증·남은 작업을 보존한다. 마스터만 조회·변경하며 공개 환경에 노출하지 않는다.
 
 사용자가 승인한 범위는 한글 카테고리 관리, 문제와 변경 이력의 DB 저장, 문서 본문·버전 저장과 정확한 버전 연결, 기존 기록 이관이다. 대화 세션 생성 변경은 별도 RAG-0001 작업이며 이 기능의 완료에 포함하지 않는다.
@@ -30,7 +43,9 @@ Learning의 학습 메모·실험과도 의미 및 공개 흐름이 달라 재�
 | 엔터티 | 주요 필드 및 제약 |
 | --- | --- |
 | issue_categories | UUID PK, 고유 code, 한글 name, sort_order, is_active, revision, 생성·수정 시각 |
-| issues | UUID PK, 고유 issue_key(기존 RAG-0001 유지), category_id FK, title, status, symptom, cause, resolution, verification/remaining/commits 배열, revision, 생성·수정 시각 |
+| issues | UUID PK, 고유 자동 issue_key(`ISSUE-00001`), category_id FK, title, status, symptom, cause, resolution, verification/remaining/commits 배열, revision, 생성·수정 시각 |
+| issue_identifiers | 현재 번호와 이전 번호를 같은 고유 key 공간에서 UUID에 연결하는 registry. issues의 번호/legacy_keys 변경과 같은 트랜잭션에서 동기화 |
+| issue_number_sequences | global 단일 행의 next_value. 트랜잭션 행 갱신으로 번호를 예약하며 롤백 시 복구 |
 | issue_events | UUID PK, issue_id FK, 사건 날짜, 기록 시각, 행위자 FK, 종류, 설명, 변경 전후 revision 및 변경 스냅샷. 수정·삭제하지 않는 누적 기록 |
 | issue_documents | UUID PK, 제목, 선택적 고유 import_source_key, current_version, revision, 생성·수정 시각 |
 | issue_document_versions | 복합 PK(document_id, version), Markdown 본문, SHA-256, 선택적 원본 경로·Git 커밋, 작성자 FK, 생성 시각. 본문은 불변 |

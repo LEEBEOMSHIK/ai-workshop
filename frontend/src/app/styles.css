@@ -2639,3 +2639,41 @@ mark.semantic-highlight {
   .conversation-header-actions .domain-navigation { display: none; }
   .conversation-main .composer-actions > span { font-size: .65rem; }
 }
+
+/* Admin pages respond to the space left by the navigation sidebar. */
+.administration-area main {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.administration-area :is(.runtime-topology-shell, .domain-admin-shell, .configuration-studio-shell, .model-lab-shell) {
+  padding: clamp(1rem, 3cqi, 2rem);
+}
+
+.administration-area :is(.configuration-workspace, .domain-admin-card, .registry-grid, .version-forms) > *,
+.administration-area :is(fieldset, input, select, textarea) {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.administration-area .registry-panel { overflow-x: auto; }
+.administration-area .comparison-results { grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); }
+
+@container admin-content (max-width: 68rem) {
+  .domain-create-panel form,
+  .domain-admin-card { grid-template-columns: minmax(0, 1fr); }
+  .domain-admin-card > header { grid-column: 1; }
+}
+
+@container admin-content (max-width: 62rem) {
+  .configuration-workspace,
+  .evaluation-input-grid { grid-template-columns: minmax(0, 1fr); }
+  .section-heading-row { align-items: start; flex-direction: column; }
+  .section-heading-row > p { text-align: left; }
+}
+
+@container admin-content (max-width: 54rem) {
+  .registry-grid,
+  .version-forms { grid-template-columns: minmax(0, 1fr); }
+}

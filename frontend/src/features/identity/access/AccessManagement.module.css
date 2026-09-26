@@ -397,6 +397,11 @@
   }
 }
 
+@container admin-content (max-width: 56rem) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .directory { position: static; }
+}
+
 @media (max-width: 40rem) {
   .sectionHeading,
   .detailHeading,

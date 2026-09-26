@@ -1,0 +1,29 @@
+﻿.shell { --admin-background:#101821; --admin-text:#e9edf3; --admin-muted:#aebbc8; --admin-hover:#243240; display:flex; min-height:100dvh; min-width:0; color:var(--admin-text); }
+.sidebar { width:15rem; flex:0 0 15rem; align-self:flex-start; position:sticky; top:0; height:100dvh; overflow-y:auto; box-sizing:border-box; padding:1.25rem .85rem; background:var(--admin-background); border-right:1px solid var(--color-border-subtle); }
+.brand { display:inline-block; font-size:1rem; font-weight:800; color:var(--admin-text); text-decoration:none; padding:.4rem .65rem; }
+.sidebarLabel { color:var(--admin-muted); font-size:.75rem; margin:.1rem .65rem 1.4rem; }
+.main { flex:1; min-width:0; max-width:100%; }
+.topbar { min-height:3.75rem; box-sizing:border-box; display:flex; align-items:center; gap:.75rem; padding:.6rem clamp(.85rem,2vw,1.5rem); border-bottom:1px solid var(--color-border-subtle); background:var(--admin-background); }
+.position { min-width:0; margin:0; font-size:.9rem; font-weight:650; overflow-wrap:anywhere; }
+.position span { font-weight:400; color:var(--admin-muted); }
+.content { min-width:0; container-name:admin-content; container-type:inline-size; }
+.groups details { margin-bottom:.65rem; }
+.groups summary { min-height:2.75rem; box-sizing:border-box; padding:.7rem .65rem; font-size:.8rem; font-weight:700; color:var(--admin-muted); cursor:pointer; }
+.groups ul { list-style:none; margin:0; padding:0; display:grid; gap:.2rem; }
+.groups a, .areaLinks a { display:block; min-height:2.75rem; box-sizing:border-box; padding:.7rem .85rem; color:var(--admin-muted); border-radius:.45rem; text-decoration:none; font-size:.875rem; overflow-wrap:anywhere; }
+.groups a:hover,.areaLinks a:hover { color:var(--admin-text); background:var(--admin-hover); }
+.groups a[aria-current="page"] { color:var(--color-accent-text); background:color-mix(in srgb,var(--color-accent-text) 12%,transparent); box-shadow:inset 3px 0 var(--color-accent-text); font-weight:700; }
+.areaLinks { margin-top:1.4rem; padding-top:.75rem; border-top:1px solid var(--color-border-subtle); }
+.areaLinks a[aria-current] { color:var(--color-accent-text); }
+.account { display:flex; align-items:center; flex-wrap:wrap; gap:.6rem; margin-left:auto; color:var(--admin-muted); font-size:.8rem; min-width:0; overflow-wrap:anywhere; }
+.account p { flex-basis:100%; margin:.2rem 0; }
+.master { color:var(--color-accent-text); font-size:.7rem; border:1px solid var(--color-border-subtle); border-radius:1rem; padding:.15rem .4rem; }
+.shell button { min-height:2.75rem; min-width:2.75rem; border:1px solid var(--color-border-subtle); border-radius:.45rem; color:var(--admin-text); background:transparent; padding:.55rem .75rem; font:inherit; cursor:pointer; }
+.shell button:disabled { opacity:.6; cursor:wait; }
+.shell :is(a,button,summary):focus-visible { outline:2px solid var(--color-accent-text); outline-offset:2px; }
+.drawer { width:min(21rem,calc(100vw - 2.5rem)); max-width:none; height:100dvh; max-height:100dvh; box-sizing:border-box; margin:0 auto 0 0; padding:0; border:0; border-right:1px solid var(--color-border-subtle); background:var(--admin-background); color:var(--admin-text); overscroll-behavior:contain; }
+.drawer::backdrop { background:rgb(0 0 0 / .62); }
+.drawerContent { display:flex; flex-direction:column; min-height:100%; box-sizing:border-box; padding:1rem .85rem; }
+.drawerContent > header { display:flex; align-items:center; justify-content:space-between; gap:.5rem; padding-bottom:1rem; }
+.drawerContent .account { margin:1rem 0 0; padding-top:1rem; border-top:1px solid var(--color-border-subtle); }
+@media(max-width:63.999rem) { .shell { display:block; } .sidebar,.topbar > .account,.position span { display:none; } .topbar { min-height:3.5rem; padding:.35rem .75rem; } .position { font-size:.9rem; } }

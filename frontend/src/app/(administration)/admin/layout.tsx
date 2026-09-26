@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { headers } from "next/headers";
 
-import { AdminNavigation } from "../../../features/navigation/AdminNavigation";
+import { AdminShell } from "../../../features/navigation/AdminShell";
 import { requireOwner } from "../../../shared/auth/server-session";
 import { routes } from "../../../shared/routing/routes";
 import {
@@ -18,8 +18,7 @@ export default async function AdminLayout({ children }: Readonly<{ children: Rea
   const user = session.value;
   return (
     <div className="application-area administration-area">
-      <AdminNavigation user={user} />
-      {children}
+      <AdminShell user={user}>{children}</AdminShell>
     </div>
   );
 }

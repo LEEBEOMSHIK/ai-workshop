@@ -1,0 +1,252 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-09-27",
+  "visibility": "internal",
+  "issues": [
+    {
+      "id": "RAG-0001",
+      "title": "첫 질문 전에 첨부가 빈 대화를 만드는 문제",
+      "area": "conversation-lifecycle",
+      "status": "open",
+      "symptom": "PC 파일 첨부만 하고 질문하지 않아도 대화 세션이 남을 수 있다.",
+      "cause": "첨부 업로드 전에 서버 대화 세션을 생성하여 파일을 연결한다. 화면 진입과 새 대화 클릭만으로 생성되는 문제는 아니다.",
+      "resolution": "첫 질문 제출 시 대화를 만들고, 질문 전 첨부는 별도 초안으로 관리하는 방향을 사용자 승인받았다. 상세 수명주기 설계 초안을 작성해 사용자 검토를 기다리며 제품 구현은 미적용이다.",
+      "verification": [
+        "기존 세션·첨부 구현 기록과 사용자 보고를 대조했다. 수정 검증은 수행하지 않았다."
+      ],
+      "remaining": [
+        "초안 첨부의 소유권·보존·종료 및 첫 질문 연결 상세 설계 검토와 구현",
+        "질문 없는 기존 세션의 처리 기준과 회귀 검증"
+      ],
+      "evidence": [
+        "docs/worklogs/2026-09-21-rag-conversation-sessions.md",
+        "docs/superpowers/specs/2026-09-27-first-question-conversation-design.md"
+      ],
+      "commits": [],
+      "history": [
+        {
+          "date": "2026-09-27",
+          "event": "사용자 보고: 질문 전 세션 생성 방지 요청. 수정 방향 승인, 상세 설계 초안 작성 후 사용자 검토 대기. 제품 구현 미적용."
+        }
+      ]
+    },
+    {
+      "id": "RAG-0002",
+      "title": "개인 파일 첨부 저장과 외부 답변 권한의 결합",
+      "area": "attachments",
+      "status": "implemented",
+      "symptom": "기존 개인 공간이 있어도 PC 첨부 대상이 반환되지 않았다.",
+      "cause": "저장 가능한 개인 공간을 도메인의 외부 생성 허용 공간과 함께 제한했다.",
+      "resolution": "본인 소유·쓰기 가능한 개인/유효 임시 공간에 저장을 허용했다. 생성 범위 밖 파일은 저장됨·현재 답변에 사용 불가로 표시하고 외부 전송 차단을 유지한다.",
+      "verification": [
+        "관련 백엔드 61개·프론트 첨부 9개(총 70개), 타입·린트 통과 기록.",
+        "본래 DB의 기존 대화에서 개인 공간 첨부 옵션 반환 확인. API·worker 반영."
+      ],
+      "remaining": [
+        "본래 브라우저에서 실제 사용자 파일의 저장·상태 표시 검증"
+      ],
+      "evidence": [
+        "WORKBOARD.md"
+      ],
+      "commits": [
+        "6c2ba15"
+      ],
+      "history": [
+        {
+          "date": "2026-09-27",
+          "event": "개인 공간 부재 설명을 정정하고 저장·생성 권한 결합을 확인."
+        },
+        {
+          "date": "2026-09-27",
+          "event": "권한 분리 구현과 첨부 옵션 검증 완료. 실제 업로드 미검증."
+        }
+      ]
+    },
+    {
+      "id": "RAG-0003",
+      "title": "대화보다 넓은 입력·첨부 영역",
+      "area": "conversation-ui",
+      "status": "implemented",
+      "symptom": "입력·파일 설정이 대화보다 많은 화면을 차지하고 PC 첨부 폼이 번거로웠다.",
+      "cause": "큰 입력·첨부 영역과 상시 펼쳐진 설정 중심 배치였다.",
+      "resolution": "자동 높이 입력창, 작은 첨부 팝오버, 드래그 첨부와 순차 업로드·대기 취소·상태 카드를 구현했다.",
+      "verification": [
+        "대화 테스트 56개와 추가 페이지 드롭 검증 통과 기록.",
+        "본래 데스크톱에서 축소 입력부와 메뉴 확인."
+      ],
+      "remaining": [
+        "로그인 만료로 남은 모바일 최종 화면 재확인",
+        "실제 드래그 업로드 검증은 RAG-0002와 함께 수행"
+      ],
+      "evidence": [
+        "WORKBOARD.md"
+      ],
+      "commits": [
+        "f546f81",
+        "e66dd10"
+      ],
+      "history": [
+        {
+          "date": "2026-09-21",
+          "event": "대화와 입력창을 붙이고 상세 외부 처리 안내를 접음."
+        },
+        {
+          "date": "2026-09-27",
+          "event": "입력부 재구성 및 드래그 첨부 구현. 모바일 최종 확인은 미완료."
+        }
+      ]
+    },
+    {
+      "id": "RAG-0004",
+      "title": "문서 선택 모달 과대 표시와 중복 진입 버튼",
+      "area": "document-selection",
+      "status": "verified",
+      "symptom": "문서 선택이 전체 페이지처럼 보이고 파일 선택 버튼이 입력창 + 기능과 중복되었다.",
+      "cause": "큰 모달·전체 화면 모바일 스타일과 내장 파일 탐색기의 페이지 높이, 중복 진입 버튼이 겹쳤다.",
+      "resolution": "진입을 +로 통일하고 모달 크기·여백, 고정 제목·내부 스크롤, 내장 탐색기 높이와 닫기 후 포커스를 보완했다.",
+      "verification": [
+        "대화 52개 및 파일 탐색기·뷰어·도메인 파일함 51개, 타입·린트 통과 기록.",
+        "본래 로그인 화면에서 모달 여백과 닫기 후 포커스 확인. 독립 리뷰 반영."
+      ],
+      "remaining": [],
+      "evidence": [
+        "WORKBOARD.md"
+      ],
+      "commits": [
+        "6cf9838"
+      ],
+      "history": [
+        {
+          "date": "2026-09-26",
+          "event": "수정·자동 검증·본래 데스크톱 확인 완료. 모바일 전수 검증을 의미하지 않는다."
+        }
+      ]
+    },
+    {
+      "id": "RAG-0005",
+      "title": "검색된 문맥 근거 누락과 유사도 확인 어려움",
+      "area": "retrieval-evidence",
+      "status": "implemented",
+      "symptom": "원문에 답이 있어도 근거 부족 답변이 나오고 점수·선택 사유·시간을 확인하기 어려웠다.",
+      "cause": "생성 근거 선택이 제한된 문장에 치우치고 문맥 메타데이터와 인용·진단 전달이 부족했다.",
+      "resolution": "문맥 그룹 선택과 공통 생성 입력, 전체 인용 연결, BM25/dense/RRF·문장/문맥 cosine·선택 사유·단계 시간 진단을 구현했다. 특정 질문 문자열 분기를 넣지 않았다.",
+      "verification": [
+        "문맥 구현 관련 백엔드 1177개(4 skip), 프론트 49개 통과 기록.",
+        "후속 본래 구성 v4 연결·정상 평가 게이트 통과. 기존 승인 합성 자료의 양성 2질문 인용과 무관 질문 거절 확인."
+      ],
+      "remaining": [
+        "다양한 질문·문서의 품질 평가",
+        "브라우저 원문 인용 확인",
+        "전체 응답 속도 개선의 폭넓은 측정"
+      ],
+      "evidence": [
+        "docs/worklogs/2026-09-21-contextual-rag-evidence.md",
+        "docs/worklogs/2026-09-21-rag-conversation-sessions.md"
+      ],
+      "commits": [
+        "7f0efc7",
+        "ec77428"
+      ],
+      "history": [
+        {
+          "date": "2026-09-21",
+          "event": "문맥 근거와 진단 구현·읽기 전용 비교."
+        },
+        {
+          "date": "2026-09-21",
+          "event": "후속 본래 구성 v4의 실제 생성 확인. 소규모 합성 검증 한계 유지."
+        }
+      ]
+    },
+    {
+      "id": "RAG-0006",
+      "title": "검색 구성은 있으나 대화 연결 준비가 안 된 상태",
+      "area": "conversation-readiness",
+      "status": "verified",
+      "symptom": "대화에서 연결 버전이 없다는 준비 필요 안내가 표시되었다.",
+      "cause": "검색 구성의 존재와 생성 평가·승인·도메인 연결 활성화는 별도 단계였다.",
+      "resolution": "본래 환경의 기존 자료와 모델로 실행 검사·평가·승인·도메인 연결을 완료했다.",
+      "verification": [
+        "본래 v3/연결 1의 답변·인용·근거 부족 응답 확인.",
+        "후속 v4/연결 2에서 search/answer/service 준비 상태 모두 정상 확인."
+      ],
+      "remaining": [],
+      "evidence": [
+        "docs/worklogs/2026-09-20-original-rag-conversation.md",
+        "docs/worklogs/2026-09-21-rag-conversation-sessions.md"
+      ],
+      "commits": [
+        "92adee1",
+        "ec77428"
+      ],
+      "history": [
+        {
+          "date": "2026-09-20",
+          "event": "본래 대화 구성의 검증·연결을 완료."
+        },
+        {
+          "date": "2026-09-21",
+          "event": "검증된 문맥 구성 v4 활성화. 검색 성공만으로 대화 준비 완료를 판정하지 않음."
+        }
+      ]
+    },
+    {
+      "id": "RAG-0007",
+      "title": "긴 답변 요청의 request_failed",
+      "area": "request-transport",
+      "status": "verified",
+      "symptom": "브라우저에서 답변 생성 중 요청 실패가 표시되었다.",
+      "cause": "Next 프록시 기본 30초 제한에 따른 연결 종료로 백엔드 생성도 취소되었다.",
+      "resolution": "프록시 대기를 유한 300초로 조정했다. 모델 제한과 취소 정리는 유지했다.",
+      "verification": [
+        "프론트 타입 검사·설정 ESLint·독립 검토 통과 기록.",
+        "기존 마스터 Chrome 세션에서 실제 질문·인용 표시 및 대화 API 200 확인."
+      ],
+      "remaining": [],
+      "evidence": [
+        "WORKBOARD.md"
+      ],
+      "commits": [
+        "6257405"
+      ],
+      "history": [
+        {
+          "date": "2026-09-20",
+          "event": "프록시 요청 중단 원인 수정과 본래 브라우저 검증 완료. 모든 request_failed의 원인을 뜻하지 않음."
+        }
+      ]
+    },
+    {
+      "id": "RAG-0008",
+      "title": "본래 계정과 별도 실행 환경 불일치",
+      "area": "local-environment",
+      "status": "verified",
+      "symptom": "기존 마스터 계정으로 로그인할 수 없고 별도 환경 성공이 본래 환경의 준비 상태와 달랐다.",
+      "cause": "복구 기록상 별도 sandbox가 본래 프론트·API 포트를 사용하며 별도 계정을 요구했다.",
+      "resolution": "본래 환경·기존 계정과 자료를 보존해 복구하고 migration·검색 검증을 수행했다. sandbox 프로세스만 중지하고 보존 대상은 유지했다.",
+      "verification": [
+        "원본·DB 비교와 health·본래 검색 검증 기록.",
+        "후속 WORKBOARD에서 기존 마스터 Chrome 세션의 실제 대화 API 200을 확인한 기록."
+      ],
+      "remaining": [],
+      "evidence": [
+        "docs/worklogs/2026-09-20-original-environment-rag-cutover.md",
+        "WORKBOARD.md"
+      ],
+      "commits": [
+        "3cc8404",
+        "6257405"
+      ],
+      "history": [
+        {
+          "date": "2026-09-20",
+          "event": "본래 환경 복구. 당시 암호 로그인은 별도 사용자 확인 대상으로 남김."
+        },
+        {
+          "date": "2026-09-20",
+          "event": "후속 기존 마스터 브라우저의 대화 동작 확인. 모든 401 원인으로 일반화하지 않음."
+        }
+      ]
+    }
+  ]
+}

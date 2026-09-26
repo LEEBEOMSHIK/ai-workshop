@@ -26,6 +26,7 @@ from ai_workshop.platform.identity.authorization_api import (
     AuthorizationCacheControlMiddleware,
 )
 from ai_workshop.platform.identity.authorization_api import router as authorization_router
+from ai_workshop.platform.issue_history.api import router as issue_history_router
 from ai_workshop.platform.jobs.api import router as job_router
 from ai_workshop.platform.learning.api import router as learning_router
 from ai_workshop.platform.publishing.api import router as publishing_router
@@ -59,10 +60,12 @@ def create_app() -> FastAPI:
         NoStoreMiddleware,
         path_prefix="/api/v1/admin/publishing",
     )
+    application.add_middleware(NoStoreMiddleware, path_prefix="/api/v1/admin/issue-history")
     register_error_handlers(application)
     application.include_router(asset_router)
     application.include_router(authorization_router)
     application.include_router(identity_router)
+    application.include_router(issue_history_router)
     application.include_router(job_router)
     application.include_router(learning_router)
     application.include_router(publishing_router)

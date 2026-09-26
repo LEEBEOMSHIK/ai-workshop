@@ -49,6 +49,7 @@ from ai_workshop.platform.assets import trash_models as asset_trash_models  # no
 from ai_workshop.platform.assets import upload_models as asset_upload_models  # noqa: F401
 from ai_workshop.platform.identity import authorization_models  # noqa: F401
 from ai_workshop.platform.identity import models as identity_models  # noqa: F401
+from ai_workshop.platform.issue_history import models as issue_history_models  # noqa: F401
 from ai_workshop.platform.jobs import models as job_models  # noqa: F401
 from ai_workshop.platform.learning import models as learning_models  # noqa: F401
 from ai_workshop.platform.publishing import models as publishing_models  # noqa: F401

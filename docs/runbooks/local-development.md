@@ -946,3 +946,48 @@ node node_modules/vitest/vitest.mjs run --pool=threads --maxWorkers=1 --reporter
 응답의 검색 진단에서 문장/문맥 cosine, BM25/dense/RRF 원점수, 선택 사유와 단계별 시간을 구분해 확인한다.
 삭제된 첨부의 보존 이유는 소유자 API `/api/v1/rag/domains/{slug}/conversation-attachment-cleanup`에 고정 코드로 남는다.
 `cleanup_waiting`은 종료 또는 참조 증거가 부족한 상태이며 삭제 실패를 숨기는 성공 상태가 아니다. 실제 원본 자동 삭제는 활성화하지 않았다.
+
+### 문제·개선 이력 DB 관리
+
+2026-09-27 본래 DB에 `0051_issue_history`를 적용했다. 관리자 `/admin/system/issues`에서
+한글 카테고리와 문제·진행 이력·관련 문서의 정확한 버전을 관리한다. DB가 운영 정본이며
+저장소의 `docs/issues/issues.json`은 최초 이관 보존 자료다. 런타임은 Markdown 파일을 읽지 않는다.
+
+최초 이관은 완료됐다. 평상시 시작에 migration·이관을 반복하지 않는다. 신규 설치에서는
+기존 환경 로딩·대상 확인·백업 후 저장소 루트에서 다음 명령을 사용한다.
+Windows의 async psycopg에는 selector 정책이 필요하다.
+
+```powershell
+@'
+from ai_workshop.shared.asyncio_policy import configure_windows_selector_policy
+configure_windows_selector_policy()
+from alembic.config import Config
+from alembic import command
+command.upgrade(Config('backend/alembic.ini'), '0051_issue_history')
+'@ | backend/.venv/Scripts/python.exe -
+# 기본값은 파일 사전검사만 하는 dry-run이다.
+backend/.venv/Scripts/python.exe backend/tools/import_issue_history.py
+# 기존 active owner가 하나면 자동 선택. 여러 명이면 --actor-id UUID를 명시한다.
+backend/.venv/Scripts/python.exe backend/tools/import_issue_history.py --apply
+backend/.venv/Scripts/python.exe backend/tools/import_issue_history.py --verify
+```
+
+같은 입력의 재실행은 무변경, 변경된 입력은 충돌이다. `--verify`는 최초 전환 시점의
+입력과 DB 전체 대조용이다. 이후 원본 파일이나 DB를 편집하면 일치하지 않을 수 있으며,
+이를 해결하려고 기존 DB를 지우거나 최초 이관 기록을 덮어쓰지 않는다.
+새 문서 내용은 관리 화면에서 새 버전으로 등록하고 필요한 문제 연결을 명시적으로 바꾼다.
+관련 문서만 배포 서버에 다시 복사하는 것으로 DB의 본문이 갱신되지 않는다.
+
+```powershell
+# 외부 트랜잭션으로 모든 시험 쓰기를 롤백한다. 기존 owner와 migration0051이 필요하다.
+$env:AI_WORKSHOP_VERIFY_ORIGINAL_ISSUES='1'
+backend/.venv/Scripts/python.exe -m pytest -c backend/pyproject.toml backend/tests/integration/platform/issue_history/test_original_database.py -q
+Remove-Item Env:AI_WORKSHOP_VERIFY_ORIGINAL_ISSUES
+```
+
+관리 API는 `/api/v1/admin/issue-history`이며 기존 마스터 세션을 사용한다. 쓰기는 허용된
+Origin, JSON 및 `x-publishing-request: 1` 헤더와 request_id가 필요하다. 수정 시
+expected_revision을 전송한다. 재시도는 같은 요청 ID·본문을 유지하고 409 충돌 때
+최신 내용을 비교한다. 문서·문제 본문이나 인증 값을 로그에 남기지 않는다.
+
+적용 결과·복구 제한은 [작업 기록](../worklogs/2026-09-27-issue-history-database.md)을 따른다.

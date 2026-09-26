@@ -48,3 +48,16 @@
 .page :is(button, input, select, a):focus-visible { outline: 2px solid #a9cbff; outline-offset: 3px; }
 @media (max-width: 800px) { .heading { flex-direction: column; } .layout { grid-template-columns: 1fr; } .issueList { max-height: 19rem; overflow-y: auto; padding: 3px; } .checks { grid-template-columns: 1fr; gap: 0; } }
 @media (max-width: 480px) { .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .filters label { width: 100%; } }
+.actions {display:flex; gap:1rem; margin:1rem 0;}
+.issueButton[aria-current="true"] {background:#1a2c42; border-color:#729fda;}
+.management {margin-bottom:1.5rem; border:1px solid #364356; padding:1rem; border-radius:.65rem;}
+.editor {margin:.75rem 0; border:1px solid #293342; border-radius:.5rem; padding:.8rem;}
+.editor summary {cursor:pointer; font-weight:600;}
+.management form, .management fieldset {display:grid; gap:.8rem; margin-top:.75rem; min-width:0;}
+.management fieldset {border:0; padding:0;}
+.management label {display:grid; gap:.4rem; margin-top:.5rem; font-size:.85rem;}
+.management input, .management select, .management textarea, .page button {background:#111923; color:#e2e8ef; border:1px solid #364356; border-radius:.4rem; padding:.65rem; font:inherit; max-width:100%;}
+.management input[type="checkbox"] {width:auto; justify-self:start;}
+.management textarea {resize:vertical; width:100%; box-sizing:border-box;}
+.page button {cursor:pointer;}
+.documentBody {white-space:pre-wrap; overflow-wrap:anywhere; max-height:30rem; overflow:auto;}

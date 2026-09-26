@@ -1,60 +1,44 @@
 "use client";
-
 import { useState } from "react";
-
-import type { IssueLedger } from "./types";
+import { useRouter } from "next/navigation";
+import type { Category, IssueDetail, IssueList } from "./types";
+import type { IssueFilters } from "./api";
+import { IssueManagement } from "./IssueManagement";
 import styles from "./IssueHistoryPage.module.css";
-
-const statuses = { open: "진행 중", implemented: "구현됨 · 검증 남음", verified: "검증 완료" } as const;
-
-export function IssueHistoryPage({ ledger, initialIssueId }: { ledger: IssueLedger; initialIssueId?: string }) {
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("");
-  const [area, setArea] = useState("");
-  const [selectedId, setSelectedId] = useState(initialIssueId ?? ledger.issues[0]?.id);
-  const areas = [...new Set(ledger.issues.map((issue) => issue.area))].sort();
-  const needle = query.trim().toLocaleLowerCase();
-  const filtered = ledger.issues.filter((issue) => (!status || issue.status === status) && (!area || issue.area === area) && [issue.id, issue.title, issue.area, issue.symptom, issue.cause, issue.resolution, ...issue.remaining].join(" ").toLocaleLowerCase().includes(needle));
-  const selected = filtered.find((issue) => issue.id === selectedId) ?? filtered[0];
-  const resetFilters = () => { setQuery(""); setStatus(""); setArea(""); };
-
-  return <div className={styles.page}>
-    <header className={styles.heading}>
-      <div><p className={styles.eyebrow}>시스템 관리</p><h1>문제·개선 이력</h1><p>발견한 문제부터 수정과 검증까지, 같은 문제의 후속 작업을 함께 확인합니다.</p></div>
-      <p className={styles.updated}>내부 관리용 · 기준일 <time dateTime={ledger.updated_at}>{ledger.updated_at}</time></p>
-    </header>
-    <dl className={styles.summary} aria-label="전체 문제 현황">
-      <div><dt>전체</dt><dd>{ledger.issues.length}</dd></div>
-      {Object.entries(statuses).map(([value, label]) => <div key={value}><dt>{label}</dt><dd>{ledger.issues.filter((issue) => issue.status === value).length}</dd></div>)}
-    </dl>
-    <div className={styles.filters}>
-      <label className={styles.search}>문제 검색<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="제목, 문제 번호, 증상 또는 원인" /></label>
-      <label>처리 상태<select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">전체 상태</option>{Object.entries(statuses).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-      <label>영역<select value={area} onChange={(event) => setArea(event.target.value)}><option value="">전체 영역</option>{areas.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
-      {(query || status || area) && <button type="button" onClick={resetFilters}>필터 초기화</button>}
-    </div>
-    <p className={styles.resultCount} role="status">{filtered.length}개 문제 표시 · 전체 {ledger.issues.length}개</p>
-    {filtered.length === 0 ? <p className={styles.empty}>{ledger.issues.length ? "조건에 맞는 문제가 없습니다." : "등록된 문제 이력이 없습니다."}</p> : <div className={styles.layout}>
-      <ul className={styles.issueList} aria-label="문제 목록">{filtered.map((issue) => <li key={issue.id}><button type="button" aria-label={`${issue.id} ${issue.title} ${statuses[issue.status]}`} aria-pressed={issue.id === selected?.id} onClick={() => setSelectedId(issue.id)} className={styles.issueButton}>
-        <span className={styles.issueId}>{issue.id}</span><strong>{issue.title}</strong><span className={styles.issueMeta}><span className={`${styles.badge} ${styles[issue.status]}`}>{statuses[issue.status]}</span><span>{issue.area}</span></span>
-      </button></li>)}</ul>
-      {selected && <section className={styles.detail} aria-label="문제 상세">
-        <header className={styles.detailHeader}><p className={styles.issueId}>{selected.id} · {selected.area}</p><h2>{selected.title}</h2><span className={`${styles.badge} ${styles[selected.status]}`}>{statuses[selected.status]}</span></header>
-        <section><h3>증상</h3><p>{selected.symptom}</p></section>
-        <section><h3>원인</h3><p>{selected.cause}</p></section>
-        <section><h3>수정 내용과 방향</h3><p>{selected.resolution}</p></section>
-        <div className={styles.checks}>
-          <section><h3>검증 기록</h3><TextList items={selected.verification} empty="아직 기록된 검증이 없습니다." /></section>
-          <section className={styles.remaining}><h3>남은 작업</h3><TextList items={selected.remaining} empty="기록된 남은 작업이 없습니다." /></section>
-        </div>
-        <section><h3>진행 이력</h3>{selected.history.length ? <ol className={styles.timeline}>{selected.history.map((entry, index) => <li key={`${entry.date}-${index}`}><time dateTime={entry.date}>{entry.date}</time><p>{entry.event}</p></li>)}</ol> : <p className={styles.muted}>아직 기록된 진행 이력이 없습니다.</p>}</section>
-        <section><h3>관련 문서</h3>{selected.evidence.length ? <ul className={styles.sources}>{selected.evidence.map((document, index) => <li key={`${document}-${index}`}><a href={`/admin/system/issues?issue=${encodeURIComponent(selected.id)}&document=${index}`}>{document}</a></li>)}</ul> : <p className={styles.muted}>연결된 문서가 없습니다.</p>}</section>
-        <section><h3>관련 커밋</h3>{selected.commits.length ? <ul className={styles.commits}>{selected.commits.map((commit, index) => <li key={`${commit}-${index}`}><code>{commit}</code></li>)}</ul> : <p className={styles.muted}>연결된 커밋이 없습니다.</p>}</section>
-      </section>}
-    </div>}
-  </div>;
+export const statuses = { open: "진행 중", implemented: "구현됨 · 검증 남음", verified: "검증 완료" } as const;
+export function IssueHistoryPage({ list, categories, selected, filters, legacy }: {
+    list: IssueList;
+    categories: Category[];
+    selected: IssueDetail | null;
+    filters: IssueFilters;
+    legacy?: boolean;
+}) {
+    const router = useRouter();
+    const [manage, setManage] = useState(false);
+    const total = Object.values(list.status_counts).reduce((a, b) => a + b, 0);
+    const href = (changes: Record<string, string | number>) => { const p = new URLSearchParams(); for (const [key, value] of Object.entries({ ...filters, ...changes }))
+        if (value !== undefined && value !== "")
+            p.set(key, String(value)); return `/admin/system/issues?${p}`; };
+    const category = (id: string) => categories.find(c => c.id === id)?.name ?? "분류 없음";
+    return <div className={styles.page}>
+ <header className={styles.heading}><div><p className={styles.eyebrow}>시스템 관리</p><h1>문제·개선 이력</h1><p>문제의 수정·검증 기록과 당시 문서 버전을 함께 보존합니다.</p></div><button onClick={() => setManage(!manage)} aria-expanded={manage}>{manage ? "관리 닫기" : "이력 관리"}</button></header>
+ {legacy && <p role="status">이전 문서 링크입니다. 문제 상세에서 관련 문서를 다시 선택해 주세요.</p>}
+ {manage && <IssueManagement categories={categories} issue={selected} onSaved={() => router.refresh()}/>}
+ <dl className={styles.summary} aria-label="전체 문제 현황"><div><dt>전체</dt><dd>{total}</dd></div>{Object.entries(statuses).map(([value, label]) => <div key={value}><dt>{label}</dt><dd>{list.status_counts[value as keyof typeof statuses]}</dd></div>)}</dl>
+ <form className={styles.filters} action="/admin/system/issues">
+ <label className={styles.search}>문제 검색<input type="search" name="q" defaultValue={filters.q} placeholder="문제 번호, 제목, 증상, 원인"/></label>
+ <label>처리 상태<select name="status" defaultValue={filters.status}><option value="">전체 상태</option>{Object.entries(statuses).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+ <label>카테고리<select name="category_id" defaultValue={filters.category_id}><option value="">전체 카테고리</option>{categories.map(c => <option key={c.id} value={c.id}>{c.name}{!c.is_active ? " (비활성)" : ""}</option>)}</select></label><button type="submit">검색</button><a href="/admin/system/issues">필터 초기화</a></form>
+ <p className={styles.resultCount} role="status">조건에 맞는 문제 {list.total}개 · 전체 {total}개</p>
+ {!list.items.length && <p className={styles.empty}>{total ? "조건에 맞는 문제가 없습니다." : "등록된 문제 이력이 없습니다."}</p>}
+ <div className={styles.layout}><div><ul className={styles.issueList} aria-label="문제 목록">{list.items.map(issue => <li key={issue.id}><a className={styles.issueButton} aria-current={selected?.id === issue.id ? "true" : undefined} href={href({ issue: issue.id })}><span className={styles.issueId}>{issue.issue_key}</span><strong>{issue.title}</strong><span className={styles.issueMeta}><span className={`${styles.badge} ${styles[issue.status]}`}>{statuses[issue.status]}</span>{category(issue.category_id)}</span></a></li>)}</ul><nav className={styles.actions} aria-label="문제 목록 페이지">{(filters.offset ?? 0) > 0 && <a href={href({ offset: Math.max(0, (filters.offset ?? 0) - 20) })}>이전</a>}{(filters.offset ?? 0) + 20 < list.total && <a href={href({ offset: (filters.offset ?? 0) + 20 })}>다음</a>}</nav></div>
+ {selected && <section className={styles.detail} aria-label="문제 상세"><header className={styles.detailHeader}><p className={styles.issueId}>{selected.issue_key} · {category(selected.category_id)}</p><h2>{selected.title}</h2><span className={`${styles.badge} ${styles[selected.status]}`}>{statuses[selected.status]}</span></header>
+ <section><h3>증상</h3><p>{selected.symptom}</p></section><section><h3>원인</h3><p>{selected.cause}</p></section><section><h3>수정 내용과 방향</h3><p>{selected.resolution}</p></section>
+ <div className={styles.checks}><section><h3>검증 기록</h3><TextList items={selected.verification ?? []}/></section><section className={styles.remaining}><h3>남은 작업</h3><TextList items={selected.remaining ?? []}/></section></div>
+ <section><h3>진행 이력</h3><ol className={styles.timeline}>{selected.events.map(event => <li key={event.id}><time>{event.event_date}</time><p>{event.description}</p></li>)}</ol></section>
+ <section><h3>관련 문서</h3>{selected.documents.length ? <ul className={styles.sources}>{selected.documents.map(doc => <li key={`${doc.document_id}-${doc.version}`}><a href={href({ issue: selected.id, document_id: doc.document_id, version: doc.version })}>{doc.title} · 버전 {doc.version}</a>{doc.current_version !== doc.version && <span> (현재 버전 {doc.current_version}, 과거 근거 유지)</span>}<div className={styles.muted}>{doc.source_path}</div></li>)}</ul> : <p>연결된 문서가 없습니다.</p>}</section>
+ <section><h3>관련 커밋</h3><TextList items={selected.commits ?? []}/></section></section>}</div></div>;
 }
-
-function TextList({ items, empty }: { items: string[]; empty: string }) {
-  return items.length ? <ul className={styles.textList}>{items.map((text, index) => <li key={index}>{text}</li>)}</ul> : <p className={styles.muted}>{empty}</p>;
-}
+function TextList({ items }: {
+    items: string[];
+}) { return items.length ? <ul className={styles.textList}>{items.map((item, i) => <li key={i}>{item}</li>)}</ul> : <p className={styles.muted}>기록이 없습니다.</p>; }

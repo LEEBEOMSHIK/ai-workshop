@@ -1,21 +1,13 @@
+// API response aliases are generated from the backend OpenAPI contract.
+import type { components } from "../../shared/api/schema";
 export type IssueStatus = "open" | "implemented" | "verified";
-export interface Issue {
-  id: string;
-  title: string;
-  area: string;
-  status: IssueStatus;
-  symptom: string;
-  cause: string;
-  resolution: string;
-  verification: string[];
-  remaining: string[];
-  evidence: string[];
-  commits: string[];
-  history: {date: string; event: string}[];
-}
-export interface IssueLedger {
-  schema_version: number;
-  updated_at: string;
-  visibility: "internal";
-  issues: Issue[];
+export type Category = components["schemas"]["IssueCategoryView"];
+export type Issue = components["schemas"]["IssueView"];
+export type IssueDetail = components["schemas"]["IssueDetail"];
+export type IssueDocument = components["schemas"]["IssueDocumentView"];
+export type DocumentVersion = components["schemas"]["IssueDocumentVersionView"];
+export interface IssueList {
+    items: Issue[];
+    total: number;
+    status_counts: Record<IssueStatus, number>;
 }

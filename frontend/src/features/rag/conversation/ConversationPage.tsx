@@ -606,30 +606,32 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
             <small>관리자가 저장한 전송 승인과 별개로, 매 질문 전에 전송 범위를 확인하는 절차입니다.</small>
           </label>
         ) : null}
-        <label className="conversation-question">
-          <span className="visually-hidden">질문</span>
-          <textarea
-            ref={questionRef}
-            rows={1}
-            value={query}
-            disabled={searching || !domain.ready || requiresDomainReentry}
-            onChange={(event) => { setQuery(event.target.value); if (codexProcessing) setExternalConfirmed(false); }}
-            onKeyDown={handleQuestionKeyDown}
-            onCompositionStart={() => { composing.current = true; }}
-            onCompositionEnd={() => { composing.current = false; }}
-            placeholder="질문을 입력하세요"
-          />
-        </label>
-        <div className="composer-actions">
-          <input ref={fileInputRef} type="file" multiple hidden aria-label="대화에 파일 첨부" onChange={event => { receiveFiles(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
-          <div ref={menuRef} className="conversation-add-menu">
-            <button ref={attachmentButtonRef} type="button" aria-label="문서 추가" aria-expanded={attachmentMenuOpen} disabled={searching || sessionLoading} onClick={() => setAttachmentMenuOpen(current => !current)}>＋</button>
-            {attachmentMenuOpen ? <div role="group" aria-label="문서 추가 방법"><button type="button" onClick={() => {openDocumentPanel(); setAttachmentMenuOpen(false);}}>기존 문서 선택</button><button type="button" disabled={attachmentBusy} onClick={() => {fileInputRef.current?.click(); setAttachmentMenuOpen(false);}}>PC 파일 첨부</button><small>파일을 대화창에 끌어다 놓으세요</small></div> : null}
+        <div className="conversation-input" role="group" aria-label="질문 입력">
+          <label className="conversation-question">
+            <span className="visually-hidden">질문</span>
+            <textarea
+              ref={questionRef}
+              rows={1}
+              value={query}
+              disabled={searching || !domain.ready || requiresDomainReentry}
+              onChange={(event) => { setQuery(event.target.value); if (codexProcessing) setExternalConfirmed(false); }}
+              onKeyDown={handleQuestionKeyDown}
+              onCompositionStart={() => { composing.current = true; }}
+              onCompositionEnd={() => { composing.current = false; }}
+              placeholder="질문을 입력하세요"
+            />
+          </label>
+          <div className="composer-actions">
+            <input ref={fileInputRef} type="file" multiple hidden aria-label="대화에 파일 첨부" onChange={event => { receiveFiles(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
+            <div ref={menuRef} className="conversation-add-menu">
+              <button ref={attachmentButtonRef} type="button" aria-label="문서 추가" aria-expanded={attachmentMenuOpen} disabled={searching || sessionLoading} onClick={() => setAttachmentMenuOpen(current => !current)}>＋</button>
+              {attachmentMenuOpen ? <div role="group" aria-label="문서 추가 방법"><button type="button" onClick={() => {openDocumentPanel(); setAttachmentMenuOpen(false);}}>기존 문서 선택</button><button type="button" disabled={attachmentBusy} onClick={() => {fileInputRef.current?.click(); setAttachmentMenuOpen(false);}}>PC 파일 첨부</button><small>파일을 대화창에 끌어다 놓으세요</small></div> : null}
+            </div>
+            <button type="submit" aria-label="질문 보내기" disabled={!canSend}>↑</button>
+            {searching ? <button type="button" className="secondary-button" onClick={() => cancelCurrent()}>답변 취소</button> : null}
           </div>
-          <button type="submit" aria-label="질문 보내기" disabled={!canSend}>↑</button>
-          {searching ? <button type="button" className="secondary-button" onClick={() => cancelCurrent()}>답변 취소</button> : null}
-          <span>Enter 전송 · Shift+Enter 줄바꿈</span>
         </div>
+        <p className="conversation-input-hint">Enter 전송 · Shift+Enter 줄바꿈</p>
       </form>
 
       </div></div>

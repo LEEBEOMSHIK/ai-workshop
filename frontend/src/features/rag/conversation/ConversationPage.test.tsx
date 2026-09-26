@@ -46,6 +46,15 @@ beforeEach(() => window.history.replaceState(null, "", "/"));
 afterEach(() => vi.unstubAllGlobals());
 
 describe("ConversationPage", () => {
+  it("groups the question, attachment and send controls inside one input surface", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json([])));
+    render(<ConversationPage domain={domain()} />);
+    const input = await screen.findByRole("group", { name: "질문 입력" });
+    expect(within(input).getByRole("textbox", { name: "질문" })).toBeVisible();
+    expect(within(input).getByRole("button", { name: "문서 추가" })).toBeVisible();
+    expect(within(input).getByRole("button", { name: "질문 보내기" })).toBeDisabled();
+    expect(within(input).queryByText("Enter 전송 · Shift+Enter 줄바꿈")).not.toBeInTheDocument();
+  });
   it("accepts dropped files without widening a missing private upload destination", async () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL) => Response.json(String(input).endsWith("attachment-options") ? { workspaces: [], reason_code: "no_private_attachment_workspace" } : []));
     vi.stubGlobal("fetch", fetcher);

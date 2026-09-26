@@ -546,4 +546,9 @@ RAG conversations 모듈이 소유자·도메인별 세션과 서버 turn을 저
 권한 철회된 근거와 그 파생 응답은 표시·history 양쪽에서 제외하고, 외부 history에는 현재 전송 승인을 추가 검증한다.
 범위 identity 변경은 새 문맥 구간으로 분리하며, request ID/revision 및 종료 기록으로 재실행·늦은 완료를 차단한다.
 입력창 첨부는 기존 Asset upload 예약 계약을 사용하고 정확한 활성 index build까지 준비 상태를 확인한다.
+2026-09-27 저장 경계 보완([ADR-0023](../../decisions/0023-domain-cabinet-conversation.md)):
+대화 소유자는 기존 본인 소유·쓰기 가능한 개인/유효 임시 공간에 첨부를 저장할 수 있다.
+생성 구성 구독 밖 저장도 허용하되 `stored`/`attachment_outside_generation_scope`를 반환한다.
+이 상태는 검색 준비 중이나 답변 사용 가능 상태가 아니며 자동 선택하지 않는다.
+검색·생성 범위와 외부 전송 정책/원문 승인은 기존 검증을 그대로 통과해야 한다.
 삭제 시 원본 참조·writer 종료가 불명확하면 정리 대기 이유를 보존한다. 대화 삭제가 기존 선택 원본이나 audit의 삭제 권한이 되지 않는다.

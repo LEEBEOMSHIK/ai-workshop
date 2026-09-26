@@ -5,6 +5,52 @@ import { ConversationAttachments } from "./ConversationAttachments";
 const json = (value: unknown) => new Response(JSON.stringify(value), {headers: {"content-type": "application/json"}});
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
+it("finishes a stored upload without selecting it and excludes only its visible card", async () => {
+  const selected = vi.fn();
+  const busy = vi.fn();
+  const document = {id: "private-document", name: "private.txt", workspace_id: "private", status: "ready"};
+  const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (String(url).endsWith("attachment-options")) return json({workspaces: [{id: "private", name: "개인"}]});
+    if (init?.method === "POST") return json({id: "attachment", document, status: "stored", error_code: "attachment_outside_generation_scope"});
+    return json([]);
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(<ConversationAttachments slug="example" sessionId="session" ensureSession={vi.fn()} onBusy={busy} onSelect={selected} pendingFiles={[new File(["synthetic"], "private.txt")]} />);
+  expect(await screen.findByText("private.txt · 저장됨 · 현재 답변에 사용 불가")).toBeVisible();
+  expect(screen.getByText("현재 대화의 검색·생성 범위에 포함되지 않은 개인 파일입니다.")).toBeVisible();
+  expect(screen.queryByText("attachment_outside_generation_scope")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", {name: "질문에 추가"})).not.toBeInTheDocument();
+  expect(selected).not.toHaveBeenCalled();
+  expect(busy).toHaveBeenLastCalledWith(false);
+  fireEvent.click(screen.getByRole("button", {name: "제외"}));
+  expect(screen.queryByText(/저장됨 · 현재 답변에 사용 불가/)).not.toBeInTheDocument();
+  expect(fetcher.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
+});
+
+it("ends processing when polling reports storage outside generation scope", async () => {
+  vi.useFakeTimers();
+  const selected = vi.fn();
+  const busy = vi.fn();
+  let status: "stored" | "ready" | null = null;
+  const document = {id: "private-document", name: "private.txt", workspace_id: "private", status: "ready"};
+  vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (String(url).endsWith("attachment-options")) return json({workspaces: [{id: "private", name: "개인"}]});
+    if (init?.method === "POST") return json({id: "attachment", document: null, status: "processing"});
+    return json(status ? [{id: "attachment", document, status, error_code: status === "stored" ? "attachment_outside_generation_scope" : null}] : []);
+  }));
+  await act(async () => { render(<ConversationAttachments slug="example" sessionId="session" ensureSession={vi.fn()} onBusy={busy} onSelect={selected} pendingFiles={[new File(["synthetic"], "private.txt")]} />); });
+  expect(busy).toHaveBeenLastCalledWith(true);
+  status = "stored";
+  await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+  expect(screen.getByText("private.txt · 저장됨 · 현재 답변에 사용 불가")).toBeVisible();
+  expect(selected).not.toHaveBeenCalled();
+  expect(busy).toHaveBeenLastCalledWith(false);
+  status = "ready";
+  await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+  expect(screen.getByRole("button", {name: "질문에 추가"})).toBeVisible();
+  expect(selected).not.toHaveBeenCalled();
+});
+
 it("retains dropped files while options load and uploads them sequentially", async () => {
   let resolveOptions!: (response: Response) => void;
   let resolveFirst!: (response: Response) => void;

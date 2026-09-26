@@ -57,11 +57,9 @@ def attachment_readiness(projection_status: str, build: RagIndexBuildRecord | No
 def eligible_attachment_workspace(
     workspace: WorkspaceIdentity,
     actor_id: UUID,
-    allowed_ids: set[UUID],
 ) -> bool:
     return (
-        workspace.id in allowed_ids
-        and workspace.created_by == actor_id
+        workspace.created_by == actor_id
         and workspace.kind in {"personal", "temporary"}
         and (
             workspace.kind != "temporary"
@@ -154,16 +152,16 @@ class ConversationAttachmentService:
         context: DomainLibraryContext,
         actor_id: UUID,
     ) -> list[WorkspaceRecord]:
-        allowed = {item.id for item in context.workspace_options}
+        # Storage permission is independent of the domain's generation subscriptions.
+        # Callers still authorize domain access and conversation ownership first.
         rows = await session.scalars(
             select(WorkspaceRecord).where(
-                WorkspaceRecord.id.in_(allowed),
                 WorkspaceRecord.created_by == actor_id,
                 WorkspaceRecord.kind.in_(("personal", "temporary")),
                 workspace_write_allowed(actor_id),
             )
         )
-        return [row for row in rows if eligible_attachment_workspace(row, actor_id, allowed)]
+        return [row for row in rows if eligible_attachment_workspace(row, actor_id)]
 
     async def options(
         self, slug: str, conversation_id: UUID, actor_id: UUID
@@ -305,6 +303,14 @@ class ConversationAttachmentService:
                 status = "processing"
                 if document.versions[-1].status == "failed":
                     status = "failed"
+                elif (
+                    config is None
+                    or row.workspace_id not in config.workspace_ids
+                    or row.workspace_id not in context.allowed_workspace_ids
+                ):
+                    # A durable private upload must not be mislabeled as searchable
+                    # or remain "processing" forever when there is no subscription.
+                    status = "stored"
                 elif config is not None:
                     projection = await session.scalar(
                         select(RagProjectionRecord).where(
@@ -330,7 +336,11 @@ class ConversationAttachmentService:
                         id=row.id,
                         document=DocumentResponse.from_domain(document),
                         status=status,
-                        error_code="attachment_processing_failed" if status == "failed" else None,
+                        error_code=(
+                            "attachment_processing_failed" if status == "failed"
+                            else "attachment_outside_generation_scope" if status == "stored"
+                            else None
+                        ),
                     )
                 )
             return result

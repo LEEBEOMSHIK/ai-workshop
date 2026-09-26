@@ -73,14 +73,13 @@ def test_projection_ready_alone_does_not_make_attachment_searchable():
 def test_attachments_never_use_company_or_another_owners_workspace():
     actor, workspace_id = uuid4(), uuid4()
     space = SimpleNamespace(id=workspace_id, kind="personal", created_by=actor, expires_at=None)
-    assert eligible_attachment_workspace(space, actor, {workspace_id})
-    assert not eligible_attachment_workspace(space, uuid4(), {workspace_id})
-    assert not eligible_attachment_workspace(space, actor, set())
+    assert eligible_attachment_workspace(space, actor)
+    assert not eligible_attachment_workspace(space, uuid4())
     space.kind = "company"
-    assert not eligible_attachment_workspace(space, actor, {workspace_id})
+    assert not eligible_attachment_workspace(space, actor)
     space.kind = "temporary"
     space.expires_at = datetime.now(UTC) - timedelta(seconds=1)
-    assert not eligible_attachment_workspace(space, actor, {workspace_id})
+    assert not eligible_attachment_workspace(space, actor)
 
 
 def test_attachment_finalization_rejects_deleted_session_and_wrong_reserved_source():

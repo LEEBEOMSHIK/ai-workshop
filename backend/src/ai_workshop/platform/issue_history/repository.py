@@ -24,6 +24,26 @@ class IssueRepository:
             {"key": f"issue:{actor}:{operation}:{request_id}"},
         )
 
+    async def lock_hierarchy(self) -> None:
+        await self.session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": "issue-history-category-hierarchy"},
+        )
+
+    async def category_has_children(self, identity: UUID) -> bool:
+        return bool(
+            await self.session.scalar(
+                select(IssueCategory.id).where(IssueCategory.parent_id == identity).limit(1)
+            )
+        )
+
+    async def category_has_issues(self, identity: UUID) -> bool:
+        return bool(
+            await self.session.scalar(
+                select(Issue.id).where(Issue.category_id == identity).limit(1)
+            )
+        )
+
     async def command(self, actor: UUID, operation: str, request_id: UUID) -> IssueCommand | None:
         return await self.session.get(IssueCommand, (actor, operation, request_id))
 
@@ -37,13 +57,25 @@ class IssueRepository:
         )
 
     async def issues(
-        self, q: str, status: str | None, category_id: UUID | None, offset: int, limit: int
+        self,
+        q: str,
+        status: str | None,
+        category_id: UUID | None,
+        offset: int,
+        limit: int,
+        parent_category_id: UUID | None = None,
     ) -> tuple[list[Issue], int, dict[str, int]]:
         filters = []
         if status:
             filters.append(Issue.status == status)
         if category_id:
             filters.append(Issue.category_id == category_id)
+        if parent_category_id:
+            filters.append(
+                Issue.category_id.in_(
+                    select(IssueCategory.id).where(IssueCategory.parent_id == parent_category_id)
+                )
+            )
         if q:
             escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             filters.append(

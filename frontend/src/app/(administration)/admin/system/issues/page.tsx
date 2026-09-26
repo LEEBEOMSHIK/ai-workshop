@@ -12,7 +12,7 @@ export default async function IssueHistoryRoute({searchParams}: {searchParams: P
   const raw = await searchParams;
   const param = (key: string) => typeof raw[key] === "string" ? raw[key] as string : undefined;
   const offset = Number(param("offset") ?? 0);
-  const filters = {q: param("q"), status: param("status"), category_id: param("category_id"), offset: Number.isSafeInteger(offset) && offset >= 0 ? offset : 0};
+  const filters = {q: param("q"), status: param("status"), category_id: param("category_id"), parent_category_id: param("parent_category_id"), offset: Number.isSafeInteger(offset) && offset >= 0 ? offset : 0};
   const {list, categories} = await loadIssueLedger(filters);
   const requested = param("issue");
   const issueId = list.items.find(item => item.id === requested || item.issue_key === requested)?.id ?? (requested && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requested) ? requested : list.items[0]?.id);

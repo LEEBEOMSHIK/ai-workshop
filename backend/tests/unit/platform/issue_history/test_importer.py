@@ -3,7 +3,16 @@ from pathlib import Path
 
 import pytest
 
-from ai_workshop.platform.issue_history.importer import prepare_import
+from ai_workshop.platform.issue_history.importer import category_parent_code, prepare_import
+
+
+def test_initial_category_parent_mapping_is_explicit() -> None:
+    assert category_parent_code("attachments") == "rag"
+    assert category_parent_code("retrieval-evidence") == "rag"
+    assert category_parent_code("request-transport") == "platform"
+    assert category_parent_code("local-environment") == "platform"
+    with pytest.raises(ValueError):
+        category_parent_code("unclassified")
 
 
 def source(root: Path) -> Path:

@@ -13,6 +13,8 @@
 .search { flex: 1; min-width: min(18rem, 100%); }
 .filters input, .filters select, .filters button { min-height: 2.6rem; border: 1px solid #364356; border-radius: .5rem; background: #111923; color: #e2e8ef; padding: .55rem .7rem; font: inherit; }
 .filters button { cursor: pointer; font-size: .8rem; }
+.filters a, .actions a { color: #a9cbff; text-underline-offset: .2rem; padding-bottom: .6rem; }
+.issueButton { text-decoration: none; }
 .resultCount { margin: .85rem 0; color: #a4b2c2; font-size: .8rem; }
 .layout { display: grid; grid-template-columns: minmax(16rem, .8fr) minmax(0, 2fr); gap: 1rem; align-items: start; }
 .issueList { margin: 0; padding: 0; list-style: none; display: grid; gap: .5rem; }

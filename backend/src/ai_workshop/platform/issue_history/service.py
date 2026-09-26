@@ -99,6 +99,8 @@ class IssueHistoryService:
 
     async def create_category(self, request: s.CategoryCreate) -> s.IssueCategoryView:
         async def action() -> s.IssueCategoryView:
+            await self.repository.lock_hierarchy()
+            await self._category_parent(request.parent_id)
             row = IssueCategory(**request.model_dump(exclude={"request_id"}))
             self.session.add(row)
             await self.session.flush()
@@ -110,8 +112,25 @@ class IssueHistoryService:
         self, identity: UUID, request: s.CategoryUpdate
     ) -> s.IssueCategoryView:
         async def action() -> s.IssueCategoryView:
+            await self.repository.lock_hierarchy()
             row = await self._get(IssueCategory, identity, True)
             self._revision(row, request.expected_revision)
+            if request.parent_id != row.parent_id:
+                await self._category_parent(request.parent_id, identity)
+                if request.parent_id is not None and await self.repository.category_has_children(
+                    identity
+                ):
+                    raise AppError(
+                        "issue_category_depth", "A category with children must remain a root.", 409
+                    )
+                if request.parent_id is None and await self.repository.category_has_issues(
+                    identity
+                ):
+                    raise AppError(
+                        "issue_category_leaf_required",
+                        "Assigned categories must remain children.",
+                        409,
+                    )
             for key, value in request.model_dump(
                 exclude={"request_id", "expected_revision"}
             ).items():
@@ -131,8 +150,11 @@ class IssueHistoryService:
         category_id: UUID | None = None,
         offset: int = 0,
         limit: int = 20,
+        parent_category_id: UUID | None = None,
     ) -> s.IssueList:
-        rows, total, counts = await self.repository.issues(q, status, category_id, offset, limit)
+        rows, total, counts = await self.repository.issues(
+            q, status, category_id, offset, limit, parent_category_id
+        )
         return s.IssueList(
             items=[s.IssueView.model_validate(x) for x in rows], total=total, status_counts=counts
         )
@@ -158,11 +180,28 @@ class IssueHistoryService:
             ],
         )
 
+    async def _category_parent(self, parent_id: UUID | None, identity: UUID | None = None) -> None:
+        if parent_id is None:
+            return
+        if parent_id == identity:
+            raise AppError("issue_category_depth", "A category cannot be its own parent.", 409)
+        parent = await self._get(IssueCategory, parent_id, True)
+        if parent.parent_id is not None:
+            raise AppError("issue_category_depth", "Categories support exactly two levels.", 409)
+        if not parent.is_active:
+            raise AppError("issue_category_inactive", "An active root category is required.", 409)
+
     async def _category(self, identity: UUID, previous: UUID | None = None) -> None:
+        await self.repository.lock_hierarchy()
         category = await self._get(IssueCategory, identity, True)
-        if not category.is_active and identity != previous:
+        if category.parent_id is None:
+            raise AppError("issue_category_leaf_required", "Select a child category.", 409)
+        if identity == previous:
+            return
+        parent = await self._get(IssueCategory, category.parent_id, True)
+        if not category.is_active or not parent.is_active:
             raise AppError(
-                "issue_category_inactive", "Inactive categories cannot be assigned.", 409
+                "issue_category_inactive", "Inactive category branches cannot be assigned.", 409
             )
 
     def _event(
@@ -203,6 +242,7 @@ class IssueHistoryService:
 
     async def update_issue(self, identity: UUID, request: s.IssueUpdate) -> s.IssueDetail:
         async def action() -> s.IssueDetail:
+            await self.repository.lock_hierarchy()
             row = await self._get(Issue, identity, True)
             self._revision(row, request.expected_revision)
             await self._category(request.category_id, row.category_id)

@@ -2471,6 +2471,8 @@ export interface components {
             is_active: boolean;
             /** Name */
             name: string;
+            /** Parent Id */
+            parent_id?: string | null;
             /**
              * Request Id
              * Format: uuid
@@ -2493,6 +2495,8 @@ export interface components {
             is_active: boolean;
             /** Name */
             name: string;
+            /** Parent Id */
+            parent_id?: string | null;
             /**
              * Request Id
              * Format: uuid
@@ -4162,6 +4166,8 @@ export interface components {
             is_active: boolean;
             /** Name */
             name: string;
+            /** Parent Id */
+            parent_id?: string | null;
             /** Revision */
             revision: number;
             /** Sort Order */
@@ -7016,6 +7022,7 @@ export interface operations {
                 category_id?: string | null;
                 limit?: number;
                 offset?: number;
+                parent_category_id?: string | null;
                 q?: string;
                 status?: ("open" | "implemented" | "verified") | null;
             };

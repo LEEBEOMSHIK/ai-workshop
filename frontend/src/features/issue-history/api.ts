@@ -4,11 +4,12 @@ export interface IssueFilters {
     q?: string;
     status?: string;
     category_id?: string;
+    parent_category_id?: string;
     offset?: number;
 }
 export function issueListPath(filters: IssueFilters) {
     const query = new URLSearchParams();
-    for (const key of ["q", "status", "category_id"] as const)
+    for (const key of ["q", "status", "category_id", "parent_category_id"] as const)
         if (filters[key])
             query.set(key, filters[key]!);
     query.set("offset", String(filters.offset ?? 0));

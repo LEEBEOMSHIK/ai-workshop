@@ -48,7 +48,7 @@ Files: `backend/src/ai_workshop/platform/issue_history/importer.py`, CLI script,
 - [x] 원본 누락·경로·크기·UTF8·중복 및 manifest 안정성 테스트 후 구현.
 - [x] 전체 파일 사전 검증, 동일 입력 재실행 무변경, 상이한 입력 충돌. 모든 관계 단일 트랜잭션.
 - [x] 본래 DB 백업·head·기존 수량 확인 → 가산 migration → dry-run/수입 → ID/본문해시/관계/사건수 대조.
-- [ ] 원래 API 재시작·health와 실제 관리자 메뉴 조회 검증. 실제 사용자 자료는 변경하지 않는다.
+- [x] 원래 API 재시작·health와 실제 관리자 메뉴 조회 검증. 후속 2단계 카테고리 작업에서 마스터 브라우저 확인 완료. 실제 사용자 자료는 변경하지 않는다.
 
 ## Task 4 — Independent review and handoff
 

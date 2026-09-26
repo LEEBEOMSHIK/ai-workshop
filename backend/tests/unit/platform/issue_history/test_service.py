@@ -31,6 +31,7 @@ def service():
     service = IssueHistoryService(session, owner())
     service.repository.lock_command = AsyncMock()
     service.repository.command = AsyncMock(return_value=None)
+    service.repository.lock_hierarchy = AsyncMock()
     return service
 
 
@@ -59,7 +60,7 @@ async def test_inactive_category_allows_existing_assignment_only():
     current = service()
     identity = uuid4()
     current.session.get.return_value = IssueCategory(
-        id=identity, code="old", name="Old", is_active=False, revision=1
+        id=identity, code="old", name="Old", is_active=False, revision=1, parent_id=uuid4()
     )
     await current._category(identity, identity)
     with pytest.raises(AppError) as caught:
@@ -197,3 +198,28 @@ async def test_repeated_link_changes_do_not_snapshot_prior_events():
         assert "events" not in event.snapshot["before"]
         assert "events" not in event.snapshot["after"]
     assert len(recorded) == 3
+
+
+async def test_root_category_cannot_be_assigned_to_issue():
+    current = service()
+    current.repository.lock_hierarchy = AsyncMock()
+    current.session.get.return_value = IssueCategory(
+        id=uuid4(), code="root", name="Root", is_active=True, revision=1
+    )
+    with pytest.raises(AppError) as caught:
+        await current._category(current.session.get.return_value.id)
+    assert caught.value.code == "issue_category_leaf_required"
+
+
+async def test_inactive_parent_blocks_new_child_assignment():
+    current = service()
+    current.repository.lock_hierarchy = AsyncMock()
+    parent_id = uuid4()
+    child = IssueCategory(
+        id=uuid4(), code="child", name="Child", is_active=True, parent_id=parent_id, revision=1
+    )
+    parent = IssueCategory(id=parent_id, code="root", name="Root", is_active=False, revision=1)
+    current.session.get.side_effect = [child, parent]
+    with pytest.raises(AppError) as caught:
+        await current._category(child.id)
+    assert caught.value.code == "issue_category_inactive"

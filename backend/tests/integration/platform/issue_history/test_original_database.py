@@ -23,6 +23,7 @@ from ai_workshop.platform.identity.models import UserRecord
 from ai_workshop.platform.issue_history import schemas as s
 from ai_workshop.platform.issue_history.importer import (
     CATEGORY_NAMES,
+    CATEGORY_PARENTS,
     ImportDocument,
     ImportManifest,
     SourceEvent,
@@ -81,8 +82,12 @@ async def service() -> AsyncIterator[IssueHistoryService]:
 
 
 async def test_commands_replay_conflict_inactive_and_audit(service: IssueHistoryService) -> None:
+    parent = await service.create_category(
+        s.CategoryCreate(request_id=uuid4(), code=f"root-{uuid4().hex}", name="Synthetic root")
+    )
     category = await service.create_category(
         s.CategoryCreate(
+            parent_id=parent.id,
             request_id=uuid4(),
             code=f"verify-{uuid4().hex}",
             name="Synthetic verification",
@@ -105,6 +110,7 @@ async def test_commands_replay_conflict_inactive_and_audit(service: IssueHistory
         s.CategoryUpdate(
             request_id=uuid4(),
             expected_revision=category.revision,
+            parent_id=category.parent_id,
             name=category.name,
             is_active=False,
         ),
@@ -148,8 +154,12 @@ async def test_commands_replay_conflict_inactive_and_audit(service: IssueHistory
 
 
 async def test_document_versions_links_and_history_are_pinned(service: IssueHistoryService) -> None:
+    parent = await service.create_category(
+        s.CategoryCreate(request_id=uuid4(), code=f"root-{uuid4().hex}", name="Synthetic root")
+    )
     category = await service.create_category(
         s.CategoryCreate(
+            parent_id=parent.id,
             request_id=uuid4(),
             code=f"verify-{uuid4().hex}",
             name="Synthetic verification",
@@ -228,6 +238,7 @@ async def test_original_import_replay_and_manifest_conflict(
     content = "Synthetic immutable import verification"
     digest = sha256(content.encode()).hexdigest()
     monkeypatch.setitem(CATEGORY_NAMES, category, "Synthetic verification category")
+    monkeypatch.setitem(CATEGORY_PARENTS, category, "rag")
     manifest = ImportManifest(
         digest=sha256(suffix.encode()).hexdigest(),
         issues=(

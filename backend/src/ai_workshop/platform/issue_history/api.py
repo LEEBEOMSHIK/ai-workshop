@@ -52,10 +52,11 @@ async def issues(
     q: str = Query(default="", max_length=200),
     status: s.Status | None = None,
     category_id: UUID | None = None,
+    parent_category_id: UUID | None = None,
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=20, ge=1, le=100),
 ) -> s.IssueList:
-    return await service.list_issues(q, status, category_id, offset, limit)
+    return await service.list_issues(q, status, category_id, offset, limit, parent_category_id)
 
 
 @router.post("/issues", response_model=s.IssueDetail, dependencies=mutation)

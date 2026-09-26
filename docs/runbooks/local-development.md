@@ -953,6 +953,11 @@ node node_modules/vitest/vitest.mjs run --pool=threads --maxWorkers=1 --reporter
 한글 카테고리와 문제·진행 이력·관련 문서의 정확한 버전을 관리한다. DB가 운영 정본이며
 저장소의 `docs/issues/issues.json`은 최초 이관 보존 자료다. 런타임은 Markdown 파일을 읽지 않는다.
 
+같은 날 `0052_issue_category_hierarchy`를 추가 적용했다. 현재 분류는 상위 RAG/공통 플랫폼과
+기존 8개 하위다. 신규 설치의 목표 migration은 0052이며 아래 명령도 이를 따른다.
+0051의 기존 카테고리 중 초기 8개 이외에 이미 문제를 배정한 사용자 분류가 있으면
+자동으로 분류하지 않고 migration을 중단하므로 명시적인 상위 매핑을 먼저 준비한다.
+
 최초 이관은 완료됐다. 평상시 시작에 migration·이관을 반복하지 않는다. 신규 설치에서는
 기존 환경 로딩·대상 확인·백업 후 저장소 루트에서 다음 명령을 사용한다.
 Windows의 async psycopg에는 selector 정책이 필요하다.
@@ -963,7 +968,7 @@ from ai_workshop.shared.asyncio_policy import configure_windows_selector_policy
 configure_windows_selector_policy()
 from alembic.config import Config
 from alembic import command
-command.upgrade(Config('backend/alembic.ini'), '0051_issue_history')
+command.upgrade(Config('backend/alembic.ini'), '0052_issue_category_hierarchy')
 '@ | backend/.venv/Scripts/python.exe -
 # 기본값은 파일 사전검사만 하는 dry-run이다.
 backend/.venv/Scripts/python.exe backend/tools/import_issue_history.py
@@ -979,9 +984,9 @@ backend/.venv/Scripts/python.exe backend/tools/import_issue_history.py --verify
 관련 문서만 배포 서버에 다시 복사하는 것으로 DB의 본문이 갱신되지 않는다.
 
 ```powershell
-# 외부 트랜잭션으로 모든 시험 쓰기를 롤백한다. 기존 owner와 migration0051이 필요하다.
+# 외부 트랜잭션으로 모든 시험 쓰기를 롤백한다. 기존 owner와 migration0052가 필요하다.
 $env:AI_WORKSHOP_VERIFY_ORIGINAL_ISSUES='1'
-backend/.venv/Scripts/python.exe -m pytest -c backend/pyproject.toml backend/tests/integration/platform/issue_history/test_original_database.py -q
+backend/.venv/Scripts/python.exe -m pytest -c backend/pyproject.toml backend/tests/integration/platform/issue_history -q
 Remove-Item Env:AI_WORKSHOP_VERIFY_ORIGINAL_ISSUES
 ```
 

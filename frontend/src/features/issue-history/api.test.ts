@@ -9,3 +9,6 @@ it("keeps a request id on unchanged retries and changes it for changed payload",
     expect(retry({ title: "a" }).request_id).toBe(first.request_id);
     expect(retry({ title: "b" }).request_id).not.toBe(first.request_id);
 });
+it("sends a parent-only filter for aggregate searches", () => {
+ expect(issueListPath({parent_category_id:"rag"})).toBe("/api/v1/admin/issue-history/issues?parent_category_id=rag&offset=0&limit=20");
+});

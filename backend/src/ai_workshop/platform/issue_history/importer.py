@@ -22,6 +22,25 @@ CATEGORY_NAMES = {
     "request-transport": "요청 처리",
     "local-environment": "로컬 실행 환경",
 }
+ROOT_CATEGORY_NAMES = {"rag": "RAG", "platform": "공통 플랫폼"}
+CATEGORY_PARENTS = {
+    "conversation-lifecycle": "rag",
+    "attachments": "rag",
+    "conversation-ui": "rag",
+    "document-selection": "rag",
+    "retrieval-evidence": "rag",
+    "conversation-readiness": "rag",
+    "request-transport": "platform",
+    "local-environment": "platform",
+}
+
+
+def category_parent_code(code: str) -> str:
+    if code not in CATEGORY_PARENTS:
+        raise ValueError("An import category requires an explicit technology parent.")
+    return CATEGORY_PARENTS[code]
+
+
 ShortText = Annotated[str, Field(max_length=2000)]
 TextList = Annotated[list[ShortText], Field(max_length=100)]
 
@@ -108,6 +127,7 @@ def prepare_import(root: Path) -> ImportManifest:
     for issue in ledger.issues:
         if issue.area not in CATEGORY_NAMES:
             raise ValueError("An import category requires an explicit Korean label.")
+        category_parent_code(issue.area)
         if len(set(issue.evidence)) != len(issue.evidence):
             raise ValueError("Duplicate document links.")
         for name in issue.evidence:
@@ -185,6 +205,10 @@ async def _apply_import(
         raise AppError("owner_required", "Owner access is required.", 403)
     await session.execute(
         text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": "issue-history-category-hierarchy"},
+    )
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
         {"key": "issue-history-import:" + source_key},
     )
     previous = await session.get(IssueImportRun, source_key)
@@ -209,6 +233,26 @@ async def _apply_import(
         code: import_id(source_key, "category", code)
         for code in sorted({item.area for item in manifest.issues})
     }
+    roots: dict[str, UUID] = {}
+    for root_code in sorted({category_parent_code(code) for code in categories}):
+        existing_root = await session.scalar(
+            select(IssueCategory).where(IssueCategory.code == root_code)
+        )
+        if existing_root is None:
+            existing_root = IssueCategory(
+                id=import_id(source_key, "root-category", root_code),
+                code=root_code,
+                name=ROOT_CATEGORY_NAMES[root_code],
+                sort_order=list(ROOT_CATEGORY_NAMES).index(root_code),
+                is_active=True,
+                revision=1,
+                parent_id=None,
+            )
+            session.add(existing_root)
+            await session.flush()
+        if existing_root.parent_id is not None or not existing_root.is_active:
+            raise AppError("issue_import_conflict", "Import parent is not an active root.", 409)
+        roots[root_code] = existing_root.id
     for order, (code, category_id) in enumerate(categories.items()):
         session.add(
             IssueCategory(
@@ -218,6 +262,7 @@ async def _apply_import(
                 sort_order=order,
                 is_active=True,
                 revision=1,
+                parent_id=roots[category_parent_code(code)],
             )
         )
     await session.flush()
@@ -345,6 +390,15 @@ async def verify_import(
             category is not None
             and category.code == original.area
             and category.name == CATEGORY_NAMES[original.area]
+        )
+        assert category is not None
+        root_category = (
+            await session.get(IssueCategory, category.parent_id) if category.parent_id else None
+        )
+        require(
+            root_category is not None
+            and root_category.parent_id is None
+            and root_category.code == category_parent_code(original.area)
         )
         events = list(
             (await session.scalars(select(IssueEvent).where(IssueEvent.issue_id == issue_id))).all()

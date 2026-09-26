@@ -28,6 +28,14 @@ class IssueCategory(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         UniqueConstraint("code", name="uq_issue_categories_code"),
         PrimaryKeyConstraint("id", name="pk_issue_categories"),
         CheckConstraint("revision > 0", name="ck_issue_categories_1"),
+        CheckConstraint(
+            "parent_id IS NULL OR parent_id <> id", name="ck_issue_categories_not_self"
+        ),
+    )
+    parent_id: Mapped[UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey("issue_categories.id", ondelete="RESTRICT", name="fk_issue_categories_parent"),
+        index=True,
     )
     code: Mapped[str] = mapped_column(String(100), unique=False)
     name: Mapped[str] = mapped_column(String(200))

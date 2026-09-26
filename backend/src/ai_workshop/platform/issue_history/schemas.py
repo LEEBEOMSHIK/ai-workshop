@@ -24,6 +24,7 @@ class Update(Command):
 
 
 class CategoryCreate(Command):
+    parent_id: UUID | None = None
     code: str = Field(min_length=1, max_length=100, pattern=r"^[a-zA-Z0-9_-]+$")
     name: Title
     sort_order: int = 0
@@ -31,12 +32,14 @@ class CategoryCreate(Command):
 
 
 class CategoryUpdate(Update):
+    parent_id: UUID | None = None
     name: Title
     sort_order: int = 0
     is_active: bool = True
 
 
 class IssueCategoryView(DTO):
+    parent_id: UUID | None = None
     id: UUID
     code: str
     name: str

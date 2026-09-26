@@ -19,9 +19,8 @@ export default async function WorkspaceLayout({
   if (!session.ok) return <ServerRouteFailure failure={session.failure} />;
   const user = session.value;
   return (
-    <div className="application-area">
-      <WorkspaceNavigation user={user} />
-      {children}
+    <div className="application-area workspace-area">
+      <WorkspaceNavigation user={user}>{children}</WorkspaceNavigation>
     </div>
   );
 }

@@ -132,11 +132,19 @@ it.each(["/workshop-other/workspaces", "/admin-other/rag/models", "/labs-other",
   }
 });
 
-it("keeps area and current-menu links reachable in normal keyboard order", async () => {
+it("keeps grouped menu, area links and account reachable in sidebar keyboard order", async () => {
   const user = userEvent.setup();
   render(<WorkspaceNavigation user={owner} />);
   await user.tab();
   expect(screen.getByRole("link", { name: "AI Workshop" })).toHaveFocus();
+  await user.tab();
+  expect(screen.getByText("비공개 작업소", {selector:"summary"})).toHaveFocus();
+  await user.tab();
+  expect(screen.getByRole("link", { name: "파일함" })).toHaveFocus();
+  await user.tab();
+  expect(screen.getByRole("link", { name: "RAG 대화" })).toHaveFocus();
+  await user.tab();
+  expect(screen.getByRole("link", { name: "학습 기록" })).toHaveFocus();
   await user.tab();
   expect(screen.getByRole("link", { name: "AI Lab" })).toHaveFocus();
   await user.tab();
@@ -145,6 +153,4 @@ it("keeps area and current-menu links reachable in normal keyboard order", async
   expect(screen.getByRole("link", { name: "관리자" })).toHaveFocus();
   await user.tab();
   expect(screen.getByRole("button", { name: "로그아웃" })).toHaveFocus();
-  await user.tab();
-  expect(screen.getByRole("link", { name: "파일함" })).toHaveFocus();
 });

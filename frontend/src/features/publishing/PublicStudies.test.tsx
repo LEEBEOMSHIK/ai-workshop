@@ -4,6 +4,7 @@ import {
   PublicStudyDetail,
   PublicStudyList,
   PublicStudyNotFound,
+  PublicStudyUnavailable,
 } from "./PublicStudies";
 import { studySnapshot } from "./test-fixtures";
 
@@ -29,7 +30,7 @@ describe("public studies", () => {
   });
   it("makes all card content one native detail link with no nested controls", () => {
     render(<PublicStudyList result={{ status: "ready", items: [studySnapshot()] }} />);
-    const card = screen.getByRole("listitem");
+    const card = within(screen.getByRole("main")).getByRole("listitem");
     const link = within(card).getByRole("link", { name: "하이브리드 검색 실험 읽기" });
     expect(link.tagName).toBe("A");
     expect(link).toHaveAttribute("href", "/studies/hybrid-search");
@@ -90,4 +91,14 @@ describe("public studies", () => {
     render(<PublicStudyDetail snapshot={studySnapshot()} />);
     expect(screen.getByText(/이미 열었거나 복사한 내용은 되돌려 회수할 수 없습니다/)).toBeVisible();
   });
+});
+
+
+it.each(["list", "detail", "not-found", "unavailable"])("keeps %s inside one shared public shell", (state) => {
+  render(state === "list" ? <PublicStudyList result={{ status: "ready", items: [] }} />
+    : state === "detail" ? <PublicStudyDetail snapshot={studySnapshot()} />
+      : state === "not-found" ? <PublicStudyNotFound /> : <PublicStudyUnavailable />);
+  expect(screen.getAllByRole("main")).toHaveLength(1);
+  expect(screen.getAllByRole("navigation", { name: "\uacf5\uac1c \uc804\uc2dc\uc2e4" })).toHaveLength(1);
+  expect(screen.getByRole("main")).not.toContainElement(screen.getByRole("navigation", { name: "\uacf5\uac1c \uc804\uc2dc\uc2e4" }));
 });

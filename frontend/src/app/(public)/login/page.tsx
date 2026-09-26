@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { PublicNavigation } from "../../../features/navigation/PublicNavigation";
 
 import { LoginPage } from "../../../features/identity/LoginPage";
 import { safeReturnPath } from "../../../shared/auth/access";
@@ -24,7 +25,7 @@ export default async function LoginRoute({ searchParams }: LoginRouteProps) {
   const result = await captureServerRoute(async () =>
     resolveSession(await incomingCookieHeader(), nextPath),
   );
-  if (!result.ok) return <ServerRouteFailure failure={result.failure} />;
+  if (!result.ok) return <PublicNavigation><ServerRouteFailure failure={result.failure} /></PublicNavigation>;
   const decision = result.value;
   if (decision.kind === "authenticated") redirect(nextPath);
   if (decision.destination.startsWith(`${routes.setup}?`)) {

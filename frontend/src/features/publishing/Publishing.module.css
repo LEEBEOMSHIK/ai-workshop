@@ -23,7 +23,7 @@
 }
 
 .shell {
-  min-height: 100vh;
+  min-height: calc(100dvh - var(--application-header-height, 0rem));
   padding: clamp(1.25rem, 4vw, 4rem);
   color: var(--study-text);
   background: radial-gradient(circle at 90% 0, rgb(85 217 201 / 12%), transparent 28rem), #0a0e13;

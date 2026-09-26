@@ -47,54 +47,56 @@ export function LoginPage({
 
   if (user) {
     return (
-      <div className={styles.page}>
-        <PublicNavigation />
-        <main className={styles.shell}>
-          <section className={styles.card}>
-            <p className={styles.eyebrow}>AUTHENTICATED</p>
-            <h1 className={styles.title}>{user.display_name}님, 환영합니다.</h1>
-            <Link className={styles.primaryLink} href={resolvedNextPath}>
-              작업소 열기
-            </Link>
-            <Link href={routes.labs}>AI Lab으로 돌아가기</Link>
-          </section>
-        </main>
-      </div>
+      <PublicNavigation>
+        <div className={styles.page}>
+          <main className={styles.shell}>
+            <section className={styles.card}>
+              <p className={styles.eyebrow}>AUTHENTICATED</p>
+              <h1 className={styles.title}>{user.display_name}님, 환영합니다.</h1>
+              <Link className={styles.primaryLink} href={resolvedNextPath}>
+                작업소 열기
+              </Link>
+              <Link href={routes.labs}>AI Lab으로 돌아가기</Link>
+            </section>
+          </main>
+        </div>
+      </PublicNavigation>
     );
   }
 
   return (
-    <div className={styles.page}>
-      <PublicNavigation />
-      <main className={styles.shell}>
-        <section className={styles.card} aria-labelledby="login-title">
-          <p className={styles.eyebrow}>PRIVATE WORKSHOP</p>
-          <h1 className={styles.title} id="login-title">
-            다시 오셨군요.
-          </h1>
-          <p className={styles.copy}>소유자 계정으로 로컬 작업소에 입장합니다.</p>
-          <form className={styles.form} onSubmit={handleSubmit} aria-busy={isSubmitting}>
-            <label>
-              이메일
-              <input name="email" type="email" autoComplete="email" required />
-            </label>
-            <label>
-              비밀번호
-              <input
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                required
-              />
-            </label>
-            {error ? <p className={styles.error} role="alert">{error}</p> : null}
-            <button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "확인 중…" : "작업소 입장"}
-            </button>
-          </form>
-          <Link href={routes.labs}>로그인 없이 AI Lab 둘러보기</Link>
-        </section>
-      </main>
-    </div>
+    <PublicNavigation>
+      <div className={styles.page}>
+        <main className={styles.shell}>
+          <section className={styles.card} aria-labelledby="login-title">
+            <p className={styles.eyebrow}>PRIVATE WORKSHOP</p>
+            <h1 className={styles.title} id="login-title">
+              다시 오셨군요.
+            </h1>
+            <p className={styles.copy}>소유자 계정으로 로컬 작업소에 입장합니다.</p>
+            <form className={styles.form} onSubmit={handleSubmit} aria-busy={isSubmitting}>
+              <label>
+                이메일
+                <input name="email" type="email" autoComplete="email" required />
+              </label>
+              <label>
+                비밀번호
+                <input
+                  name="password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                />
+              </label>
+              {error ? <p className={styles.error} role="alert">{error}</p> : null}
+              <button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? "확인 중…" : "작업소 입장"}
+              </button>
+            </form>
+            <Link href={routes.labs}>로그인 없이 AI Lab 둘러보기</Link>
+          </section>
+        </main>
+      </div>
+    </PublicNavigation>
   );
 }

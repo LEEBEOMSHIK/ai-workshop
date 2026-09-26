@@ -1019,7 +1019,7 @@ h1 {
 
 .auth-shell {
   display: grid;
-  min-height: 100vh;
+  min-height: calc(100dvh - var(--application-header-height, 0rem));
   place-items: center;
   padding: 1.25rem;
   background:
@@ -2676,4 +2676,19 @@ mark.semantic-highlight {
 @container admin-content (max-width: 54rem) {
   .registry-grid,
   .version-forms { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Shared navigation leaves this viewport space for the active conversation. */
+.workspace-area main { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.workspace-area .conversation-shell:has(.conversation-layout) {
+  box-sizing: border-box;
+  height: calc(100dvh - var(--application-header-height, 3.75rem));
+  min-height: 30rem;
+}
+@container workspace-content (max-width: 48rem) {
+  .conversation-layout { display: flex; flex-direction: column; gap: .4rem; }
+  .conversation-sidebar { flex: none; max-height: 3.5rem; padding: .3rem; border-right: 0; border-bottom: 1px solid var(--color-border-subtle); }
+  .conversation-main { flex: 1; }
+  .conversation-main .conversation-transcript { min-height: 8rem; max-height: none; }
+  .conversation-header { flex-wrap: wrap; }
 }

@@ -9,6 +9,7 @@ const replace = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace }),
+  usePathname: () => "/setup",
 }));
 
 beforeEach(() => replace.mockClear());

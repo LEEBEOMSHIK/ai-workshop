@@ -7,7 +7,7 @@
   --login-accent: #55d9c9;
   display: flex;
   flex-direction: column;
-  min-height: 100svh;
+  min-height: calc(100dvh - var(--application-header-height, 0rem));
   color: var(--login-text);
   background: var(--login-bg);
   overflow-wrap: anywhere;

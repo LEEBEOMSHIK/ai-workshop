@@ -6,7 +6,7 @@
   --file-muted: #91a0ac;
   --file-accent: #55d9c9;
   --file-error: #ffb7ad;
-  min-height: 100vh;
+  min-height: calc(100dvh - var(--application-header-height, 0rem));
   padding: clamp(1rem, 2.5vw, 2.5rem);
   background: var(--file-bg);
   overflow-wrap: anywhere;
@@ -138,6 +138,20 @@
 }
 
 @media (max-width: 680px) {
+  .header { align-items: flex-start; flex-direction: column; }
+  .explorer, .explorerWithViewer { display: block; }
+  .tree { border-right: 0; border-bottom: 1px solid var(--file-border); }
+  .treeToggle { display: inline-flex; }
+  .fileRow { grid-template-columns: minmax(0, 1fr) auto; }
+  .fileRow > :last-child { grid-column: 1 / -1; }
+  .viewerHeader { flex-direction: column; }
+}
+
+@container workspace-content (max-width: 76rem) {
+  .explorer, .explorerWithViewer { grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr); }
+  .viewer:not(.viewerExpanded) { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--file-border); }
+}
+@container workspace-content (max-width: 43rem) {
   .header { align-items: flex-start; flex-direction: column; }
   .explorer, .explorerWithViewer { display: block; }
   .tree { border-right: 0; border-bottom: 1px solid var(--file-border); }

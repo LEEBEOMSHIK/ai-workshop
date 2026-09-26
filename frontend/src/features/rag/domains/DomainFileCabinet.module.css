@@ -43,3 +43,9 @@
   .selectionBar { align-items: stretch; flex-direction: column; }
   .shell :global(.domain-navigation) { flex-wrap: wrap; }
 }
+
+@container workspace-content (max-width: 43rem) {
+  .topbar,
+  .selectionBar { align-items: stretch; flex-direction: column; }
+  .shell :global(.domain-navigation) { flex-wrap: wrap; }
+}

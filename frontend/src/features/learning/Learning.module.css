@@ -5,7 +5,7 @@
 }
 
 .shell {
-  min-height: 100vh;
+  min-height: calc(100dvh - var(--application-header-height, 0rem));
   padding: clamp(1.25rem, 4vw, 4rem);
   background: color-mix(in srgb, var(--color-border-subtle) 20%, transparent);
 }
@@ -159,6 +159,12 @@
 .preview { margin-top: 1rem; padding: 1rem; border: 1px solid var(--color-border-subtle); border-radius: 0.75rem; }
 
 @media (max-width: 720px) {
+  .formGrid,
+  .cards { grid-template-columns: 1fr; }
+  .detailHeader { grid-template-columns: 1fr; }
+}
+
+@container workspace-content (max-width: 48rem) {
   .formGrid,
   .cards { grid-template-columns: 1fr; }
   .detailHeader { grid-template-columns: 1fr; }

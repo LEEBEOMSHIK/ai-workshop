@@ -1,7 +1,6 @@
 "use client";
-import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import { routes } from "../../shared/routing/routes";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { PublicNavigation } from "../navigation/PublicNavigation";
 import { createGameStore } from "./gameStore";
 import { mountGame } from "./lifecycle";
 import { prepareInitialGameFocus } from "./initialFocus";
@@ -22,17 +21,17 @@ export function GameClient() {
     return () => { stopInitialFocus(); unmountGame(); };
   }, [store]);
   const focusGame = () => host.current?.querySelector("canvas")?.focus({ preventScroll: true });
-  return <main className={styles.shell}>
-    <header className={styles.header}>
-      <Link href={routes.home} className={styles.brand}><span className={styles.logo} aria-hidden="true">A</span><span>AI WORKSHOP<small>RESEARCH CAMPUS</small></span></Link>
-      <nav aria-label="공개 전시실" className="tw:flex tw:items-center tw:gap-6">
-        <Link href={routes.labs}>AI Labs <span aria-hidden="true">↗</span></Link>
-        <Link href={routes.workshopHome} className={styles.workshopLink}>내 작업소</Link>
-      </nav>
-    </header>
+  const handleMenuOpenChange = useCallback((open: boolean) => {
+    // Movement is canvas-scoped; blur clears held keys and the native modal
+    // keeps the canvas inert. Closing the menu does not steal focus back.
+    if (open) host.current?.querySelector("canvas")?.blur();
+  }, []);
+  return <PublicNavigation immersive onMenuOpenChange={handleMenuOpenChange}>
+    <main className={styles.shell}>
     <section className={styles.world} aria-label="게임형 AI 연구소">
       <div ref={host} className={styles.canvasHost} />
       <OfficeOverlay store={store} focusGame={focusGame} />
     </section>
-  </main>;
+    </main>
+  </PublicNavigation>;
 }

@@ -10,8 +10,7 @@
   --layer-equipment: 2;
   --layer-character: 3;
   --layer-hud: 4;
-  min-height: 100vh;
-  min-height: 100dvh;
+  min-height: 100%;
   overflow-x: clip;
   color: var(--lab-text);
   background:

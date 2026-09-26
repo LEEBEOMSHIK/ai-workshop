@@ -6,7 +6,7 @@
   --directory-border: #2c3a44;
   --directory-surface: #111820;
   --directory-hover: #182b31;
-  min-height: 100dvh;
+  min-height: 100%;
   color: var(--directory-text);
   background: radial-gradient(circle at 90% 0, rgb(85 217 201 / 12%), transparent 28rem), #0a0e13;
 }

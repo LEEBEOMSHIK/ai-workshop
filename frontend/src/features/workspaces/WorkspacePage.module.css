@@ -3,7 +3,7 @@
   --file-border: #2b3944;
   --file-accent: #55d9c9;
   --file-muted: #91a0ac;
-  min-height: 100vh;
+  min-height: calc(100dvh - var(--application-header-height, 0rem));
   padding: clamp(1rem, 2.5vw, 2.5rem);
   background: #0a0e13;
   overflow-wrap: anywhere;
@@ -77,6 +77,13 @@
 .temporary { color: #bdc5e9; background: #232a48; }
 
 @media (max-width: 680px) {
+  .header { align-items: flex-start; flex-direction: column; }
+  .explorer { grid-template-columns: minmax(0, 1fr); }
+  .sidebar { border-right: 0; border-bottom: 1px solid var(--file-border); }
+  .open { display: none; }
+}
+
+@container workspace-content (max-width: 48rem) {
   .header { align-items: flex-start; flex-direction: column; }
   .explorer { grid-template-columns: minmax(0, 1fr); }
   .sidebar { border-right: 0; border-bottom: 1px solid var(--file-border); }

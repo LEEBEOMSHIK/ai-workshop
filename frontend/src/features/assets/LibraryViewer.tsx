@@ -33,9 +33,10 @@ interface LibraryViewerProps {
   onVersionChange: (versionId: string) => void;
   keyboardEnabled?: boolean;
   showEvidenceApproval?: boolean;
+  allowExpand?: boolean;
 }
 
-export function LibraryViewer({ document, initialVersionId, onClose, onVersionChange, keyboardEnabled = true, showEvidenceApproval = true }: LibraryViewerProps) {
+export function LibraryViewer({ document, initialVersionId, onClose, onVersionChange, keyboardEnabled = true, showEvidenceApproval = true, allowExpand = true }: LibraryViewerProps) {
   const [selectedVersionId, setSelectedVersionId] = useState(initialVersionId ?? document.active_version_id);
   const [versions, setVersions] = useState<AssetVersion[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -172,7 +173,7 @@ export function LibraryViewer({ document, initialVersionId, onClose, onVersionCh
         <p>{selectedVersionId ? selectedVersionLabel(document, selectedVersionId, preview?.version) : "활성 원본 없음"}</p>
       </div>
       <div className={styles.viewerActions}>
-        <button type="button" onClick={() => setExpanded((current) => !current)}>{expanded ? "기본 크기" : "넓게 보기"}</button>
+        {allowExpand ? <button type="button" onClick={() => setExpanded((current) => !current)}>{expanded ? "기본 크기" : "넓게 보기"}</button> : null}
         <button ref={closeButtonRef} type="button" onClick={onClose}>문서 닫기</button>
       </div>
     </header>

@@ -14,7 +14,6 @@ export function ScopeSelector({
   folderError,
   mode,
   selection,
-  onOpenDocuments,
   onApplyScope,
   onToggleOpen,
 }: {
@@ -27,7 +26,6 @@ export function ScopeSelector({
   folderError: boolean;
   mode: ScopeMode;
   selection: Selection;
-  onOpenDocuments: (opener: HTMLButtonElement) => void;
   onApplyScope: (mode: Exclude<ScopeMode, "documents">, workspaceIds: string[], folderIds: string[]) => void;
   onToggleOpen: () => void;
 }) {
@@ -43,7 +41,6 @@ export function ScopeSelector({
         <p><strong>선택 문서만 검색</strong></p>
         <p>{scopeSummary(buildScopeSnapshot(domain, workspaceIds, [], foldersByWorkspace, selection))}</p>
         <div className="scope-controls">
-          <button type="button" disabled={searching} onClick={(event) => onOpenDocuments(event.currentTarget)}>파일 선택</button>
           <button type="button" className="secondary-button" disabled={searching} onClick={onToggleOpen}>공간·폴더 범위로 전환</button>
         </div>
         {!selection || selection.documentIds.length === 0 ? <p role="status">선택 문서가 없습니다. 문서를 추가해야 질문을 보낼 수 있습니다.</p> : null}
@@ -53,7 +50,6 @@ export function ScopeSelector({
   return (
     <section className="conversation-scope">
       <p><strong>{mode === "documents" ? "선택 문서만 검색" : mode === "folder" ? "폴더 범위 검색" : "공간 범위 검색"}</strong></p>
-      <button type="button" disabled={searching} onClick={(event) => onOpenDocuments(event.currentTarget)}>파일 선택</button>
       <button type="button" className="scope-toggle" aria-expanded={open} disabled={searching} onClick={onToggleOpen}>
         {open ? "검색 범위 닫기" : "검색 범위 열기"}
       </button>

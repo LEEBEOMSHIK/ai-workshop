@@ -50,6 +50,7 @@ it("places initial focus inside the modal and contains forward and reverse Tab n
   render(<DocumentSelectionPanel slug="asset-management" currentDocuments={[document]} workspaceIds={[workspaceId]} folderIds={[]} foldersByWorkspace={{}} onApply={vi.fn()} onClose={vi.fn()} returnFocus={opener} />);
 
   const dialog = await screen.findByRole("dialog", { name: "파일 선택" });
+  expect(window.document.body.style.overflow).toBe("hidden");
   const closeButton = within(dialog).getByRole("button", { name: "닫기" });
   const lastControl = await screen.findByRole("checkbox", { name: "운용 규정.md 선택" });
   expect(closeButton).toHaveFocus();
@@ -116,6 +117,7 @@ it("keeps embedded folder, workspace, and viewer navigation out of chat history"
   const documentOpener = await screen.findByRole("button", { name: `${document.name} 열기` });
   await user.click(documentOpener);
   expect(await screen.findByText("원문")).toBeVisible();
+  expect(screen.queryByRole("button", { name: "넓게 보기" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "이 버전에 대한 Codex 승인 요청" })).not.toBeInTheDocument();
   expect(vi.mocked(fetch).mock.calls.every(([input]) => !String(input).includes("evidence-approval"))).toBe(true);
   expect(window.location.href).toBe(chatUrl);

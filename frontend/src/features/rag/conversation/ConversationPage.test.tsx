@@ -46,6 +46,14 @@ beforeEach(() => window.history.replaceState(null, "", "/"));
 afterEach(() => vi.unstubAllGlobals());
 
 describe("ConversationPage", () => {
+  it("uses the composer plus as the only document selection entry", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json([])));
+    const user = userEvent.setup();
+    render(<ConversationPage domain={domain()} />);
+    expect(screen.queryByRole("button", { name: "파일 선택" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "문서 추가" }));
+    expect(screen.getByRole("button", { name: "기존 문서 선택" })).toBeVisible();
+  });
   it("preserves the applied bounded selection when a read-only draft closes without Apply", async () => {
     const folder = { id: "folder-1", workspace_id: "workspace-1", metadata_revision: 1, name: "리스크", parent_id: null, has_children: false };
     const scoped = { ...selectedDocument(), folder_id: folder.id };
@@ -65,12 +73,15 @@ describe("ConversationPage", () => {
     await user.click(screen.getByRole("radio", { name: "폴더" }));
     await user.click(await screen.findByRole("checkbox", { name: /회사 규정 \/ 리스크/ }));
     await user.click(screen.getByRole("button", { name: "범위 적용" }));
-    await user.click(screen.getByRole("button", { name: "파일 선택" }));
+    await user.click(screen.getByRole("button", { name: "문서 추가" }));
+    await user.click(screen.getByRole("button", { name: "기존 문서 선택" }));
     await user.click(await screen.findByRole("checkbox", { name: "운용 규정.md 선택" }));
     await user.click(screen.getByRole("button", { name: "선택 적용" }));
+    expect(screen.getByRole("button", { name: "문서 추가" })).toHaveFocus();
     await user.type(screen.getByRole("textbox", { name: "질문" }), "합성 질문");
     expect(screen.getByRole("button", { name: "질문 보내기" })).toBeEnabled();
-    await user.click(screen.getByRole("button", { name: "파일 선택" }));
+    await user.click(screen.getByRole("button", { name: "문서 추가" }));
+    await user.click(screen.getByRole("button", { name: "기존 문서 선택" }));
     const panel = await screen.findByRole("dialog", { name: "파일 선택" });
     const selected = await within(panel).findByRole("checkbox", { name: "운용 규정.md 선택" });
     expect(selected).toBeChecked();
@@ -79,8 +90,11 @@ describe("ConversationPage", () => {
     expect(selected).not.toBeChecked();
     await user.click(within(panel).getByRole("button", { name: "닫기" }));
     expect(screen.queryByRole("dialog", { name: "파일 선택" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "문서 추가" })).toHaveFocus();
+    expect(document.body.style.overflow).toBe("");
     expect(screen.getByRole("button", { name: "질문 보내기" })).toBeEnabled();
-    await user.click(screen.getByRole("button", { name: "파일 선택" }));
+    await user.click(screen.getByRole("button", { name: "문서 추가" }));
+    await user.click(screen.getByRole("button", { name: "기존 문서 선택" }));
     expect(await screen.findByRole("checkbox", { name: "운용 규정.md 선택" })).toBeChecked();
     expect(posts).toHaveLength(0);
   }, 20_000);
@@ -192,7 +206,8 @@ describe("ConversationPage", () => {
     const user = userEvent.setup();
     render(<ConversationPage domain={domain()} initialSelection={selectionFromDocuments([selectedDocument()])} />);
 
-    await user.click(screen.getByRole("button", { name: "파일 선택" }));
+    await user.click(screen.getByRole("button", { name: "문서 추가" }));
+    await user.click(screen.getByRole("button", { name: "기존 문서 선택" }));
     await user.click(await screen.findByRole("checkbox", { name: "운용 규정.md 선택" }));
     await user.click(screen.getByRole("button", { name: "선택 적용" }));
     expect(screen.getByText("선택 문서 없음")).toBeVisible();
@@ -212,7 +227,8 @@ describe("ConversationPage", () => {
     }));
     const user = userEvent.setup();
     render(<ConversationPageImpl domain={domain()} />);
-    await user.click(screen.getByRole("button", { name: "파일 선택" }));
+    await user.click(screen.getByRole("button", { name: "문서 추가" }));
+    await user.click(screen.getByRole("button", { name: "기존 문서 선택" }));
     await user.click(await screen.findByRole("checkbox", { name: "운용 규정.md 선택" }));
     await user.click(screen.getByRole("button", { name: "선택 적용" }));
     await user.type(screen.getByRole("textbox", { name: "질문" }), "바로 파일 질문");
@@ -527,7 +543,8 @@ describe("ConversationPage", () => {
     await user.click(await screen.findByRole("checkbox", { name: /리스크/ }));
     await user.click(screen.getByRole("checkbox", { name: /개인 연구 \/ 개인/ }));
     await user.click(screen.getByRole("button", { name: "범위 적용" }));
-    await user.click(screen.getByRole("button", { name: "파일 선택" }));
+    await user.click(screen.getByRole("button", { name: "문서 추가" }));
+    await user.click(screen.getByRole("button", { name: "기존 문서 선택" }));
     await screen.findByRole("dialog", { name: "파일 선택" });
     expect(screen.getByRole("button", { name: "개인 연구" })).toBeVisible();
     await user.click(await screen.findByRole("checkbox", { name: `${scopedDocument.name} 선택` }));
@@ -553,13 +570,15 @@ describe("ConversationPage", () => {
     const consent = screen.getByRole("checkbox", { name: "이번 질문의 외부 처리를 확인했습니다" });
 
     await user.click(consent);
-    await user.click(screen.getByRole("button", { name: "파일 선택" }));
+    await user.click(screen.getByRole("button", { name: "문서 추가" }));
+    await user.click(screen.getByRole("button", { name: "기존 문서 선택" }));
     await user.click(await screen.findByRole("checkbox", { name: "추가 문서.md 선택" }));
     await user.click(screen.getByRole("button", { name: "선택 적용" }));
     expect(consent).not.toBeChecked();
 
     await user.click(consent);
-    await user.click(screen.getByRole("button", { name: "파일 선택" }));
+    await user.click(screen.getByRole("button", { name: "문서 추가" }));
+    await user.click(screen.getByRole("button", { name: "기존 문서 선택" }));
     await user.click(await screen.findByRole("checkbox", { name: "운용 규정.md 선택" }));
     await user.click(screen.getByRole("button", { name: "선택 적용" }));
     expect(consent).not.toBeChecked();

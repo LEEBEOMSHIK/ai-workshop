@@ -126,6 +126,12 @@
 
 .shell :focus-visible { outline: 2px solid var(--file-accent); outline-offset: 2px; }
 
+.embedded { min-height: 0; padding: 0; }
+.embedded > .header { display: none; }
+.embedded .explorer,
+.embedded .explorerWithViewer { min-height: 18rem; grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr); }
+.embedded .viewer { position: static; grid-column: 1 / -1; min-width: 0; border-top: 1px solid var(--file-border); }
+
 @media (max-width: 980px) {
   .explorer, .explorerWithViewer { grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr); }
   .viewer { position: fixed; z-index: 25; inset: 0; border: 0; }

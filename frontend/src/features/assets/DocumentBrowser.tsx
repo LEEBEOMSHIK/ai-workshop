@@ -37,6 +37,7 @@ interface DocumentBrowserProps {
   initialDocument: DocumentSummary | null;
   initialVersionId: string | null;
   readOnly?: boolean;
+  embedded?: boolean;
   showMemberManagement?: boolean;
   showEvidenceApproval?: boolean;
   browse?: typeof browseLibrary;
@@ -84,6 +85,7 @@ function DocumentBrowserScope({
   initialDocument,
   initialVersionId,
   readOnly = false,
+  embedded = false,
   showMemberManagement = false,
   showEvidenceApproval = true,
   browse = browseLibrary,
@@ -493,7 +495,7 @@ function DocumentBrowserScope({
     } finally { mutationLock.current = false; if (mounted.current) setMutating(false); }
   }
 
-  return <main className={styles.shell} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "none"; }} onDrop={(event) => event.preventDefault()}>
+  return <main className={`${styles.shell} ${embedded ? styles.embedded : ""}`} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "none"; }} onDrop={(event) => event.preventDefault()}>
     <header className={styles.header}>
       <div>
         <p className={styles.kicker}>FILE CABINET</p>
@@ -557,7 +559,7 @@ function DocumentBrowserScope({
         </div>
         {selectionResolved && library.next_document_cursor ? <button type="button" disabled={loadingMoreDocuments} onClick={loadMoreDocuments}>문서 더 보기</button> : null}
       </section>
-      {selectedDocument ? <LibraryViewer key={`${selectedDocument.id}:${selectedVersionId ?? "active"}`} document={selectedDocument} initialVersionId={selectedVersionId} keyboardEnabled={!movement.pending} showEvidenceApproval={showEvidenceApproval} onClose={closeDocument} onVersionChange={(versionId) => {
+      {selectedDocument ? <LibraryViewer key={`${selectedDocument.id}:${selectedVersionId ?? "active"}`} document={selectedDocument} initialVersionId={selectedVersionId} keyboardEnabled={!movement.pending} allowExpand={!embedded} showEvidenceApproval={showEvidenceApproval} onClose={closeDocument} onVersionChange={(versionId) => {
         selectViewerVersion(versionId);
         publishSelection(workspaceId, { folderId: selectedDocument.folder_id, documentId: selectedDocument.id, versionId });
       }} /> : null}

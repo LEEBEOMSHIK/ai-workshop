@@ -295,6 +295,7 @@ export function DomainFileCabinet({
         writeSelection={publishSelection}
         readSelection={readSelection}
         navigationEnabled={!embedded}
+        embedded={embedded}
         onRestoreWorkspace={(workspaceId, selection) => void loadWorkspace(workspaceId, selection, false)}
         onSelectWorkspace={(workspaceId) => void loadWorkspace(workspaceId, { folderId: null, documentId: null, versionId: null }, true)}
         selectedDocumentIds={invalidated ? new Set() : new Set(selected.keys())}

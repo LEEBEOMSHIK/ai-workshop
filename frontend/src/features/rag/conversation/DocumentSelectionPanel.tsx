@@ -64,6 +64,9 @@ export function DocumentSelectionPanel({ slug, currentDocuments, workspaceIds, f
 
   useEffect(() => {
     closeButtonRef.current?.focus();
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previousOverflow; };
   }, []);
 
   function close() {
@@ -101,7 +104,8 @@ export function DocumentSelectionPanel({ slug, currentDocuments, workspaceIds, f
         <h2 id="document-selection-title">파일 선택</h2>
         <button ref={closeButtonRef} type="button" onClick={close}>닫기</button>
       </header>
-      <p>이번 대화에서 검색할 문서를 선택하세요. 문서 업로드와 이동 등 관리는 파일함에서 할 수 있습니다.</p>
+      <div className={styles.body}>
+      <p className={styles.description}>답변의 근거로 사용할 문서를 선택하세요.</p>
       {error ? <p className={styles.error} role="alert">도메인 파일함을 불러오지 못했습니다. 현재 선택은 유지됩니다.</p> : null}
       {!data && !error ? <p role="status">도메인 파일함을 불러오는 중…</p> : null}
       {data ? <DomainFileCabinet
@@ -119,6 +123,7 @@ export function DocumentSelectionPanel({ slug, currentDocuments, workspaceIds, f
         onApplySelection={(documents) => { onApply(documents); close(); }}
         onSelectionInvalidated={onSelectionInvalidated}
       /> : null}
+      </div>
     </section>
   </div>;
 }

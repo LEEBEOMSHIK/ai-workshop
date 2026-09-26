@@ -84,6 +84,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const returnFocus = useRef<HTMLElement | null>(null);
+  const attachmentButtonRef = useRef<HTMLButtonElement>(null);
   const [selectionReturnFocus, setSelectionReturnFocus] = useState<HTMLElement | null>(null);
   const originalReturnFocus = useRef<HTMLElement | null>(null);
 
@@ -389,9 +390,9 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
     queueMicrotask(() => returnFocus.current?.focus());
   }
 
-  function openDocumentPanel(opener: HTMLButtonElement) {
+  function openDocumentPanel() {
     if (searching) return;
-    setSelectionReturnFocus(opener);
+    setSelectionReturnFocus(attachmentButtonRef.current);
     setSelectionPanelOpen(true);
   }
 
@@ -518,7 +519,6 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
         folderError={folderError}
         mode={scopeMode}
         selection={selection}
-        onOpenDocuments={openDocumentPanel}
         onApplyScope={applyScope}
         onToggleOpen={() => setScopeOpen((current) => !current)}
       />
@@ -574,8 +574,8 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
         </label>
         <div className="composer-actions">
           <div className="conversation-add-menu">
-            <button type="button" aria-label="문서 추가" aria-expanded={attachmentMenuOpen} disabled={searching || sessionLoading} onClick={() => setAttachmentMenuOpen(current => !current)}>＋</button>
-            {attachmentMenuOpen ? <div role="group" aria-label="문서 추가 방법"><button type="button" onClick={event => {openDocumentPanel(event.currentTarget); setAttachmentMenuOpen(false);}}>기존 문서 선택</button><button type="button" onClick={() => {setUploadOpen(true); setAttachmentMenuOpen(false);}}>PC 파일 첨부</button></div> : null}
+            <button ref={attachmentButtonRef} type="button" aria-label="문서 추가" aria-expanded={attachmentMenuOpen} disabled={searching || sessionLoading} onClick={() => setAttachmentMenuOpen(current => !current)}>＋</button>
+            {attachmentMenuOpen ? <div role="group" aria-label="문서 추가 방법"><button type="button" onClick={() => {openDocumentPanel(); setAttachmentMenuOpen(false);}}>기존 문서 선택</button><button type="button" onClick={() => {setUploadOpen(true); setAttachmentMenuOpen(false);}}>PC 파일 첨부</button></div> : null}
           </div>
           <button type="submit" disabled={!canSend}>질문 보내기</button>
           {searching ? <button type="button" className="secondary-button" onClick={() => cancelCurrent()}>답변 취소</button> : null}

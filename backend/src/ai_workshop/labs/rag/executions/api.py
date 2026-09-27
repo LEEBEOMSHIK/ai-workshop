@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Response
 
 from ai_workshop.config import Settings, get_settings
 from ai_workshop.labs.rag.conversations.access import ConversationAccess
+from ai_workshop.labs.rag.evaluation.generative_monitoring import GenerativeMonitoringReader
 from ai_workshop.labs.rag.executions.read_repository import SqlAlchemyMonitoringRepository
 from ai_workshop.labs.rag.executions.schemas import (
     ExecutionDetailResponse,
@@ -34,7 +35,9 @@ async def get_service(
     sessions = create_session_factory(engine)
     try:
         yield ExecutionReadService(
-            SqlAlchemyMonitoringRepository(sessions), ConversationAccess(sessions)
+            SqlAlchemyMonitoringRepository(sessions),
+            ConversationAccess(sessions),
+            GenerativeMonitoringReader(sessions),
         )
     finally:
         await engine.dispose()

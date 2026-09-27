@@ -118,6 +118,11 @@ class AuthoringRunRequest(AuthoringScope):
         )
 
 
+class AuthoringSnapshotResponse(ClosedModel):
+    id: UUID
+    cases: list[AuthoringCase]
+
+
 class AuthoringDocumentMetadata(ClosedModel):
     document_id: UUID
     workspace_id: UUID

@@ -14,6 +14,7 @@ from ai_workshop.labs.rag.evaluation.authoring_schemas import (
     AuthoringPreview,
     AuthoringRunRequest,
     AuthoringScope,
+    AuthoringSnapshotResponse,
 )
 from ai_workshop.labs.rag.evaluation.repository import SqlAlchemyEvaluationApplicationRepository
 from ai_workshop.labs.rag.evaluation.schemas import EvaluationRunResponse
@@ -81,3 +82,21 @@ async def authoring_run(
     service: Annotated[AuthoringService, Depends(get_authoring_service)],
 ) -> EvaluationRunResponse:
     return EvaluationRunResponse.from_domain(await service.run(user.id, request))
+
+
+@router.post("/snapshots", response_model=AuthoringSnapshotResponse, status_code=201)
+async def freeze_snapshot(
+    request: AuthoringRunRequest,
+    response: Response,
+    user: Annotated[User, Depends(require_owner)],
+    service: Annotated[AuthoringService, Depends(get_authoring_service)],
+) -> AuthoringSnapshotResponse:
+    response.headers["Cache-Control"] = "no-store"
+    dataset = await service.freeze_snapshot(user.id, request)
+    return AuthoringSnapshotResponse(
+        id=dataset.id,
+        cases=[
+            original.model_copy(update={"id": saved.id})
+            for original, saved in zip(request.cases, dataset.cases, strict=True)
+        ],
+    )

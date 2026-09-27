@@ -31,7 +31,7 @@ from ai_workshop.labs.rag.retrieval.domain import (
     SearchIndexTarget,
     SparseHit,
 )
-from ai_workshop.labs.rag.search import service as search_service_module
+from ai_workshop.labs.rag.search import pipeline as search_service_module
 from ai_workshop.labs.rag.search.configuration_port import (
     ResolvedExternalApproval,
     ResolvedSearchConfiguration,
@@ -74,9 +74,7 @@ class StubConfigurationResolver:
     def __init__(self, configuration: ResolvedSearchConfiguration) -> None:
         self.configuration = configuration
 
-    async def resolve(
-        self, configuration_id: UUID, actor_id: UUID
-    ) -> ResolvedSearchConfiguration:
+    async def resolve(self, configuration_id: UUID, actor_id: UUID) -> ResolvedSearchConfiguration:
         assert (configuration_id, actor_id) == (CONFIGURATION_ID, ACTOR_ID)
         return self.configuration
 
@@ -402,9 +400,7 @@ async def test_denied_workspace_is_audited_before_any_payload_or_runtime() -> No
                 configuration_id=CONFIGURATION_ID,
                 workspace_ids=[WORKSPACE_ID, OTHER_WORKSPACE_ID],
                 experimental=True,
-                history=[
-                    ConversationTurnRequest(role="user", content="payload canary")
-                ],
+                history=[ConversationTurnRequest(role="user", content="payload canary")],
             ),
         )
 

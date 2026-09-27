@@ -13,6 +13,7 @@ from ai_workshop.labs.rag.conversations import (
 from ai_workshop.labs.rag.conversations import models as rag_conversation_models  # noqa: F401
 from ai_workshop.labs.rag.deployments import models as rag_deployment_models  # noqa: F401
 from ai_workshop.labs.rag.documents import models as rag_document_models  # noqa: F401
+from ai_workshop.labs.rag.evaluation import generative_models as rag_generative_models  # noqa: F401
 from ai_workshop.labs.rag.evaluation import models as rag_evaluation_models  # noqa: F401
 from ai_workshop.labs.rag.executions import models as rag_execution_models  # noqa: F401
 from ai_workshop.labs.rag.generation import (

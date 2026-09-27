@@ -1,6 +1,6 @@
 from collections.abc import Callable, Mapping
 from typing import Literal, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -676,6 +676,57 @@ class SqlAlchemyRagConfigurationRepository:
         version.evaluation_state = EvaluationState.PASSED
         await self.session.flush()
         return EvaluationAcceptanceResult(accepted, run.id, policy_record.id)
+
+    async def accept_generative_evaluation(
+        self,
+        *,
+        version_id: UUID,
+        evaluation_run_id: UUID,
+        actor_id: UUID,
+    ) -> dict[str, object]:
+        from sqlalchemy import text
+
+        from ai_workshop.labs.rag.evaluation.generative_models import GenerativeRunRecord
+
+        identity = await self.session.scalar(
+            select(RagConfigurationRecord)
+            .join(
+                RagConfigurationVersionRecord,
+                RagConfigurationVersionRecord.configuration_id == RagConfigurationRecord.id,
+            )
+            .where(
+                RagConfigurationVersionRecord.id == version_id,
+                RagConfigurationRecord.owner_id == actor_id,
+            )
+            .with_for_update()
+        )
+        run = await self.session.get(GenerativeRunRecord, evaluation_run_id)
+        version = await self.session.get(RagConfigurationVersionRecord, version_id)
+        if identity is None or run is None or run.owner_id != actor_id or version is None:
+            raise AppError("not_found", "The evaluation is unavailable.", 404)
+        metrics = await self.session.scalar(
+            text("SELECT rag_verify_generative_candidate(:run,:version)"),
+            {"run": run.id, "version": version.id},
+        )
+        await self.session.execute(
+            text("""INSERT INTO rag_generative_acceptances
+            (id,run_id,configuration_version_id,policy_id,generation_profile_id,
+             rules_digest,snapshot_digest,metrics)
+            VALUES (:id,:run,:version,:policy,:profile,:rules,:snapshot,'{}')
+            ON CONFLICT(run_id,configuration_version_id) DO NOTHING"""),
+            {
+                "id": uuid4(),
+                "run": run.id,
+                "version": version.id,
+                "policy": run.policy_id,
+                "profile": version.generation_profile_id,
+                "rules": run.rules_digest,
+                "snapshot": run.snapshot_digest,
+            },
+        )
+        version.evaluation_state = EvaluationState.PASSED
+        await self.session.flush()
+        return cast(dict[str, object], metrics)
 
     async def _latest(
         self,

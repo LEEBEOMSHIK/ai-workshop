@@ -14,7 +14,7 @@ from ai_workshop.labs.rag.highlighting.domain import (
     HighlightSpan,
 )
 from ai_workshop.labs.rag.retrieval.selection import reject_explicit_empty_document_ids
-from ai_workshop.labs.rag.search.service import RelatedSource, SearchResult
+from ai_workshop.labs.rag.search.pipeline import RelatedSource, SearchResult
 
 
 class ConversationTurnRequest(BaseModel):
@@ -275,17 +275,23 @@ class SearchDiagnosticsResponse(BaseModel):
         hits = {hit.chunk_id: (rank, hit) for rank, hit in enumerate(diagnostic.hits, 1)}
         sources = {source.chunk.chunk_id: source for source in diagnostic.sources}
         return cls(
-            candidates=[CandidateDiagnosticResponse(
-                source=RelatedSourceResponse.from_domain(RelatedSource(sources[item.chunk_id])),
-                evidence_unit_id=item.evidence_id,
-                sparse_score=hits[item.chunk_id][1].sparse_score,
-                dense_score=hits[item.chunk_id][1].dense_score,
-                sparse_rank=hits[item.chunk_id][1].sparse_rank,
-                dense_rank=hits[item.chunk_id][1].dense_rank,
-                fused_rank=hits[item.chunk_id][0],
-                keyword_coverage=item.keyword_coverage, semantic_score=item.semantic_score,
-                eligible=item.eligible, selected=item.selected, reason=item.reason,
-            ) for item in diagnostic.candidates],
+            candidates=[
+                CandidateDiagnosticResponse(
+                    source=RelatedSourceResponse.from_domain(RelatedSource(sources[item.chunk_id])),
+                    evidence_unit_id=item.evidence_id,
+                    sparse_score=hits[item.chunk_id][1].sparse_score,
+                    dense_score=hits[item.chunk_id][1].dense_score,
+                    sparse_rank=hits[item.chunk_id][1].sparse_rank,
+                    dense_rank=hits[item.chunk_id][1].dense_rank,
+                    fused_rank=hits[item.chunk_id][0],
+                    keyword_coverage=item.keyword_coverage,
+                    semantic_score=item.semantic_score,
+                    eligible=item.eligible,
+                    selected=item.selected,
+                    reason=item.reason,
+                )
+                for item in diagnostic.candidates
+            ],
             stages_ms=diagnostic.stages_ms,
             min_keyword_coverage=diagnostic.min_keyword_coverage,
             min_semantic_score=diagnostic.min_semantic_score,
@@ -314,8 +320,9 @@ class SearchResponse(BaseModel):
         configuration = result.configuration
         return cls(
             status=selection.status,
-            grounding_evidence=[EvidenceAnswerResponse.from_domain(item)
-                                for item in result.grounding_evidence],
+            grounding_evidence=[
+                EvidenceAnswerResponse.from_domain(item) for item in result.grounding_evidence
+            ],
             diagnostics=SearchDiagnosticsResponse.from_result(result),
             answer=(
                 EvidenceAnswerResponse.from_domain(selection.answer)

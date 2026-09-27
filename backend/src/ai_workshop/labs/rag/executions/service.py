@@ -5,6 +5,7 @@ from dataclasses import replace
 from datetime import UTC
 from math import ceil
 from statistics import median
+from typing import Protocol
 from uuid import UUID
 
 from pydantic import ValidationError
@@ -72,9 +73,20 @@ def summary(entry: MonitoringEntry) -> ExecutionSummary:
     )
 
 
+class EvaluationMonitoringPort(Protocol):
+    async def summaries(self, actor_id: UUID) -> list[ExecutionSummary]: ...
+    async def detail(self, actor_id: UUID, execution_id: UUID) -> ExecutionDetailResponse: ...
+
+
 class ExecutionReadService:
-    def __init__(self, repository: MonitoringRepository, access: ConversationAccessPort) -> None:
+    def __init__(
+        self,
+        repository: MonitoringRepository,
+        access: ConversationAccessPort,
+        evaluations: EvaluationMonitoringPort | None = None,
+    ) -> None:
         self.repository, self.access = repository, access
+        self.evaluations = evaluations
 
     async def _current_visible(self, actor_id: UUID, turn_id: UUID) -> MonitoringEntry | None:
         # Re-read each member of the dependency closure. No authorization cache survives
@@ -135,6 +147,8 @@ class ExecutionReadService:
         self, actor_id: UUID, request: ExecutionSearchRequest
     ) -> ExecutionSearchResponse:
         rows = [summary(e) for e in await self._authorized(actor_id)]
+        if self.evaluations is not None and request.kind != "conversation":
+            rows.extend(await self.evaluations.summaries(actor_id))
         rows = [r for r in rows if self._matches(r, request)]
         rows.sort(key=self._key, reverse=True)
         durations = sorted(r.duration_ms for r in rows if r.duration_ms is not None)
@@ -197,7 +211,12 @@ class ExecutionReadService:
         )
 
     async def detail(self, actor_id: UUID, execution_id: UUID) -> ExecutionDetailResponse:
-        return await self._detail(actor_id, execution_id, legacy=False)
+        try:
+            return await self._detail(actor_id, execution_id, legacy=False)
+        except AppError as exc:
+            if exc.code != "not_found" or self.evaluations is None:
+                raise
+            return await self.evaluations.detail(actor_id, execution_id)
 
     async def legacy(self, actor_id: UUID, turn_id: UUID) -> ExecutionDetailResponse:
         return await self._detail(actor_id, turn_id, legacy=True)

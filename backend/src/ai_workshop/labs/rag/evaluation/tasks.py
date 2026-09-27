@@ -219,62 +219,7 @@ class ProductionEvaluationSearch(EvaluationSearchPort):
     ) -> SearchExecutionObservation:
         evaluation_case = case
         started = perf_counter()
-        dimensions = {item.vector_dimension for item in candidate.index_builds}
-        profile_ids = {item.indexing_profile_id for item in candidate.index_builds}
-        mapping_versions = {item.mapping_version for item in candidate.index_builds}
-        if len(dimensions) != 1 or len(profile_ids) != 1 or len(mapping_versions) != 1:
-            raise RuntimeError("The frozen Evaluation index manifest is incompatible.")
-        descriptor = IndexDescriptor(
-            next(iter(dimensions)),
-            "cosine",
-            mapping_version=next(iter(mapping_versions)),
-        )
-        indexing_profile_id = next(iter(profile_ids))
-        processing_profile_id = _candidate_processing_profile_id(candidate)
-        actual_names = tuple(item.index_name for item in candidate.index_builds)
-        legacy_prefix = descriptor.active_alias(
-            self.settings.elasticsearch_index_prefix,
-            indexing_profile_id,
-        ).removesuffix("active")
-        processing_prefix = (
-            descriptor.active_alias(
-                self.settings.elasticsearch_index_prefix,
-                indexing_profile_id,
-                document_processing_profile_id=processing_profile_id,
-            ).removesuffix("active")
-            if processing_profile_id is not None
-            else None
-        )
-        if processing_prefix is not None and all(
-            name.startswith(processing_prefix) for name in actual_names
-        ):
-            target_processing_profile_id = processing_profile_id
-        elif all(name.startswith(legacy_prefix) for name in actual_names):
-            target_processing_profile_id = None
-        else:
-            raise RuntimeError("The frozen Evaluation index identity is incompatible.")
-        target = FrozenIndexTarget(
-            descriptor=descriptor,
-            index_prefix=self.settings.elasticsearch_index_prefix,
-            indexing_profile_id=indexing_profile_id,
-            identities=tuple(
-                FrozenIndexIdentity(
-                    index_name=item.index_name,
-                    index_uuid=item.index_uuid,
-                    index_build_id=item.index_build_id,
-                    projection_id=item.projection_id,
-                    indexing_profile_id=item.indexing_profile_id,
-                    vector_dimension=item.vector_dimension,
-                    mapping_version=item.mapping_version,
-                )
-                for item in candidate.index_builds
-            ),
-            asset_version_ids=tuple(
-                item.asset_version_id for item in candidate.index_builds if item.active_at_snapshot
-            ),
-            document_processing_profile_id=target_processing_profile_id,
-        )
-        await require_concrete_frozen_indices(self.elasticsearch, target)
+        target = await self.prepare_target(candidate)
         configuration = self._resolve_configuration(candidate, target)
         scenario = evaluation_case.permission_scenario
         allowed_workspaces = (
@@ -379,6 +324,65 @@ class ProductionEvaluationSearch(EvaluationSearchPort):
             exposures=canonical_access_exposures(stable),
             duration_ms=(perf_counter() - started) * 1000.0,
         )
+
+    async def prepare_target(self, candidate: CandidateExecutionInput) -> FrozenIndexTarget:
+        dimensions = {item.vector_dimension for item in candidate.index_builds}
+        profile_ids = {item.indexing_profile_id for item in candidate.index_builds}
+        mapping_versions = {item.mapping_version for item in candidate.index_builds}
+        if len(dimensions) != 1 or len(profile_ids) != 1 or len(mapping_versions) != 1:
+            raise RuntimeError("The frozen Evaluation index manifest is incompatible.")
+        descriptor = IndexDescriptor(
+            next(iter(dimensions)),
+            "cosine",
+            mapping_version=next(iter(mapping_versions)),
+        )
+        indexing_profile_id = next(iter(profile_ids))
+        processing_profile_id = _candidate_processing_profile_id(candidate)
+        actual_names = tuple(item.index_name for item in candidate.index_builds)
+        legacy_prefix = descriptor.active_alias(
+            self.settings.elasticsearch_index_prefix,
+            indexing_profile_id,
+        ).removesuffix("active")
+        processing_prefix = (
+            descriptor.active_alias(
+                self.settings.elasticsearch_index_prefix,
+                indexing_profile_id,
+                document_processing_profile_id=processing_profile_id,
+            ).removesuffix("active")
+            if processing_profile_id is not None
+            else None
+        )
+        if processing_prefix is not None and all(
+            name.startswith(processing_prefix) for name in actual_names
+        ):
+            target_processing_profile_id = processing_profile_id
+        elif all(name.startswith(legacy_prefix) for name in actual_names):
+            target_processing_profile_id = None
+        else:
+            raise RuntimeError("The frozen Evaluation index identity is incompatible.")
+        target = FrozenIndexTarget(
+            descriptor=descriptor,
+            index_prefix=self.settings.elasticsearch_index_prefix,
+            indexing_profile_id=indexing_profile_id,
+            identities=tuple(
+                FrozenIndexIdentity(
+                    index_name=item.index_name,
+                    index_uuid=item.index_uuid,
+                    index_build_id=item.index_build_id,
+                    projection_id=item.projection_id,
+                    indexing_profile_id=item.indexing_profile_id,
+                    vector_dimension=item.vector_dimension,
+                    mapping_version=item.mapping_version,
+                )
+                for item in candidate.index_builds
+            ),
+            asset_version_ids=tuple(
+                item.asset_version_id for item in candidate.index_builds if item.active_at_snapshot
+            ),
+            document_processing_profile_id=target_processing_profile_id,
+        )
+        await require_concrete_frozen_indices(self.elasticsearch, target)
+        return target
 
     def _resolve_scope(
         self,

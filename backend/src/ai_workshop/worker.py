@@ -63,16 +63,12 @@ from ai_workshop.shared.db import create_engine, create_session_factory
 from ai_workshop.shared.model_registry import load_models
 
 ASSET_VERIFICATION_TASK = "ai_workshop.assets.verify_stored"
-ASSET_VERIFICATION_DISPATCH_RECONCILE_TASK = (
-    "ai_workshop.assets.reconcile_dispatches"
-)
+ASSET_VERIFICATION_DISPATCH_RECONCILE_TASK = "ai_workshop.assets.reconcile_dispatches"
 RAG_INGESTION_TASK = "ai_workshop.rag.ensure_indexed"
 RAG_DISPATCH_RECONCILE_TASK = "ai_workshop.rag.reconcile_dispatches"
 RAG_ASSET_HANDOFF_RECONCILE_TASK = "ai_workshop.rag.reconcile_asset_handoffs"
 RAG_EVALUATION_TASK = "ai_workshop.rag.evaluate_configuration_run"
-RAG_EVALUATION_DISPATCH_RECONCILE_TASK = (
-    "ai_workshop.rag.reconcile_evaluation_dispatches"
-)
+RAG_EVALUATION_DISPATCH_RECONCILE_TASK = "ai_workshop.rag.reconcile_evaluation_dispatches"
 
 configure_windows_selector_policy()
 load_models()
@@ -87,15 +83,11 @@ class VerifiedAssetSubscription:
 
 
 class VerifiedAssetSubscriptionPort(Protocol):
-    async def for_asset(
-        self, asset_version_id: UUID
-    ) -> tuple[VerifiedAssetSubscription, ...]: ...
+    async def for_asset(self, asset_version_id: UUID) -> tuple[VerifiedAssetSubscription, ...]: ...
 
 
 class NoVerifiedAssetSubscriptions:
-    async def for_asset(
-        self, asset_version_id: UUID
-    ) -> tuple[VerifiedAssetSubscription, ...]:
+    async def for_asset(self, asset_version_id: UUID) -> tuple[VerifiedAssetSubscription, ...]:
         return ()
 
 
@@ -103,9 +95,7 @@ class PersistentVerifiedAssetSubscriptions:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
 
-    async def for_asset(
-        self, asset_version_id: UUID
-    ) -> tuple[VerifiedAssetSubscription, ...]:
+    async def for_asset(self, asset_version_id: UUID) -> tuple[VerifiedAssetSubscription, ...]:
         engine = create_engine(self.settings)
         sessions = create_session_factory(engine)
         try:
@@ -302,6 +292,18 @@ def create_celery(
     def evaluate_configuration_run(run_id: str) -> None:
         resolved_settings = settings or get_settings()
         run(evaluation_workflow_factory(resolved_settings).run(UUID(run_id)))
+
+    @application.task(  # type: ignore
+        name="ai_workshop.rag.evaluate_generative_run",
+        ignore_result=True,
+        acks_late=True,
+        reject_on_worker_lost=True,
+        shared=False,
+    )
+    def evaluate_generative_run(run_id: str) -> None:
+        from ai_workshop.labs.rag.evaluation.generative_dispatch import execute_run
+
+        run(execute_run(settings or get_settings(), UUID(run_id)))
 
     @application.task(  # type: ignore
         bind=True,
@@ -522,8 +524,7 @@ def _raise_on_alias_parity_failures(result: RagAliasParityResult) -> None:
         for failure in result.failures
     )
     logger.error(
-        "rag_alias_parity_reconcile_failed "
-        "claimed=%d reconciled=%d failed=%d profiles=%s",
+        "rag_alias_parity_reconcile_failed claimed=%d reconciled=%d failed=%d profiles=%s",
         result.claimed,
         result.reconciled,
         result.failed,
@@ -549,9 +550,7 @@ async def _reconcile_asset_verification_dispatches(
         await engine.dispose()
 
 
-async def _reconcile_evaluation_dispatches(
-    settings: Settings, application: Celery
-) -> None:
+async def _reconcile_evaluation_dispatches(settings: Settings, application: Celery) -> None:
     engine = create_engine(settings)
     sessions = create_session_factory(engine)
     try:
@@ -559,6 +558,9 @@ async def _reconcile_evaluation_dispatches(
             SqlAlchemyEvaluationDispatchRepository(sessions),
             CeleryEvaluationRunSender(application),
         ).run_once()
+        from ai_workshop.labs.rag.evaluation.generative_dispatch import dispatch_pending
+
+        await dispatch_pending(sessions, application)
     finally:
         await engine.dispose()
 
@@ -568,9 +570,7 @@ def _rag_error(exc: Exception) -> tuple[str, bool]:
     from ai_workshop.labs.rag.indexing.tracking_contracts import IndexTrackingError
 
     if isinstance(exc, IndexPreparationFailed):
-        return exc.code, (
-            exc.writer_confirmed_ended and exc.code == "rag_index_observation_failed"
-        )
+        return exc.code, (exc.writer_confirmed_ended and exc.code == "rag_index_observation_failed")
     if isinstance(exc, IndexTrackingError):
         return exc.code, False
     if isinstance(exc, RagIngestionError):

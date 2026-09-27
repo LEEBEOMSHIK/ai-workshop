@@ -8,15 +8,35 @@ from ai_workshop.main import create_app
 
 HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 EXPECTED_PATHS = {
-    "/api/v1/rag/evidence-approval-requests",
-    "/api/v1/admin/rag/evidence-approval-requests",
-    "/api/v1/admin/rag/evidence-approval-requests/{id}/decision",
-    "/api/v1/admin/rag/codex-runners",
+    "/api/v1/admin/access/technologies",
+    "/api/v1/admin/access/users",
+    "/api/v1/admin/access/users/{user_id}",
+    "/api/v1/admin/access/users/{user_id}/audit",
+    "/api/v1/admin/access/users/{user_id}/role",
+    "/api/v1/admin/access/users/{user_id}/status",
+    "/api/v1/admin/access/users/{user_id}/technologies/{technology_key}",
+    "/api/v1/admin/issue-history/categories",
+    "/api/v1/admin/issue-history/categories/{identity}",
+    "/api/v1/admin/issue-history/documents",
+    "/api/v1/admin/issue-history/documents/{identity}",
+    "/api/v1/admin/issue-history/documents/{identity}/versions",
+    "/api/v1/admin/issue-history/documents/{identity}/versions/{version}",
+    "/api/v1/admin/issue-history/issues",
+    "/api/v1/admin/issue-history/issues/{identity}",
+    "/api/v1/admin/issue-history/issues/{identity}/events",
+    "/api/v1/admin/issue-history/issues/{identity}/links",
+    "/api/v1/admin/issue-history/issues/{issue_id}/documents/{identity}/versions/{version}",
+    "/api/v1/admin/publishing/personas",
+    "/api/v1/admin/publishing/studies",
+    "/api/v1/admin/publishing/studies/{slug}",
+    "/api/v1/admin/publishing/studies/{slug}/preview",
+    "/api/v1/admin/publishing/studies/{slug}/publish",
+    "/api/v1/admin/publishing/studies/{slug}/withdraw",
     "/api/v1/admin/rag/codex-evidence",
     "/api/v1/admin/rag/codex-evidence/{revision_id}/approval",
-    "/api/v1/admin/rag/configuration-versions/{version_id}/codex-verify",
+    "/api/v1/admin/rag/codex-runners",
     "/api/v1/admin/rag/configuration-versions/{version_id}/codex-status",
-    "/api/v1/admin/system/runtime-topology",
+    "/api/v1/admin/rag/configuration-versions/{version_id}/codex-verify",
     "/api/v1/admin/rag/data-policies/installation",
     "/api/v1/admin/rag/data-policies/installation/versions",
     "/api/v1/admin/rag/data-policies/workspaces/{workspace_id}",
@@ -29,22 +49,24 @@ EXPECTED_PATHS = {
     "/api/v1/admin/rag/domains/{domain_id}/connections",
     "/api/v1/admin/rag/domains/{domain_id}/connections/{connection_version_id}/activate",
     "/api/v1/admin/rag/domains/{domain_id}/deactivate",
+    "/api/v1/admin/rag/evidence-approval-requests",
+    "/api/v1/admin/rag/evidence-approval-requests/{id}/decision",
+    "/api/v1/admin/rag/executions/legacy/{turn_id}",
+    "/api/v1/admin/rag/executions/search",
+    "/api/v1/admin/rag/executions/{execution_id}",
     "/api/v1/admin/rag/models",
     "/api/v1/admin/rag/profiles/{kind}",
     "/api/v1/admin/rag/profiles/{kind}/yaml",
     "/api/v1/admin/rag/profiles/{profile_id}/default",
-    "/api/v1/admin/publishing/personas",
-    "/api/v1/admin/publishing/studies",
-    "/api/v1/admin/publishing/studies/{slug}",
-    "/api/v1/admin/publishing/studies/{slug}/preview",
-    "/api/v1/admin/publishing/studies/{slug}/publish",
-    "/api/v1/admin/publishing/studies/{slug}/withdraw",
+    "/api/v1/admin/system/runtime-topology",
+    "/api/v1/auth/access",
     "/api/v1/auth/login",
     "/api/v1/auth/logout",
     "/api/v1/auth/me",
-    "/api/v1/setup/status",
-    "/api/v1/setup/owner",
     "/api/v1/documents/{document_id}/versions",
+    "/api/v1/documents/{document_id}/versions/{version_id}/content",
+    "/api/v1/documents/{document_id}/versions/{version_id}/pdf/pages/{page_number}",
+    "/api/v1/documents/{document_id}/versions/{version_id}/preview",
     "/api/v1/health",
     "/api/v1/jobs/{job_id}",
     "/api/v1/learning/records",
@@ -53,20 +75,39 @@ EXPECTED_PATHS = {
     "/api/v1/learning/records/{record_id}/restore",
     "/api/v1/learning/records/{record_id}/revisions/{revision}",
     "/api/v1/learning/topics",
-    "/api/v1/rag/models",
     "/api/v1/rag/configurations",
     "/api/v1/rag/configurations/{configuration_id}",
     "/api/v1/rag/configurations/{configuration_id}/default",
+    "/api/v1/rag/configurations/{configuration_id}/versions/{version_id}/evaluation-acceptance",
     "/api/v1/rag/deployments/options",
     "/api/v1/rag/domains",
     "/api/v1/rag/domains/{slug}",
+    "/api/v1/rag/domains/{slug}/conversation-attachment-cleanup",
+    "/api/v1/rag/domains/{slug}/conversations",
+    "/api/v1/rag/domains/{slug}/conversations/{conversation_id}",
+    "/api/v1/rag/domains/{slug}/conversations/{conversation_id}/attachment-options",
+    "/api/v1/rag/domains/{slug}/conversations/{conversation_id}/attachments",
+    "/api/v1/rag/domains/{slug}/conversations/{conversation_id}/turns",
+    "/api/v1/rag/domains/{slug}/conversations/{conversation_id}/turns/{request_id}/cancel",
     "/api/v1/rag/domains/{slug}/library",
     "/api/v1/rag/domains/{slug}/library/workspaces/{workspace_id}",
     "/api/v1/rag/domains/{slug}/library/workspaces/{workspace_id}/documents/{document_id}",
     "/api/v1/rag/domains/{slug}/search",
+    "/api/v1/rag/evaluation-authoring/documents",
+    "/api/v1/rag/evaluation-authoring/preview",
+    "/api/v1/rag/evaluation-authoring/runs",
+    "/api/v1/rag/evaluation-authoring/snapshots",
     "/api/v1/rag/evaluation-policies",
     "/api/v1/rag/evaluation-runs",
     "/api/v1/rag/evaluation-runs/{run_id}",
+    "/api/v1/rag/evidence-approval-requests",
+    "/api/v1/rag/generative-evaluations",
+    "/api/v1/rag/generative-evaluations/policies",
+    "/api/v1/rag/generative-evaluations/{run_id}",
+    "/api/v1/rag/generative-evaluations/{run_id}/accept/{version_id}",
+    "/api/v1/rag/generative-evaluations/{run_id}/attempts/{attempt_id}/judgments",
+    "/api/v1/rag/generative-evaluations/{run_id}/retry",
+    "/api/v1/rag/models",
     "/api/v1/rag/profiles/{kind}",
     "/api/v1/rag/profiles/{kind}/yaml",
     "/api/v1/rag/profiles/{profile_id}/default",
@@ -74,9 +115,19 @@ EXPECTED_PATHS = {
     "/api/v1/rag/sources/{asset_version_id}/docx/images/{element_id}",
     "/api/v1/rag/sources/{asset_version_id}/normalized-text",
     "/api/v1/rag/sources/{asset_version_id}/pdf/pages/{page_number}",
+    "/api/v1/setup/owner",
+    "/api/v1/setup/status",
     "/api/v1/workspaces",
+    "/api/v1/workspaces/{workspace_id}/capabilities",
     "/api/v1/workspaces/{workspace_id}/documents",
+    "/api/v1/workspaces/{workspace_id}/documents/{document_id}/move",
     "/api/v1/workspaces/{workspace_id}/folders",
+    "/api/v1/workspaces/{workspace_id}/folders/{folder_id}/move",
+    "/api/v1/workspaces/{workspace_id}/library",
+    "/api/v1/workspaces/{workspace_id}/library/documents/{document_id}",
+    "/api/v1/workspaces/{workspace_id}/library/documents/{document_id}/versions",
+    "/api/v1/workspaces/{workspace_id}/members",
+    "/api/v1/workspaces/{workspace_id}/members/{user_id}",
 }
 PUBLIC_PATHS = {
     "/api/v1/auth/login",
@@ -101,6 +152,18 @@ def test_openapi_has_all_public_paths_and_unique_operation_ids() -> None:
 
     assert set(schema["paths"]) == EXPECTED_PATHS
     assert len(operation_ids) == len(set(operation_ids))
+
+
+def test_generative_evaluation_inputs_do_not_accept_worker_metrics_or_reviewer_identity() -> None:
+    schemas = create_app().openapi()["components"]["schemas"]
+    submitted = schemas["GenerativeRunCreate"]
+    assert submitted["additionalProperties"] is False
+    assert "expected_rules" in submitted["required"]
+    assert "metrics" not in submitted["properties"]
+    assert submitted["properties"]["repetition_count"]["minimum"] == 2
+    review = schemas["GenerativeReviewRequest"]
+    assert "result_digest" in review["required"]
+    assert "reviewer_id" not in review["properties"]
 
 
 def test_openapi_documents_common_errors_and_cookie_security() -> None:
@@ -172,6 +235,7 @@ def test_rag_search_contract_uses_authenticated_actor_and_distinct_highlights() 
     assert schema["components"]["schemas"]["HighlightKind"]["enum"] == [
         "keyword",
         "semantic",
+        "context",
     ]
 
     for path in (

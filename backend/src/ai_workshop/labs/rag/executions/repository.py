@@ -37,6 +37,30 @@ class SqlAlchemyExecutionRecorder:
                 )
                 if turn is None or turn.status != "running":
                     raise LookupError("Execution parent unavailable")
+            else:
+                from ai_workshop.labs.rag.evaluation.generative_models import (
+                    GenerativeAttemptRecord,
+                    GenerativeRunRecord,
+                )
+
+                attempt = await session.scalar(
+                    select(GenerativeAttemptRecord)
+                    .join(
+                        GenerativeRunRecord,
+                        GenerativeRunRecord.id == GenerativeAttemptRecord.run_id,
+                    )
+                    .where(
+                        GenerativeAttemptRecord.id == identity.evaluation_attempt_id,
+                        GenerativeAttemptRecord.execution_id == identity.execution_id,
+                        GenerativeAttemptRecord.status == "running",
+                        GenerativeRunRecord.owner_id == identity.actor_id,
+                        GenerativeRunRecord.status == "running",
+                        GenerativeAttemptRecord.claim_token == GenerativeRunRecord.claim_token,
+                    )
+                    .with_for_update()
+                )
+                if attempt is None:
+                    raise LookupError("Execution parent unavailable")
             await session.execute(
                 insert(ExecutionRecord)
                 .values(

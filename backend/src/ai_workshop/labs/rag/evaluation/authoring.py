@@ -20,7 +20,7 @@ from ai_workshop.labs.rag.evaluation.authoring_schemas import (
     AuthoringRunRequest,
     AuthoringScope,
 )
-from ai_workshop.labs.rag.evaluation.domain import EvaluationDataset
+from ai_workshop.labs.rag.evaluation.domain import EvaluationDataset, load_evaluation_dataset
 from ai_workshop.labs.rag.evaluation.service import EvaluationApplicationService, EvaluationRunView
 from ai_workshop.shared.errors import AppError
 
@@ -243,31 +243,64 @@ class AuthoringService:
                 "evaluation_authoring_stale", "Reload the evaluation sources.", 409
             ) from exc
 
+    async def _prepare_snapshot(
+        self,
+        actor_id: UUID,
+        request: AuthoringRunRequest,
+    ) -> tuple[AuthoringContext, UUID, dict[str, object]]:
+        if len(request.cases) > self.limits.max_cases:
+            raise AppError("evaluation_authoring_too_large", "Use fewer evaluation cases.", 422)
+        await self.repository.lock_draft(actor_id, request.draft_id)
+        context = await self.repository.resolve_scope(actor_id, request.scope())
+        if context.preview().scope_sha256 != request.scope_sha256:
+            raise AppError("evaluation_authoring_stale", "Reload the evaluation sources.", 409)
+        identifier = dataset_id(actor_id, request.draft_id)
+        existing = await self.repository.existing_dataset(actor_id, identifier)
+        as_of = (
+            existing.cases[0].permission_scenario.as_of
+            if existing is not None
+            else self.clock().isoformat()
+        )
+        fixture = build_fixture(context, request, as_of=as_of)
+        if existing is not None and existing.fixture_bytes != canonical_bytes(fixture):
+            raise AppError(
+                "evaluation_authoring_conflict",
+                "Use a new draft for changed evaluation data.",
+                409,
+            )
+        await self.repository.require_available_name(
+            actor_id, request.dataset_name.strip(), identifier
+        )
+
+        return context, identifier, fixture
+
+    async def freeze_snapshot(
+        self, actor_id: UUID, request: AuthoringRunRequest
+    ) -> EvaluationDataset:
+        try:
+            _, identifier, fixture = await self._prepare_snapshot(actor_id, request)
+            dataset = await self.evaluation.application_repository.add_or_get_dataset(
+                actor_id,
+                load_evaluation_dataset(canonical_bytes(fixture)),
+            )
+            if dataset.id != identifier:
+                raise AppError(
+                    "evaluation_authoring_conflict", "The dataset identity changed.", 409
+                )
+            fresh = await self.repository.resolve_scope(actor_id, request.scope())
+            if fresh.preview().scope_sha256 != request.scope_sha256:
+                raise AppError("evaluation_authoring_stale", "Reload the evaluation sources.", 409)
+            await self.evaluation.commit()
+            return dataset
+        except SQLAlchemyError as exc:
+            await self.rollback()
+            raise AppError(
+                "evaluation_authoring_stale", "Reload the evaluation sources.", 409
+            ) from exc
+
     async def run(self, actor_id: UUID, request: AuthoringRunRequest) -> EvaluationRunView:
         try:
-            if len(request.cases) > self.limits.max_cases:
-                raise AppError("evaluation_authoring_too_large", "Use fewer evaluation cases.", 422)
-            await self.repository.lock_draft(actor_id, request.draft_id)
-            context = await self.repository.resolve_scope(actor_id, request.scope())
-            if context.preview().scope_sha256 != request.scope_sha256:
-                raise AppError("evaluation_authoring_stale", "Reload the evaluation sources.", 409)
-            identifier = dataset_id(actor_id, request.draft_id)
-            existing = await self.repository.existing_dataset(actor_id, identifier)
-            as_of = (
-                existing.cases[0].permission_scenario.as_of
-                if existing is not None
-                else self.clock().isoformat()
-            )
-            fixture = build_fixture(context, request, as_of=as_of)
-            if existing is not None and existing.fixture_bytes != canonical_bytes(fixture):
-                raise AppError(
-                    "evaluation_authoring_conflict",
-                    "Use a new draft for changed evaluation data.",
-                    409,
-                )
-            await self.repository.require_available_name(
-                actor_id, request.dataset_name.strip(), identifier
-            )
+            context, identifier, fixture = await self._prepare_snapshot(actor_id, request)
 
             async def validate_before_commit(run: EvaluationRunView) -> None:
                 if run.dataset_snapshot_id != identifier:

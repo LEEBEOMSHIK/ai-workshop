@@ -135,6 +135,36 @@ def test_server_fixture_uses_complete_universe_and_codepoint_location():
     assert build_fixture(other, request, as_of="2026-09-09T00:00:00Z")["id"] != fixture["id"]
 
 
+async def test_freezing_generation_dataset_does_not_start_extractive_run():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from ai_workshop.labs.rag.evaluation.authoring import AuthoringLimits, AuthoringService
+
+    context, request = context_and_request()
+    repository = SimpleNamespace(
+        lock_draft=AsyncMock(),
+        resolve_scope=AsyncMock(return_value=context),
+        existing_dataset=AsyncMock(return_value=None),
+        require_available_name=AsyncMock(),
+    )
+    evaluation = SimpleNamespace(
+        application_repository=SimpleNamespace(
+            add_or_get_dataset=AsyncMock(side_effect=lambda actor, data: data)
+        ),
+        commit=AsyncMock(),
+        start_run=AsyncMock(),
+    )
+    service = AuthoringService(
+        repository, evaluation, limits=AuthoringLimits(), rollback=AsyncMock()
+    )
+    dataset = await service.freeze_snapshot(context.actor_id, request)
+    assert dataset.id != request.draft_id
+    assert len(dataset.cases) == len(request.cases)
+    evaluation.start_run.assert_not_awaited()
+    evaluation.commit.assert_awaited_once()
+
+
 @pytest.mark.parametrize(
     "change",
     [

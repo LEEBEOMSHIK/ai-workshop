@@ -26,7 +26,9 @@ class ExecutionRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     turn_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("rag_conversation_turns.id", ondelete="RESTRICT")
     )
-    evaluation_attempt_id: Mapped[UUID | None]
+    evaluation_attempt_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("rag_generative_attempts.id", name="fk_rag_execution_attempt")
+    )
     status: Mapped[str] = mapped_column(String(20), default="running")
     answer_status: Mapped[str | None] = mapped_column(String(40))
     error_code: Mapped[str | None] = mapped_column(String(100))

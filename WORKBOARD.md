@@ -1,7 +1,7 @@
 # Workboard
 
 - 마지막 갱신일: 2026-09-28
-- 현재 단계: 파일함 휴지통·복원·영구 삭제 기반의 단계별 구현·검증
+- 현재 단계: RAG 실행 모니터링·생성형 평가의 본래 환경 검증
 - 전체 상태: 불변 Document Processing Profile, 10개 고정 PP-StructureV3 모델,
   DOCX 내장 이미지 OCR·provenance·검색 원문 뷰어와 관리자 전체 구성이 구현됐다.
 

@@ -33,3 +33,10 @@ __pycache__/
 /sample-data/public/rag/asset-management-text-v1.pdf
 /sample-data/public/rag/asset-management-reference.md
 /sample-data/public/rag/asset-management-pdf-validation.md
+
+# Reproducible synthetic PDF corpus and local evaluation answer key.
+/output/pdf/synthetic-product-prospectus.pdf
+/output/pdf/synthetic-monthly-report.pdf
+/output/pdf/synthetic-operations-guidelines.pdf
+/output/pdf/EVALUATION-ONLY-answer-key.json
+/output/pdf/EVALUATION-ONLY-answer-key.md

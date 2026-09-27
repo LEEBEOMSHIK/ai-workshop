@@ -23,6 +23,10 @@ export type EvaluationPolicyCreate = components["schemas"]["EvaluationPolicyCrea
 export type EvaluationPolicy = components["schemas"]["EvaluationPolicyResponse"];
 export type EvaluationAcceptance = components["schemas"]["EvaluationAcceptanceResponse"];
 
+export function freezeAuthoredSnapshot(request: AuthoringRunRequest, signal?: AbortSignal) {
+  return apiRequest<components["schemas"]["AuthoringSnapshotResponse"]>("/api/v1/rag/evaluation-authoring/snapshots", { method: "POST", json: request, signal });
+}
+
 export function listEvaluationDocuments(request: AuthoringDocumentsRequest, signal?: AbortSignal): Promise<AuthoringDocumentsResponse> {
   return apiRequest("/api/v1/rag/evaluation-authoring/documents", { method: "POST", json: request, signal });
 }

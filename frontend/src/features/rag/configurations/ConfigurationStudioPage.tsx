@@ -4,6 +4,7 @@ import { type KeyboardEvent, useRef, useState } from "react";
 
 import { ModelLabPage } from "../models/ModelLabPage";
 import { ComparisonPanel } from "./ComparisonPanel";
+import { GenerativeEvaluationPanel } from "./GenerativeEvaluationPanel";
 import { ConfigurationBuilder } from "./ConfigurationBuilder";
 import { SavedConfigurationList } from "./SavedConfigurationList";
 import type { ConfigurationStudioData, SavedConfiguration } from "./api";
@@ -16,8 +17,18 @@ const tabs: Array<{ id: StudioTab; label: string }> = [
   { id: "models", label: "모델 레지스트리" },
 ];
 
-export function ConfigurationStudioPage({ initialData }: { initialData: ConfigurationStudioData }) {
-  const [activeTab, setActiveTab] = useState<StudioTab>("configuration");
+export function ConfigurationStudioPage({ initialData, initialTab, initialRunId, initialCaseId }: {
+  initialData: ConfigurationStudioData; initialTab?: string; initialRunId?: string; initialCaseId?: string;
+}) {
+  const [activeTab, setTab] = useState<StudioTab>(initialTab === "comparison" || initialTab === "models" ? initialTab : "configuration");
+  const [evaluationKind, setEvaluationKind] = useState(initialRunId && !initialData.runs.some(run => run.id === initialRunId) ? "generative" : "extractive");
+  const [generativeOpened, setGenerativeOpened] = useState(evaluationKind === "generative");
+  function setActiveTab(tab: StudioTab) {
+    setTab(tab);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", tab);
+    window.history.replaceState(null, "", url);
+  }
   const [configurations, setConfigurations] = useState(initialData.configurations);
   const [compareVersionIds, setCompareVersionIds] = useState<string[]>([]);
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -120,7 +131,11 @@ export function ConfigurationStudioPage({ initialData }: { initialData: Configur
         aria-labelledby="studio-tab-comparison"
         hidden={activeTab !== "comparison"}
       >
-        {(
+        <div role="group" aria-label="평가 종류">
+          <button type="button" aria-pressed={evaluationKind === "extractive"} onClick={() => setEvaluationKind("extractive")}>추출형 v1</button>
+          <button type="button" aria-pressed={evaluationKind === "generative"} onClick={() => { setEvaluationKind("generative"); setGenerativeOpened(true); }}>생성형 generative-v1</button>
+        </div>
+        <div hidden={evaluationKind !== "extractive"}>
           <ComparisonPanel
             configurations={configurations}
             initialRuns={initialData.runs}
@@ -129,7 +144,12 @@ export function ConfigurationStudioPage({ initialData }: { initialData: Configur
             onConfigurationUpdated={handleConfigurationUpdated}
             onDefaultPromoted={handleDefaultPromoted}
           />
-        )}
+        </div>
+        {generativeOpened ? <div hidden={evaluationKind !== "generative"}><GenerativeEvaluationPanel
+          configurations={configurations} workspaces={initialData.workspaces}
+          initialRunId={initialRunId} initialCaseId={initialCaseId}
+          onConfigurationUpdated={handleConfigurationUpdated}
+        /></div> : null}
       </section>
 
       <section

@@ -10,6 +10,13 @@ afterEach(() => {
 });
 
 describe("ConfigurationStudioPage", () => {
+  it("restores the comparison tab and generative run from a monitoring link", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => jsonResponse(String(input).endsWith("/generative-run")
+      ? { id: "generative-run", status: "pending", attempts: [], repetition_count: 2 } : [], 200)));
+    render(<ConfigurationStudioPage initialData={studioData()} initialTab="comparison" initialRunId="generative-run" initialCaseId="case-one" />);
+    expect(screen.getByRole("tab", { name: "비교 실험" })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByRole("heading", { name: "생성형 평가 · generative-v1" })).toBeVisible();
+  });
   it.each(["latest-only", "failed"])("clears the old version default after promotion with %s refresh", async (refresh) => {
     const user = userEvent.setup();
     const old = savedConfiguration({ is_default: true, evaluation_state: "passed", experimental: false });

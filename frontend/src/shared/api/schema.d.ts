@@ -1589,6 +1589,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/rag/evaluation-authoring/snapshots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Freeze Snapshot */
+        post: operations["freeze_snapshot_api_v1_rag_evaluation_authoring_snapshots_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/rag/evaluation-policies": {
         parameters: {
             query?: never;
@@ -1656,6 +1673,110 @@ export interface paths {
          * @description Request document classification review. Does not approve transfer or grant model execution.
          */
         post: operations["create_evidence_approval_request_api_v1_rag_evidence_approval_requests_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/generative-evaluations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Runs */
+        get: operations["list_runs_api_v1_rag_generative_evaluations_get"];
+        put?: never;
+        /** Submit */
+        post: operations["submit_api_v1_rag_generative_evaluations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/generative-evaluations/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Detail */
+        get: operations["detail_api_v1_rag_generative_evaluations__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/generative-evaluations/{run_id}/accept/{version_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Accept */
+        post: operations["accept_api_v1_rag_generative_evaluations__run_id__accept__version_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/generative-evaluations/{run_id}/attempts/{attempt_id}/judgments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Judge */
+        post: operations["judge_api_v1_rag_generative_evaluations__run_id__attempts__attempt_id__judgments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/generative-evaluations/{run_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry */
+        post: operations["retry_api_v1_rag_generative_evaluations__run_id__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/generative-evaluations/policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Policies */
+        get: operations["policies_api_v1_rag_generative_evaluations_policies_get"];
+        put?: never;
+        /** Create Policy */
+        post: operations["create_policy_api_v1_rag_generative_evaluations_policies_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2074,6 +2195,13 @@ export interface components {
             /** Updated At */
             updated_at: string | null;
         };
+        /** @enum {string} */
+        ai_workshop__labs__rag__evaluation__generative__AnswerStatus: "answered" | "insufficient_evidence" | "citation_validation_failed" | "not_requested";
+        /**
+         * AnswerStatus
+         * @enum {string}
+         */
+        ai_workshop__labs__rag__highlighting__domain__AnswerStatus: "supported" | "insufficient_evidence";
         /** AnswerPolicyCreate */
         AnswerPolicyCreate: {
             /**
@@ -2128,11 +2256,6 @@ export interface components {
             /** Version */
             version: number;
         };
-        /**
-         * AnswerStatus
-         * @enum {string}
-         */
-        AnswerStatus: "supported" | "insufficient_evidence";
         /** AssetMoveRequest */
         AssetMoveRequest: {
             /** Destination Folder Id */
@@ -2432,6 +2555,16 @@ export interface components {
             configuration_version_id: string;
             /** Workspace Ids */
             workspace_ids: string[];
+        };
+        /** AuthoringSnapshotResponse */
+        AuthoringSnapshotResponse: {
+            /** Cases */
+            cases: components["schemas"]["AuthoringCase"][];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
         };
         /** AuthorityAuditPageResponse */
         AuthorityAuditPageResponse: {
@@ -2979,6 +3112,27 @@ export interface components {
             updated_at: string;
         };
         Coordinate: number;
+        /** CorrectnessJudgment */
+        CorrectnessJudgment: {
+            /**
+             * Provenance
+             * @enum {string}
+             */
+            provenance: "rule" | "reviewer";
+            /** Reason */
+            reason: string;
+            /** Result Digest */
+            result_digest: string;
+            /** Reviewed At */
+            reviewed_at?: string | null;
+            /** Reviewer Id */
+            reviewer_id?: string | null;
+            /** Rule Digest */
+            rule_digest: string;
+            /** Rule Version */
+            rule_version: number;
+            status: components["schemas"]["JudgmentStatus"];
+        };
         /** DeploymentAdminResponse */
         DeploymentAdminResponse: {
             /** Allowed Environments */
@@ -3489,7 +3643,7 @@ export interface components {
             /** Resolved Query */
             resolved_query: string;
             selected_scope: components["schemas"]["SelectedScopeResponse"] | null;
-            status: components["schemas"]["AnswerStatus"];
+            status: components["schemas"]["ai_workshop__labs__rag__highlighting__domain__AnswerStatus"];
             /** Warnings */
             warnings: string[];
         };
@@ -4200,6 +4354,31 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** ExpectedAnswerRule */
+        ExpectedAnswerRule: {
+            /**
+             * Expected Answer Status
+             * @enum {string}
+             */
+            expected_answer_status: "answered" | "insufficient_evidence";
+            /**
+             * Forbidden Propositions
+             * @default []
+             */
+            forbidden_propositions: string[];
+            /**
+             * Required Evidence Groups
+             * @default []
+             */
+            required_evidence_groups: string[][];
+            /**
+             * Required Propositions
+             * @default []
+             */
+            required_propositions: string[];
+            /** Version */
+            version: number;
+        };
         /** ExperimentFields */
         ExperimentFields: {
             /** Conclusion */
@@ -4372,6 +4551,302 @@ export interface components {
             turn_id: string | null;
             /** Validation Token */
             validation_token: string | null;
+        };
+        /** GenerativeAcceptancePolicy */
+        GenerativeAcceptancePolicy: {
+            /**
+             * Max Access Leaks
+             * @default 0
+             * @constant
+             */
+            max_access_leaks: 0;
+            /** Max P95 Latency Ms */
+            max_p95_latency_ms: number;
+            /** Min Abstention */
+            min_abstention: number;
+            /** Min Context Coverage */
+            min_context_coverage: number;
+            /** Min Correctness */
+            min_correctness: number;
+            /**
+             * Require Valid Citations
+             * @default true
+             * @constant
+             */
+            require_valid_citations: true;
+            /** Version */
+            version: number;
+        };
+        /** GenerativeAcceptanceView */
+        GenerativeAcceptanceView: {
+            /**
+             * Configuration Version Id
+             * Format: uuid
+             */
+            configuration_version_id: string;
+            /**
+             * Metric Version
+             * @default generative-v1
+             * @constant
+             */
+            metric_version: "generative-v1";
+            /** Metrics */
+            metrics: {
+                [key: string]: unknown;
+            };
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+        };
+        /** GenerativeAttemptView */
+        GenerativeAttemptView: {
+            /** Answer */
+            answer: string | null;
+            /** Attempt Number */
+            attempt_number: number;
+            /**
+             * Case Id
+             * Format: uuid
+             */
+            case_id: string;
+            /**
+             * Configuration Version Id
+             * Format: uuid
+             */
+            configuration_version_id: string;
+            /** Error Code */
+            error_code: string | null;
+            /** Execution Id */
+            execution_id: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            judgment: components["schemas"]["CorrectnessJudgment"] | null;
+            metrics: components["schemas"]["GenerativeMetrics"] | null;
+            observation: components["schemas"]["GenerativeObservation"] | null;
+            /** Query */
+            query: string;
+            /** Repetition */
+            repetition: number;
+            /** Result Digest */
+            result_digest: string | null;
+            /** Sources */
+            sources: components["schemas"]["GenerativeSourceView"][];
+            /** Status */
+            status: string;
+        };
+        /** GenerativeMetrics */
+        GenerativeMetrics: {
+            /** Abstention Correct */
+            abstention_correct: boolean | null;
+            /** Access Leaks */
+            access_leaks: number;
+            /** Citation Valid */
+            citation_valid: boolean | null;
+            /** Context Coverage */
+            context_coverage: number | null;
+            correctness: components["schemas"]["JudgmentStatus"];
+            /** Duration Ms */
+            duration_ms: number | null;
+            /** Generation Completed */
+            generation_completed: boolean;
+            /**
+             * Metric Version
+             * @default generative-v1
+             * @constant
+             */
+            metric_version: "generative-v1";
+            /** Required Group Count */
+            required_group_count: number;
+            /** Retrieval Coverage */
+            retrieval_coverage: number | null;
+        };
+        /** GenerativeObservation */
+        GenerativeObservation: {
+            /**
+             * Access Exposures
+             * @default []
+             */
+            access_exposures: string[];
+            /** Citation Valid */
+            citation_valid?: boolean | null;
+            /**
+             * Cited Evidence Ids
+             * @default []
+             */
+            cited_evidence_ids: string[];
+            /** Duration Ms */
+            duration_ms?: number | null;
+            /** Error Code */
+            error_code?: string | null;
+            /**
+             * Execution Id
+             * Format: uuid
+             */
+            execution_id: string;
+            /** Failure Stage */
+            failure_stage?: ("request" | "history" | "contextualization" | "retrieval" | "selection" | "generation" | "citation_validation" | "persistence") | null;
+            generation_status?: components["schemas"]["ai_workshop__labs__rag__evaluation__generative__AnswerStatus"] | null;
+            /** Input Tokens */
+            input_tokens?: number | null;
+            /** Observed Model */
+            observed_model?: string | null;
+            /** Output Tokens */
+            output_tokens?: number | null;
+            /** Requested Model */
+            requested_model?: string | null;
+            /**
+             * Retrieved Evidence Ids
+             * @default []
+             */
+            retrieved_evidence_ids: string[];
+            /**
+             * Selected Evidence Ids
+             * @default []
+             */
+            selected_evidence_ids: string[];
+        };
+        /** GenerativePolicyCreate */
+        GenerativePolicyCreate: {
+            definition: components["schemas"]["GenerativeAcceptancePolicy"];
+            /** Name */
+            name: string;
+        };
+        /** GenerativePolicyView */
+        GenerativePolicyView: {
+            definition: components["schemas"]["GenerativeAcceptancePolicy"];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+        };
+        /** GenerativeReviewRequest */
+        GenerativeReviewRequest: {
+            /** Reason */
+            reason: string;
+            /** Result Digest */
+            result_digest: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "passed" | "failed" | "unreviewed";
+        };
+        /** GenerativeRunCreate */
+        GenerativeRunCreate: {
+            /** Case Histories */
+            case_histories?: {
+                [key: string]: components["schemas"]["ConversationTurnRequest"][];
+            };
+            /** Configuration Version Ids */
+            configuration_version_ids: string[];
+            /**
+             * Dataset Snapshot Id
+             * Format: uuid
+             */
+            dataset_snapshot_id: string;
+            /** Expected Rules */
+            expected_rules: {
+                [key: string]: components["schemas"]["ExpectedAnswerRule"];
+            };
+            input_approval?: components["schemas"]["CodexInputApprovalRequest"] | null;
+            /**
+             * Policy Id
+             * Format: uuid
+             */
+            policy_id: string;
+            /**
+             * Repetition Count
+             * @default 2
+             */
+            repetition_count: number;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /**
+             * Retrieval K
+             * @default 10
+             */
+            retrieval_k: number;
+        };
+        /** GenerativeRunView */
+        GenerativeRunView: {
+            /** Attempts */
+            attempts: components["schemas"]["GenerativeAttemptView"][];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Dataset Snapshot Id
+             * Format: uuid
+             */
+            dataset_snapshot_id: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @default generative
+             * @constant
+             */
+            kind: "generative";
+            /**
+             * Metric Version
+             * @default generative-v1
+             * @constant
+             */
+            metric_version: "generative-v1";
+            /**
+             * Policy Id
+             * Format: uuid
+             */
+            policy_id: string;
+            /** Repetition Count */
+            repetition_count: number;
+            /** Rules Digest */
+            rules_digest: string;
+            /** Status */
+            status: string;
+        };
+        /** GenerativeSourceView */
+        GenerativeSourceView: {
+            /**
+             * Asset Version Id
+             * Format: uuid
+             */
+            asset_version_id: string;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /**
+             * Evidence Id
+             * Format: uuid
+             */
+            evidence_id: string;
+            /** Page */
+            page: number | null;
+            /**
+             * Projection Id
+             * Format: uuid
+             */
+            projection_id: string;
+            /** Title */
+            title: string;
         };
         /** GrantUpdateRequest */
         GrantUpdateRequest: {
@@ -4836,6 +5311,8 @@ export interface components {
         "JsonValue-Output": components["schemas"]["JsonScalar"] | components["schemas"]["JsonValue-Output"][] | {
             [key: string]: components["schemas"]["JsonValue-Output"];
         };
+        /** @enum {string} */
+        JudgmentStatus: "passed" | "failed" | "unreviewed";
         /** LearningDraft */
         LearningDraft: {
             /** Body */
@@ -5591,7 +6068,7 @@ export interface components {
             /** Resolved Query */
             resolved_query: string;
             selected_scope: components["schemas"]["SelectedScopeResponse"] | null;
-            status: components["schemas"]["AnswerStatus"];
+            status: components["schemas"]["ai_workshop__labs__rag__highlighting__domain__AnswerStatus"];
             /** Warnings */
             warnings: string[];
         };
@@ -13633,6 +14110,75 @@ export interface operations {
             };
         };
     };
+    freeze_snapshot_api_v1_rag_evaluation_authoring_snapshots_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuthoringRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthoringSnapshotResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     create_evaluation_policy_api_v1_rag_evaluation_policies_post: {
         parameters: {
             query?: never;
@@ -13995,6 +14541,548 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EvidenceApprovalRequestResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    list_runs_api_v1_rag_generative_evaluations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenerativeRunView"][];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    submit_api_v1_rag_generative_evaluations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GenerativeRunCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenerativeRunView"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    detail_api_v1_rag_generative_evaluations__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenerativeRunView"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    accept_api_v1_rag_generative_evaluations__run_id__accept__version_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenerativeAcceptanceView"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    judge_api_v1_rag_generative_evaluations__run_id__attempts__attempt_id__judgments_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attempt_id: string;
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GenerativeReviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenerativeRunView"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    retry_api_v1_rag_generative_evaluations__run_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenerativeRunView"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    policies_api_v1_rag_generative_evaluations_policies_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenerativePolicyView"][];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    create_policy_api_v1_rag_generative_evaluations_policies_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GenerativePolicyCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenerativePolicyView"];
                 };
             };
             /** @description Authentication required. */

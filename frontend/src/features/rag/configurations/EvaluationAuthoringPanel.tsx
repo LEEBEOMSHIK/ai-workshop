@@ -4,11 +4,14 @@ import { EvaluationCaseEditor } from "./EvaluationCaseEditor";
 import { EvaluationPolicyForm } from "./EvaluationPolicyForm";
 import { createEvaluationPolicy, startAuthoredEvaluation, startEvaluationRun, type AuthoringCase, type AuthoringPreview, type EvaluationPolicy, type EvaluationPolicyCreate, type EvaluationRun, type SavedConfiguration, type Workspace } from "./api";
 import styles from "./EvaluationAuthoring.module.css";
+import { freezeAuthoredSnapshot } from "./api";
+import type { AuthoringSnapshot } from "./generative-api";
 
-export function EvaluationAuthoringPanel({ configurations, workspaces, onRun, onInvalidate, beginOperation, isCurrentOperation }: {
+export function EvaluationAuthoringPanel({ configurations, workspaces, onRun, onInvalidate, beginOperation, isCurrentOperation, onSnapshot }: {
   configurations: SavedConfiguration[]; workspaces: Workspace[];
   onRun: (run: EvaluationRun) => void; onInvalidate: () => void;
   beginOperation: () => number; isCurrentOperation: (intent: number) => boolean;
+  onSnapshot?: (snapshot: AuthoringSnapshot, retrievalK: number, repetitions: number) => void;
 }) {
   const [preview, setPreview] = useState<AuthoringPreview | null>(null);
   const [cases, setCases] = useState<AuthoringCase[]>([]);
@@ -47,6 +50,11 @@ export function EvaluationAuthoringPanel({ configurations, workspaces, onRun, on
     const intent = beginOperation();
     const isCurrent = () => !controller.signal.aborted && isCurrentOperation(intent);
     try {
+      if (operation === "initial" && onSnapshot) {
+        const snapshot = await freezeAuthoredSnapshot({ ...preview.scope, scope_sha256: preview.scope_sha256, draft_id: draftId, dataset_name: name.trim(), cases, retrieval_k: retrievalK, repetition_count: repetitions, retention_confirmed: retention }, controller.signal);
+        if (isCurrent()) { setSnapshotId(snapshot.id); onSnapshot(snapshot, retrievalK, repetitions); setMessage("평가 자료를 저장했습니다. 생성형 실행은 아래에서 별도로 요청하세요."); }
+        return;
+      }
       if (operation === "policy") {
         const saved = await createEvaluationPolicy(policyRequest!, controller.signal);
         if (isCurrent()) { setPolicy(saved); setMessage(`평가 정책 v${saved.version} 저장됨. 다음 실행은 별도로 요청하세요.`); }
@@ -77,18 +85,20 @@ export function EvaluationAuthoringPanel({ configurations, workspaces, onRun, on
         {cases.map((item, index) => <EvaluationCaseEditor key={item.id} value={item} index={index} evidence={preview.evidence} documents={preview.documents} onChange={(changed) => { invalidateDataset(); setCases((current) => current.map((value) => value.id === changed.id ? changed : value)); }} onRemove={() => { invalidateDataset(); setCases((current) => current.filter((value) => value.id !== item.id)); }} />)}
         <button type="button" disabled={cases.length >= 50} onClick={() => { invalidateDataset(); setCases((current) => [...current, freshCase()]); }}>사례 추가</button>
       </fieldset>
-      <h3>3. 자료 보관 확인과 최초 실행</h3>
+      <h3>3. 자료 보관 확인과 {onSnapshot ? "스냅샷 저장" : "최초 실행"}</h3>
       <fieldset disabled={working}><legend>초기 평가 실행 입력</legend>
         <label>평가 이름<input value={name} maxLength={180} onChange={(event) => { invalidateDataset(); setName(event.target.value); }} /></label>
         <label>평가 Retrieval K<input type="number" min={1} max={50} value={retrievalK} onChange={(event) => { setPolicy(null); setMessage(""); setError(""); setRetrievalK(Number(event.target.value)); onInvalidate(); }} /></label>
         <label>평가 반복 횟수<input type="number" min={2} max={5} value={repetitions} onChange={(event) => { setMessage(""); setError(""); setRepetitions(Number(event.target.value)); onInvalidate(); }} /></label>
         <label><input type="checkbox" checked={retention} onChange={(event) => setRetention(event.target.checked)} />자료와 질문의 불변 보관을 확인합니다</label>
-        <p>원문·질문·수동 정답이 불변 평가 스냅샷에 남습니다. 공개 게시나 학습 등록이 아닙니다. 최초 실행도 실제 반복 검색 평가를 수행합니다.</p>
+        <p>원문·질문·수동 정답이 불변 평가 스냅샷에 남습니다. {onSnapshot ? "저장만으로 모델을 호출하지 않습니다." : "최초 실행도 실제 반복 검색 평가를 수행합니다."}</p>
       </fieldset>
-      <button type="button" disabled={working} onClick={() => void execute("initial")}>최초 평가 실행</button>
+      <button type="button" disabled={working} onClick={() => void execute("initial")}>{onSnapshot ? "평가 자료 저장" : "최초 평가 실행"}</button>
+      {!onSnapshot ? <>
       <EvaluationPolicyForm snapshotId={snapshotId} retrievalK={retrievalK} disabled={working} onEdit={() => { setPolicy(null); setError(""); setMessage(""); }} onSave={(value) => void execute("policy", value)} />
       <h3>5. 정책을 적용한 실제 평가</h3>
       <button type="button" disabled={working || !snapshotId || !policy} onClick={() => void execute("policy-run")}>정책 적용 평가 실행</button>
+      </> : null}
       {snapshotId ? <details><summary>저장된 평가 기술 식별자</summary><p>자료 {snapshotId}</p><p>정책 {policy?.id ?? "미저장"}</p></details> : null}
     </> : null}
     {busy ? <p role="status">명시 요청 처리 중…</p> : null}{message ? <p role="status">{message}</p> : null}{error ? <p role="alert">{error}</p> : null}

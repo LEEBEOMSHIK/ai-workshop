@@ -21,7 +21,10 @@ import {
   ServerRouteFailure,
 } from "../../../../../shared/ui/ServerRouteFailure";
 
-export default async function RagConfigurationsRoute() {
+export default async function RagConfigurationsRoute({ searchParams }: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+} = {}) {
+  const query = await searchParams;
   const result = await captureServerRoute(async () => {
     await requireOwner(routes.adminRagConfigurations);
     const cookieHeader = await incomingCookieHeader();
@@ -44,5 +47,9 @@ export default async function RagConfigurationsRoute() {
     workspaces,
     runs,
   };
-  return <ConfigurationStudioPage initialData={initialData} />;
+  return <ConfigurationStudioPage initialData={initialData}
+    initialTab={typeof query?.tab === "string" ? query.tab : undefined}
+    initialRunId={typeof query?.run === "string" ? query.run : undefined}
+    initialCaseId={typeof query?.case === "string" ? query.case : undefined}
+  />;
 }

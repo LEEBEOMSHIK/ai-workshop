@@ -1,5 +1,7 @@
 # RAG Generative Evaluation Alignment Implementation Plan
 
+진행 상태(2026-09-28): 사용자 승인 후 메인 직접 구현·독립 최종 리뷰 방식으로 Tasks 1–4를 구현하고 본래 환경에 반영했다. Task 5의 실모델 평가·브라우저·문제 이력 DB 연결은 기존 로그인 대기다. 세부 실행과 검증의 정본은 [완료/미검증 구분 기록](../../worklogs/2026-09-28-rag-generative-evaluation-verification.md)이다. 기존 v1 보존을 위해 `generative_*` 모듈로 나누었으며 DB 보완은0057–0059 추가 migration으로 반영했다.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 평가가 실제 대화와 같은 근거 선택·생성·인용 검증을 실행하고 그 결과로 품질 개선과 승격을 검증한다.
@@ -93,4 +95,4 @@
 
 ## Self-review and handoff
 
-Spec §7 maps to Tasks 1–4, candidate verification in §8 to Task 5; monitoring-specific requirements remain in the first plan. Five failure classes have targeted tests. Main implementation and independent review/verification responsibilities remain separated. Plan approval and execution method remain pending; no product implementation is claimed by this document.
+Spec §7 maps to Tasks 1–4, candidate verification in §8 to Task 5. Direct implementation and independent final review were approved and performed. Important findings were reproduced and fixed in one pass. Implementation and automatic checks are recorded in the linked report; original-login browser and actual candidate quality verification remain pending.

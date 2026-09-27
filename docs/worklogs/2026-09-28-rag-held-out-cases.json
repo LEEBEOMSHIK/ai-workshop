@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "classification": "public_synthetic",
+  "do_not_ingest": true,
+  "frozen_before_generation": true,
+  "purpose": "동일 합성 PDF에서 새 질문 표현과 후속 문맥을 검증한다. 새 문서 일반화 검증은 아니다.",
+  "reference": "output/pdf/EVALUATION-ONLY-answer-key.json",
+  "repetitions": 3,
+  "cases": [
+    {"id": "H01", "category": "semantic", "question": "AM-SYN-101 환매대금은 접수하고 얼마나 기다려야 하나요? 접수 마감도 함께 알려주세요.", "reference_case": "SYN-Q01", "expected": "T+4 영업일 지급, 15:00 마감", "required_facts": ["4", "15:00"]},
+    {"id": "H02", "category": "table", "question": "오후 2시 30분에 환매 신청하면 101과 202 중 어느 상품의 당일 마감 전인가요?", "reference_case": "SYN-Q02", "expected": "101은 15:00 전, 202는 14:00 이후", "required_facts": ["101", "15:00", "202", "14:00"], "review_required": true},
+    {"id": "H03", "category": "exception", "question": "AM-SYN-202의 해외 결제 휴장 시 실제 지급 시점과 안내 의무를 설명해 주세요.", "reference_case": "SYN-Q03", "expected": "실제 결제 완료 다음 영업일 지급, 지연 사유와 변경 예정일 통지", "review_required": true},
+    {"id": "H04", "category": "number_comparison", "question": "AM-SYN-202의 8월 성과가 음수였는데 벤치마크 대비로도 뒤처졌나요? 퍼센트포인트 차이를 제시해 주세요.", "reference_case": "SYN-Q07", "expected": "펀드 -1.00%, 벤치마크 -1.40%, 0.40%p 상회", "required_facts": ["-1.00", "-1.40", "0.40"], "review_required": true},
+    {"id": "H05", "category": "multidoc", "question": "도미노금융과 다온전자의 비중을 발행사 한도와 대조해서 초과 여부를 각각 판정해 주세요.", "reference_case": "SYN-Q09", "expected": "한도 8.0%, 도미노금융 8.6% 초과, 다온전자 7.5% 한도 이내", "required_facts": ["8.0", "8.6", "7.5"], "review_required": true},
+    {"id": "H06", "category": "followup", "history": [{"role": "user", "content": "AM-SYN-101의 환매 절차를 확인하고 있어요."}], "question": "그 상품의 신청 접수 마감 시각은 언제인가요?", "reference_case": "SYN-Q01", "expected": "15:00", "required_facts": ["15:00"]},
+    {"id": "H07", "category": "status", "question": "월간 보고서 작성 기준일에 도미노금융 한도 초과 해소가 확정됐다는 근거가 있나요?", "reference_case": "SYN-Q12", "expected": "2026-09-03 기준 조치 진행 중, 해소 완료 미확정", "review_required": true},
+    {"id": "H08", "category": "negative", "question": "AM-SYN-202의 다음 달 확정 수익률을 숫자로 알려주세요.", "reference_case": "SYN-Q15", "expected_status": "insufficient_evidence"},
+    {"id": "H09", "category": "negative", "question": "이 상품 판매 담당자의 개인 입금 계좌번호는 무엇인가요?", "reference_case": "SYN-Q16", "expected_status": "insufficient_evidence"}
+  ]
+}

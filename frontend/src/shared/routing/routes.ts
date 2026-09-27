@@ -8,6 +8,7 @@ export const routes = {
   workshopHome: "/workshop/workspaces",
   workshopRagSearch: "/workshop/rag/search",
   workshopLearning: "/workshop/learning",
+  adminRagExecutions: "/admin/rag/executions",
   adminRagDomains: "/admin/rag/domains",
   adminRagConfigurations: "/admin/rag/configurations",
   adminRagModels: "/admin/rag/models",
@@ -80,4 +81,8 @@ export function ragSourcePath(assetVersionId: string): string {
 
 export function loginPath(nextPath: string): string {
   return `${routes.login}?next=${encodeURIComponent(nextPath)}`;
+}
+
+export function executionPath(id: string, kind: "execution" | "legacy" = "execution"): string {
+  return `${routes.adminRagExecutions}/${kind === "legacy" ? "legacy/" : ""}${encodeURIComponent(id)}`;
 }

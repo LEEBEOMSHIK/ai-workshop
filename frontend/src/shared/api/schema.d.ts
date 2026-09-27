@@ -816,6 +816,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/rag/executions/{execution_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Detail */
+        get: operations["detail_api_v1_admin_rag_executions__execution_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/rag/executions/legacy/{turn_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Legacy */
+        get: operations["legacy_api_v1_admin_rag_executions_legacy__turn_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/rag/executions/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Search */
+        post: operations["search_api_v1_admin_rag_executions_search_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/rag/models": {
         parameters: {
             query?: never;
@@ -2450,6 +2501,56 @@ export interface components {
             /** Sparse Score */
             sparse_score: number | null;
         };
+        /** CandidateObservation */
+        CandidateObservation: {
+            /**
+             * Asset Version Id
+             * Format: uuid
+             */
+            asset_version_id: string;
+            /** Chunk Id */
+            chunk_id?: string | null;
+            /** Dense Rank */
+            dense_rank?: number | null;
+            /** Dense Score */
+            dense_score?: number | null;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /**
+             * Evidence Unit Id
+             * Format: uuid
+             */
+            evidence_unit_id: string;
+            /** Fused Rank */
+            fused_rank?: number | null;
+            /** Fused Score */
+            fused_score?: number | null;
+            /** Keyword Coverage */
+            keyword_coverage?: number | null;
+            /** Page */
+            page?: number | null;
+            /**
+             * Projection Id
+             * Format: uuid
+             */
+            projection_id: string;
+            /** Reason */
+            reason: string;
+            /**
+             * Selected
+             * @default false
+             */
+            selected: boolean;
+            /** Semantic Score */
+            semantic_score?: number | null;
+            /** Sparse Rank */
+            sparse_rank?: number | null;
+            /** Sparse Score */
+            sparse_score?: number | null;
+        };
         /**
          * CandidateStatus
          * @enum {string}
@@ -2840,6 +2941,8 @@ export interface components {
             created_at: string;
             /** Error Code */
             error_code: string | null;
+            /** Execution Id */
+            execution_id?: string | null;
             /** Execution Terminated */
             execution_terminated: boolean;
             /**
@@ -2847,6 +2950,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Observation Complete */
+            observation_complete?: boolean | null;
             /** Query */
             query: string;
             /** Redacted */
@@ -3896,11 +4001,205 @@ export interface components {
              */
             status: "pending" | "approved" | "rejected";
         };
+        /** ExecutionDetailResponse */
+        ExecutionDetailResponse: {
+            /** Answer Status */
+            answer_status: string | null;
+            /** Configuration Version Id */
+            configuration_version_id?: string | null;
+            /** Conversation Id */
+            conversation_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Document Count */
+            document_count: number;
+            /** Domain Id */
+            domain_id: string | null;
+            /** Domain Slug */
+            domain_slug: string | null;
+            /** Duration Ms */
+            duration_ms?: number | null;
+            /** Error Code */
+            error_code?: string | null;
+            /** Evaluation Case Id */
+            evaluation_case_id?: string | null;
+            /** Evaluation Run Id */
+            evaluation_run_id?: string | null;
+            /** Evidence */
+            evidence: components["schemas"]["EvidenceAnswerResponse"][];
+            /** Failed Stage */
+            failed_stage?: ("request" | "history" | "contextualization" | "retrieval" | "selection" | "generation" | "citation_validation" | "persistence") | null;
+            generation: components["schemas"]["MonitoringGeneration"] | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @default conversation
+             * @enum {string}
+             */
+            kind: "conversation" | "evaluation";
+            /** Observation Complete */
+            observation_complete: boolean;
+            /**
+             * Quality Status
+             * @default unreviewed
+             * @enum {string}
+             */
+            quality_status: "unreviewed" | "passed" | "failed";
+            /** Query */
+            query: string;
+            /**
+             * Record Kind
+             * @enum {string}
+             */
+            record_kind: "execution" | "legacy";
+            /** Stages */
+            stages: components["schemas"]["StageObservation"][];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "completed" | "failed" | "cancelled" | "interrupted";
+            /** Turn Id */
+            turn_id: string | null;
+            /** Usage */
+            usage?: components["schemas"]["ExecutionUsage"][];
+        };
         /**
          * ExecutionLocation
          * @enum {string}
          */
         ExecutionLocation: "local" | "on_premise" | "external";
+        /** ExecutionSearchRequest */
+        ExecutionSearchRequest: {
+            /** Answer Status */
+            answer_status?: string | null;
+            /** Configuration Version Id */
+            configuration_version_id?: string | null;
+            /** Cursor */
+            cursor?: string | null;
+            /** Domain Id */
+            domain_id?: string | null;
+            /** Failed Stage */
+            failed_stage?: ("request" | "history" | "contextualization" | "retrieval" | "selection" | "generation" | "citation_validation" | "persistence") | null;
+            /** Kind */
+            kind?: ("conversation" | "evaluation") | null;
+            /**
+             * Limit
+             * @default 25
+             */
+            limit: number;
+            /**
+             * Query
+             * @default
+             */
+            query: string;
+            /** Started After */
+            started_after?: string | null;
+            /** Started Before */
+            started_before?: string | null;
+            /** Status */
+            status?: ("running" | "completed" | "failed" | "cancelled" | "interrupted") | null;
+        };
+        /** ExecutionSearchResponse */
+        ExecutionSearchResponse: {
+            /** Duration Count */
+            duration_count: number;
+            /** Duration Missing */
+            duration_missing: number;
+            /** Failed Count */
+            failed_count: number;
+            /** Insufficient Count */
+            insufficient_count: number;
+            /** Items */
+            items: components["schemas"]["ExecutionSummary"][];
+            /** Median Ms */
+            median_ms: number | null;
+            /** Next Cursor */
+            next_cursor: string | null;
+            /** P95 Ms */
+            p95_ms: number | null;
+            /** Total */
+            total: number;
+        };
+        /** ExecutionSummary */
+        ExecutionSummary: {
+            /** Answer Status */
+            answer_status: string | null;
+            /** Configuration Version Id */
+            configuration_version_id?: string | null;
+            /** Conversation Id */
+            conversation_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Document Count */
+            document_count: number;
+            /** Domain Id */
+            domain_id: string | null;
+            /** Domain Slug */
+            domain_slug: string | null;
+            /** Duration Ms */
+            duration_ms?: number | null;
+            /** Error Code */
+            error_code?: string | null;
+            /** Failed Stage */
+            failed_stage?: ("request" | "history" | "contextualization" | "retrieval" | "selection" | "generation" | "citation_validation" | "persistence") | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @default conversation
+             * @enum {string}
+             */
+            kind: "conversation" | "evaluation";
+            /** Observation Complete */
+            observation_complete: boolean;
+            /**
+             * Quality Status
+             * @default unreviewed
+             * @enum {string}
+             */
+            quality_status: "unreviewed" | "passed" | "failed";
+            /** Query */
+            query: string;
+            /**
+             * Record Kind
+             * @enum {string}
+             */
+            record_kind: "execution" | "legacy";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "completed" | "failed" | "cancelled" | "interrupted";
+            /** Turn Id */
+            turn_id: string | null;
+        };
+        /** ExecutionUsage */
+        ExecutionUsage: {
+            /** Error Code */
+            error_code: string | null;
+            /** Input Tokens */
+            input_tokens: number | null;
+            /** Output Tokens */
+            output_tokens: number | null;
+            /** Requested Model */
+            requested_model: string;
+            /** Status */
+            status: string;
+        };
         /** ExperimentFields */
         ExperimentFields: {
             /** Conclusion */
@@ -4733,6 +5032,18 @@ export interface components {
             /** Version */
             version: number;
         };
+        /** MonitoringGeneration */
+        MonitoringGeneration: {
+            /** Citations */
+            citations?: components["schemas"]["GeneratedCitationResponse"][];
+            execution?: components["schemas"]["GenerationExecutionResponse"] | null;
+            /** Reason Codes */
+            reason_codes?: string[];
+            /** Status */
+            status: string;
+            /** Text */
+            text?: string | null;
+        };
         /** @enum {string} */
         NonExternalGenerationDisclosureVersion: "local-generation-v1" | "on-premise-generation-v1";
         /** NormalizedElementResponse */
@@ -5314,6 +5625,48 @@ export interface components {
             /** Identities */
             identities: components["schemas"]["SelectedDocumentIdentityResponse"][];
         };
+        /** SelectionObservation */
+        SelectionObservation: {
+            /** Answer Policy Version Id */
+            answer_policy_version_id?: string | null;
+            /**
+             * Candidate Count
+             * @default 0
+             */
+            candidate_count: number;
+            /** Candidates */
+            candidates?: components["schemas"]["CandidateObservation"][];
+            /** Character Limit */
+            character_limit?: number | null;
+            /** Configuration Version Id */
+            configuration_version_id?: string | null;
+            /** Generation Profile Id */
+            generation_profile_id?: string | null;
+            /** Group Limit */
+            group_limit?: number | null;
+            /** Indexing Profile Id */
+            indexing_profile_id?: string | null;
+            /** Min Keyword Coverage */
+            min_keyword_coverage?: number | null;
+            /** Min Semantic Score */
+            min_semantic_score?: number | null;
+            /** Retrieval Profile Id */
+            retrieval_profile_id?: string | null;
+            /**
+             * Selected Count
+             * @default 0
+             */
+            selected_count: number;
+            /** Serialized Bytes */
+            serialized_bytes?: number | null;
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+            /** Unit Limit */
+            unit_limit?: number | null;
+        };
         /** SetupStatusResponse */
         SetupStatusResponse: {
             /** Setup Required */
@@ -5407,6 +5760,28 @@ export interface components {
             components["schemas"]["Position"],
             components["schemas"]["Position"]
         ];
+        /** StageObservation */
+        StageObservation: {
+            /** Duration Ms */
+            duration_ms?: number | null;
+            /** Ended At */
+            ended_at?: string | null;
+            /** Reason */
+            reason?: string | null;
+            selection?: components["schemas"]["SelectionObservation"] | null;
+            /**
+             * Stage
+             * @enum {string}
+             */
+            stage: "request" | "history" | "contextualization" | "retrieval" | "selection" | "generation" | "citation_validation" | "persistence";
+            /** Started At */
+            started_at?: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "running" | "completed" | "failed" | "skipped" | "unrecorded";
+        };
         /** StatusUpdateRequest */
         StatusUpdateRequest: {
             /** Expected Revision */
@@ -9579,6 +9954,209 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EvidenceApprovalRequestResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    detail_api_v1_admin_rag_executions__execution_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                execution_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutionDetailResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    legacy_api_v1_admin_rag_executions_legacy__turn_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                turn_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutionDetailResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    search_api_v1_admin_rag_executions_search_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExecutionSearchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutionSearchResponse"];
                 };
             };
             /** @description Authentication required. */

@@ -22,6 +22,7 @@ import {
   listConversationFolders,
 } from "./api";
 import { ConversationAnswer } from "./ConversationAnswer";
+import { executionPath } from "../../../shared/routing/routes";
 import { EvidencePanel } from "./EvidencePanel";
 import { ProcessingDisclosure } from "./ProcessingDisclosure";
 import { CodexQuestionConsent } from "./CodexQuestionConsent";
@@ -33,13 +34,13 @@ import { cancelConversationTurn, createConversation, deleteConversation, getConv
 import { ConversationAttachments } from "./ConversationAttachments";
 const authenticationExpiredMessage = "로그인이 만료되었습니다. 다시 로그인한 뒤 질문을 보내 주세요.";
 
-export function ConversationPage({ domain, initialSelection = null, initialWorkspaceIds = [] }: { domain: Domain; initialSelection?: Selection; initialWorkspaceIds?: string[] }) {
+export function ConversationPage({ domain, initialSelection = null, initialWorkspaceIds = [], canMonitor = false }: { canMonitor?: boolean; domain: Domain; initialSelection?: Selection; initialWorkspaceIds?: string[] }) {
   const preview = domain.generation_execution_preview;
   const sessionKey = JSON.stringify([domain.id, domain.connection_version?.id, preview, domain.workspace_options, initialSelection?.documentIds, initialWorkspaceIds]);
-  return <ConversationSession key={sessionKey} domain={domain} initialSelection={initialSelection} initialWorkspaceIds={initialWorkspaceIds} />;
+  return <ConversationSession canMonitor={canMonitor} key={sessionKey} domain={domain} initialSelection={initialSelection} initialWorkspaceIds={initialWorkspaceIds} />;
 }
 
-function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: { domain: Domain; initialSelection: Selection; initialWorkspaceIds: string[] }) {
+function ConversationSession({ domain, initialSelection, initialWorkspaceIds, canMonitor }: { canMonitor: boolean; domain: Domain; initialSelection: Selection; initialWorkspaceIds: string[] }) {
   const [selection, setSelection] = useState<Selection>(initialSelection);
   const selectionRef = useRef(selection);
   function updateSelection(value: Selection) { selectionRef.current = value; setSelection(value); }
@@ -540,6 +541,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
               {turn.status === "running" ? <><button type="button" onClick={() => cancelCurrent()}>답변 취소</button><button type="button" onClick={() => void selectSession(session.id)}>상태 새로고침</button></> : null}
               {turn.status === "cancelled" && !turn.execution_terminated ? <button type="button" onClick={() => void selectSession(session.id)}>상태 새로고침</button> : null}
             </article>}
+            {canMonitor && !turn.redacted ? <a href={executionPath(turn.execution_id ?? turn.id, turn.execution_id ? "execution" : "legacy")}>실행 단계·근거 확인</a> : null}
         </div>)}
         {transcript.map((item) => item.type === "scope-divider" ? (
           <div className="scope-divider" role="separator" key={`divider-${item.key}`}><span>검색 범위 변경</span></div>

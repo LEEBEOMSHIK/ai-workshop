@@ -3,7 +3,8 @@ import { routes } from "../../shared/routing/routes";
 export type Area = "public" | "workspace" | "admin";
 interface MenuItem { label: string; href: string; prefixes: readonly string[]; domainChat?: boolean; domainFiles?: boolean; exact?: boolean }
 export const adminMenuGroups: readonly {label: string; items: readonly MenuItem[]}[] = [
-  {label: "RAG 관리", items: [
+    {label: "RAG 관리", items: [
+      {label: "실행 모니터링", href: routes.adminRagExecutions, prefixes: [routes.adminRagExecutions]},
     {label: "RAG 도메인", href: routes.adminRagDomains, prefixes: [routes.adminRagDomains]},
     {label: "RAG 구성", href: routes.adminRagConfigurations, prefixes: [routes.adminRagConfigurations]},
     {label: "RAG 모델", href: routes.adminRagModels, prefixes: [routes.adminRagModels]},

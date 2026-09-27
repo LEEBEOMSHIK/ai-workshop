@@ -19,7 +19,8 @@ interface RagDomainChatRouteProps {
 export default async function RagDomainChatRoute({ params, searchParams }: RagDomainChatRouteProps) {
   const [{ slug }, query] = await Promise.all([params, searchParams]);
   const result = await captureServerRoute(async () => {
-    await requireWorkspaceUser(ragDomainChatPath(slug));
+    const actor = await requireWorkspaceUser(ragDomainChatPath(slug));
+    const canMonitor = actor?.role === "owner";
     const cookie = await incomingCookieHeader();
     const domain = await serverApiRequest<Domain>(
       `/api/v1/rag/domains/${encodeURIComponent(slug)}`,
@@ -27,7 +28,7 @@ export default async function RagDomainChatRoute({ params, searchParams }: RagDo
       cookie,
     );
     const rawSelection = selectedValues(query.selected);
-    if (rawSelection === null) return { domain, selection: null };
+    if (rawSelection === null) return { domain, canMonitor, selection: null };
     const pairs = parseSelectedPairs(rawSelection);
     const base = `/api/v1/rag/domains/${encodeURIComponent(slug)}/library`;
     const context = await serverApiRequest<DomainLibraryContext>(base, {}, cookie);
@@ -36,7 +37,7 @@ export default async function RagDomainChatRoute({ params, searchParams }: RagDo
       || pairs.some((pair) => !context.workspace_options.some((workspace) => workspace.id === pair.workspaceId))) throw invalidSelection();
     const documents = await Promise.all(pairs.map(({ workspaceId, documentId }) => serverApiRequest<DocumentSummary>(`${base}/workspaces/${workspaceId}/documents/${documentId}`, {}, cookie)));
     if (documents.some((document, index) => document.id !== pairs[index].documentId || document.workspace_id !== pairs[index].workspaceId)) throw invalidSelection();
-    return { domain, selection: selectionFromDocuments(documents) };
+    return { domain, canMonitor, selection: selectionFromDocuments(documents) };
   });
   if (!result.ok && result.failure.status === 404 && result.failure.code === "not_found") {
     return (
@@ -49,7 +50,7 @@ export default async function RagDomainChatRoute({ params, searchParams }: RagDo
     );
   }
   if (!result.ok) return <ServerRouteFailure failure={result.failure} />;
-  return <ConversationPage domain={result.value.domain} initialSelection={result.value.selection} />;
+  return <ConversationPage canMonitor={result.value.canMonitor} domain={result.value.domain} initialSelection={result.value.selection} />;
 }
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

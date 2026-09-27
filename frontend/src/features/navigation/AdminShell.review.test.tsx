@@ -65,14 +65,14 @@ it("closes the drawer on route changes and returns focus to its trigger", async 
   expect(trigger).toHaveFocus();
 });
 
-it("closes a mobile drawer when switching to desktop and keeps all seven links", async () => {
+it("closes a mobile drawer when switching to desktop and keeps all eight links", async () => {
   const user = userEvent.setup();
   render(<AdminShell user={owner}><main>Content</main></AdminShell>);
   await user.click(screen.getByRole("button", { name: "메뉴 열기" }));
   act(() => { mobile = false; listeners.forEach(listener => listener()); });
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "관리자 메뉴" })).not.toBeInTheDocument());
   const navigation = screen.getByRole("navigation", { name: "관리자 운영" });
-  expect(within(navigation).getAllByRole("link")).toHaveLength(7);
+  expect(within(navigation).getAllByRole("link")).toHaveLength(8);
   expect(document.body.style.overflow).not.toBe("hidden");
 });
 

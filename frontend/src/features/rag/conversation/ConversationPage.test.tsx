@@ -46,6 +46,34 @@ beforeEach(() => window.history.replaceState(null, "", "/"));
 afterEach(() => vi.unstubAllGlobals());
 
 describe("ConversationPage", () => {
+  it.each([[401, "not_authenticated"], [401, "request_failed"], [403, "not_authenticated"]] as const)("preserves the draft and document selection on expired authentication (%s/%s)", async (status, code) => {
+    window.history.replaceState(null, "", "/workshop/rag/domains/asset-management/chat?selected=workspace-1%3Adocument-1");
+    let sends = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("/folders")) return jsonResponse([]);
+      if (init?.method === "POST") sends += 1;
+      return errorResponse(status, code, "private authentication detail");
+    }));
+    const user = userEvent.setup();
+    render(<ConversationPage domain={domain()} initialSelection={selectionFromDocuments([selectedDocument()])} />);
+    const textbox = screen.getByRole("textbox", { name: "질문" });
+    await user.type(textbox, "보존할 질문");
+    await user.click(screen.getByRole("button", { name: "질문 보내기" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("로그인이 만료되었습니다. 다시 로그인한 뒤 질문을 보내 주세요.");
+    expect(alert).not.toHaveTextContent("private authentication detail");
+    expect(textbox).toHaveValue("보존할 질문");
+    expect(textbox).toBeEnabled();
+    expect(screen.getByRole("button", { name: "운용 규정.md 제외" })).toBeVisible();
+    const login = within(alert).getByRole("link", { name: "다시 로그인" });
+    const returnTo = new URL(login.getAttribute("href")!, "http://localhost").searchParams.get("next");
+    expect(returnTo).toBe(`/workshop/rag/domains/asset-management/chat${window.location.search}`);
+    expect(login).toHaveAttribute("target", "_blank");
+    expect(within(alert).queryByRole("button", { name: "같은 질문 다시 시도" })).not.toBeInTheDocument();
+    expect(sends).toBe(1);
+    await user.type(textbox, " 수정");
+    expect(sends).toBe(1);
+  });
   it("groups the question, attachment and send controls inside one input surface", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json([])));
     render(<ConversationPage domain={domain()} />);

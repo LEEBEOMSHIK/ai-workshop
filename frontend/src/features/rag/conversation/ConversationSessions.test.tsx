@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 import { ConversationPage } from "./ConversationPage";
 import type { Domain } from "../domains/api";
@@ -9,6 +9,42 @@ const scope = {connection_version_id: "connection", workspace_ids: ["workspace"]
 const turn = {id: "turn-1", request_id: "request-1", sequence: 1, status: "failed", query: "이전 질문", response: null, request_scope: scope, segment: 1, error_code: "provider_timeout", redacted: false, execution_terminated: true, created_at: summary.created_at, updated_at: summary.updated_at};
 const json = (value: unknown) => new Response(JSON.stringify(value), {headers: {"content-type": "application/json"}});
 afterEach(() => { vi.unstubAllGlobals(); window.history.replaceState(null, "", "/"); });
+
+it("keeps an existing session draft after turn authentication expires and only resends explicitly with the same request ID", async () => {
+  window.history.replaceState(null, "", "/workshop/rag/domains/example/chat?conversation=session-1");
+  const requests: Record<string, unknown>[] = [];
+  let authenticated = false;
+  vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(url);
+    if (path.endsWith("/folders")) return json([]);
+    if (path.endsWith("/conversations")) {
+      if (init?.method === "POST") throw new Error("Must preserve the existing session");
+      return json([summary]);
+    }
+    if (path.endsWith("/turns")) {
+      requests.push(JSON.parse(String(init?.body)));
+      if (!authenticated) return new Response(JSON.stringify({error:{code:"not_authenticated",message:"private detail",correlation_id:"auth-test"}}), {status:401,headers:{"content-type":"application/json"}});
+      return json({...summary, revision:2, turns:[turn,{...turn,id:"turn-2",sequence:2,status:"completed",query:"보존된 새 질문",response:{status:"supported",answer:null,conflict_state:"none",conflicts:[],warnings:[],related_sources:[],configuration_version:{configuration_id:"config",version_id:"config-version",version:1},experimental:false,resolved_query:"보존된 새 질문",generation:{status:"answered",text:"로그인 후 답변",citations:[],reason_codes:[],turn_id:"turn-2",validation_token:"synthetic",execution:null},domain_context:{domain_id:"domain",connection_version_id:"connection",workspace_ids:["workspace"],folder_ids:[]},selected_scope:null}}]});
+    }
+    return json({...summary, turns:[turn]});
+  }));
+  render(<ConversationPage domain={domain}/>);
+  await screen.findByText("이전 질문");
+  const textbox=screen.getByRole("textbox",{name:"질문"});
+  fireEvent.change(textbox,{target:{value:"보존된 새 질문"}});
+  fireEvent.click(screen.getByRole("button",{name:"질문 보내기"}));
+  const alert=await screen.findByRole("alert");
+  expect(alert).toHaveTextContent("로그인이 만료되었습니다");
+  expect(textbox).toHaveValue("보존된 새 질문");
+  expect(within(alert).getByRole("link",{name:"다시 로그인"})).toHaveAttribute("href","/login?next=%2Fworkshop%2Frag%2Fdomains%2Fexample%2Fchat%3Fconversation%3Dsession-1");
+  await act(async()=>{authenticated=true;});
+  expect(requests).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button",{name:"질문 보내기"}));
+  await waitFor(()=>expect(requests).toHaveLength(2));
+  expect(requests[1]).toEqual(requests[0]);
+  expect(requests[1]).toMatchObject({query:"보존된 새 질문",workspace_ids:["workspace"],expected_revision:1});
+  expect(await screen.findByText("로그인 후 답변")).toBeVisible();
+});
 
 it("restores the URL-selected server conversation and preserves it on new chat", async () => {
   window.history.replaceState(null, "", "/?conversation=session-1");

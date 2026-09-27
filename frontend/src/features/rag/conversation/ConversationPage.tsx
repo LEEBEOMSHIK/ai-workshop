@@ -10,7 +10,7 @@ import {
 } from "react";
 
 import { ApiError } from "../../../shared/api/client";
-import { routes } from "../../../shared/routing/routes";
+import { loginPath, ragDomainChatPath, routes } from "../../../shared/routing/routes";
 import type { DocumentSummary } from "../../assets/api";
 import { LibraryViewer } from "../../assets/LibraryViewer";
 import type { Domain } from "../domains/api";
@@ -31,6 +31,7 @@ import { selectionFromDocuments, type ScopeMode, type ScopeSnapshot, type Select
 
 import { cancelConversationTurn, createConversation, deleteConversation, getConversation, listConversations, renameConversation, sendConversationTurn, type ConversationDetail, type ConversationSummary, type TurnRequest } from "./sessions-api";
 import { ConversationAttachments } from "./ConversationAttachments";
+const authenticationExpiredMessage = "로그인이 만료되었습니다. 다시 로그인한 뒤 질문을 보내 주세요.";
 
 export function ConversationPage({ domain, initialSelection = null, initialWorkspaceIds = [] }: { domain: Domain; initialSelection?: Selection; initialWorkspaceIds?: string[] }) {
   const preview = domain.generation_execution_preview;
@@ -579,7 +580,12 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds }: 
         {error ? (
           <div className="conversation-error" role="alert">
             <p>{error}</p>
-            {requiresDomainReentry ? (
+            {error === authenticationExpiredMessage ? (
+              <>
+                <Link href={loginPath(`${ragDomainChatPath(domain.slug)}${typeof window !== "undefined" ? window.location.search : ""}`)} target="_blank" rel="noopener noreferrer">다시 로그인</Link>
+                <p>새 탭에서 로그인합니다. 입력한 질문과 선택 문서는 이 화면에 유지됩니다.</p>
+              </>
+            ) : requiresDomainReentry ? (
               <Link href={routes.workshopRagSearch}>도메인 선택으로 돌아가기</Link>
             ) : requiresContextReset ? (
               <button type="button" onClick={markScopeChange}>변경된 범위로 새 문맥 시작</button>
@@ -656,7 +662,7 @@ function readinessMessage(reasonCodes: string[]): string {
   return "관리자가 검색과 생성 연결을 준비하고 있습니다.";
 }
 
-type ConversationFailureAction = "retry" | "revise-scope" | "reset-context" | "reenter" | "stop";
+type ConversationFailureAction = "retry" | "revise-scope" | "reset-context" | "reenter" | "reauthenticate" | "stop";
 
 interface ConversationFailure {
   message: string;
@@ -665,6 +671,9 @@ interface ConversationFailure {
 
 function conversationFailure(caught: unknown): ConversationFailure {
   if (caught instanceof ApiError) {
+    if (caught.status === 401 || caught.code === "not_authenticated") {
+      return {message: authenticationExpiredMessage, action: "reauthenticate"};
+    }
     const messages: Record<string, string> = {
       domain_inactive: "도메인 연결이 비활성화되었습니다. 최신 상태를 확인하려면 도메인을 다시 선택해 주세요.",
       domain_connection_changed: "도메인 연결이 변경되었습니다. 최신 연결과 검색 범위를 다시 불러오려면 도메인을 다시 선택해 주세요.",

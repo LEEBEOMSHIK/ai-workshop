@@ -52,6 +52,7 @@ class CandidateObservation(Metadata):
     projection_id: UUID
     evidence_unit_id: UUID
     page: int | None = None
+    chunk_id: UUID | None = None
     sparse_rank: int | None = None
     sparse_score: float | None = None
     dense_rank: int | None = None
@@ -69,6 +70,8 @@ class SelectionObservation(Metadata):
     candidate_count: int = Field(default=0, ge=0)
     truncated: bool = False
     selected_count: int = Field(default=0, ge=0)
+    min_semantic_score: float | None = None
+    min_keyword_coverage: float | None = None
     group_limit: int | None = None
     unit_limit: int | None = None
     character_limit: int | None = None

@@ -28,6 +28,8 @@ class Turn:
     error_code: str | None = None
     dependencies: list[UUID] = field(default_factory=list)
     execution_terminated: bool = False
+    execution_id: UUID | None = None
+    observation_complete: bool | None = None
 
 
 @dataclass

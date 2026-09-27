@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ai_workshop.labs.rag.conversations.models import ConversationRecord, ConversationTurnRecord
 from ai_workshop.labs.rag.executions.domain import (
+    STAGES,
     ExecutionIdentity,
     ExecutionOutcome,
     StageObservation,
@@ -44,7 +45,7 @@ class SqlAlchemyExecutionRecorder:
                     turn_id=identity.turn_id,
                     evaluation_attempt_id=identity.evaluation_attempt_id,
                     status="running",
-                    complete=True,
+                    complete=False,
                     stages={},
                 )
                 .on_conflict_do_nothing()
@@ -83,7 +84,10 @@ async def finish_execution(
         select(ExecutionRecord).where(ExecutionRecord.id == execution_id).with_for_update()
     )
     if row is not None:
-        row.complete = row.complete and outcome.complete
+        row.complete = outcome.complete and all(
+            isinstance(value, dict) and value.get("state") in {"completed", "failed", "skipped"}
+            for value in (row.stages.get(stage) for stage in STAGES)
+        )
     if row is not None and row.status == "running":
         row.status, row.answer_status = outcome.state, outcome.answer_status
         row.error_code, row.complete = outcome.error_code, outcome.complete

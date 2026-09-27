@@ -21,6 +21,12 @@ from ai_workshop.labs.rag.conversations.schemas import (
 from ai_workshop.labs.rag.domains.api import DomainSearchExecutorPort
 from ai_workshop.labs.rag.domains.schemas import DomainSearchRequest, DomainSearchResponse
 from ai_workshop.labs.rag.domains.service import DomainService
+from ai_workshop.labs.rag.executions.domain import (
+    ExecutionIdentity,
+    ExecutionOutcome,
+    ExecutionRecorder,
+)
+from ai_workshop.labs.rag.executions.observer import ExecutionObserver, observed_call
 from ai_workshop.labs.rag.search.schemas import ConversationTurnRequest
 from ai_workshop.shared.errors import AppError
 
@@ -105,7 +111,9 @@ class ConversationService:
         access: ConversationAccessPort,
         domains: DomainService,
         executor: DomainSearchExecutorPort,
+        recorder: ExecutionRecorder | None = None,
     ) -> None:
+        self.recorder = recorder
         self.repository, self.access, self.domains, self.executor = (
             repository,
             access,
@@ -199,34 +207,47 @@ class ConversationService:
             turn, created = reserve_turn(item, request, identity, datetime.now(UTC))
         if not created:
             return await self._view(item)
+        observer = (
+            ExecutionObserver(ExecutionIdentity(actor_id=actor_id, turn_id=turn.id), self.recorder)
+            if self.recorder is not None
+            else None
+        )
         task: asyncio.Task[DomainSearchResponse] | None = None
         result: DomainSearchResponse | None = None
         error: str | None = None
         cancelled = False
         phase = ExecutionPhase.HISTORY
         try:
+            if observer:
+                await observer.start()
+                await observer.begin("history")
             history, dependencies = await self._history(item, turn, request)
             phase = ExecutionPhase.RESERVE_DEPENDENCIES
             async with self.repository.locked(actor_id, domain_id, id) as current:
                 target = next(value for value in current.turns if value.id == turn.id)
                 if target.status != "running":
-                    target.execution_terminated = True
-                    target.updated_at = datetime.now(UTC)
-                    current.touch(target.updated_at)
-                    return await self._view(current)
+                    raise asyncio.CancelledError
                 target.dependencies = dependencies
-            phase = ExecutionPhase.PREPARE_REQUEST
+                if observer:
+                    target.execution_id = observer.persisted_id
+                    phase = ExecutionPhase.PREPARE_REQUEST
             data = request.model_dump(exclude={"request_id", "expected_revision"})
             if data.get("document_ids") is None:
                 data.pop("document_ids", None)
             data["history"] = history
             execution_request = DomainSearchRequest.model_validate(data)
+            if observer:
+                await observer.end("history")
+                await observer.begin("request")
             phase = ExecutionPhase.EXECUTE
             task = asyncio.create_task(
-                self.executor.execute(
-                    slug=slug,
-                    actor_id=actor_id,
-                    request=execution_request,
+                observed_call(
+                    self.executor.execute(
+                        slug=slug,
+                        actor_id=actor_id,
+                        request=execution_request,
+                    ),
+                    observer,
                 )
             )
             while not task.done():
@@ -254,6 +275,10 @@ class ConversationService:
             if task is not None and not task.done():
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
+        if observer:
+            if error or cancelled:
+                await observer.fail(error or "conversation_cancelled")
+            await observer.begin("persistence")
         try:
             async with self.repository.locked(actor_id, domain_id, id) as current:
                 target = next(value for value in current.turns if value.id == turn.id)
@@ -267,8 +292,24 @@ class ConversationService:
         except AppError as exc:
             if exc.status_code == 404:
                 await self.repository.record_termination(actor_id, domain_id, id, turn.id)
+                if observer:
+                    await observer.fail("conversation_deleted")
+                    await observer.finish(
+                        ExecutionOutcome(state="cancelled", error_code="conversation_deleted")
+                    )
                 raise AppError("not_found", "The conversation was deleted.", 404) from None
             raise
+        if observer:
+            target.observation_complete = observer.complete
+            await observer.end("persistence")
+            await observer.finish(
+                ExecutionOutcome(
+                    state=target.status,
+                    error_code=target.error_code,
+                    answer_status=result.generation.status if result else None,
+                )
+            )
+            target.observation_complete = observer.complete
         return await self._view(current)
 
     async def _history(
@@ -359,6 +400,8 @@ class ConversationService:
                     created_at=turn.created_at,
                     updated_at=turn.updated_at,
                     execution_terminated=turn.execution_terminated,
+                    execution_id=turn.execution_id if allowed else None,
+                    observation_complete=turn.observation_complete if allowed else None,
                 )
             )
         return ConversationDetail(**self._summary(item).model_dump(), turns=turns)

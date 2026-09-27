@@ -15,6 +15,8 @@ from ai_workshop.labs.rag.deployments.domain import (
 )
 from ai_workshop.labs.rag.embeddings.contracts import EmbeddingRuntimeUnavailableError
 from ai_workshop.labs.rag.embeddings.request_cache import RequestScopedEmbedding
+from ai_workshop.labs.rag.executions import observer as trace
+from ai_workshop.labs.rag.executions.selection import selection_observation
 from ai_workshop.labs.rag.generation.audit import (
     GenerationExecutionAudit,
     WorkspacePolicyAuditSnapshot,
@@ -427,11 +429,13 @@ class SearchApplicationService:
                     provider_execution=generation_health.execution,
                 )
                 raise _safe_generation_error("provider_invalid_response")
+        await trace.end("request")
         resolved_query = request.query.strip()
         if generation_profile is not None and bounded_history:
             assert prepared_generation is not None
             assert generation_runtime is not None
             await revalidate_access()
+            await trace.begin("contextualization")
             contextualization_started = perf_counter()
             try:
                 contextualization = await generation_runtime.contextualize(
@@ -457,6 +461,7 @@ class SearchApplicationService:
                 resolved_query = contextualization.resolved_query
                 contextualization_execution = contextualization.execution
                 stages["contextualization"] = _elapsed_ms(contextualization_started)
+                await trace.end("contextualization")
             except GenerationProviderError as exc:
                 code = _approved_provider_code(exc.code)
                 await self._record_audit(
@@ -489,6 +494,9 @@ class SearchApplicationService:
                 )
                 raise _safe_generation_error("provider_invalid_response") from None
 
+        if not bounded_history or generation_profile is None:
+            await trace.end("contextualization", state="skipped", reason="no_history")
+        await trace.begin("retrieval")
         retrieval_started = perf_counter()
         context_selection = None
         try:
@@ -525,6 +533,8 @@ class SearchApplicationService:
                     409,
                 )
             stages["retrieval"] = _elapsed_ms(retrieval_started)
+            await trace.end("retrieval")
+            await trace.begin("selection")
             selection_started = perf_counter()
             selection = EvidenceSelector(embedding).select(
                 query=resolved_query,
@@ -577,6 +587,11 @@ class SearchApplicationService:
             )
             require_authorized_identities(required_sources, resolved_scope)
             await revalidate_access(required_sources)
+            if trace.current_observer.get() is not None:
+                await trace.capture_selection(lambda: selection_observation(
+                    sources, hits, context_selection, configuration, len(generation_answers),
+                    _grounding_evidence(generation_answers), request.top_k,
+                ))
         except EmbeddingRuntimeUnavailableError:
             error = AppError(
                 "evidence_embedding_unavailable",
@@ -610,6 +625,9 @@ class SearchApplicationService:
             raise
         if generation_profile is None:
             generation_answers = ()
+        if generation_profile is None or not generation_answers:
+            await trace.end("generation", state="skipped", reason="no_eligible_evidence")
+            await trace.end("citation_validation", state="skipped", reason="no_generation")
         generation_started = perf_counter()
         generation = await self._generate(
             actor_id=actor_id,
@@ -920,6 +938,7 @@ class SearchApplicationService:
             )
         generation_runtime = prepared_generation.runtime
         assert self.turn_signer is not None
+        await trace.begin("generation")
         generation_started = perf_counter()
         try:
             generation_result = await generation_runtime.generate(
@@ -985,6 +1004,7 @@ class SearchApplicationService:
                 latency_ms=_elapsed_ms(generation_started),
             )
             raise _safe_generation_error("provider_invalid_response") from None
+        await trace.end("generation")
         actual_execution = prepared_generation.execution
         if generation_result.execution.provider is ProviderKind.DEVELOPMENT_CODEX_EXEC:
             observed = generation_result.execution.observed_provider_model_id
@@ -994,6 +1014,9 @@ class SearchApplicationService:
                 model_identity_status="verified" if observed is not None else "unknown",
             )
         if generation_result.status is GenerationStatus.INSUFFICIENT_EVIDENCE:
+            await trace.end(
+                "citation_validation", state="skipped", reason="generation_insufficient"
+            )
             await self._record_audit(
                 actor_id=actor_id,
                 configuration=configuration,
@@ -1012,6 +1035,7 @@ class SearchApplicationService:
                 reason_codes=("evidence_content_insufficient",),
             )
         assert draft is not None
+        await trace.begin("citation_validation")
         outcome = CitationValidator().validate(draft, allowed_evidence=evidence)
         if outcome.status is not GenerationStatus.ANSWERED or outcome.text is None:
             await self._record_audit(
@@ -1028,6 +1052,7 @@ class SearchApplicationService:
                 latency_ms=_elapsed_ms(generation_started),
             )
             raise _safe_generation_error("citation_validation_failed")
+        await trace.end("citation_validation")
         turn_id = uuid4()
         if conversation_scope is None:
             validation_token = self.turn_signer.sign(
@@ -1132,6 +1157,7 @@ class SearchApplicationService:
                 status=status,
                 safe_error_code=safe_error_code,
                 correlation_id=_correlation_uuid(),
+                execution_id=trace.execution_id(),
                 created_at=datetime.now(UTC),
             )
             await repository.add(audit)

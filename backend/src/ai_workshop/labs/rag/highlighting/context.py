@@ -46,6 +46,7 @@ class ContextSelection:
     diagnostics: tuple[CandidateDiagnostic, ...]
     blocked_reason: str | None = None
     diagnostic_warning: str | None = None
+    observations: tuple[CandidateDiagnostic, ...] = ()
 
 
 def select_context(
@@ -123,6 +124,12 @@ def select_context(
     if extractive.conflicts and not anchor_ids <= chosen_ids:
         chosen = []
         blocked = "conflict_context_budget_exceeded"
+    observations = tuple(CandidateDiagnostic(
+        group.source.chunk.chunk_id, None, group.keyword_coverage, group.semantic_score,
+        group in eligible, group in chosen,
+        blocked or ("selected" if group in chosen else
+                    "budget_exceeded" if group in eligible else "below_threshold"),
+    ) for group in groups)
     diagnostic_warning = None
     if include_diagnostics:
         unit_pairs = [(group, unit) for group in groups for unit in group.units]
@@ -157,7 +164,9 @@ def select_context(
                 qualifies, selected, "context_member" if selected and not qualifies else
                 "selected" if selected else "not_transmitted",
             ))
-    return ContextSelection(tuple(chosen), tuple(diagnostics), blocked, diagnostic_warning)
+    return ContextSelection(
+        tuple(chosen), tuple(diagnostics), blocked, diagnostic_warning, observations,
+    )
 
 
 def _context_text(group: ContextGroup) -> str:

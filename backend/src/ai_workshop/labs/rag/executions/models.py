@@ -30,6 +30,6 @@ class ExecutionRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), default="running")
     answer_status: Mapped[str | None] = mapped_column(String(40))
     error_code: Mapped[str | None] = mapped_column(String(100))
-    complete: Mapped[bool] = mapped_column(default=True)
+    complete: Mapped[bool] = mapped_column(default=False)
     stages: Mapped[dict[str, object]] = mapped_column(JSONB, default=dict)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

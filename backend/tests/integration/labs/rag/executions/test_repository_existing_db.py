@@ -53,6 +53,13 @@ async def test_duplicate_turn_has_one_execution_and_terminal_state_cannot_revers
                 recorder = SqlAlchemyExecutionRecorder(sessions)
                 identity = ExecutionIdentity(actor_id=actor, turn_id=turn)
                 await recorder.start(identity)
+                assert (
+                    await connection.scalar(
+                        text("SELECT complete FROM rag_executions WHERE id=:id"),
+                        {"id": identity.execution_id},
+                    )
+                    is False
+                )
                 await recorder.start(identity)
                 assert (
                     await connection.scalar(

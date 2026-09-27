@@ -12,6 +12,7 @@ from ai_workshop.labs.rag.domains.api import admin_router as rag_domain_admin_ro
 from ai_workshop.labs.rag.domains.api import router as rag_domain_router
 from ai_workshop.labs.rag.evaluation.api import router as rag_evaluation_router
 from ai_workshop.labs.rag.evaluation.authoring_api import router as rag_authoring_router
+from ai_workshop.labs.rag.executions.api import router as rag_execution_router
 from ai_workshop.labs.rag.generation.codex_admin_api import router as rag_codex_admin_router
 from ai_workshop.labs.rag.generation.evidence_approval_request_api import (
     router as rag_evidence_request_router,
@@ -76,6 +77,7 @@ def create_app() -> FastAPI:
     application.include_router(rag_deployment_router)
     application.include_router(rag_domain_router)
     application.include_router(rag_conversation_router)
+    application.include_router(rag_execution_router)
     application.include_router(rag_attachment_router)
     application.include_router(rag_attachment_cleanup_router)
     application.include_router(rag_domain_admin_router)

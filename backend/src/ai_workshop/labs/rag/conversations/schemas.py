@@ -62,6 +62,8 @@ class ConversationTurnResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     execution_terminated: bool
+    execution_id: UUID | None = None
+    observation_complete: bool | None = None
 
 
 class ConversationDetail(ConversationSummary):

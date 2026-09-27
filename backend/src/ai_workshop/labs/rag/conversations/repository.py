@@ -13,6 +13,7 @@ from ai_workshop.labs.rag.conversations.attachment_lifecycle import (
 from ai_workshop.labs.rag.conversations.domain import Conversation, Turn, TurnStatus
 from ai_workshop.labs.rag.conversations.models import ConversationRecord, ConversationTurnRecord
 from ai_workshop.labs.rag.domains.models import RagDomainRecord
+from ai_workshop.labs.rag.executions.models import ExecutionRecord
 from ai_workshop.shared.errors import AppError
 
 
@@ -121,6 +122,16 @@ class SqlAlchemyConversationRepository:
                     .order_by(ConversationTurnRecord.sequence)
                 )
             ).all()
+            executions = {
+                e.turn_id: e
+                for e in (
+                    await session.scalars(
+                        select(ExecutionRecord).where(
+                            ExecutionRecord.turn_id.in_([r.id for r in rows])
+                        )
+                    )
+                ).all()
+            }
             item = self._conversation(record)
             item.turns = [
                 Turn(
@@ -139,6 +150,8 @@ class SqlAlchemyConversationRepository:
                     row.error_code,
                     [UUID(value) for value in row.dependencies],
                     row.execution_terminated,
+                    executions[row.id].id if row.id in executions else None,
+                    executions[row.id].complete if row.id in executions else None,
                 )
                 for row in rows
             ]

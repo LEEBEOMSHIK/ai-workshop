@@ -21,6 +21,7 @@ from ai_workshop.labs.rag.domains.api import (
     get_domain_service,
 )
 from ai_workshop.labs.rag.domains.service import DomainService
+from ai_workshop.labs.rag.executions.repository import SqlAlchemyExecutionRecorder
 from ai_workshop.labs.rag.generation.codex_admin_api import require_codex_mutation
 from ai_workshop.labs.rag.generation.codex_http_lifecycle import run_until_disconnect
 from ai_workshop.platform.identity.api import get_current_user
@@ -52,6 +53,7 @@ async def get_conversation_service(
             ConversationAccess(sessions),
             domains,
             executor,
+            recorder=SqlAlchemyExecutionRecorder(sessions),
         )
     finally:
         await engine.dispose()

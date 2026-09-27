@@ -51,6 +51,9 @@ class GenerationExecutionAuditRecord(UUIDPrimaryKeyMixin, Base):
         ),
     )
 
+    execution_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("rag_executions.id", ondelete="RESTRICT"), index=True
+    )
     actor_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )

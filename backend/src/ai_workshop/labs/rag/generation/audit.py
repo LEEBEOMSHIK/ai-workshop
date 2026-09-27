@@ -47,6 +47,7 @@ class GenerationExecutionAudit:
     safe_error_code: str | None
     correlation_id: UUID
     created_at: datetime
+    execution_id: UUID | None = None
 
 
 class SqlAlchemyGenerationAuditRepository:
@@ -57,6 +58,7 @@ class SqlAlchemyGenerationAuditRepository:
         self._session.add(
             GenerationExecutionAuditRecord(
                 id=audit.id,
+                execution_id=audit.execution_id,
                 actor_id=audit.actor_id,
                 configuration_version_id=audit.configuration_version_id,
                 generation_profile_id=audit.generation_profile_id,
@@ -114,6 +116,7 @@ class SqlAlchemyGenerationAuditRepository:
         ).all()
         return GenerationExecutionAudit(
             id=record.id,
+            execution_id=record.execution_id,
             actor_id=record.actor_id,
             configuration_version_id=record.configuration_version_id,
             generation_profile_id=record.generation_profile_id,

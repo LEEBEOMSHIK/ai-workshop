@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from ai_workshop.labs.rag.configurations.domain import BM25_BASELINE_CONFIGURATION_VERSION_ID
 from ai_workshop.labs.rag.evaluation.authoring_schemas import (
+    AuthoringCase,
     AuthoringDocument,
     AuthoringDocumentsRequest,
     AuthoringDocumentsResponse,
@@ -19,6 +20,7 @@ from ai_workshop.labs.rag.evaluation.authoring_schemas import (
     AuthoringPreview,
     AuthoringRunRequest,
     AuthoringScope,
+    AuthoringSnapshotResponse,
 )
 from ai_workshop.labs.rag.evaluation.domain import EvaluationDataset, load_evaluation_dataset
 from ai_workshop.labs.rag.evaluation.service import EvaluationApplicationService, EvaluationRunView
@@ -195,6 +197,8 @@ def build_fixture(
 
 
 class AuthoringRepositoryPort(Protocol):
+    async def load_snapshot(self, actor_id: UUID, identifier: UUID) -> EvaluationDataset | None: ...
+
     async def documents(
         self, actor_id: UUID, request: AuthoringDocumentsRequest
     ) -> AuthoringDocumentsResponse: ...
@@ -222,6 +226,27 @@ class AuthoringService:
         self.limits = limits
         self.rollback = rollback
         self.clock = clock
+
+    async def load_snapshot(self, actor_id: UUID, identifier: UUID) -> AuthoringSnapshotResponse:
+        dataset = await self.repository.load_snapshot(actor_id, identifier)
+        if dataset is None:
+            raise AppError("not_found", "The requested resource was not found.", 404)
+        fixture = json.loads(dataset.fixture_bytes)
+        if not fixture.get("authoring_scope_sha256"):
+            raise AppError("not_found", "The requested resource was not found.", 404)
+        return AuthoringSnapshotResponse(
+            id=dataset.id,
+            cases=[
+                AuthoringCase(
+                    id=case["id"],
+                    query=case["query"],
+                    expected_answer_status=case["expected"]["answer_status"],
+                    expected_evidence_ids=case["expected"]["evidence_unit_ids"],
+                    expected_highlight=case["expected"].get("highlight"),
+                )
+                for case in fixture["cases"]
+            ],
+        )
 
     async def documents(
         self, actor_id: UUID, request: AuthoringDocumentsRequest

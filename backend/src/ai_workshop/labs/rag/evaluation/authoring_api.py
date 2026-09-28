@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -100,3 +101,14 @@ async def freeze_snapshot(
             for original, saved in zip(request.cases, dataset.cases, strict=True)
         ],
     )
+
+
+@router.get("/snapshots/{snapshot_id}", response_model=AuthoringSnapshotResponse)
+async def load_snapshot(
+    snapshot_id: UUID,
+    response: Response,
+    user: Annotated[User, Depends(require_owner)],
+    service: Annotated[AuthoringService, Depends(get_authoring_service)],
+) -> AuthoringSnapshotResponse:
+    response.headers["Cache-Control"] = "no-store"
+    return await service.load_snapshot(user.id, snapshot_id)

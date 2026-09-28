@@ -4,7 +4,7 @@ from dataclasses import asdict
 from typing import cast
 from uuid import UUID
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_workshop.labs.rag.configurations.domain import BM25_BASELINE_CONFIGURATION_VERSION_ID
@@ -140,6 +140,40 @@ class SqlAlchemyAuthoringRepository:
                 )
             )
         )
+
+    async def load_snapshot(self, actor_id: UUID, identifier: UUID) -> EvaluationDataset | None:
+        dataset = await self.existing_dataset(actor_id, identifier)
+        if dataset is None:
+            return None
+        workspace_ids = {
+            workspace
+            for case in dataset.cases
+            for workspace in case.permission_scenario.workspace_ids
+        }
+        expected = {
+            (
+                UUID(str(item["document_id"])),
+                UUID(str(item["asset_version_id"])),
+                str(item["sha256"]),
+            )
+            for item in dataset.document_snapshot
+        }
+        statement = (
+            select(DocumentRecord.id, AssetVersionRecord.id, AssetVersionRecord.sha256)
+            .join(AssetVersionRecord, AssetVersionRecord.document_id == DocumentRecord.id)
+            .join(WorkspaceRecord, WorkspaceRecord.id == DocumentRecord.workspace_id)
+            .where(
+                tuple_(DocumentRecord.id, AssetVersionRecord.id, AssetVersionRecord.sha256).in_(
+                    expected
+                ),
+                DocumentRecord.lifecycle == "active",
+                AssetVersionRecord.status == "ready",
+                DocumentRecord.workspace_id.in_(workspace_ids),
+                workspace_read_allowed(actor_id),
+            )
+        )
+        actual = {tuple(row) for row in (await self.session.execute(statement)).all()}
+        return dataset if actual == expected else None
 
     async def existing_dataset(self, actor_id: UUID, identifier: UUID) -> EvaluationDataset | None:
         return await SqlAlchemyEvaluationApplicationRepository(self.session).find_dataset_visible(

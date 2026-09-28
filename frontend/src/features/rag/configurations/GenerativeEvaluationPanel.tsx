@@ -22,6 +22,7 @@ export function GenerativeEvaluationPanel({ configurations, workspaces, initialR
   const [current, setCurrent] = useState<api.GenerativeRun | null>(null);
   const [caseId, setCaseId] = useState(initialCaseId ?? "");
   const [snapshot, setSnapshot] = useState<api.AuthoringSnapshot | null>(null);
+  const [snapshotId, setSnapshotId] = useState("");
   const [rules, setRules] = useState<Record<string, api.GenerativeRule>>({});
   const [versions, setVersions] = useState<string[]>([]);
   const [policyId, setPolicyId] = useState("");
@@ -65,6 +66,14 @@ export function GenerativeEvaluationPanel({ configurations, workspaces, initialR
     try { await action(); } catch (cause) { if (live.current) setError(cause instanceof ApiError ? cause.message : "요청을 처리하지 못했습니다. 현재 입력은 유지됩니다."); }
     finally { if (live.current) setBusy(false); }
   }
+  function receiveSnapshot(value: api.AuthoringSnapshot, k = retrievalK, count = repetitions) {
+    setRetrievalK(k); setRepetitions(count); setHistories({}); setConsented(false);
+    setSnapshot(value); setSnapshotId(value.id);
+    setRules(Object.fromEntries(value.cases.map(item => [item.id, {
+      version: 1, expected_answer_status: item.expected_answer_status === "insufficient_evidence" ? "insufficient_evidence" : "answered",
+      required_evidence_groups: item.expected_evidence_ids.map(id => [id]), required_propositions: [], forbidden_propositions: [],
+    }])));
+  }
   const available = configurations.filter(item => item.generation_profile_id && !item.is_system);
   const chosen = available.filter(item => versions.includes(item.version_id));
   const codex = chosen.some(item => item.generation_execution_preview?.provider === "development_codex_exec");
@@ -77,20 +86,23 @@ export function GenerativeEvaluationPanel({ configurations, workspaces, initialR
     <p>실제 대화와 같은 문맥 선택·생성·인용 검증을 실행합니다. 인용 유효성과 정답 여부를 별도로 확인합니다.</p>
     {error ? <p role="alert">{error}</p> : null}{message ? <p role="status">{message}</p> : null}
     <details className={styles.card}><summary>새 생성형 평가 준비</summary>
+      <fieldset disabled={busy}><legend>저장된 평가 자료 다시 사용</legend>
+        <label>저장된 평가 자료 ID<input value={snapshotId} onChange={event => setSnapshotId(event.target.value)} /></label>
+        <button type="button" disabled={!snapshotId.trim()} onClick={() => void perform(async () => {
+          const operation = ++intent.current;
+          const value = await api.loadAuthoringSnapshot(snapshotId.trim());
+          if (live.current && operation === intent.current) { receiveSnapshot(value); setMessage("저장된 평가 자료를 불러왔습니다. 정답 규칙과 실행 조건을 확인해 주세요."); }
+        })}>평가 자료 불러오기</button>
+        {snapshot ? <p>사용 중인 평가 자료: {snapshot.id} · {snapshot.cases.length}개 사례</p> : null}
+      </fieldset>
       <EvaluationAuthoringPanel configurations={available} workspaces={workspaces} onRun={() => {}}
-        onInvalidate={() => { setSnapshot(null); setRules({}); }} beginOperation={() => ++intent.current} isCurrentOperation={value => value === intent.current}
-        onSnapshot={(value, k, count) => {
-          setRetrievalK(k); setRepetitions(count); setHistories({});
-          setSnapshot(value); setRules(Object.fromEntries(value.cases.map(item => [item.id, {
-            version: 1, expected_answer_status: item.expected_answer_status === "insufficient_evidence" ? "insufficient_evidence" : "answered",
-            required_evidence_groups: item.expected_evidence_ids.map(id => [id]), required_propositions: [], forbidden_propositions: [],
-          }])));
-        }} />
+        onInvalidate={() => { ++intent.current; setSnapshot(null); setRules({}); setHistories({}); setConsented(false); }} beginOperation={() => ++intent.current} isCurrentOperation={value => value === intent.current}
+        onSnapshot={receiveSnapshot} />
       {snapshot ? <section><h3>답변 내용 판정 범위</h3><p>아래 문자열 규칙을 비워 두면 답변 내용은 미검증이며 별도 검토가 필요합니다. 규칙 일치는 일반적인 의미 정확도를 보장하지 않습니다.</p>
         {snapshot.cases.map(item => <fieldset key={item.id} disabled={busy}><legend>{item.query}</legend>
           <label>이전 질문 문맥 (선택, 원문 그대로 고정)<textarea value={histories[item.id] ?? ""} maxLength={8000} onChange={event => setHistories(values => ({ ...values, [item.id]: event.target.value }))} /></label>
-          <label>반드시 포함할 내용 (한 줄에 하나)<textarea onChange={event => setRules(values => ({ ...values, [item.id]: { ...values[item.id], required_propositions: event.target.value.split("\n").filter(v => v.trim()) } }))} /></label>
-          <label>포함하면 안 되는 내용 (한 줄에 하나)<textarea onChange={event => setRules(values => ({ ...values, [item.id]: { ...values[item.id], forbidden_propositions: event.target.value.split("\n").filter(v => v.trim()) } }))} /></label>
+          <label>반드시 포함할 내용 (한 줄에 하나)<textarea value={rules[item.id]?.required_propositions.join("\n") ?? ""} onChange={event => setRules(values => ({ ...values, [item.id]: { ...values[item.id], required_propositions: event.target.value.split("\n") } }))} /></label>
+          <label>포함하면 안 되는 내용 (한 줄에 하나)<textarea value={rules[item.id]?.forbidden_propositions.join("\n") ?? ""} onChange={event => setRules(values => ({ ...values, [item.id]: { ...values[item.id], forbidden_propositions: event.target.value.split("\n") } }))} /></label>
         </fieldset>)}
       </section> : null}
       <fieldset disabled={busy}><legend>비교할 저장 구성 버전</legend>{available.map(item => <label key={item.version_id}><input type="checkbox" checked={versions.includes(item.version_id)} onChange={event => setVersions(values => event.target.checked ? [...values, item.version_id] : values.filter(id => id !== item.version_id))} />{item.name} v{item.version}</label>)}</fieldset>
@@ -105,12 +117,13 @@ export function GenerativeEvaluationPanel({ configurations, workspaces, initialR
       </fieldset></details>
       <fieldset disabled={busy}><legend>명시적 생성 실행</legend>
         <label>생성형 승격 기준<select value={policyId} onChange={event => setPolicyId(event.target.value)}><option value="">저장된 기준 선택</option>{policies.map(item => <option key={item.id} value={item.id}>{item.name} v{item.definition.version}</option>)}</select></label>
-        <p>검색 K {retrievalK} · 사례별 {repetitions}회 반복 (위 평가 자료 설정)</p>
+        <label>검색 K<input type="number" min={1} max={50} value={retrievalK} onChange={event => setRetrievalK(Number(event.target.value))} /></label>
+        <label>사례별 반복 횟수<input type="number" min={2} max={5} value={repetitions} onChange={event => setRepetitions(Number(event.target.value))} /></label>
         {codex ? <label>질문 자료 분류<select value={classification} onChange={event => setClassification(event.target.value as typeof classification)}><option value="">선택</option><option value="synthetic">합성 자료</option><option value="public">공개 자료</option></select></label> : null}
         {external ? <label><input type="checkbox" checked={consented} onChange={event => setConsented(event.target.checked)} />모든 평가 질문·이전 문맥·승인된 근거의 외부 처리와 반복 실행 사용량을 확인했습니다.</label> : null}
-        <button type="button" disabled={!snapshot || !versions.length || !policyId || (external && !consented) || (codex && (!classification || !disclosure))} onClick={() => void perform(async () => {
+        <button type="button" disabled={!Number.isInteger(retrievalK) || retrievalK < 1 || retrievalK > 50 || !Number.isInteger(repetitions) || repetitions < 2 || repetitions > 5 || !snapshot || !versions.length || !policyId || (external && !consented) || (codex && (!classification || !disclosure))} onClick={() => void perform(async () => {
           if (!snapshot) return;
-          const input = { dataset_snapshot_id: snapshot.id, configuration_version_ids: versions, policy_id: policyId, expected_rules: rules, repetition_count: repetitions, retrieval_k: retrievalK,
+          const input = { dataset_snapshot_id: snapshot.id, configuration_version_ids: versions, policy_id: policyId, expected_rules: Object.fromEntries(Object.entries(rules).map(([id, rule]) => [id, { ...rule, required_propositions: rule.required_propositions.filter(value => value.trim()), forbidden_propositions: rule.forbidden_propositions.filter(value => value.trim()) }])), repetition_count: repetitions, retrieval_k: retrievalK,
             case_histories: Object.fromEntries(Object.entries(histories).filter(([, value]) => value.trim()).map(([id, content]) => [id, [{ role: "user" as const, content }]])),
             ...(codex && classification && disclosure ? { input_approval: { classification, consented: true, disclosure_version: disclosure } } : {}) };
           const fingerprint = JSON.stringify(input);

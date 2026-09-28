@@ -97,6 +97,7 @@ EXPECTED_PATHS = {
     "/api/v1/rag/evaluation-authoring/preview",
     "/api/v1/rag/evaluation-authoring/runs",
     "/api/v1/rag/evaluation-authoring/snapshots",
+    "/api/v1/rag/evaluation-authoring/snapshots/{snapshot_id}",
     "/api/v1/rag/evaluation-policies",
     "/api/v1/rag/evaluation-runs",
     "/api/v1/rag/evaluation-runs/{run_id}",

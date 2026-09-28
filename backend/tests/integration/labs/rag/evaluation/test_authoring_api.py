@@ -84,3 +84,25 @@ def test_authoring_rejects_caller_universe_or_private_snapshot_fields(endpoint):
     response = client.post(f"/api/v1/rag/evaluation-authoring/{endpoint}", json=payload)
     assert response.status_code == 422
     assert not service.calls
+
+
+@pytest.mark.parametrize("actor,status", [("owner", 200), ("member", 403), ("anonymous", 401)])
+def test_saved_snapshot_get_is_owner_only_no_store_and_read_only(actor, status):
+    from unittest.mock import AsyncMock
+
+    from ai_workshop.labs.rag.evaluation.authoring_schemas import AuthoringSnapshotResponse
+
+    client, service, _ = client_and_payload("preview", actor)
+    snapshot = AuthoringSnapshotResponse(
+        id=service.request.draft_id, cases=list(service.request.cases)
+    )
+    service.load_snapshot = AsyncMock(return_value=snapshot)
+    response = client.get(f"/api/v1/rag/evaluation-authoring/snapshots/{snapshot.id}")
+    assert response.status_code == status
+    assert not service.calls
+    if status == 200:
+        assert response.json() == snapshot.model_dump(mode="json")
+        assert response.headers["Cache-Control"] == "no-store"
+        service.load_snapshot.assert_awaited_once_with(owner().id, snapshot.id)
+    else:
+        service.load_snapshot.assert_not_awaited()

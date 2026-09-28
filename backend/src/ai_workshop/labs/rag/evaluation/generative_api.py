@@ -146,9 +146,11 @@ async def submit(
         },
         input_approval=body.input_approval.model_dump(mode="json") if body.input_approval else None,
     )
+    await session.flush()
+    result = await run_detail(session, actor.id, row.id)
     await session.commit()
     # The existing worker's reconciler delivers durable pending runs. Reads never start work.
-    return await run_detail(session, actor.id, row.id)
+    return result
 
 
 @router.get("", response_model=list[GenerativeRunView])
@@ -191,8 +193,10 @@ async def retry(
     if row is not None and row.input_approval:
         require_codex_mutation(request, settings)
     await GenerativeRepository.retry_failed(session, actor.id, run_id)
+    await session.flush()
+    result = await run_detail(session, actor.id, run_id)
     await session.commit()
-    return await run_detail(session, actor.id, run_id)
+    return result
 
 
 @router.post("/{run_id}/attempts/{attempt_id}/judgments", response_model=GenerativeRunView)
@@ -222,8 +226,10 @@ async def judge(
             reason=body.reason,
         )
     )
+    await session.flush()
+    result = await run_detail(session, actor.id, run_id)
     await session.commit()
-    return await run_detail(session, actor.id, run_id)
+    return result
 
 
 @router.post("/{run_id}/accept/{version_id}", response_model=GenerativeAcceptanceView)

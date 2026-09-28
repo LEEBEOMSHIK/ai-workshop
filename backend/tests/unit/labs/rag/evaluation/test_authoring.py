@@ -289,3 +289,44 @@ async def test_case_limit_is_enforced_before_repository_access():
         await service.run(context.actor_id, request)
     assert caught.value.code == "evaluation_authoring_too_large"
     repo.lock_draft.assert_not_awaited()
+
+
+async def test_load_saved_snapshot_restores_exact_cases_without_source_or_model_work():
+    import json
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from ai_workshop.labs.rag.evaluation.authoring import (
+        AuthoringLimits,
+        AuthoringService,
+        build_fixture,
+    )
+    from ai_workshop.labs.rag.evaluation.domain import load_evaluation_dataset
+
+    context, request = context_and_request()
+    dataset = load_evaluation_dataset(
+        json.dumps(build_fixture(context, request, as_of="2026-09-09T00:00:00Z")).encode()
+    )
+    repository = SimpleNamespace(load_snapshot=AsyncMock(return_value=dataset))
+    service = AuthoringService(repository, object(), limits=AuthoringLimits(), rollback=AsyncMock())
+    saved = await service.load_snapshot(context.actor_id, dataset.id)
+    assert saved.id == dataset.id
+    assert saved.cases[0] == request.cases[0].model_copy(update={"id": dataset.cases[0].id})
+    repository.load_snapshot.assert_awaited_once_with(context.actor_id, dataset.id)
+
+
+async def test_load_saved_snapshot_hides_missing_or_inaccessible_data():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from ai_workshop.labs.rag.evaluation.authoring import AuthoringLimits, AuthoringService
+    from ai_workshop.shared.errors import AppError
+
+    service = AuthoringService(
+        SimpleNamespace(load_snapshot=AsyncMock(return_value=None)),
+        object(),
+        limits=AuthoringLimits(),
+        rollback=AsyncMock(),
+    )
+    with pytest.raises(AppError, match="not found"):
+        await service.load_snapshot(uuid4(), uuid4())

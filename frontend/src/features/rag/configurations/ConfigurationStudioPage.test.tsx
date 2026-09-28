@@ -10,12 +10,23 @@ afterEach(() => {
 });
 
 describe("ConfigurationStudioPage", () => {
+  it("names comparison modes by purpose and opens answer evaluation read-only", async () => {
+    const fetcher = vi.fn(async () => jsonResponse([], 200));
+    vi.stubGlobal("fetch", fetcher);
+    render(<ConfigurationStudioPage initialData={studioData()} initialTab="comparison" />);
+    expect(screen.getByRole("button", { name: "검색 품질 비교" })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(screen.getByRole("button", { name: "답변 품질 비교" }));
+    expect(screen.getByRole("button", { name: "답변 품질 비교" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("link", { name: "실제 대화 실행 이력" })).toHaveAttribute("href", "/admin/rag/executions");
+    await waitFor(() => expect(fetcher).toHaveBeenCalled());
+    expect(fetcher.mock.calls.every(call => !((call as unknown[])[1] as RequestInit | undefined)?.method || ((call as unknown[])[1] as RequestInit).method === "GET")).toBe(true);
+  });
   it("restores the comparison tab and generative run from a monitoring link", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => jsonResponse(String(input).endsWith("/generative-run")
       ? { id: "generative-run", status: "pending", attempts: [], repetition_count: 2 } : [], 200)));
     render(<ConfigurationStudioPage initialData={studioData()} initialTab="comparison" initialRunId="generative-run" initialCaseId="case-one" />);
     expect(screen.getByRole("tab", { name: "비교 실험" })).toHaveAttribute("aria-selected", "true");
-    expect(await screen.findByRole("heading", { name: "생성형 평가 · generative-v1" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "답변 비교 실험" })).toBeVisible();
   });
   it.each(["latest-only", "failed"])("clears the old version default after promotion with %s refresh", async (refresh) => {
     const user = userEvent.setup();

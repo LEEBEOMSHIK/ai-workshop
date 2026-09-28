@@ -36,7 +36,7 @@ beforeEach(() => {
 
 it("opens the exact run/case from a deep link without starting another run", async () => {
   render(<GenerativeEvaluationPanel configurations={[]} workspaces={[]} initialRunId="run-1" initialCaseId="case-1" />);
-  expect(await screen.findByRole("heading", { name: "합성 질문" })).toBeVisible();
+  expect(await screen.findByRole("heading", { name: "구성 config · v?" })).toBeVisible();
   expect(screen.getByRole("link", { name: "실행 단계 상세" })).toHaveAttribute("href", "/admin/rag/executions/execution-1");
   expect(api.loadGenerativeRun).toHaveBeenCalledWith("run-1", expect.any(AbortSignal));
   expect(api.startGenerativeRun).not.toHaveBeenCalled();
@@ -47,7 +47,7 @@ it("does not label valid citations as correct answers or missing timing as zero"
   expect(await screen.findByText("정답: 미검증")).toBeVisible();
   expect(screen.getByText("인용: 유효")).toBeVisible();
   expect(screen.getByText("시간 미기록")).toBeVisible();
-  expect(screen.getByText(/generative-v1/)).toBeVisible();
+  expect(screen.getByRole("heading", { name: "답변 비교 실험" })).toBeVisible();
 });
 
 
@@ -136,7 +136,9 @@ it("summarizes all attempt states and counts retries as attempts even when filte
   vi.mocked(api.loadGenerativeRun).mockResolvedValue({ ...run, status: "running", attempts });
   render(<GenerativeEvaluationPanel configurations={[]} workspaces={[]} initialRunId="run-1" initialCaseId="case-1" />);
   expect(await screen.findByText("전체 시도 6건 · 완료 2건 · 진행 1건 · 대기 1건 · 실패 1건 · 중단 1건")).toBeVisible();
-  expect(screen.getAllByRole("heading", { name: "합성 질문" })).toHaveLength(2);
+  expect(screen.getAllByRole("heading", { name: "구성 config · v?" })).toHaveLength(1);
+  fireEvent.click(screen.getByText("이 반복의 이전 시도 1건"));
+  expect(await screen.findByText("이 반복의 이전 시도 1건")).toBeVisible();
 });
 
 it.each(["failed", "interrupted"])("does not report unpreserved failure observations as zero retrieval coverage for %s", async status => {
@@ -150,4 +152,57 @@ it.each(["failed", "interrupted"])("does not report unpreserved failure observat
   expect(screen.getAllByText(/실패·중단으로 측정값 확인 불가/)).toHaveLength(2);
   expect(screen.queryByText(/0\.0%/)).not.toBeInTheDocument();
   expect(screen.getByText("실패·중단된 시도의 검색·문맥 측정값은 보존되지 않았을 수 있습니다. 실행 단계 상세에서 처리 단계와 오류를 확인하세요.")).toBeVisible();
+});
+
+it("finds questions without a case combo and compares the same repetition", async () => {
+  const attempts = [0, 1].flatMap(repetition => ["config-a", "config-b"].map(configuration_version_id => ({ ...run.attempts[0], id: `${repetition}-${configuration_version_id}`, repetition, configuration_version_id, answer: `answer-${repetition}-${configuration_version_id}` })));
+  attempts.push({ ...attempts[0], id: "other", case_id: "other", query: "다른 질문", answer: "other answer" });
+  vi.mocked(api.loadGenerativeRun).mockResolvedValue({ ...run, attempts });
+  render(<GenerativeEvaluationPanel configurations={[]} workspaces={[]} initialRunId="run-1" />);
+  expect(await screen.findByRole("textbox", { name: "질문 검색" })).toBeVisible();
+  expect(screen.queryByRole("combobox", { name: "평가 사례" })).not.toBeInTheDocument();
+  expect(screen.getByText("answer-0-config-a")).toBeVisible();
+  expect(screen.queryByText("answer-1-config-a")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "반복 2" }));
+  expect(screen.getByText("answer-1-config-a")).toBeVisible();
+  expect(screen.getByText("answer-1-config-b")).toBeVisible();
+  fireEvent.change(screen.getByRole("textbox", { name: "질문 검색" }), { target: { value: "다른" } });
+  fireEvent.click(screen.getByRole("button", { name: /다른 질문/ }));
+  expect(screen.getByText("other answer")).toBeVisible();
+  expect(window.location.search).not.toContain("다른");
+  expect(screen.getByRole("button", { name: "질문 목록으로" })).toBeInTheDocument();
+});
+
+it("preserves the selected question on refresh and resets it when selecting another run", async () => {
+  const first = { ...run, attempts: [run.attempts[0], { ...run.attempts[0], id: "second", case_id: "case-2", query: "두번째 질문", answer: "두번째 답변" }] };
+  const other = { ...run, id: "run-2", created_at: "2026-09-29T00:00:00Z", attempts: [{ ...run.attempts[0], id: "third", case_id: "case-3", query: "새 실행 질문", answer: "새 답변" }] };
+  vi.mocked(api.listGenerativeRuns).mockResolvedValue([first, other]);
+  vi.mocked(api.loadGenerativeRun).mockImplementation(async id => id === "run-2" ? other : first);
+  render(<GenerativeEvaluationPanel configurations={[]} workspaces={[]} initialRunId="run-1" initialCaseId="case-2" />);
+  expect(await screen.findByText("두번째 답변")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "결과 새로고침" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "결과 새로고침" })).toBeEnabled());
+  expect(screen.getByText("두번째 답변")).toBeVisible();
+  expect(window.location.search).toContain("case=case-2");
+  fireEvent.click(screen.getByText("실행 이력 · 2건"));
+  const history = screen.getAllByRole("button").find(button => button.textContent?.includes("2026. 9. 29."));
+  expect(history).toBeDefined();
+  fireEvent.click(history!);
+  expect(await screen.findByText("새 답변")).toBeVisible();
+  expect(window.location.search).toContain("case=case-3");
+  expect(api.startGenerativeRun).not.toHaveBeenCalled();
+});
+
+it("keeps a newer question selection when an earlier refresh response arrives", async () => {
+  const selectedRun = { ...run, attempts: [run.attempts[0], { ...run.attempts[0], id: "second", case_id: "case-2", query: "두번째 질문", answer: "두번째 답변" }] };
+  let resolveRefresh!: (value: api.GenerativeRun) => void;
+  vi.mocked(api.loadGenerativeRun).mockResolvedValueOnce(selectedRun).mockImplementationOnce(() => new Promise(resolve => { resolveRefresh = resolve; }));
+  render(<GenerativeEvaluationPanel configurations={[]} workspaces={[]} initialRunId="run-1" />);
+  expect(await screen.findByText("합성 답변")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "결과 새로고침" }));
+  fireEvent.click(screen.getByRole("button", { name: /두번째 질문/ }));
+  await act(async () => resolveRefresh(selectedRun));
+  expect(screen.getByText("두번째 답변")).toBeVisible();
+  expect(screen.queryByText("합성 답변")).not.toBeInTheDocument();
+  expect(window.location.search).toContain("case=case-2");
 });

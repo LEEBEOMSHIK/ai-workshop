@@ -1,0 +1,9 @@
+.compactHeader { padding-block: 1rem; }
+.compactHeader h1 { font-size: clamp(1.5rem, 2vw, 2rem); margin-block: .4rem; }
+.compactHeader p { margin-block: .4rem; }
+.kindPicker { display: flex; flex-wrap: wrap; gap: .5rem; padding: 1rem 1rem .5rem; }
+.kindPicker button { min-height: 2.75rem; padding: .6rem 1rem; border: 1px solid var(--color-border-subtle); border-radius: .6rem; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.kindPicker button[aria-pressed="true"] { color: var(--color-accent-text); border-color: currentColor; background: color-mix(in srgb, var(--color-accent-text) 12%, transparent); }
+.kindPicker button:focus-visible, .hint a:focus-visible { outline: 2px solid var(--color-accent-text); outline-offset: 3px; }
+.hint { padding-inline: 1rem; font-size: .875rem; line-height: 1.6; }
+.hint a { color: var(--color-accent-text); text-underline-offset: .2em; }

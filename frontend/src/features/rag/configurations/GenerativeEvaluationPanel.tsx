@@ -15,6 +15,18 @@ const runLabel: Record<string, string> = { pending: "대기", running: "실행 �
 
 type Attempt = api.GenerativeRun["attempts"][number];
 
+function failedOrInterrupted(item: Attempt) {
+  return item.status === "failed" || item.status === "interrupted";
+}
+
+function attemptCoverage(item: Attempt, value: number | null | undefined) {
+  return failedOrInterrupted(item) ? "실패·중단으로 측정값 확인 불가" : coverage(value);
+}
+
+function citationLabel(item: Attempt) {
+  if (failedOrInterrupted(item) && (item.error_code === "citation_validation_failed" || item.observation?.error_code === "citation_validation_failed")) return "실패";
+  return item.metrics?.citation_valid == null ? "미검증" : item.metrics.citation_valid ? "유효" : "실패";
+}
 function answerPlaceholder(item: Attempt) {
   if (item.status === "pending") return "실행 대기 중입니다.";
   if (item.status === "running") return "답변을 생성하고 있습니다.";
@@ -173,9 +185,10 @@ export function GenerativeEvaluationPanel({ configurations, workspaces, initialR
       {caseId && !attempts.length ? <p role="alert">연결된 사례를 찾을 수 없습니다.</p> : null}
       {attempts.map(item => <article className={styles.card} key={item.id}>
         <h3>{item.query}</h3><p>{configurations.find(c => c.version_id === item.configuration_version_id)?.name ?? "저장 구성"} · 반복 {item.repetition + 1} · 시도 {item.attempt_number} · {runLabel[item.status] ?? item.status}</p>
-        <div className={styles.badges}><span>정답: {judgmentLabel[item.metrics?.correctness ?? "unreviewed"]}</span><span>인용: {item.metrics?.citation_valid == null ? "미검증" : item.metrics.citation_valid ? "유효" : "실패"}</span><span>생성: {item.metrics?.generation_completed ? "완료" : "미완료"}</span>{item.status === "completed" && item.observation?.generation_status === "insufficient_evidence" ? <span>결과: 근거 부족</span> : null}</div>
+        <div className={styles.badges}><span>정답: {judgmentLabel[item.metrics?.correctness ?? "unreviewed"]}</span><span>인용: {citationLabel(item)}</span><span>생성: {item.metrics?.generation_completed ? "완료" : failedOrInterrupted(item) ? "완료 여부 미확인" : "미완료"}</span>{item.status === "completed" && item.observation?.generation_status === "insufficient_evidence" ? <span>결과: 근거 부족</span> : null}</div>
         <p className={styles.answer}>{item.answer ?? answerPlaceholder(item)}</p>{item.error_code ? <p role="alert">{item.error_code}</p> : null}
-        <dl><dt>검색 근거 충족률</dt><dd>{coverage(item.metrics?.retrieval_coverage)}</dd><dt>문맥 근거 충족률</dt><dd>{coverage(item.metrics?.context_coverage)} · 필요 그룹 {item.metrics?.required_group_count ?? "미기록"}</dd><dt>거절 정확성</dt><dd>{item.metrics?.abstention_correct == null ? "대상 없음" : item.metrics.abstention_correct ? "통과" : "실패"}</dd><dt>소요 시간</dt><dd>{item.metrics?.duration_ms == null ? "시간 미기록" : `${item.metrics.duration_ms.toFixed(0)} ms`}</dd></dl>
+        <dl><dt>검색 근거 충족률</dt><dd>{attemptCoverage(item, item.metrics?.retrieval_coverage)}</dd><dt>문맥 근거 충족률</dt><dd>{attemptCoverage(item, item.metrics?.context_coverage)} · 필요 그룹 {item.metrics?.required_group_count ?? "미기록"}</dd><dt>거절 정확성</dt><dd>{item.metrics?.abstention_correct == null ? "대상 없음" : item.metrics.abstention_correct ? "통과" : "실패"}</dd><dt>소요 시간</dt><dd>{item.metrics?.duration_ms == null ? "시간 미기록" : `${item.metrics.duration_ms.toFixed(0)} ms`}</dd></dl>
+        {failedOrInterrupted(item) ? <p>실패·중단된 시도의 검색·문맥 측정값은 보존되지 않았을 수 있습니다. 실행 단계 상세에서 처리 단계와 오류를 확인하세요.</p> : null}
         {item.judgment ? <p>판정 출처: {item.judgment.provenance === "rule" ? `정답 규칙 v${item.judgment.rule_version} (문자열 조건 범위)` : `검토자 ${item.judgment.reviewer_id} · ${item.judgment.reviewed_at}`} · {item.judgment.reason}</p> : null}
         {item.execution_id ? <Link href={executionPath(item.execution_id)}>실행 단계 상세</Link> : <p>연결된 실행 기록이 없습니다.</p>}
         <CitationSources sources={item.sources} />

@@ -138,3 +138,16 @@ it("summarizes all attempt states and counts retries as attempts even when filte
   expect(await screen.findByText("전체 시도 6건 · 완료 2건 · 진행 1건 · 대기 1건 · 실패 1건 · 중단 1건")).toBeVisible();
   expect(screen.getAllByRole("heading", { name: "합성 질문" })).toHaveLength(2);
 });
+
+it.each(["failed", "interrupted"])("does not report unpreserved failure observations as zero retrieval coverage for %s", async status => {
+  const attempt = { ...run.attempts[0], status, answer: null, error_code: "citation_validation_failed",
+    observation: { ...run.attempts[0].observation!, retrieved_evidence_ids: [], selected_evidence_ids: [], error_code: "citation_validation_failed" },
+    metrics: { ...run.attempts[0].metrics!, retrieval_coverage: 0, context_coverage: 0, generation_completed: false, citation_valid: null } };
+  vi.mocked(api.loadGenerativeRun).mockResolvedValue({ ...run, attempts: [attempt] });
+  render(<GenerativeEvaluationPanel configurations={[]} workspaces={[]} initialRunId="run-1" />);
+  expect(await screen.findByText("인용: 실패")).toBeVisible();
+  expect(screen.getByText("생성: 완료 여부 미확인")).toBeVisible();
+  expect(screen.getAllByText(/실패·중단으로 측정값 확인 불가/)).toHaveLength(2);
+  expect(screen.queryByText(/0\.0%/)).not.toBeInTheDocument();
+  expect(screen.getByText("실패·중단된 시도의 검색·문맥 측정값은 보존되지 않았을 수 있습니다. 실행 단계 상세에서 처리 단계와 오류를 확인하세요.")).toBeVisible();
+});

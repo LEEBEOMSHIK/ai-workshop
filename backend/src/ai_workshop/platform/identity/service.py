@@ -36,6 +36,7 @@ class JwtTokenService:
 
     def __init__(self, settings: Settings) -> None:
         self.secret = settings.secret_key.get_secret_value()
+        self.lifetime = timedelta(minutes=settings.session_lifetime_minutes)
 
     def create(self, user: User) -> str:
         now = datetime.now(UTC)
@@ -43,7 +44,7 @@ class JwtTokenService:
             {
                 "sub": str(user.id),
                 "iat": now,
-                "exp": now + timedelta(minutes=30),
+                "exp": now + self.lifetime,
                 "jti": str(uuid4()),
             },
             self.secret,

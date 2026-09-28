@@ -29,7 +29,7 @@ def set_session_cookie(
         httponly=True,
         secure=settings.secure_cookies,
         samesite="lax",
-        max_age=30 * 60,
+        max_age=settings.session_lifetime_minutes * 60,
         path="/",
     )
 

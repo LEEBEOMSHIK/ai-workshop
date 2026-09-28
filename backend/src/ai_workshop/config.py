@@ -72,6 +72,7 @@ class Settings(BaseSettings):
 
     environment: Literal["local", "test", "production"] = "local"
     secret_key: SecretStr = Field(min_length=32)
+    session_lifetime_minutes: int = Field(default=30, ge=1, le=1440)
     database_url: str = "postgresql+psycopg://ai_workshop:ai_workshop@127.0.0.1:5432/ai_workshop"
     redis_url: str = "redis://127.0.0.1:6379/0"
     object_store_root: Path = Path(".local-data/objects")

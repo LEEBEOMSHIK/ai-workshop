@@ -91,3 +91,50 @@ it("ignores an old snapshot response after editing the authoring draft", async (
   expect(screen.queryByText("obsolete saved question")).not.toBeInTheDocument();
   expect(api.startGenerativeRun).not.toHaveBeenCalled();
 });
+
+it.each([
+  ["completed", "insufficient_evidence", "근거 부족으로 답변하지 않았습니다."],
+  ["pending", null, "실행 대기 중입니다."],
+  ["running", null, "답변을 생성하고 있습니다."],
+  ["failed", null, "실행에 실패해 답변을 저장하지 못했습니다."],
+  ["interrupted", null, "실행이 중단되어 답변을 저장하지 못했습니다."],
+])("distinguishes %s / %s from a missing stored answer", async (status, generationStatus, message) => {
+  const attempt = { ...run.attempts[0], status, answer: null, observation: { ...run.attempts[0].observation!, generation_status: generationStatus } } as api.GenerativeRun["attempts"][number];
+  vi.mocked(api.loadGenerativeRun).mockResolvedValue({ ...run, attempts: [attempt] });
+  render(<GenerativeEvaluationPanel configurations={[]} workspaces={[]} initialRunId="run-1" />);
+  expect(await screen.findByText(message)).toBeVisible();
+  expect(screen.queryByText("저장된 생성 답변이 없습니다.")).not.toBeInTheDocument();
+  if (generationStatus === "insufficient_evidence") expect(screen.getByText("결과: 근거 부족")).toBeVisible();
+});
+
+it("groups citations by exact revision, projection and page while preserving evidence counts", async () => {
+  const source = { document_id: "doc", asset_version_id: "revision-1", projection_id: "projection-1", page: 2, title: "상품 설명서" };
+  const sources = [
+    { ...source, evidence_id: "e1" }, { ...source, evidence_id: "e2" },
+    { ...source, evidence_id: "e3", asset_version_id: "revision-2" },
+    { ...source, evidence_id: "e4", projection_id: "projection-2" },
+    { ...source, evidence_id: "e5", page: 3 },
+  ];
+  vi.mocked(api.loadGenerativeRun).mockResolvedValue({ ...run, attempts: [{ ...run.attempts[0], sources }] });
+  render(<GenerativeEvaluationPanel configurations={[]} workspaces={[]} initialRunId="run-1" />);
+  expect(await screen.findByText("인용 근거 5건 · 원문 위치 4곳")).toBeVisible();
+  expect(screen.getAllByRole("link", { name: /인용 원문/ })).toHaveLength(4);
+  expect(screen.getByRole("link", { name: "상품 설명서 · 2쪽 인용 원문 · 근거 2건" })).toHaveAttribute("href", expect.stringContaining("revision-1"));
+  const hrefs = screen.getAllByRole("link", { name: /인용 원문/ }).map(link => link.getAttribute("href"));
+  expect(hrefs).toEqual(expect.arrayContaining([
+    "/workshop/rag/sources/revision-1?projectionId=projection-1&page=2",
+    "/workshop/rag/sources/revision-2?projectionId=projection-1&page=2",
+    "/workshop/rag/sources/revision-1?projectionId=projection-2&page=2",
+    "/workshop/rag/sources/revision-1?projectionId=projection-1&page=3",
+  ]));
+});
+
+it("summarizes all attempt states and counts retries as attempts even when filtering a case", async () => {
+  const statuses = ["completed", "completed", "running", "pending", "failed", "interrupted"];
+  const attempts = statuses.map((status, index) => ({ ...run.attempts[0], id: `attempt-${index}`, status,
+    case_id: index < 2 ? "case-1" : "case-2", attempt_number: index === 1 ? 2 : 1 }));
+  vi.mocked(api.loadGenerativeRun).mockResolvedValue({ ...run, status: "running", attempts });
+  render(<GenerativeEvaluationPanel configurations={[]} workspaces={[]} initialRunId="run-1" initialCaseId="case-1" />);
+  expect(await screen.findByText("전체 시도 6건 · 완료 2건 · 진행 1건 · 대기 1건 · 실패 1건 · 중단 1건")).toBeVisible();
+  expect(screen.getAllByRole("heading", { name: "합성 질문" })).toHaveLength(2);
+});

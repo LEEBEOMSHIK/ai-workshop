@@ -1,0 +1,523 @@
+{
+  "version": 1,
+  "reviewer": "independent-e2e-review",
+  "source_pdf_hashes_verified": true,
+  "policy": "required_evidence는 질문 직접 요구 충족, auxiliary_evidence는 보조 기대와 답변에 포함시 정확성 확인. 숫자 셀은 행/열 대응이 필수. 모든 positive 수동판정 권고.",
+  "cases": {
+    "SYN-Q01": {
+      "required_evidence": [
+        {
+          "file": "synthetic-product-prospectus.pdf",
+          "page": 2,
+          "quote": "접수일 T+4 영업일"
+        }
+      ],
+      "auxiliary_evidence": [
+        {
+          "file": "synthetic-product-prospectus.pdf",
+          "page": 2,
+          "quote": "영업일 15:00까지"
+        }
+      ],
+      "required_expected": "접수일 T+4 영업일 지급",
+      "notes": [
+        "마감 시각 누락만으로 오답 처리하지 않는다."
+      ]
+    },
+    "SYN-Q02": {
+      "required_evidence": [
+        {
+          "file": "synthetic-product-prospectus.pdf",
+          "page": 2,
+          "quote": "영업일 15:00까지"
+        },
+        {
+          "file": "synthetic-product-prospectus.pdf",
+          "page": 2,
+          "quote": "영업일 14:00까지"
+        }
+      ],
+      "auxiliary_evidence": [],
+      "required_expected": "101은 15:00, 202는 14:00까지다.",
+      "notes": []
+    },
+    "SYN-Q03": {
+      "required_evidence": [
+        {
+          "file": "synthetic-product-prospectus.pdf",
+          "page": 2,
+          "quote": "AM-SYN-202는 주요 해외 결제시장이 휴장하여 결제가 지연되면 실제 결제 완료 다음 영업일에 지급한다."
+        }
+      ],
+      "auxiliary_evidence": [
+        {
+          "file": "synthetic-product-prospectus.pdf",
+          "page": 2,
+          "quote": "운용지원팀은 사유와 변경 예정일을 신청 고객에게 통지한다."
+        }
+      ],
+      "required_expected": "무조건 T+7이 아니며, 해외 결제 휴장으로 지연되면 실제 결제 완료 다음 영업일 지급",
+      "notes": [
+        "통지는 질문에서 직접 요구하지 않은 보조 설명이다. H03에서는 필수다."
+      ]
+    },
+    "SYN-Q04": {
+      "required_evidence": [
+        {
+          "file": "synthetic-product-prospectus.pdf",
+          "page": 2,
+          "quote": "대금 지급일은 09-14이다."
+        }
+      ],
+      "auxiliary_evidence": [],
+      "required_expected": "2026-09-14. 09-08이 접수일이고 예시에는 휴일이 없다.",
+      "notes": []
+    },
+    "SYN-Q05": {
+      "required_evidence": [
+        {
+          "file": "synthetic-product-prospectus.pdf",
+          "page": 3,
+          "quote": "0.45%",
+          "exact_text": true,
+          "row": "총보수 / AM-SYN-101",
+          "evidence_ids": [
+            "ff0035b3-dbca-4cf5-a0a3-a4e8a234079f"
+          ]
+        },
+        {
+          "file": "synthetic-product-prospectus.pdf",
+          "page": 3,
+          "quote": "0.90%",
+          "exact_text": true,
+          "row": "총보수 / AM-SYN-202",
+          "evidence_ids": [
+            "b12e9024-d0b9-4a95-a934-c187a4949b69"
+          ]
+        },
+        {
+          "file": "synthetic-product-prospectus.pdf",
+          "page": 3,
+          "quote": "성과보수는 두 상품 모두 없다."
+        }
+      ],
+      "auxiliary_evidence": [],
+      "required_expected": "총보수 차이 0.45%p, AM-SYN-202 성과보수 없음",
+      "notes": []
+    },
+    "SYN-Q06": {
+      "required_evidence": [
+        {
+          "file": "synthetic-product-prospectus.pdf",
+          "page": 3,
+          "quote": "총보수에는 매매 비용과 세금이 포함되지 않는다."
+        }
+      ],
+      "auxiliary_evidence": [],
+      "required_expected": "아니다. 매매 비용과 세금은 총보수에 포함되지 않는다.",
+      "notes": []
+    },
+    "SYN-Q07": {
+      "required_evidence": [
+        {
+          "file": "synthetic-monthly-report.pdf",
+          "page": 1,
+          "quote": "AM-SYN-202는 손실이 났지만 비교지수보다 0.40%p 높았다."
+        }
+      ],
+      "auxiliary_evidence": [
+        {
+          "file": "synthetic-monthly-report.pdf",
+          "page": 1,
+          "quote": "-1.00%",
+          "exact_text": true,
+          "row": "8월 수익률 / AM-SYN-202",
+          "evidence_ids": [
+            "a1e85beb-46cc-4782-874a-8b248596665c"
+          ]
+        },
+        {
+          "file": "synthetic-monthly-report.pdf",
+          "page": 1,
+          "quote": "-1.40%",
+          "exact_text": true,
+          "row": "비교지수 수익률 / AM-SYN-202",
+          "evidence_ids": [
+            "43a3fd1e-98f6-4802-91de-4bd255206919"
+          ]
+        }
+      ],
+      "required_expected": "손실이지만 비교지수 대비 상회(차이 0.40%p)",
+      "notes": [
+        "두 수익률은 비교결론을 지지하는 추가 근거다. H04의 숫자 비교 평가에는 필수로 수집한다."
+      ]
+    },
+    "SYN-Q08": {
+      "required_evidence": [
+        {
+          "file": "synthetic-monthly-report.pdf",
+          "page": 2,
+          "quote": "35.420",
+          "evidence_ids": [
+            "59e83eab-1570-42b1-b273-b132f0593b79"
+          ]
+        },
+        {
+          "file": "synthetic-monthly-report.pdf",
+          "page": 2,
+          "quote": "5.060",
+          "evidence_ids": [
+            "1e854679-5e56-4178-b094-732d6aacc465"
+          ]
+        }
+      ],
+      "auxiliary_evidence": [],
+      "required_expected": "8월 말 회사채 35.420억 원(35%), 현금 5.060억 원(5%).",
+      "notes": []
+    },
+    "SYN-Q09": {
+      "required_evidence": [
+        {
+          "file": "synthetic-monthly-report.pdf",
+          "page": 2,
+          "quote": "7.5%"
+        },
+        {
+          "file": "synthetic-monthly-report.pdf",
+          "page": 2,
+          "quote": "8.6%"
+        },
+        {
+          "file": "synthetic-operations-guidelines.pdf",
+          "page": 1,
+          "quote": "7.0% 이상 8.0% 이하 구간은 주의 상태다."
+        }
+      ],
+      "auxiliary_evidence": [],
+      "required_expected": "8.0% 한도 기준 루미나에너지 8.6%는 초과, 다온인프라 7.5%는 주의 상태지만 한도 이내다.",
+      "notes": []
+    },
+    "SYN-Q10": {
+      "required_evidence": [
+        {
+          "file": "synthetic-operations-guidelines.pdf",
+          "page": 2,
+          "quote": "확인 후 2시간 이내"
+        },
+        {
+          "file": "synthetic-operations-guidelines.pdf",
+          "page": 2,
+          "quote": "위험관리팀이 준법감시 담당에 보고"
+        }
+      ],
+      "auxiliary_evidence": [
+        {
+          "file": "synthetic-operations-guidelines.pdf",
+          "page": 2,
+          "quote": "운용팀은 해당 발행사 신규 매수 중지"
+        }
+      ],
+      "required_expected": "위험관리팀이 확인 후 2시간 이내 준법감시 담당에 보고",
+      "notes": [
+        "질문은 보고 대상과 시점이다. 신규 매수 중지 누락만으로 오답 처리하지 않는다."
+      ]
+    },
+    "SYN-Q11": {
+      "required_evidence": [
+        {
+          "file": "synthetic-operations-guidelines.pdf",
+          "page": 2,
+          "quote": "연장 승인이 신규 매수 중지나 최초 2시간 이내 보고 의무를 면제하지 않는다."
+        }
+      ],
+      "auxiliary_evidence": [
+        {
+          "file": "synthetic-operations-guidelines.pdf",
+          "page": 2,
+          "quote": "준법감시 담당의 서면 승인으로 해소 기한을 연장할 수 있다."
+        }
+      ],
+      "required_expected": "연장해도 최초 2시간 이내 보고 의무는 면제되지 않는다",
+      "notes": [
+        "줄바꿈 경계를 합친 문장 전체가 필요하다. 앞줄만 매칭하면 부정어 면제하지 않는다를 잃는다."
+      ]
+    },
+    "SYN-Q12": {
+      "required_evidence": [
+        {
+          "file": "synthetic-monthly-report.pdf",
+          "page": 3,
+          "quote": "2026-09-03 발행 시점에 해소 완료 여부는 아직 확인되지 않았다."
+        }
+      ],
+      "auxiliary_evidence": [],
+      "required_expected": "2026-09-03 발행 시점 해소 완료 여부 미확인",
+      "notes": [
+        "미해소 확정으로 바꿔 답하면 잘못이다. 날짜는 08-31 기준일과 구별한다."
+      ]
+    },
+    "SYN-Q13": {
+      "required_evidence": [
+        {
+          "file": "synthetic-monthly-report.pdf",
+          "page": 2,
+          "quote": "5%",
+          "exact_text": true,
+          "row": "AM-SYN-101 / 현금",
+          "evidence_ids": [
+            "dcd3dad2-5ab7-44c1-8214-e2afe6bb5626"
+          ],
+          "row_context_evidence_ids": [
+            "5799e9e9-56be-4144-806e-6d8a45c2995c"
+          ]
+        },
+        {
+          "file": "synthetic-monthly-report.pdf",
+          "page": 2,
+          "quote": "10%",
+          "exact_text": true,
+          "row": "AM-SYN-202 / 현금",
+          "evidence_ids": [
+            "1cef14cb-0a10-4167-96ff-c6e391d2c7f8"
+          ],
+          "row_context_evidence_ids": [
+            "17d416cf-540f-4c50-aa9a-8dafe63c7014"
+          ]
+        },
+        {
+          "file": "synthetic-operations-guidelines.pdf",
+          "page": 1,
+          "quote": "순자산의 3.0% 이상"
+        }
+      ],
+      "auxiliary_evidence": [],
+      "required_expected": "101 현금5%, 202 현금10%, 둘 다 최소3.0% 충족",
+      "notes": [
+        "5%를 35%에 부분매칭 금지. 10% 단기금융 행 선택 금지. 같은 페이지의 행/열 좌표 확인."
+      ]
+    },
+    "SYN-Q14": {
+      "required_evidence": [
+        {
+          "file": "synthetic-operations-guidelines.pdf",
+          "page": 3,
+          "quote": "평가액이나 순자산 중 하나가 누락되면 발행사 비중을 추정하지 않는다."
+        }
+      ],
+      "auxiliary_evidence": [
+        {
+          "file": "synthetic-operations-guidelines.pdf",
+          "page": 3,
+          "quote": "운용지원팀에 보완을 요청하고 상태를 확인 대기로 기록한다."
+        }
+      ],
+      "required_expected": "순자산이 누락되면 발행사 비중을 추정하지 않는다",
+      "notes": [
+        "후속 보완 절차는 질문 직접 요구는 아니나 답변에 있으면 정확한 담당·확인대기인지 확인한다."
+      ]
+    },
+    "SYN-Q15": {
+      "required_evidence": [],
+      "auxiliary_evidence": [
+        {
+          "file": "synthetic-monthly-report.pdf",
+          "page": 3,
+          "quote": "다음 달 확정 수익률은 이 문서에 없다."
+        }
+      ],
+      "required_expected": "문서에 없고 확정 수익률을 추정할 수 없다.",
+      "notes": [
+        "음성 사례에 양성 필수 근거를 강제하지 않는다. 숫자/계좌 추정 금지."
+      ],
+      "expected_status": "insufficient_evidence"
+    },
+    "SYN-Q16": {
+      "required_evidence": [],
+      "auxiliary_evidence": [
+        {
+          "file": "synthetic-monthly-report.pdf",
+          "page": 3,
+          "quote": "계좌번호"
+        }
+      ],
+      "required_expected": "개별 고객 계좌번호는 제공되지 않았으므로 답변 근거가 없다.",
+      "notes": [
+        "음성 사례에 양성 필수 근거를 강제하지 않는다. 숫자/계좌 추정 금지."
+      ],
+      "expected_status": "insufficient_evidence"
+    },
+    "H01": {
+      "required_evidence": [
+        {
+          "file": "synthetic-product-prospectus.pdf",
+          "page": 2,
+          "quote": "접수일 T+4 영업일"
+        },
+        {
+          "file": "synthetic-product-prospectus.pdf",
+          "page": 2,
+          "quote": "영업일 15:00까지"
+        }
+      ],
+      "auxiliary_evidence": [],
+      "required_expected": "T+4 영업일 지급, 15:00 마감",
+      "notes": [
+        "지급일과 마감 시각 둘 다 필수다."
+      ]
+    },
+    "H02": {
+      "required_evidence": [
+        {
+          "file": "synthetic-product-prospectus.pdf",
+          "page": 2,
+          "quote": "영업일 15:00까지"
+        },
+        {
+          "file": "synthetic-product-prospectus.pdf",
+          "page": 2,
+          "quote": "영업일 14:00까지"
+        }
+      ],
+      "auxiliary_evidence": [],
+      "required_expected": "101은 15:00 전, 202는 14:00 이후",
+      "notes": []
+    },
+    "H03": {
+      "required_evidence": [
+        {
+          "file": "synthetic-product-prospectus.pdf",
+          "page": 2,
+          "quote": "AM-SYN-202는 주요 해외 결제시장이 휴장하여 결제가 지연되면 실제 결제 완료 다음 영업일에 지급한다."
+        },
+        {
+          "file": "synthetic-product-prospectus.pdf",
+          "page": 2,
+          "quote": "운용지원팀은 사유와 변경 예정일을 신청 고객에게 통지한다."
+        }
+      ],
+      "auxiliary_evidence": [],
+      "required_expected": "실제 결제 완료 다음 영업일 지급, 지연 사유와 변경 예정일 통지",
+      "notes": [
+        "결제 완료 다음 영업일 + 사유/변경 예정일 통지가 둘 다 필수다."
+      ]
+    },
+    "H04": {
+      "required_evidence": [
+        {
+          "file": "synthetic-monthly-report.pdf",
+          "page": 1,
+          "quote": "AM-SYN-202는 손실이 났지만 비교지수보다 0.40%p 높았다."
+        },
+        {
+          "file": "synthetic-monthly-report.pdf",
+          "page": 1,
+          "quote": "-1.00%",
+          "exact_text": true,
+          "row": "8월 수익률 / AM-SYN-202",
+          "evidence_ids": [
+            "a1e85beb-46cc-4782-874a-8b248596665c"
+          ]
+        },
+        {
+          "file": "synthetic-monthly-report.pdf",
+          "page": 1,
+          "quote": "-1.40%",
+          "exact_text": true,
+          "row": "비교지수 수익률 / AM-SYN-202",
+          "evidence_ids": [
+            "43a3fd1e-98f6-4802-91de-4bd255206919"
+          ]
+        }
+      ],
+      "auxiliary_evidence": [],
+      "required_expected": "펀드 -1.00%, 벤치마크 -1.40%, 0.40%p 상회",
+      "notes": [
+        "음수 손실과 상대 우위를 혼동하지 않는다. 0.40%p 상회."
+      ]
+    },
+    "H05": {
+      "required_evidence": [
+        {
+          "file": "synthetic-monthly-report.pdf",
+          "page": 2,
+          "quote": "7.5%"
+        },
+        {
+          "file": "synthetic-monthly-report.pdf",
+          "page": 2,
+          "quote": "8.6%"
+        },
+        {
+          "file": "synthetic-operations-guidelines.pdf",
+          "page": 1,
+          "quote": "7.0% 이상 8.0% 이하 구간은 주의 상태다."
+        }
+      ],
+      "auxiliary_evidence": [],
+      "required_expected": "한도 8.0%, 루미나에너지 8.6% 초과, 다온인프라 7.5% 한도 이내",
+      "notes": [
+        "원본의 도미노금융/다온전자는 PDF에 존재하지 않음. 원본 보존하고 생성 전 정정v2로 분리한다."
+      ],
+      "corrected_question": "루미나에너지와 다온인프라의 비중을 발행사 한도와 대조해서 초과 여부를 각각 판정해 주세요."
+    },
+    "H06": {
+      "required_evidence": [
+        {
+          "file": "synthetic-product-prospectus.pdf",
+          "page": 2,
+          "quote": "영업일 15:00까지"
+        }
+      ],
+      "auxiliary_evidence": [],
+      "required_expected": "이전 질문의 AM-SYN-101을 지칭하여 15:00 마감",
+      "notes": [
+        "T+4 지급일은 필수 근거에서 제외. 고정된 history가 실행 입력에 포함되는지 검증."
+      ]
+    },
+    "H07": {
+      "required_evidence": [
+        {
+          "file": "synthetic-monthly-report.pdf",
+          "page": 3,
+          "quote": "2026-09-03 발행 시점에 해소 완료 여부는 아직 확인되지 않았다."
+        }
+      ],
+      "auxiliary_evidence": [],
+      "required_expected": "2026-09-03 발행 시점에 해소 완료 여부 미확인",
+      "notes": [
+        "도미노금융은 PDF에 없다. 08-31 기준일과09-03 발행일도 원본 문구가 혼동하므로 함께 정정한다."
+      ],
+      "corrected_question": "월간 보고서 발행일(2026-09-03)에 루미나에너지 한도 초과 해소가 확정됐다는 근거가 있나요?"
+    },
+    "H08": {
+      "required_evidence": [],
+      "auxiliary_evidence": [
+        {
+          "file": "synthetic-monthly-report.pdf",
+          "page": 3,
+          "quote": "다음 달 확정 수익률은 이 문서에 없다."
+        }
+      ],
+      "required_expected": "근거 부족 거절",
+      "notes": [
+        "음성 사례에 양성 필수 근거를 강제하지 않는다. 숫자/계좌 추정 금지."
+      ],
+      "expected_status": "insufficient_evidence"
+    },
+    "H09": {
+      "required_evidence": [],
+      "auxiliary_evidence": [
+        {
+          "file": "synthetic-monthly-report.pdf",
+          "page": 3,
+          "quote": "계좌번호"
+        }
+      ],
+      "required_expected": "근거 부족 거절",
+      "notes": [
+        "음성 사례에 양성 필수 근거를 강제하지 않는다. 숫자/계좌 추정 금지."
+      ],
+      "expected_status": "insufficient_evidence"
+    }
+  }
+}

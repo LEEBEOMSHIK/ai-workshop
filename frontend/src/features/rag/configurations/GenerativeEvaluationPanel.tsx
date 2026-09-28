@@ -7,12 +7,39 @@ import { EvaluationAuthoringPanel } from "./EvaluationAuthoringPanel";
 import type { SavedConfiguration, Workspace } from "./api";
 import { loadConfigurations } from "./api";
 import * as api from "./generative-api";
-import styles from "../executions/ExecutionMonitoring.module.css";
+import styles from "./GenerativeEvaluation.module.css";
 
 const judgmentLabel = { passed: "통과", failed: "실패", unreviewed: "미검증" };
 const coverage = (value: number | null | undefined) => value == null ? "대상 없음" : `${(value * 100).toFixed(1)}%`;
 const runLabel: Record<string, string> = { pending: "대기", running: "실행 중", completed: "실행 완료", failed: "실행 실패", interrupted: "중단" };
 
+type Attempt = api.GenerativeRun["attempts"][number];
+
+function answerPlaceholder(item: Attempt) {
+  if (item.status === "pending") return "실행 대기 중입니다.";
+  if (item.status === "running") return "답변을 생성하고 있습니다.";
+  if (item.status === "failed") return "실행에 실패해 답변을 저장하지 못했습니다.";
+  if (item.status === "interrupted") return "실행이 중단되어 답변을 저장하지 못했습니다.";
+  if (item.observation?.generation_status === "insufficient_evidence") return "근거 부족으로 답변하지 않았습니다.";
+  return "저장된 생성 답변이 없습니다.";
+}
+
+function CitationSources({ sources }: { sources: Attempt["sources"] }) {
+  const groups = new Map<string, { source: Attempt["sources"][number]; count: number }>();
+  for (const source of sources) {
+    const key = JSON.stringify([source.asset_version_id, source.projection_id, source.page]);
+    const existing = groups.get(key);
+    if (existing) existing.count += 1;
+    else groups.set(key, { source, count: 1 });
+  }
+  if (!sources.length) return null;
+  return <div className={styles.sources}>
+    <p>인용 근거 {sources.length}건 · 원문 위치 {groups.size}곳</p>
+    <ul>{[...groups].map(([key, { source, count }]) => <li key={key}>
+      <Link href={buildSourceHref(source.asset_version_id, source.projection_id, [], source.page)}>{source.title} · {source.page == null ? "페이지 미기록" : `${source.page}쪽`} 인용 원문 · 근거 {count}건</Link>
+    </li>)}</ul>
+  </div>;
+}
 export function GenerativeEvaluationPanel({ configurations, workspaces, initialRunId, initialCaseId, onConfigurationUpdated }: {
   configurations: SavedConfiguration[]; workspaces: Workspace[]; initialRunId?: string; initialCaseId?: string;
   onConfigurationUpdated?: (configuration: SavedConfiguration) => void;
@@ -79,6 +106,10 @@ export function GenerativeEvaluationPanel({ configurations, workspaces, initialR
   const codex = chosen.some(item => item.generation_execution_preview?.provider === "development_codex_exec");
   const external = chosen.some(item => item.generation_execution_preview?.external_transfer);
   const disclosure = chosen.find(item => item.generation_execution_preview?.provider === "development_codex_exec")?.generation_execution_preview?.disclosure_version;
+  const attemptCounts = (current?.attempts ?? []).reduce<Record<string, number>>((counts, item) => {
+    counts[item.status] = (counts[item.status] ?? 0) + 1;
+    return counts;
+  }, {});
   const attempts = current?.attempts.filter(item => !caseId || item.case_id === caseId) ?? [];
   const cases = [...new Map(current?.attempts.map(item => [item.case_id, item.query]) ?? []).entries()];
   return <section className={styles.page} aria-label="생성형 평가">
@@ -137,16 +168,17 @@ export function GenerativeEvaluationPanel({ configurations, workspaces, initialR
     {current ? <>
       <div className={styles.badges}><span>실행: {runLabel[current.status] ?? current.status}</span><span>사례별 {current.repetition_count}회</span><button disabled={busy} onClick={() => void perform(async () => receiveRun(await api.loadGenerativeRun(current.id)))}>결과 새로고침</button>
         {current.status === "failed" ? <button disabled={busy} onClick={() => void perform(async () => receiveRun(await api.retryGenerativeRun(current.id)))}>실패한 사례 재시도</button> : null}</div>
+      <p aria-live="polite">전체 시도 {current.attempts.length}건 · 완료 {attemptCounts.completed ?? 0}건 · 진행 {attemptCounts.running ?? 0}건 · 대기 {attemptCounts.pending ?? 0}건 · 실패 {attemptCounts.failed ?? 0}건 · 중단 {attemptCounts.interrupted ?? 0}건</p>
       <label>평가 사례<select value={caseId} onChange={event => { setCaseId(event.target.value); linkState(current.id, event.target.value); }}><option value="">모든 사례</option>{cases.map(([id, query]) => <option key={id} value={id}>{query}</option>)}</select></label>
       {caseId && !attempts.length ? <p role="alert">연결된 사례를 찾을 수 없습니다.</p> : null}
       {attempts.map(item => <article className={styles.card} key={item.id}>
         <h3>{item.query}</h3><p>{configurations.find(c => c.version_id === item.configuration_version_id)?.name ?? "저장 구성"} · 반복 {item.repetition + 1} · 시도 {item.attempt_number} · {runLabel[item.status] ?? item.status}</p>
-        <div className={styles.badges}><span>정답: {judgmentLabel[item.metrics?.correctness ?? "unreviewed"]}</span><span>인용: {item.metrics?.citation_valid == null ? "미검증" : item.metrics.citation_valid ? "유효" : "실패"}</span><span>생성: {item.metrics?.generation_completed ? "완료" : "미완료"}</span></div>
-        <p className={styles.answer}>{item.answer ?? "저장된 생성 답변이 없습니다."}</p>{item.error_code ? <p role="alert">{item.error_code}</p> : null}
+        <div className={styles.badges}><span>정답: {judgmentLabel[item.metrics?.correctness ?? "unreviewed"]}</span><span>인용: {item.metrics?.citation_valid == null ? "미검증" : item.metrics.citation_valid ? "유효" : "실패"}</span><span>생성: {item.metrics?.generation_completed ? "완료" : "미완료"}</span>{item.status === "completed" && item.observation?.generation_status === "insufficient_evidence" ? <span>결과: 근거 부족</span> : null}</div>
+        <p className={styles.answer}>{item.answer ?? answerPlaceholder(item)}</p>{item.error_code ? <p role="alert">{item.error_code}</p> : null}
         <dl><dt>검색 근거 충족률</dt><dd>{coverage(item.metrics?.retrieval_coverage)}</dd><dt>문맥 근거 충족률</dt><dd>{coverage(item.metrics?.context_coverage)} · 필요 그룹 {item.metrics?.required_group_count ?? "미기록"}</dd><dt>거절 정확성</dt><dd>{item.metrics?.abstention_correct == null ? "대상 없음" : item.metrics.abstention_correct ? "통과" : "실패"}</dd><dt>소요 시간</dt><dd>{item.metrics?.duration_ms == null ? "시간 미기록" : `${item.metrics.duration_ms.toFixed(0)} ms`}</dd></dl>
         {item.judgment ? <p>판정 출처: {item.judgment.provenance === "rule" ? `정답 규칙 v${item.judgment.rule_version} (문자열 조건 범위)` : `검토자 ${item.judgment.reviewer_id} · ${item.judgment.reviewed_at}`} · {item.judgment.reason}</p> : null}
         {item.execution_id ? <Link href={executionPath(item.execution_id)}>실행 단계 상세</Link> : <p>연결된 실행 기록이 없습니다.</p>}
-        <div className={styles.badges}>{item.sources.map(source => <Link key={source.evidence_id} href={buildSourceHref(source.asset_version_id, source.projection_id, [], source.page)}>{source.title} · {source.page ?? "—"}쪽 인용 원문</Link>)}</div>
+        <CitationSources sources={item.sources} />
         {item.status === "completed" && item.result_digest ? <details><summary>이 답변 검토</summary><label>검토 근거<textarea value={reviewReasons[item.id] ?? ""} onChange={event => setReviewReasons(values => ({ ...values, [item.id]: event.target.value }))} /></label>
           {(["passed", "failed", "unreviewed"] as const).map(status => <button key={status} disabled={busy || !reviewReasons[item.id]?.trim()} onClick={() => void perform(async () => receiveRun(await api.reviewGenerativeAttempt(current.id, item.id, { result_digest: item.result_digest!, status, reason: reviewReasons[item.id] })))}>{judgmentLabel[status]}로 기록</button>)}
         </details> : null}

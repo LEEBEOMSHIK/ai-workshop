@@ -34,7 +34,7 @@ from ai_workshop.labs.rag.generation.codex_runner_registry import (
 )
 from ai_workshop.labs.rag.generation.windows_process import ProcessLimits, ProcessRequest
 
-_CLI_CONTRACT_VERSIONS = frozenset({"0.153.4", "0.155.1"})
+_CLI_CONTRACT_VERSIONS = frozenset({"0.153.4", "0.155.1", "0.157.1"})
 _SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
 _MODEL_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,199}\Z")
 _MAX_PROCESS_BYTES = 64 * 1024 * 1024

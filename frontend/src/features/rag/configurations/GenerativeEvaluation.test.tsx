@@ -37,6 +37,7 @@ beforeEach(() => {
 it("opens the exact run/case from a deep link without starting another run", async () => {
   render(<GenerativeEvaluationPanel configurations={[]} workspaces={[]} initialRunId="run-1" initialCaseId="case-1" />);
   expect(await screen.findByRole("heading", { name: "구성 config · v?" })).toBeVisible();
+  fireEvent.click(screen.getByRole("tab", { name: "근거·진단" }));
   expect(screen.getByRole("link", { name: "실행 단계 상세" })).toHaveAttribute("href", "/admin/rag/executions/execution-1");
   expect(api.loadGenerativeRun).toHaveBeenCalledWith("run-1", expect.any(AbortSignal));
   expect(api.startGenerativeRun).not.toHaveBeenCalled();
@@ -46,7 +47,7 @@ it("does not label valid citations as correct answers or missing timing as zero"
   render(<GenerativeEvaluationPanel configurations={[]} workspaces={[]} initialRunId="run-1" />);
   expect(await screen.findByText("정답: 미검증")).toBeVisible();
   expect(screen.getByText("인용: 유효")).toBeVisible();
-  expect(screen.getByText("시간 미기록")).toBeVisible();
+  expect(screen.getByText("소요 시간: 시간 미기록")).toBeVisible();
   expect(screen.getByRole("heading", { name: "답변 비교 실험" })).toBeVisible();
 });
 
@@ -117,6 +118,7 @@ it("groups citations by exact revision, projection and page while preserving evi
   ];
   vi.mocked(api.loadGenerativeRun).mockResolvedValue({ ...run, attempts: [{ ...run.attempts[0], sources }] });
   render(<GenerativeEvaluationPanel configurations={[]} workspaces={[]} initialRunId="run-1" />);
+  fireEvent.click(await screen.findByRole("tab", { name: "근거·진단" }));
   expect(await screen.findByText("인용 근거 5건 · 원문 위치 4곳")).toBeVisible();
   expect(screen.getAllByRole("link", { name: /인용 원문/ })).toHaveLength(4);
   expect(screen.getByRole("link", { name: "상품 설명서 · 2쪽 인용 원문 · 근거 2건" })).toHaveAttribute("href", expect.stringContaining("revision-1"));
@@ -149,6 +151,7 @@ it.each(["failed", "interrupted"])("does not report unpreserved failure observat
   render(<GenerativeEvaluationPanel configurations={[]} workspaces={[]} initialRunId="run-1" />);
   expect(await screen.findByText("인용: 실패")).toBeVisible();
   expect(screen.getByText("생성: 완료 여부 미확인")).toBeVisible();
+  fireEvent.click(screen.getByRole("tab", { name: "근거·진단" }));
   expect(screen.getAllByText(/실패·중단으로 측정값 확인 불가/)).toHaveLength(2);
   expect(screen.queryByText(/0\.0%/)).not.toBeInTheDocument();
   expect(screen.getByText("실패·중단된 시도의 검색·문맥 측정값은 보존되지 않았을 수 있습니다. 실행 단계 상세에서 처리 단계와 오류를 확인하세요.")).toBeVisible();
@@ -205,4 +208,19 @@ it("keeps a newer question selection when an earlier refresh response arrives", 
   expect(screen.getByText("두번째 답변")).toBeVisible();
   expect(screen.queryByText("합성 답변")).not.toBeInTheDocument();
   expect(window.location.search).toContain("case=case-2");
+});
+
+it("keeps diagnostics and review unmounted on the answer tab and explicitly expands long answers", async () => {
+  const answer = "긴 합성 답변입니다. ".repeat(50);
+  vi.mocked(api.loadGenerativeRun).mockResolvedValue({ ...run, attempts: [{ ...run.attempts[0], answer }] });
+  render(<GenerativeEvaluationPanel configurations={[]} workspaces={[]} initialRunId="run-1" />);
+  const expand = await screen.findByRole("button", { name: "답변 전체 보기" });
+  expect(expand).toHaveAttribute("aria-expanded", "false");
+  expect(screen.queryByText("검색 근거 충족률")).not.toBeInTheDocument();
+  expect(screen.queryByText("이 답변 검토")).not.toBeInTheDocument();
+  fireEvent.click(expand);
+  expect(screen.getByRole("button", { name: "답변 접기" })).toHaveAttribute("aria-expanded", "true");
+  fireEvent.click(screen.getByRole("tab", { name: "검토" }));
+  expect(screen.getByText("이 답변 검토")).toBeVisible();
+  expect(screen.queryByRole("button", { name: "답변 접기" })).not.toBeInTheDocument();
 });

@@ -78,7 +78,7 @@ export function ConfigurationStudioPage({ initialData, initialTab, initialRunId,
   }
 
   return (
-    <main className="configuration-studio-shell">
+    <main className={`configuration-studio-shell ${activeTab === "comparison" ? styles.compactShell : ""}`}>
       <header className={`configuration-studio-header ${activeTab === "comparison" ? styles.compactHeader : ""}`}>
         <p className="eyebrow">RAG CONFIGURATION STUDIO</p>
         <h1>RAG 구성 스튜디오</h1>
@@ -138,7 +138,7 @@ export function ConfigurationStudioPage({ initialData, initialTab, initialRunId,
           <button type="button" aria-pressed={evaluationKind === "extractive"} onClick={() => setEvaluationKind("extractive")}>검색 품질 비교</button>
           <button type="button" aria-pressed={evaluationKind === "generative"} onClick={() => { setEvaluationKind("generative"); setGenerativeOpened(true); }}>답변 품질 비교</button>
         </div>
-        <p className={styles.hint}>검색 결과와 생성 답변을 각각 비교합니다. 평소 질문의 유사도·처리 이력은 <Link href="/admin/rag/executions">실제 대화 실행 이력</Link>에서 확인하세요.</p>
+        <p className={styles.hint}><Link href="/admin/rag/executions">실제 대화 실행 이력</Link></p>
         <div hidden={evaluationKind !== "extractive"}>
           <ComparisonPanel
             configurations={configurations}

@@ -38,6 +38,11 @@ function answerPlaceholder(item: Attempt) {
   return "저장된 생성 답변이 없습니다.";
 }
 
+function AnswerPreview({ answer }: { answer: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const canExpand = answer.length > 240 || answer.split("\n").length > 6;
+  return <div><p className={`${styles.answer} ${canExpand && !expanded ? styles.answerPreview : ""}`}>{answer}</p>{canExpand ? <button type="button" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? "답변 접기" : "답변 전체 보기"}</button> : null}</div>;
+}
 function CitationSources({ sources }: { sources: Attempt["sources"] }) {
   const groups = new Map<string, { source: Attempt["sources"][number]; count: number }>();
   for (const source of sources) {
@@ -129,9 +134,9 @@ export function GenerativeEvaluationPanel({ configurations, workspaces, initialR
   }, {});
   return <section className={styles.page} aria-label="생성형 평가">
     <h2>답변 비교 실험</h2>
-    <p>실제 대화와 같은 문맥 선택·생성·인용 검증을 실행합니다. 인용 유효성과 정답 여부를 별도로 확인합니다.</p>
+
     {error ? <p role="alert">{error}</p> : null}{message ? <p role="status">{message}</p> : null}
-    <details className={styles.card}><summary>새 생성형 평가 준비</summary>
+    <div className={styles.runToolbar}><details className={styles.card}><summary>새 생성형 평가 준비</summary>
       <fieldset disabled={busy}><legend>저장된 평가 자료 다시 사용</legend>
         <label>저장된 평가 자료 ID<input value={snapshotId} onChange={event => setSnapshotId(event.target.value)} /></label>
         <button type="button" disabled={!snapshotId.trim()} onClick={() => void perform(async () => {
@@ -179,23 +184,25 @@ export function GenerativeEvaluationPanel({ configurations, workspaces, initialR
         })}>생성형 평가 실행</button>
       </fieldset>
     </details>
-    <details className={styles.card}><summary>실행 이력 · {runs.length}건</summary><ul className={styles.runHistory}>{runs.map(item => <li key={item.id}><button type="button" disabled={busy} aria-pressed={current?.id === item.id} onClick={() => void perform(async () => receiveRun(await api.loadGenerativeRun(item.id)))}>{new Date(item.created_at).toLocaleString("ko-KR")} · {runLabel[item.status] ?? item.status}</button></li>)}</ul></details>
+    <details className={styles.card}><summary>실행 이력 · {runs.length}건</summary><ul className={styles.runHistory}>{runs.map(item => <li key={item.id}><button type="button" disabled={busy} aria-pressed={current?.id === item.id} onClick={() => void perform(async () => receiveRun(await api.loadGenerativeRun(item.id)))}>{new Date(item.created_at).toLocaleString("ko-KR")} · {runLabel[item.status] ?? item.status}</button></li>)}</ul></details></div>
     {current ? <>
       <div className={styles.badges}><span>실행: {runLabel[current.status] ?? current.status}</span><span>사례별 {current.repetition_count}회</span><button disabled={busy} onClick={() => void perform(async () => receiveRun(await api.loadGenerativeRun(current.id)))}>결과 새로고침</button>
         {current.status === "failed" ? <button disabled={busy} onClick={() => void perform(async () => receiveRun(await api.retryGenerativeRun(current.id)))}>실패한 사례 재시도</button> : null}</div>
       <p aria-live="polite">전체 시도 {current.attempts.length}건 · 완료 {attemptCounts.completed ?? 0}건 · 진행 {attemptCounts.running ?? 0}건 · 대기 {attemptCounts.pending ?? 0}건 · 실패 {attemptCounts.failed ?? 0}건 · 중단 {attemptCounts.interrupted ?? 0}건</p>
-      <GenerativeEvaluationResults key={current.id} run={current} caseId={caseId} onSelect={id => { selectedCase.current = { runId: current.id, caseId: id }; setCaseId(id); linkState(current.id, id); }} renderAttempt={item => <article className={styles.card} key={item.id}>
+      <GenerativeEvaluationResults key={current.id} run={current} caseId={caseId} onSelect={id => { selectedCase.current = { runId: current.id, caseId: id }; setCaseId(id); linkState(current.id, id); }} renderAttempt={(item, view) => <article className={styles.card} key={item.id}>
         <h3>{configurations.find(c => c.version_id === item.configuration_version_id)?.name ?? `구성 ${item.configuration_version_id}`} · v{configurations.find(c => c.version_id === item.configuration_version_id)?.version ?? "?"}</h3><p>반복 {item.repetition + 1} · 시도 {item.attempt_number} · {runLabel[item.status] ?? item.status}</p>
         <div className={styles.badges}><span>정답: {judgmentLabel[item.metrics?.correctness ?? "unreviewed"]}</span><span>인용: {citationLabel(item)}</span><span>생성: {item.metrics?.generation_completed ? "완료" : failedOrInterrupted(item) ? "완료 여부 미확인" : "미완료"}</span>{item.status === "completed" && item.observation?.generation_status === "insufficient_evidence" ? <span>결과: 근거 부족</span> : null}</div>
-        <p className={styles.answer}>{item.answer ?? answerPlaceholder(item)}</p>{item.error_code ? <p role="alert">{item.error_code}</p> : null}
-        <dl><dt>검색 근거 충족률</dt><dd>{attemptCoverage(item, item.metrics?.retrieval_coverage)}</dd><dt>문맥 근거 충족률</dt><dd>{attemptCoverage(item, item.metrics?.context_coverage)} · 필요 그룹 {item.metrics?.required_group_count ?? "미기록"}</dd><dt>거절 정확성</dt><dd>{item.metrics?.abstention_correct == null ? "대상 없음" : item.metrics.abstention_correct ? "통과" : "실패"}</dd><dt>소요 시간</dt><dd>{item.metrics?.duration_ms == null ? "시간 미기록" : `${(item.metrics.duration_ms / 1000).toFixed(1)}초`}</dd></dl>
+        {view === "answer" ? <><AnswerPreview key={item.id} answer={item.answer ?? answerPlaceholder(item)} /><p>소요 시간: {item.metrics?.duration_ms == null ? "시간 미기록" : `${(item.metrics.duration_ms / 1000).toFixed(1)}초`}</p></> : null}{item.error_code ? <p role="alert">{item.error_code}</p> : null}
+        {view === "evidence" ? <><dl><dt>검색 근거 충족률</dt><dd>{attemptCoverage(item, item.metrics?.retrieval_coverage)}</dd><dt>문맥 근거 충족률</dt><dd>{attemptCoverage(item, item.metrics?.context_coverage)} · 필요 그룹 {item.metrics?.required_group_count ?? "미기록"}</dd><dt>거절 정확성</dt><dd>{item.metrics?.abstention_correct == null ? "대상 없음" : item.metrics.abstention_correct ? "통과" : "실패"}</dd><dt>소요 시간</dt><dd>{item.metrics?.duration_ms == null ? "시간 미기록" : `${(item.metrics.duration_ms / 1000).toFixed(1)}초`}</dd></dl>
         {failedOrInterrupted(item) ? <p>실패·중단된 시도의 검색·문맥 측정값은 보존되지 않았을 수 있습니다. 실행 단계 상세에서 처리 단계와 오류를 확인하세요.</p> : null}
-        {item.judgment ? <p>판정 출처: {item.judgment.provenance === "rule" ? `정답 규칙 v${item.judgment.rule_version} (문자열 조건 범위)` : `검토자 ${item.judgment.reviewer_id} · ${item.judgment.reviewed_at}`} · {item.judgment.reason}</p> : null}
         {item.execution_id ? <Link href={executionPath(item.execution_id)}>실행 단계 상세</Link> : <p>연결된 실행 기록이 없습니다.</p>}
-        <CitationSources sources={item.sources} /><EvaluationExecutionDiagnostics executionId={item.execution_id} />
+        <CitationSources sources={item.sources} /><EvaluationExecutionDiagnostics executionId={item.execution_id} /></> : null}
+        {view === "review" ? <>
+        {item.judgment ? <p>판정 출처: {item.judgment.provenance === "rule" ? `정답 규칙 v${item.judgment.rule_version} (문자열 조건 범위)` : `검토자 ${item.judgment.reviewer_id} · ${item.judgment.reviewed_at}`} · {item.judgment.reason}</p> : null}
+
         {item.status === "completed" && item.result_digest ? <details><summary>이 답변 검토</summary><label>검토 근거<textarea value={reviewReasons[item.id] ?? ""} onChange={event => setReviewReasons(values => ({ ...values, [item.id]: event.target.value }))} /></label>
           {(["passed", "failed", "unreviewed"] as const).map(status => <button key={status} disabled={busy || !reviewReasons[item.id]?.trim()} onClick={() => void perform(async () => receiveRun(await api.reviewGenerativeAttempt(current.id, item.id, { result_digest: item.result_digest!, status, reason: reviewReasons[item.id] })))}>{judgmentLabel[status]}로 기록</button>)}
-        </details> : null}
+        </details> : <p>완료된 답변을 검토할 수 있습니다.</p>}</> : null}
       </article>} />
       {current.status === "completed" ? <details><summary>DB 검증 후 구성에 생성형 통과 반영</summary><p>저장된 기준과 모든 반복 사례의 증거를 DB에서 재검증합니다. 활성 도메인 연결 변경은 별도 관리 동작입니다.</p>{[...new Set(current.attempts.map(item => item.configuration_version_id))].map(version => <button key={version} disabled={busy} onClick={() => void perform(async () => {
         await api.acceptGenerativeRun(current.id, version); setMessage("정확한 구성 버전에 생성형 평가 통과를 반영했습니다.");

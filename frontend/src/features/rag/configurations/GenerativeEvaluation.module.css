@@ -1,4 +1,4 @@
-﻿.page { --evaluation-gap: 1rem; --evaluation-radius: .8rem; display: grid; gap: 1.25rem; min-width: 0; max-width: 92rem; margin-inline: auto; padding: clamp(.75rem, 2vw, 1.5rem); overflow-wrap: anywhere; }
+.page { --evaluation-gap: 1rem; --evaluation-radius: .8rem; display: grid; gap: 1.25rem; min-width: 0; max-width: 92rem; margin-inline: auto; padding: clamp(.75rem, 2vw, 1.5rem); overflow-wrap: anywhere; }
 .page :is(h2, h3, p) { margin: 0; }
 .page :is(p, label, summary, a) { line-height: 1.65; }
 .page :is(fieldset, section, article, details, label) { min-width: 0; }
@@ -28,7 +28,7 @@ article.card { display: grid; gap: var(--evaluation-gap); }
 .sources ul { display: grid; gap: .6rem; margin: 0; padding-left: 1.2rem; }
 @media (max-width: 700px) { .page { padding: .5rem; } .card, .page fieldset { padding: .85rem; } .page dl { grid-template-columns: 1fr; } .page dd { padding-bottom: .5rem; } }
 .results { display: grid; grid-template-columns: minmax(15rem, 1fr) minmax(0, 3fr); gap: 1.25rem; min-width: 0; align-items: start; }
-.questionList { display: grid; gap: .8rem; min-width: 0; position: sticky; top: 1rem; max-height: 85vh; overflow-y: auto; padding: .25rem; }
+.questionList { display: grid; gap: .8rem; min-width: 0;  padding: .25rem; }
 .questionList ul, .runHistory { display: grid; gap: .5rem; list-style: none; padding: 0; margin: 0; }
 .questionList li { min-width: 0; }
 .questionList li button { width: 100%; margin: 0; text-align: left; display: grid; gap: .5rem; }
@@ -45,3 +45,25 @@ article.card { display: grid; gap: var(--evaluation-gap); }
 @media (max-width: 1000px) { .results { grid-template-columns: minmax(13rem, 1fr) minmax(0, 2fr); } .comparison { grid-template-columns: 1fr; } }
 @media (max-width: 700px) { .results { display: block; } .questionList { position: static; max-height: none; } .results[data-mobile-detail="false"] .questionDetail { display: none; } .results[data-mobile-detail="true"] .questionList { display: none; } .backToList { display: block; } }
 .page > details.card { padding-block: .4rem; }
+
+.answerPreview { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+.page button[aria-selected="true"] { background: color-mix(in srgb, var(--color-accent-text) 18%, transparent); border-width: 2px; }.page { gap: .75rem; padding-block: .5rem; }
+.runToolbar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; align-items: start; }
+.runToolbar > details { padding: .25rem .75rem; }
+.runToolbar > details[open] { grid-column: 1 / -1; }
+.runToolbar summary { padding-block: .3rem; }
+.questionList { gap: .5rem; }
+.questionList li button { gap: .2rem; padding: .45rem .6rem; }
+.questionList li strong { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: .9rem; line-height: 1.4; }
+.questionList li span { font-size: .75rem; line-height: 1.3; }
+.questionList .filters { gap: 0; }
+.questionList .filters button { padding: .3rem .45rem; min-height: 2rem; margin: .15rem; font-size: .8rem; }
+.questionList nav { justify-content: space-between; gap: .2rem; }
+.questionList nav button { padding: .3rem .45rem; min-height: 2rem; font-size: .75rem; }
+.questionList nav span { padding: .2rem; border: 0; }
+.questionDetail { gap: .6rem; }
+.detailToolbar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .4rem; }
+.detailToolbar .badges { gap: .2rem; }
+.detailToolbar button { min-height: 2.2rem; margin: .1rem; padding: .35rem .6rem; }
+.caseSummary { font-size: .8rem; }
+@media (max-width: 700px) { .runToolbar { gap: .35rem; } .runToolbar > details { padding-inline: .4rem; } .runToolbar summary { font-size: .8rem; } }

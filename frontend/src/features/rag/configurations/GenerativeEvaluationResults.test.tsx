@@ -64,3 +64,49 @@ it("moves the selection when refreshed judgments remove the current case from th
   expect(screen.queryByText("답변 a")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: /질문 b/ })).toHaveAttribute("aria-pressed", "true");
 });
+
+it("shows five questions per page and initially includes the deep-linked question", () => {
+  render(<Harness attempts={Array.from({ length: 12 }, (_, i) => attempt(`q${i}`))} initial="q7" />);
+  expect(screen.getByText("2 / 3 페이지")).toBeVisible();
+  expect(screen.getByRole("button", { name: /질문 q7/ })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.queryByRole("button", { name: /질문 q0/ })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "다음 질문 페이지" }));
+  expect(screen.getByText("3 / 3 페이지")).toBeVisible();
+  expect(screen.getByText("답변 q10")).toBeVisible();
+});
+
+it("mounts only the selected comparison tab", () => {
+  render(<GenerativeEvaluationResults run={{ attempts: [attempt("a")] } as GenerativeRun} caseId="a" onSelect={() => {}} renderAttempt={(item, view) => <article key={item.id}>{view} content</article>} />);
+  expect(screen.getByText("answer content")).toBeVisible();
+  expect(screen.queryByText("evidence content")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("tab", { name: "근거·진단" }));
+  expect(screen.getByText("evidence content")).toBeVisible();
+  expect(screen.queryByText("answer content")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("tab", { name: "검토" }));
+  expect(screen.getByText("review content")).toBeVisible();
+  expect(screen.queryByText("evidence content")).not.toBeInTheDocument();
+});
+
+it("supports roving keyboard focus and activation for comparison tabs", () => {
+  render(<GenerativeEvaluationResults run={{ id: "keyboard", attempts: [attempt("a")] } as GenerativeRun} caseId="a" onSelect={() => {}} renderAttempt={(item, view) => <article key={item.id}>{view} content</article>} />);
+  const answer = screen.getByRole("tab", { name: "답변 비교" });
+  const evidence = screen.getByRole("tab", { name: "근거·진단" });
+  const review = screen.getByRole("tab", { name: "검토" });
+  expect(answer).toHaveAttribute("tabindex", "0");
+  expect(evidence).toHaveAttribute("tabindex", "-1");
+  answer.focus();
+  fireEvent.keyDown(answer, { key: "ArrowRight" });
+  expect(evidence).toHaveFocus();
+  expect(evidence).toHaveAttribute("aria-selected", "true");
+  expect(screen.getByText("evidence content")).toBeVisible();
+  fireEvent.keyDown(evidence, { key: "End" });
+  expect(review).toHaveFocus();
+  fireEvent.keyDown(review, { key: "ArrowRight" });
+  expect(answer).toHaveFocus();
+  fireEvent.keyDown(answer, { key: "ArrowLeft" });
+  expect(review).toHaveFocus();
+  fireEvent.keyDown(review, { key: "Home" });
+  expect(answer).toHaveFocus();
+  expect(answer).toHaveAttribute("aria-selected", "true");
+  expect(review).toHaveAttribute("tabindex", "-1");
+});

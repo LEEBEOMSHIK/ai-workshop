@@ -1,11 +1,15 @@
 # Workboard
 
-- 마지막 갱신일: 2026-09-28
+- 마지막 갱신일: 2026-09-29
 - 현재 단계: RAG 실행 모니터링·생성형 평가의 본래 환경 검증
 - 전체 상태: 불변 Document Processing Profile, 10개 고정 PP-StructureV3 모델,
   DOCX 내장 이미지 OCR·provenance·검색 원문 뷰어와 관리자 전체 구성이 구현됐다.
 
 ## 서버 실행 방법 — 본래 개발 환경
+
+2026-09-29 복구: 공식 서명 Python3.13.15로 기존 backend/.venv를 제자리 전환했다. 패키지150개 보존, API18000·프론트5173·로그인페이지200 확인. Torch/SciPy/Sentence Transformers import통과. 기존 uv Python은 Blender MCP16환경이 공유하므로 이전 런타임 삭제는 추가 범위 확인 대기다. 기존 마스터 재로그인 후 관리자 화면·DB문제이력 검증을 이어간다. [복구 기록](docs/worklogs/2026-09-29-official-python-recovery.md).
+
+2026-09-29: 기존 Docker PostgreSQL/Redis/Elasticsearch healthy. 요청에 따라 프론트5173을 숨김 실행(PID45592)했으나 기존 backend/.venv/Scripts/python.exe가 Windows 애플리케이션 제어 정책(CodeIntegrity3077)으로 차단되어 API18000 기동 실패. 로그인 및 프론트 경유 health500의 원인은 API 연결 거부다. 보안 정책을 우회하거나 별도 환경을 만들지 않았다. 차단 해소 후 API 기동·기존 로그인·비교 화면 최종 스크롤 검증이 필요하다. DB 문제 이력 갱신은 API 미기동으로 미완료. 로그: .local-data/dev-logs/original-rag-frontend-20260929*.log.
 
 2026-09-28 현재: 신규 마스터 로그인 유지 확인. 전체 25문항×2구성×3회(150시도) 생성형 평가 `1981b09d-d41c-48f0-a4ee-ed03bf710f1a` 실행 중. 비교 실험에서 진행 건수·근거 부족·답변·원문 링크를 확인한다. 현재 활성 구성은 유지하며 최종 품질 판정은 미완료다. [진행·검증 기록](docs/worklogs/2026-09-28-rag-generative-evaluation-verification.md).
 
@@ -82,6 +86,12 @@ DB0052와 저장소 marker는 적용됐다. 평상시 시작에 migration·계�
 `prepare_rag_sandbox.ps1 -Phase Runtime`을 다시 실행하면 본래 포트와 충돌하므로 사용하지 않는다.
 
 ## 현재 작업
+
+- 2026-09-29: 추가 승인으로 Blender MCP16환경을 공식Python3.13.15로 전환했다. entrypoint모듈검증16/16·실행기서명32개Valid·독립참조검사0개 확인 후 이전uvPython3.13.15와관리junction삭제완료. 다른Python3.11·도구패키지·원본DB자료보존. 복구백업과설치파일66.1MB삭제는자동승인검토가범위밖/롤백감소로거절해보존·별도확인대기. [기록](docs/worklogs/2026-09-29-official-python-recovery.md).
+
+- 2026-09-29: 사용자 승인으로 공식 서명 Python3.13 설치와 기존 uv Python 전환을 진행한다. 기존 .env·DB·계정·자료·패키지를 보존하며 실행기 복구와 본래 API 검증 후 이전 런타임 정리한다. 외부 공유 참조와 사용 프로세스를 확인하며 다른 Python3.11은 제외한다.
+
+- 2026-09-29 후속 원인 조사: 동일 Code Integrity 정책(VerifiedAndReputableDesktop)은 09-23 이미 활성화돼 있었고, 기존 venv Python 및 연결된 CPython 파일의 수정 시각은 08월 말이다. 09-29 10:04 Windows3077 이벤트는 기존 venv Python 실행 차단을 명시한다. 오늘 정책 신규 활성화나 최근 Python 교체가 원인이라는 근거는 없으며, 이전 허용과 현재 차단의 판단 변경 사유는 미확인이다. DB 이력 반영은 API 차단으로 대기한다.
 
 - 2026-09-28: 사용자 재지적에 따라 비교 실험 중첩 스크롤·상세 누적을 재수정했다. 질문5개 페이지, 답변/근거·진단/검토 탭, 긴 답변 미리보기, 준비·이력 한 줄과 상단 여백 축소. 관련48개 테스트·TS/ESLint 통과. 독립 리뷰의 탭 키보드 지적을 회귀 재현·수정했다. 초기 재수정 실측에서 비교 시작 y864px·페이지1998px를 확인해 추가 압축했으나 최종 브라우저 연결이 끊겼다. 최종 데스크톱/모바일 실측은 남아 있으며 사용성 검증 완료로 처리하지 않는다. 기존 API·활성 구성·진행 중 평가 유지.
 

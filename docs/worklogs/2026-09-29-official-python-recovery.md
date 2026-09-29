@@ -38,3 +38,7 @@
 자동승인검토가임시복구자료삭제를거절했다. 사용자승인은기존runtime삭제이며복구백업·설치파일삭제는범위밖이고롤백가능성을줄인다는이유다. `.local-data/python-migration-20260929`의`previous-launcher`28,987,556바이트,`blender-launchers`7,654,493바이트,`python-3.13.15-amd64.exe`29,452,944바이트는변경없이보존했고별도확인을요청했다. 검증JSON/설치로그는보존한다.
 
 삭제 후 재검증: backend 및 SciPy/Torch/Sentence Transformers import 통과. uv Python 탐색은 공식 Python313을 반환했다. API 직접·프론트 경유 health와 로그인 페이지는 모두200이며, 대표 Blender 환경의 도구 진입점 import도 통과했다.
+
+## 복구 자료 정리 완료
+
+2026-09-29 사용자 추가 승인 후 previous-launcher, blender-launchers, python-3.13.15-amd64.exe만 삭제했다. 삭제 직전 절대 경로 경계, 하위 reparse point 부재, 사용 프로세스 부재와 공식 Python의 base_prefix를 확인했다. 논리 제거량66,094,993바이트, 실행 전후 C드라이브 여유 공간 차이는66,191,360바이트이며 다른 프로세스의 디스크 활동 영향을 포함할 수 있다. 검증JSON과 설치로그는 보존했다. 삭제 후 API 직접health·프론트경유health·로그인페이지 모두200을 확인했다. 복구자료 삭제 대기는 해소됐다.

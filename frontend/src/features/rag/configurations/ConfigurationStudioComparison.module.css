@@ -1,12 +1,15 @@
 .compactShell.compactShell { padding: 1rem; min-height: calc(100dvh - 4rem); }
-.compactShell > [role="tablist"] { margin-top: .5rem; padding-bottom: .5rem; }
+.compactShell > [role="tablist"] { margin-top: .5rem; padding-bottom: 0; gap: 1rem; }
+.compactShell > [role="tablist"] button { min-height: 2.75rem; padding: .6rem .2rem; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: inherit; font-weight: 500; }
+.compactShell > [role="tablist"] button[aria-selected="true"] { background: transparent; color: var(--color-accent-text); border-bottom-color: currentColor; }
 .compactShell > [role="tabpanel"] { padding-top: .5rem; }
 .compactHeader { padding-block: 0; }
 .compactHeader h1 { font-size: 1.35rem; margin: 0; }
 .compactHeader p { display: none; }
-.kindPicker { display: flex; flex-wrap: wrap; gap: .5rem; padding: 0; }
-.kindPicker button { min-height: 2.75rem; padding: .6rem 1rem; border: 1px solid var(--color-border-subtle); border-radius: .6rem; background: transparent; color: inherit; font: inherit; cursor: pointer; }
-.kindPicker button[aria-pressed="true"] { color: var(--color-accent-text); border-color: currentColor; background: color-mix(in srgb, var(--color-accent-text) 12%, transparent); }
+.comparisonToolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .35rem 1rem; padding-block: .5rem; }
+.kindPicker { display: flex; flex-wrap: wrap; gap: .2rem; padding: .2rem; border-radius: .5rem; background: color-mix(in srgb, currentColor 4%, transparent); }
+.kindPicker button { min-height: 2.75rem; padding: .5rem .75rem; border: 0; border-radius: .35rem; background: transparent; color: inherit; font: inherit; font-size: .85rem; cursor: pointer; }
+.kindPicker button[aria-pressed="true"] { color: var(--color-accent-text); background: color-mix(in srgb, currentColor 8%, transparent); }
 .kindPicker button:focus-visible, .hint a:focus-visible { outline: 2px solid var(--color-accent-text); outline-offset: 3px; }
 .hint { margin: .4rem 0; font-size: .8rem; line-height: 1.4; }
 .hint a { color: var(--color-accent-text); text-underline-offset: .2em; }

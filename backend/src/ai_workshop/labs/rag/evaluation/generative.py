@@ -154,9 +154,18 @@ def evaluate_generative(
     correctness: JudgmentStatus = judgment.status if judgment else "unreviewed"
     if abstention is False:
         correctness = "failed"
+    failed = observation.failure_stage is not None or observation.error_code is not None
     return GenerativeMetrics(
-        retrieval_coverage=_coverage(observation.retrieved_evidence_ids, rule),
-        context_coverage=_coverage(observation.selected_evidence_ids, rule),
+        retrieval_coverage=(
+            None
+            if failed and not observation.retrieved_evidence_ids
+            else _coverage(observation.retrieved_evidence_ids, rule)
+        ),
+        context_coverage=(
+            None
+            if failed and not observation.selected_evidence_ids
+            else _coverage(observation.selected_evidence_ids, rule)
+        ),
         required_group_count=len(rule.required_evidence_groups),
         generation_completed=finished and observation.failure_stage is None,
         citation_valid=observation.citation_valid,

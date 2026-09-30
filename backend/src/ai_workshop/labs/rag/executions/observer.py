@@ -30,6 +30,9 @@ class ExecutionObserver:
         self.complete = True
         self.persisted_id: UUID | None = None
         self.active: StageName | None = None
+        self.failed_stage: StageName | None = None
+        self.retrieved_evidence_ids: tuple[UUID, ...] = ()
+        self.selected_evidence_ids: tuple[UUID, ...] = ()
         self.started: dict[StageName, tuple[datetime, float]] = {}
         self.done: set[StageName] = set()
 
@@ -77,6 +80,8 @@ class ExecutionObserver:
             ended_at=datetime.now(UTC),
             duration_ms=(perf_counter() - started[1]) * 1000 if started else None,
         )
+        if state == "failed":
+            self.failed_stage = stage
         await self._write(lambda: self.recorder.record(self.identity.execution_id, observation))
         self.done.add(stage)
         if self.active == stage:
@@ -126,6 +131,14 @@ async def end(
 def execution_id() -> UUID | None:
     observer = current_observer.get()
     return observer.persisted_id if observer else None
+
+
+def capture_evidence_ids(*, retrieved: tuple[UUID, ...], selected: tuple[UUID, ...]) -> None:
+    # Exact evaluation inputs are independent of bounded diagnostic candidates.
+    observer = current_observer.get()
+    if observer is not None:
+        observer.retrieved_evidence_ids = retrieved
+        observer.selected_evidence_ids = selected
 
 
 async def capture_selection(factory: Callable[[], SelectionObservation]) -> None:

@@ -611,6 +611,14 @@ class RagExecutionPipeline:
             require_authorized_identities(required_sources, resolved_scope)
             await revalidate_access(required_sources)
             if trace.current_observer.get() is not None:
+                trace.capture_evidence_ids(
+                    retrieved=tuple(
+                        evidence.id
+                        for source in sources
+                        for evidence in source.chunk.evidence_units
+                    ),
+                    selected=tuple(answer.evidence.id for answer in generation_answers),
+                )
                 await trace.capture_selection(
                     lambda: selection_observation(
                         sources,
@@ -1088,6 +1096,13 @@ class RagExecutionPipeline:
         await trace.begin("citation_validation")
         outcome = CitationValidator().validate(draft, allowed_evidence=evidence)
         if outcome.status is not GenerationStatus.ANSWERED or outcome.text is None:
+            # Keep validator-owned reason codes in the existing stage record;
+            # HTTP responses and provider audits retain the generic safe error.
+            await trace.end(
+                "citation_validation",
+                state="failed",
+                reason=next(iter(outcome.reason_codes), "citation_validation_failed"),
+            )
             await self._record_audit(
                 actor_id=actor_id,
                 configuration=configuration,

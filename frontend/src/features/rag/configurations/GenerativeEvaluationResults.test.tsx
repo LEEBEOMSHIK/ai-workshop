@@ -16,14 +16,14 @@ it("filters questions using latest attempts and keeps historical failures out of
   const old = { ...attempt("recovered", "failed"), id: "old", answer: "과거 실패" };
   const latest = { ...attempt("recovered"), attempt_number: 2 };
   render(<Harness attempts={[old, latest, attempt("failure", "failed"), attempt("abstain", "completed", "passed", "insufficient_evidence"), attempt("review", "completed", "unreviewed"), attempt("pending", "pending")]} />);
-  fireEvent.click(screen.getByRole("button", { name: "실패" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "질문 상태" }), { target: { value: "실패" } });
   expect(screen.getByRole("button", { name: /질문 failure/ })).toBeVisible();
   expect(screen.queryByRole("button", { name: /질문 recovered/ })).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "근거 부족" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "질문 상태" }), { target: { value: "근거 부족" } });
   expect(screen.getByRole("button", { name: /질문 abstain/ })).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "검토 필요" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "질문 상태" }), { target: { value: "검토 필요" } });
   expect(screen.getByRole("button", { name: /질문 review/ })).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "진행 중" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "질문 상태" }), { target: { value: "진행 중" } });
   expect(screen.getByRole("button", { name: /질문 pending/ })).toBeVisible();
 });
 it("renders only the selected question and latest repetition, revealing retry history explicitly", async () => {
@@ -45,7 +45,7 @@ it("renders only the selected question and latest repetition, revealing retry hi
 it("selects a matching question when filtering and clears stale details for zero results", () => {
   render(<Harness attempts={[attempt("good"), attempt("bad", "failed")]} initial="good" />);
   expect(screen.getByRole("complementary", { name: "평가 질문 목록" }).parentElement).toHaveAttribute("data-mobile-detail", "true");
-  fireEvent.click(screen.getByRole("button", { name: "실패" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "질문 상태" }), { target: { value: "실패" } });
   expect(screen.getByText("답변 bad")).toBeVisible();
   expect(screen.queryByText("답변 good")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: /질문 bad/ })).toHaveAttribute("aria-pressed", "true");
@@ -57,7 +57,7 @@ it("selects a matching question when filtering and clears stale details for zero
 it("moves the selection when refreshed judgments remove the current case from the filter", async () => {
   const attempts = [attempt("a", "completed", "unreviewed"), attempt("b", "completed", "unreviewed")];
   const { rerender } = render(<Harness attempts={attempts} initial="a" />);
-  fireEvent.click(screen.getByRole("button", { name: "검토 필요" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "질문 상태" }), { target: { value: "검토 필요" } });
   expect(screen.getByText("답변 a")).toBeVisible();
   rerender(<Harness attempts={[attempt("a"), attempts[1]]} initial="a" />);
   expect(await screen.findByText("답변 b")).toBeVisible();
@@ -85,6 +85,17 @@ it("mounts only the selected comparison tab", () => {
   fireEvent.click(screen.getByRole("tab", { name: "검토" }));
   expect(screen.getByText("review content")).toBeVisible();
   expect(screen.queryByText("evidence content")).not.toBeInTheDocument();
+});
+
+it("changes repetitions with the labeled selector and resets to the first repetition for another question", () => {
+  const second = { ...attempt("a"), id: "a-repeat", repetition: 1, answer: "두 번째 반복 답변" };
+  render(<Harness attempts={[attempt("a"), second, attempt("b")]} />);
+  fireEvent.change(screen.getByRole("combobox", { name: "반복" }), { target: { value: "1" } });
+  expect(screen.getByText("두 번째 반복 답변")).toBeVisible();
+  expect(screen.queryByText("답변 a")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /질문 b/ }));
+  expect(screen.getByRole("combobox", { name: "반복" })).toHaveValue("0");
+  expect(screen.getByText("답변 b")).toBeVisible();
 });
 
 it("supports roving keyboard focus and activation for comparison tabs", () => {

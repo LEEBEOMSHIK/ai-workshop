@@ -59,14 +59,14 @@ export function GenerativeEvaluationResults({ run, caseId, onSelect, renderAttem
   return <div className={styles.results} data-mobile-detail={mobileDetail}>
     <aside className={styles.questionList} aria-label="평가 질문 목록">
       <label>질문 검색<input value={search} onChange={event => filterQuestions(event.target.value, filter)} /></label>
-      <div className={styles.filters} aria-label="질문 상태 필터">{filters.map(value => <button key={value} type="button" aria-pressed={filter === value} onClick={() => filterQuestions(search, value)}>{value}</button>)}</div>
+      <label className={styles.compactSelect}>질문 상태<select value={filter} onChange={event => filterQuestions(search, event.target.value as Filter)}>{filters.map(value => <option key={value} value={value}>{value}</option>)}</select></label>
       <p>질문 {visible.length} / {cases.length}개</p>
       <ul>{pageCases.map(([id, query]) => {
         const items = latestAttempts(run.attempts.filter(item => item.case_id === id));
         const labels = filters.slice(1).filter(value => items.some(item => matches(item, value)));
         return <li key={id}><button type="button" aria-pressed={selectedId === id} onClick={() => select(id)}><strong title={query}>{query}</strong><span>{labels.join(" · ") || "검토 결과 확인"}</span></button></li>;
       })}</ul>
-      {pageCount > 1 ? <nav className={styles.badges} aria-label="질문 페이지"><button type="button" disabled={page === 0} onClick={() => { onSelect(visible[(page - 1) * 5][0]); setRepetition(0); setHistoryOpen(false); }}>이전 질문 페이지</button><span>{page + 1} / {pageCount} 페이지</span><button type="button" disabled={page + 1 === pageCount} onClick={() => { onSelect(visible[(page + 1) * 5][0]); setRepetition(0); setHistoryOpen(false); }}>다음 질문 페이지</button></nav> : null}
+      {pageCount > 1 ? <nav className={styles.pagination} aria-label="질문 페이지"><button type="button" aria-label="이전 질문 페이지" disabled={page === 0} onClick={() => { onSelect(visible[(page - 1) * 5][0]); setRepetition(0); setHistoryOpen(false); }}>이전</button><span>{page + 1} / {pageCount} 페이지</span><button type="button" aria-label="다음 질문 페이지" disabled={page + 1 === pageCount} onClick={() => { onSelect(visible[(page + 1) * 5][0]); setRepetition(0); setHistoryOpen(false); }}>다음</button></nav> : null}
       {!visible.length ? <p>검색 조건에 맞는 질문이 없습니다.</p> : null}
     </aside>
     <section className={styles.questionDetail} aria-label="선택 질문 비교">
@@ -74,8 +74,8 @@ export function GenerativeEvaluationResults({ run, caseId, onSelect, renderAttem
       {!visible.length ? <p>표시할 질문이 없습니다. 검색어나 상태 필터를 변경하세요.</p> : !all.length ? <p role="alert">연결된 사례를 찾을 수 없습니다.</p> : <>
         <p className={styles.selectedQuestion}>{all[0].query}</p>
         <p className={styles.caseSummary}>최신 시도 {latest.filter(item => item.status === "completed").length}/{latest.length}회 완료 · 정답 통과 {latest.filter(item => item.metrics?.correctness === "passed").length}회</p>
-        <div className={styles.detailToolbar}><div className={styles.badges} aria-label="반복 선택">{repetitions.map(value => <button type="button" key={value} aria-pressed={activeRepetition === value} onClick={() => { setRepetition(value); setHistoryOpen(false); }}>반복 {value + 1}</button>)}</div>
-        <div className={styles.badges} role="tablist" aria-label="비교 내용">{([["answer", "답변 비교"], ["evidence", "근거·진단"], ["review", "검토"]] as const).map(([id, label]) => <button type="button" role="tab" ref={node => { tabRefs.current[id] = node; }} tabIndex={view === id ? 0 : -1} onKeyDown={event => {
+        <div className={styles.detailToolbar}><label className={styles.compactSelect}>반복<select value={activeRepetition} onChange={event => { setRepetition(Number(event.target.value)); setHistoryOpen(false); }}>{repetitions.map(value => <option key={value} value={value}>{value + 1}회차</option>)}</select></label>
+        <div className={styles.contentTabs} role="tablist" aria-label="비교 내용">{([["answer", "답변 비교"], ["evidence", "근거·진단"], ["review", "검토"]] as const).map(([id, label]) => <button type="button" role="tab" ref={node => { tabRefs.current[id] = node; }} tabIndex={view === id ? 0 : -1} onKeyDown={event => {
           const order: EvaluationResultView[] = ["answer", "evidence", "review"];
           const index = order.indexOf(id);
           const next = event.key === "ArrowRight" ? (index + 1) % order.length : event.key === "ArrowLeft" ? (index + order.length - 1) % order.length : event.key === "Home" ? 0 : event.key === "End" ? order.length - 1 : null;

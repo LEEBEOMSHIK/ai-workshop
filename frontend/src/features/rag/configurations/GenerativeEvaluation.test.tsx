@@ -166,7 +166,7 @@ it("finds questions without a case combo and compares the same repetition", asyn
   expect(screen.queryByRole("combobox", { name: "평가 사례" })).not.toBeInTheDocument();
   expect(screen.getByText("answer-0-config-a")).toBeVisible();
   expect(screen.queryByText("answer-1-config-a")).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "반복 2" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "반복" }), { target: { value: "1" } });
   expect(screen.getByText("answer-1-config-a")).toBeVisible();
   expect(screen.getByText("answer-1-config-b")).toBeVisible();
   fireEvent.change(screen.getByRole("textbox", { name: "질문 검색" }), { target: { value: "다른" } });
@@ -223,4 +223,32 @@ it("keeps diagnostics and review unmounted on the answer tab and explicitly expa
   fireEvent.click(screen.getByRole("tab", { name: "검토" }));
   expect(screen.getByText("이 답변 검토")).toBeVisible();
   expect(screen.queryByRole("button", { name: "답변 접기" })).not.toBeInTheDocument();
+});
+
+
+it.each(["failed", "interrupted"])("shows preserved pre-failure coverage for %s without claiming generation success", async status => {
+  const attempt = { ...run.attempts[0], status, answer: null, error_code: "citation_validation_failed",
+    observation: { ...run.attempts[0].observation!, retrieved_evidence_ids: ["required"], selected_evidence_ids: ["other"], error_code: "citation_validation_failed" },
+    metrics: { ...run.attempts[0].metrics!, retrieval_coverage: 1, context_coverage: 0, generation_completed: false, citation_valid: null } };
+  vi.mocked(api.loadGenerativeRun).mockResolvedValue({ ...run, attempts: [attempt] });
+  render(<GenerativeEvaluationPanel configurations={[]} workspaces={[]} initialRunId="run-1" />);
+  expect(await screen.findByText("인용: 실패")).toBeVisible();
+  expect(screen.getByText("생성: 완료 여부 미확인")).toBeVisible();
+  fireEvent.click(screen.getByRole("tab", { name: "근거·진단" }));
+  expect(screen.getByText("100.0%")).toBeVisible();
+  expect(screen.getByText(/^0\.0% · 필요 그룹/)).toBeVisible();
+  expect(screen.queryByText(/실패·중단으로 측정값 확인 불가/)).not.toBeInTheDocument();
+  expect(screen.getByText(/실패 이전에 확보한 지표만 표시/)).toBeVisible();
+});
+
+it("displays only the independently preserved retrieval measurement after a failure", async () => {
+  const attempt = { ...run.attempts[0], status: "failed", answer: null, error_code: "provider_timeout",
+    observation: { ...run.attempts[0].observation!, retrieved_evidence_ids: ["required"], selected_evidence_ids: [] },
+    metrics: { ...run.attempts[0].metrics!, retrieval_coverage: .5, context_coverage: null, generation_completed: false } };
+  vi.mocked(api.loadGenerativeRun).mockResolvedValue({ ...run, attempts: [attempt] });
+  render(<GenerativeEvaluationPanel configurations={[]} workspaces={[]} initialRunId="run-1" />);
+  expect(await screen.findByText("생성: 완료 여부 미확인")).toBeVisible();
+  fireEvent.click(screen.getByRole("tab", { name: "근거·진단" }));
+  expect(screen.getByText("50.0%")).toBeVisible();
+  expect(screen.getAllByText(/실패·중단으로 측정값 확인 불가/)).toHaveLength(1);
 });

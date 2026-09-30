@@ -21,8 +21,15 @@ function failedOrInterrupted(item: Attempt) {
   return item.status === "failed" || item.status === "interrupted";
 }
 
-function attemptCoverage(item: Attempt, value: number | null | undefined) {
-  return failedOrInterrupted(item) ? "실패·중단으로 측정값 확인 불가" : coverage(value);
+function attemptCoverage(item: Attempt, value: number | null | undefined, evidenceIds: readonly string[] | undefined) {
+  return failedOrInterrupted(item) && (!evidenceIds?.length || value == null) ? "실패·중단으로 측정값 확인 불가" : coverage(value);
+}
+
+function hasPreservedCoverage(item: Attempt) {
+  return Boolean(
+    (item.observation?.retrieved_evidence_ids.length && item.metrics?.retrieval_coverage != null) ||
+    (item.observation?.selected_evidence_ids.length && item.metrics?.context_coverage != null)
+  );
 }
 
 function citationLabel(item: Attempt) {
@@ -193,8 +200,8 @@ export function GenerativeEvaluationPanel({ configurations, workspaces, initialR
         <h3>{configurations.find(c => c.version_id === item.configuration_version_id)?.name ?? `구성 ${item.configuration_version_id}`} · v{configurations.find(c => c.version_id === item.configuration_version_id)?.version ?? "?"}</h3><p>반복 {item.repetition + 1} · 시도 {item.attempt_number} · {runLabel[item.status] ?? item.status}</p>
         <div className={styles.badges}><span>정답: {judgmentLabel[item.metrics?.correctness ?? "unreviewed"]}</span><span>인용: {citationLabel(item)}</span><span>생성: {item.metrics?.generation_completed ? "완료" : failedOrInterrupted(item) ? "완료 여부 미확인" : "미완료"}</span>{item.status === "completed" && item.observation?.generation_status === "insufficient_evidence" ? <span>결과: 근거 부족</span> : null}</div>
         {view === "answer" ? <><AnswerPreview key={item.id} answer={item.answer ?? answerPlaceholder(item)} /><p>소요 시간: {item.metrics?.duration_ms == null ? "시간 미기록" : `${(item.metrics.duration_ms / 1000).toFixed(1)}초`}</p></> : null}{item.error_code ? <p role="alert">{item.error_code}</p> : null}
-        {view === "evidence" ? <><dl><dt>검색 근거 충족률</dt><dd>{attemptCoverage(item, item.metrics?.retrieval_coverage)}</dd><dt>문맥 근거 충족률</dt><dd>{attemptCoverage(item, item.metrics?.context_coverage)} · 필요 그룹 {item.metrics?.required_group_count ?? "미기록"}</dd><dt>거절 정확성</dt><dd>{item.metrics?.abstention_correct == null ? "대상 없음" : item.metrics.abstention_correct ? "통과" : "실패"}</dd><dt>소요 시간</dt><dd>{item.metrics?.duration_ms == null ? "시간 미기록" : `${(item.metrics.duration_ms / 1000).toFixed(1)}초`}</dd></dl>
-        {failedOrInterrupted(item) ? <p>실패·중단된 시도의 검색·문맥 측정값은 보존되지 않았을 수 있습니다. 실행 단계 상세에서 처리 단계와 오류를 확인하세요.</p> : null}
+        {view === "evidence" ? <><dl><dt>검색 근거 충족률</dt><dd>{attemptCoverage(item, item.metrics?.retrieval_coverage, item.observation?.retrieved_evidence_ids)}</dd><dt>문맥 근거 충족률</dt><dd>{attemptCoverage(item, item.metrics?.context_coverage, item.observation?.selected_evidence_ids)} · 필요 그룹 {item.metrics?.required_group_count ?? "미기록"}</dd><dt>거절 정확성</dt><dd>{item.metrics?.abstention_correct == null ? "대상 없음" : item.metrics.abstention_correct ? "통과" : "실패"}</dd><dt>소요 시간</dt><dd>{item.metrics?.duration_ms == null ? "시간 미기록" : `${(item.metrics.duration_ms / 1000).toFixed(1)}초`}</dd></dl>
+        {failedOrInterrupted(item) ? <p>{hasPreservedCoverage(item) ? "실패 이전에 확보한 지표만 표시합니다. 기록이 없는 값은 확인 불가이며 생성·인용 실패와 정답 여부는 별도로 확인하세요." : "실패·중단된 시도의 검색·문맥 측정값은 보존되지 않았을 수 있습니다. 실행 단계 상세에서 처리 단계와 오류를 확인하세요."}</p> : null}
         {item.execution_id ? <Link href={executionPath(item.execution_id)}>실행 단계 상세</Link> : <p>연결된 실행 기록이 없습니다.</p>}
         <CitationSources sources={item.sources} /><EvaluationExecutionDiagnostics executionId={item.execution_id} /></> : null}
         {view === "review" ? <>

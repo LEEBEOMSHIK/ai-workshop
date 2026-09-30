@@ -1,7 +1,9 @@
+from typing import cast
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.orm import load_only
 
 from ai_workshop.labs.rag.evaluation.generative import PrivateGenerativeResult
 from ai_workshop.labs.rag.evaluation.generative_models import (
@@ -10,7 +12,7 @@ from ai_workshop.labs.rag.evaluation.generative_models import (
 )
 from ai_workshop.labs.rag.evaluation.generative_read import run_detail
 from ai_workshop.labs.rag.evaluation.generative_repository import unavailable
-from ai_workshop.labs.rag.executions.domain import STAGES, StageObservation
+from ai_workshop.labs.rag.executions.domain import STAGES, ExecutionState, StageObservation
 from ai_workshop.labs.rag.executions.models import ExecutionRecord
 from ai_workshop.labs.rag.executions.read_repository import SqlAlchemyMonitoringRepository
 from ai_workshop.labs.rag.executions.schemas import (
@@ -28,9 +30,19 @@ class GenerativeMonitoringReader:
 
     async def summaries(self, actor_id: UUID) -> list[ExecutionSummary]:
         async with self.sessions() as session:
-            ids = (
-                await session.scalars(
-                    select(ExecutionRecord.id)
+            rows = (
+                await session.execute(
+                    select(ExecutionRecord, GenerativeAttemptRecord.run_id)
+                    .options(
+                        load_only(
+                            ExecutionRecord.id,
+                            ExecutionRecord.evaluation_attempt_id,
+                            ExecutionRecord.created_at,
+                            ExecutionRecord.ended_at,
+                            ExecutionRecord.status,
+                            ExecutionRecord.complete,
+                        )
+                    )
                     .join(
                         GenerativeAttemptRecord,
                         GenerativeAttemptRecord.id == ExecutionRecord.evaluation_attempt_id,
@@ -45,14 +57,53 @@ class GenerativeMonitoringReader:
                     )
                 )
             ).all()
+        grouped: dict[UUID, list[ExecutionRecord]] = {}
+        for execution, run_id in rows:
+            grouped.setdefault(run_id, []).append(execution)
         result = []
-        for id in ids:
-            try:
-                detail = await self.detail(actor_id, id)
-                result.append(ExecutionSummary.model_validate(detail.model_dump()))
-            except AppError as exc:
-                if exc.code != "not_found":
-                    raise
+        for run_id, executions in grouped.items():
+            # Request-local grouping only: run_detail rechecks the current owner and
+            # source authority before and after reading the run. Never cache across requests.
+            async with self.sessions() as session:
+                try:
+                    view = await run_detail(session, actor_id, run_id)
+                except AppError as exc:
+                    if exc.code != "not_found":
+                        raise
+                    continue
+            attempts = {item.id: item for item in view.attempts}
+            for execution in executions:
+                if execution.evaluation_attempt_id is None:
+                    continue
+                item = attempts.get(execution.evaluation_attempt_id)
+                if item is None or item.execution_id != execution.id:
+                    continue
+                observation = item.observation
+                result.append(
+                    ExecutionSummary(
+                        id=execution.id,
+                        record_kind="execution",
+                        kind="evaluation",
+                        conversation_id=None,
+                        turn_id=None,
+                        domain_id=None,
+                        domain_slug=None,
+                        query=item.query,
+                        created_at=execution.created_at,
+                        status=cast(ExecutionState, execution.status),
+                        answer_status=observation.generation_status if observation else None,
+                        quality_status=item.metrics.correctness if item.metrics else "unreviewed",
+                        failed_stage=observation.failure_stage if observation else None,
+                        error_code=item.error_code,
+                        duration_ms=(execution.ended_at - execution.created_at).total_seconds()
+                        * 1000
+                        if execution.ended_at
+                        else None,
+                        document_count=len({source.document_id for source in item.sources}),
+                        observation_complete=execution.complete,
+                        configuration_version_id=item.configuration_version_id,
+                    )
+                )
         return result
 
     async def detail(self, actor_id: UUID, execution_id: UUID) -> ExecutionDetailResponse:

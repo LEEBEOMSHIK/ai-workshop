@@ -35,7 +35,7 @@ export function ExecutionDetailPage({ id, kind = "execution" }: { id: string; ki
     {!detail && !error ? <p role="status">실행 상세를 불러오고 있습니다…</p> : null}
     {detail ? <>
       <header><p className={styles.eyebrow}>질문별 실행 상세</p><h1>{detail.query}</h1><p>{new Date(detail.created_at).toLocaleString("ko-KR")} · {duration(detail.duration_ms)}</p>
-        <div className={styles.badges}><span>실행: {executionLabels[detail.status]}</span><span>답변: {answerLabels[detail.answer_status ?? ""] ?? "미기록"}</span><span>품질: {detail.quality_status === "unreviewed" ? "미검증" : detail.quality_status === "passed" ? "통과" : "실패"}</span></div>
+        <div className={styles.badges}><span data-state={detail.status}>실행: {executionLabels[detail.status]}</span><span>답변: {answerLabels[detail.answer_status ?? ""] ?? "미기록"}</span><span>품질: {detail.quality_status === "unreviewed" ? "미검증" : detail.quality_status === "passed" ? "통과" : "실패"}</span></div>
         {detail.error_code ? <p role="alert">실패 코드: <code>{detail.error_code}</code></p> : null}
         {detail.record_kind === "legacy" ? <p>이전 기록 · 상세 단계 미기록</p> : !detail.observation_complete ? <p>일부 관측 기록이 누락되었습니다.</p> : null}
         {detail.conversation_id && detail.domain_slug ? <Link href={`${ragDomainChatPath(detail.domain_slug)}?conversation=${detail.conversation_id}`}>기존 대화 열기</Link> : null}
@@ -52,8 +52,8 @@ export function ExecutionDetailPage({ id, kind = "execution" }: { id: string; ki
         {!detail.generation?.citations?.length ? <p>저장된 답변 인용이 없습니다.</p> : null}
         <details><summary>생성에 전달된 전체 근거 ({detail.evidence.length})</summary><div className={styles.badges}>{detail.evidence.map(item => <button key={item.source.evidence_unit_id} onClick={() => setEvidence(item)}>{item.source.title} · {item.source.location.page ?? "—"}쪽 원문</button>)}</div></details>
       </section>
-      <section><h2>처리 단계</h2><ExecutionStages stages={detail.stages} /></section>
-      <details className={styles.card} open><summary>검색 근거·유사도·선택 사유</summary>
+      <section><h2>처리 단계</h2><p className={styles.hint}>실패 표시와 단계별 소요 시간으로 중단 위치와 지연 구간을 확인합니다. 생략은 실행하지 않은 단계, 미기록은 관측 정보가 없는 단계입니다.</p><ExecutionStages stages={detail.stages} /></section>
+      <details className={styles.card}><summary>검색 근거·유사도·선택 사유</summary>
         <p className={styles.hint}>반환된 검색 후보의 원점수입니다. 문맥 코사인과 검색 점수는 답변 정확도가 아닙니다.</p>
         {selection ? <><p>전체 {selection.candidate_count}개 · 기록 {selection.candidates?.length ?? 0}개{selection.truncated ? " · 기록 상한으로 일부 생략" : ""}</p><div className={styles.cards}>
           <p>문맥 코사인 기준 {score(selection.min_semantic_score)} · 키워드 충족률 기준 {score(selection.min_keyword_coverage)}</p>

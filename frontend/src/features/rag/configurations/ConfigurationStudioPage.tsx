@@ -134,11 +134,13 @@ export function ConfigurationStudioPage({ initialData, initialTab, initialRunId,
         aria-labelledby="studio-tab-comparison"
         hidden={activeTab !== "comparison"}
       >
-        <div className={styles.kindPicker} role="group" aria-label="평가 종류">
-          <button type="button" aria-pressed={evaluationKind === "extractive"} onClick={() => setEvaluationKind("extractive")}>검색 품질 비교</button>
-          <button type="button" aria-pressed={evaluationKind === "generative"} onClick={() => { setEvaluationKind("generative"); setGenerativeOpened(true); }}>답변 품질 비교</button>
+        <div className={styles.comparisonToolbar}>
+          <div className={styles.kindPicker} role="group" aria-label="평가 종류">
+            <button type="button" aria-pressed={evaluationKind === "extractive"} onClick={() => setEvaluationKind("extractive")}>검색 품질 비교</button>
+            <button type="button" aria-pressed={evaluationKind === "generative"} onClick={() => { setEvaluationKind("generative"); setGenerativeOpened(true); }}>답변 품질 비교</button>
+          </div>
+          <p className={styles.hint}><Link href="/admin/rag/executions">실제 대화 실행 이력</Link></p>
         </div>
-        <p className={styles.hint}><Link href="/admin/rag/executions">실제 대화 실행 이력</Link></p>
         <div hidden={evaluationKind !== "extractive"}>
           <ComparisonPanel
             configurations={configurations}

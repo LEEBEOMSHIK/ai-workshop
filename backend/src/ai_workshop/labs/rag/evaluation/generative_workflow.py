@@ -203,13 +203,21 @@ class GenerativeWorkflow:
                     await frozen.close()
             except Exception as exc:
                 error = exc.code if isinstance(exc, AppError) else "evaluation_execution_failed"
-                failed_stage = observer.active or "request"
+                failed_stage = observer.active or observer.failed_stage or "request"
+                exposed = set(observer.retrieved_evidence_ids) | set(observer.selected_evidence_ids)
                 await observer.fail(error)
                 result = PrivateGenerativeResult(
                     observation=GenerativeObservation(
                         execution_id=attempt.execution_id,
                         error_code=error,
                         failure_stage=failed_stage,
+                        retrieved_evidence_ids=observer.retrieved_evidence_ids,
+                        selected_evidence_ids=observer.selected_evidence_ids,
+                        access_exposures=(
+                            tuple(sorted(exposed - case.permission_scenario.authorized_source_ids))
+                            if exposed
+                            else ()
+                        ),
                         duration_ms=(perf_counter() - started) * 1000,
                     )
                 )

@@ -199,7 +199,7 @@ def test_real_prompt_envelope_builds_exact_non_executing_command_plan(
     assert not request_directory.exists()
 
 
-@pytest.mark.parametrize("cli_version", ["0.153.4", "0.155.1", "0.157.1"])
+@pytest.mark.parametrize("cli_version", ["0.153.4", "0.155.1", "0.157.1", "0.158.0"])
 def test_argv_has_stable_exact_contract_and_no_shell_command(
     tmp_path: Path, cli_version: str,
 ) -> None:
@@ -251,7 +251,10 @@ def test_argv_has_stable_exact_contract_and_no_shell_command(
 
 @pytest.mark.parametrize(
     "cli_version",
-    ["0.155.0", "0.155.2", "0.155.1-beta", "0.156.0", "0.157.0", "0.157.2", "0.157.1-beta"],
+    [
+        "0.155.0", "0.155.2", "0.155.1-beta", "0.156.0", "0.157.0", "0.157.2",
+        "0.157.1-beta", "0.158.1", "0.158.0-beta", "0.159.0",
+    ],
 )
 def test_unreviewed_cli_contract_versions_are_rejected(
     tmp_path: Path, cli_version: str,

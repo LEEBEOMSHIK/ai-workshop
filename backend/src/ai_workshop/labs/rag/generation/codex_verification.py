@@ -472,8 +472,13 @@ def verification_binding(
         or deployment.provider is not ProviderKind.DEVELOPMENT_CODEX_EXEC
         or not deployment.development_only
         or deployment.runner_ref != runner.reference
-        or profile.prompt_ref not in {"rag-codex-answer-v3", "rag-codex-answer-v4"}
-        or (profile.prompt_ref == "rag-codex-answer-v4" and profile.evidence_budget is None)
+        or profile.prompt_ref not in {
+            "rag-codex-answer-v3", "rag-codex-answer-v4", "rag-codex-answer-v5",
+        }
+        or (
+            profile.prompt_ref in {"rag-codex-answer-v4", "rag-codex-answer-v5"}
+            and profile.evidence_budget is None
+        )
         or profile.runtime_model != deployment.provider_model_id
     ):
         raise ValueError("codex_verification_configuration_invalid")

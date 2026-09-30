@@ -82,14 +82,19 @@ def _trusted_selection(
 ) -> tuple[str, str, int, dict[str, Any]]:
     profile = request.profile
     if (
-        profile.prompt_ref not in (_ANSWER_REF, _WIRE_ANSWER_REF, "rag-codex-answer-v4")
+        profile.prompt_ref not in (
+            _ANSWER_REF, _WIRE_ANSWER_REF, "rag-codex-answer-v4", "rag-codex-answer-v5",
+        )
         or profile.context_prompt_ref != _CONTEXTUALIZE_REF
         or profile.response_schema_version != 2
-        or (profile.prompt_ref == "rag-codex-answer-v4" and profile.evidence_budget is None)
+        or (
+            profile.prompt_ref in {"rag-codex-answer-v4", "rag-codex-answer-v5"}
+            and profile.evidence_budget is None
+        )
     ):
         _raise_invalid_profile()
     if isinstance(request, GenerationRequest):
-        if profile.prompt_ref in (_WIRE_ANSWER_REF, "rag-codex-answer-v4"):
+        if profile.prompt_ref in (_WIRE_ANSWER_REF, "rag-codex-answer-v4", "rag-codex-answer-v5"):
             return profile.prompt_ref, "codex-grounded-wire-v1", 1, CODEX_GROUNDED_WIRE_SCHEMA_V1
         return _ANSWER_REF, "grounded-generation-v2", 2, GROUNDED_GENERATION_SCHEMA_V2
     return _CONTEXTUALIZE_REF, "contextualization-v1", 1, CONTEXTUALIZATION_SCHEMA_V1

@@ -71,6 +71,26 @@ it.each([null, { version: 1, max_groups: 8, max_units: 32, max_characters: 12000
   expect(wire.config.context_evidence).toEqual(budget ?? undefined);
 });
 
+it.each(["rag-codex-answer-v3", "rag-codex-answer-v5"])("registers the explicit prompt choice %s without changing the initial selection", async (answerRef) => {
+  const fetcher = vi.fn<typeof fetch>(async () => json({ id: "profile" })); vi.stubGlobal("fetch", fetcher);
+  const budget = { version: 1, max_groups: 8, max_units: 32, max_characters: 12000 };
+  const options: CodexRunner = { ...runner, prompt_options: [3, 4, 5].map(version => ({
+    ...runner.prompt_options[0], answer_ref: `rag-codex-answer-v${version}`,
+    context_ref: "rag-codex-contextualize-v1", context_evidence: version === 3 ? null : budget,
+  })) };
+  render(<CodexGenerationForm deployments={[deployment]} runners={[options]} onSaved={() => {}} />);
+  const choice = screen.getByLabelText("서버 지침 버전");
+  expect(choice).toHaveValue("0");
+  expect(fetcher).not.toHaveBeenCalled();
+  if (answerRef === "rag-codex-answer-v5") fireEvent.change(choice, { target: { value: "2" } });
+  fireEvent.change(screen.getByLabelText("생성 프로파일 이름"), { target: { value: "Synthetic profile" } });
+  fireEvent.click(screen.getByRole("button", { name: "Codex 생성 프로파일 등록" }));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+  const wire = JSON.parse(JSON.parse(fetcher.mock.calls[0][1]!.body as string).content);
+  expect(wire.config).toMatchObject({ prompt_ref: answerRef, context_prompt_ref: "rag-codex-contextualize-v1" });
+  expect(wire.config.context_evidence).toEqual(answerRef === "rag-codex-answer-v5" ? budget : undefined);
+});
+
 it("shows empty runner catalog without inventing an executable option", () => {
   render(<CodexDeploymentForm runners={[]} models={[]} onSaved={() => {}} />);
   expect(screen.getByText(/등록된 Codex runner가 없습니다/)).toBeVisible();

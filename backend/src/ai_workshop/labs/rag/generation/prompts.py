@@ -1,6 +1,7 @@
 from pathlib import Path
 
 _PROMPT_FILES = {
+    "rag-codex-answer-v5": "codex-answer-v5.txt",
     "rag-codex-answer-v4": "codex-answer-v4.txt",
     "rag-answer-v2": "answer-v2.txt",
     "rag-contextualize-v1": "contextualize-v1.txt",
@@ -12,6 +13,7 @@ _PROMPT_FILES = {
 }
 
 _PROMPT_VERSIONS = {
+    "rag-codex-answer-v5": 5,
     "rag-codex-answer-v4": 4,
     "rag-answer-v2": 2,
     "rag-contextualize-v1": 1,

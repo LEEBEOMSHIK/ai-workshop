@@ -25,6 +25,7 @@ from .codex_events import CodexEventLimits
 from .codex_runner_registry import CodexRunnerRegistry
 from .codex_stream import CodexStreamResult
 from .codex_wire import CODEX_GROUNDED_WIRE_SCHEMA_V1
+from .codex_wire_v2 import CODEX_GROUNDED_WIRE_SCHEMA_V2
 from .structured_output import CONTEXTUALIZATION_SCHEMA_V1
 from .structured_output_v2 import GROUNDED_GENERATION_SCHEMA_V2
 from .windows_process import ProcessRequest
@@ -32,7 +33,9 @@ from .windows_process import ProcessRequest
 
 class CodexWorkspaceStream(Protocol):
     def run(
-        self, request: ProcessRequest, event_limits: CodexEventLimits,
+        self,
+        request: ProcessRequest,
+        event_limits: CodexEventLimits,
         cancellation: threading.Event | None = None,
     ) -> CodexStreamResult: ...
 
@@ -48,14 +51,21 @@ class CodexWorkspaceResult:
 
 class CodexWorkspaceExecutor:
     def __init__(
-        self, *, registry: CodexRunnerRegistry, stream_runner: CodexWorkspaceStream,
+        self,
+        *,
+        registry: CodexRunnerRegistry,
+        stream_runner: CodexWorkspaceStream,
     ) -> None:
         self._registry = registry
         self._stream_runner = stream_runner
 
     def run(
-        self, *, intent: CodexCallIntent, payload: CodexExecutionPayload,
-        expected_configuration_sha256: str, timeout_seconds: float,
+        self,
+        *,
+        intent: CodexCallIntent,
+        payload: CodexExecutionPayload,
+        expected_configuration_sha256: str,
+        timeout_seconds: float,
         cancellation: threading.Event | None = None,
         max_output_tokens: int | None = None,
     ) -> CodexWorkspaceResult:
@@ -65,8 +75,10 @@ class CodexWorkspaceExecutor:
         stream: CodexStreamResult | None = None
         failure: str | None = None
         try:
-            if (type(expected_configuration_sha256) is not str
-                    or re.fullmatch(r"[0-9a-f]{64}", expected_configuration_sha256) is None):
+            if (
+                type(expected_configuration_sha256) is not str
+                or re.fullmatch(r"[0-9a-f]{64}", expected_configuration_sha256) is None
+            ):
                 raise ValueError("fingerprint invalid")
             if type(intent) is not CodexCallIntent or type(payload) is not CodexExecutionPayload:
                 raise ValueError("input invalid")
@@ -75,29 +87,45 @@ class CodexWorkspaceExecutor:
                 raise ValueError("fingerprint mismatch")
             event_limits = runner.event_limits
             if max_output_tokens is not None:
-                if (type(max_output_tokens) is not int
-                        or not 1 <= max_output_tokens <= event_limits.max_output_tokens):
+                if (
+                    type(max_output_tokens) is not int
+                    or not 1 <= max_output_tokens <= event_limits.max_output_tokens
+                ):
                     raise ValueError("output budget invalid")
                 event_limits = replace(event_limits, max_output_tokens=max_output_tokens)
             directory = runner.request_root / ("request-" + uuid4().hex)
             plan = build_codex_command(
-                runner=runner, intent=intent, payload=payload,
-                request_directory=directory, timeout_seconds=timeout_seconds,
+                runner=runner,
+                intent=intent,
+                payload=payload,
+                request_directory=directory,
+                timeout_seconds=timeout_seconds,
             )
             trusted_schemas = (
-                (GROUNDED_GENERATION_SCHEMA_V2, CODEX_GROUNDED_WIRE_SCHEMA_V1)
-                if intent.stage is CodexCallStage.GENERATE else (CONTEXTUALIZATION_SCHEMA_V1,)
+                (
+                    GROUNDED_GENERATION_SCHEMA_V2,
+                    CODEX_GROUNDED_WIRE_SCHEMA_V1,
+                    CODEX_GROUNDED_WIRE_SCHEMA_V2,
+                )
+                if intent.stage is CodexCallStage.GENERATE
+                else (CONTEXTUALIZATION_SCHEMA_V1,)
             )
             trusted_bytes = tuple(
-                json.dumps(schema, ensure_ascii=False, sort_keys=True,
-                           separators=(",", ":"), allow_nan=False).encode("utf-8")
+                json.dumps(
+                    schema,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    allow_nan=False,
+                ).encode("utf-8")
                 for schema in trusted_schemas
             )
             if plan.output_schema not in trusted_bytes:
                 raise ValueError("untrusted schema")
             if cancellation is not None and cancellation.is_set():
-                return CodexWorkspaceResult(failure="codex_workspace_cancelled",
-                                            process_termination_verified=True)
+                return CodexWorkspaceResult(
+                    failure="codex_workspace_cancelled", process_termination_verified=True
+                )
             owner = _OwnedDirectory(directory, plan.output_schema)
             owner.create()
             current = self._registry.resolve(intent.runner_ref)
@@ -110,12 +138,16 @@ class CodexWorkspaceExecutor:
                 invoked = True
                 process_termination_verified = False
                 stream = self._stream_runner.run(
-                    plan.process_request, event_limits, cancellation,
+                    plan.process_request,
+                    event_limits,
+                    cancellation,
                 )
-                if (type(stream) is not CodexStreamResult
-                        or stream.cleanup_verified is not True
-                        or type(stream.active_processes_after_cleanup) is not int
-                        or stream.active_processes_after_cleanup != 0):
+                if (
+                    type(stream) is not CodexStreamResult
+                    or stream.cleanup_verified is not True
+                    or type(stream.active_processes_after_cleanup) is not int
+                    or stream.active_processes_after_cleanup != 0
+                ):
                     return _retained(owner)
                 process_termination_verified = True
         except Exception:
@@ -135,16 +167,19 @@ class CodexWorkspaceExecutor:
             except Exception:
                 return _retained(owner, process_termination_verified=process_termination_verified)
         return CodexWorkspaceResult(
-            stream=stream, failure=failure,
+            stream=stream,
+            failure=failure,
             workspace_id=owner.directory.name if owner is not None and owner.created else None,
             process_termination_verified=process_termination_verified,
         )
 
 
-def _retained(owner: _OwnedDirectory | None, *,
-              process_termination_verified: bool = False) -> CodexWorkspaceResult:
+def _retained(
+    owner: _OwnedDirectory | None, *, process_termination_verified: bool = False
+) -> CodexWorkspaceResult:
     return CodexWorkspaceResult(
-        failure="codex_workspace_cleanup_failed", cleanup_verified=False,
+        failure="codex_workspace_cleanup_failed",
+        cleanup_verified=False,
         workspace_id=owner.directory.name if owner is not None else None,
         process_termination_verified=process_termination_verified,
     )
@@ -156,8 +191,12 @@ def _identity(metadata: os.stat_result) -> tuple[int, ...]:
     if not metadata.st_ino:
         raise ValueError("unknown identity")
     # Directory child operations legitimately change size/mtime/ctime.
-    return (metadata.st_dev, metadata.st_ino, stat.S_IFMT(metadata.st_mode),
-            getattr(metadata, "st_birthtime_ns", 0))
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        stat.S_IFMT(metadata.st_mode),
+        getattr(metadata, "st_birthtime_ns", 0),
+    )
 
 
 def _directory_identity(path: Path) -> tuple[int, ...]:
@@ -185,8 +224,10 @@ class _OwnedDirectory:
         for path, identity in self.ancestors:
             if _directory_identity(path) != identity:
                 raise ValueError("ancestor changed")
-        if (self.child_identity is not None
-                and _directory_identity(self.directory) != self.child_identity):
+        if (
+            self.child_identity is not None
+            and _directory_identity(self.directory) != self.child_identity
+        ):
             raise ValueError("child changed")
 
     def create(self) -> None:
@@ -214,8 +255,11 @@ class _OwnedDirectory:
                 if entry.name != "output-schema.json":
                     raise ValueError("unknown entry")
         before = self.schema_path.lstat()
-        if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1
-                or _identity(before) != self.schema_identity):
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_nlink != 1
+            or _identity(before) != self.schema_identity
+        ):
             raise ValueError("schema changed")
         with self.schema_path.open("rb") as source:
             if _identity(os.fstat(source.fileno())) != self.schema_identity:
@@ -223,9 +267,12 @@ class _OwnedDirectory:
             if source.read(len(self.schema) + 1) != self.schema:
                 raise ValueError("schema content changed")
         after = self.schema_path.lstat()
-        if (_identity(after) != self.schema_identity or after.st_nlink != 1
-                or before.st_mtime_ns != after.st_mtime_ns
-                or before.st_size != after.st_size):
+        if (
+            _identity(after) != self.schema_identity
+            or after.st_nlink != 1
+            or before.st_mtime_ns != after.st_mtime_ns
+            or before.st_size != after.st_size
+        ):
             raise ValueError("schema changed")
         self.check_chain()
 

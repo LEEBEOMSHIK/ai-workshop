@@ -14,7 +14,10 @@ from tests.unit.labs.rag.conversations.test_service import setup  # noqa: F401
 
 @pytest.mark.asyncio
 async def test_crud_contract_no_store_and_forbidden_history(setup):  # noqa: F811
-    service, _, _, executor, actor, request = setup
+    service, repo, _, executor, actor, request = setup
+    from tests.unit.labs.rag.conversations.start_support import attach_memory_starts
+
+    attach_memory_starts(repo)
     app = FastAPI()
     register_error_handlers(app)
     app.include_router(router)
@@ -26,25 +29,34 @@ async def test_crud_contract_no_store_and_forbidden_history(setup):  # noqa: F81
     base = "/api/v1/rag/domains/demo/conversations"
     async with AsyncClient(transport=ASGITransport(app), base_url="http://test") as client:
         created = await client.post(base, json={})
+        assert created.status_code == 410
+        created = await client.post(
+            f"{base}/start",
+            json=request.model_dump(mode="json", exclude={"expected_revision"}, exclude_none=True),
+        )
         assert created.status_code == 201
         assert created.headers["cache-control"] == "no-store"
         id = created.json()["id"]
+        status = await client.get(f"{base}/starts/{request.request_id}")
+        assert status.status_code == 200 and status.json()["id"] == id
+        assert status.headers["cache-control"] == "no-store"
         listing = await client.get(base)
         assert listing.json()[0]["id"] == id
         assert listing.headers["cache-control"] == "no-store"
         data = request.model_dump(mode="json", exclude_none=True)
         forged = await client.post(f"{base}/{id}/turns", json={**data, "history": []})
         assert forged.status_code == 422
-        assert executor.execute.await_count == 0
+        assert executor.execute.await_count == 1
         detail = await client.get(f"{base}/{id}")
-        assert detail.json()["turns"] == []
+        assert len(detail.json()["turns"]) == 1
+        revision = detail.json()["revision"]
         renamed = await client.patch(
-            f"{base}/{id}", json={"title": "Saved", "expected_revision": 1}
+            f"{base}/{id}", json={"title": "Saved", "expected_revision": revision}
         )
         assert renamed.json()["title"] == "Saved"
         stale = await client.delete(f"{base}/{id}", params={"expected_revision": 1})
         assert stale.status_code == 409
-        deleted = await client.delete(f"{base}/{id}", params={"expected_revision": 2})
+        deleted = await client.delete(f"{base}/{id}", params={"expected_revision": revision + 1})
         assert deleted.status_code == 204
         app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=uuid4())
         assert (await client.get(base)).json() == []

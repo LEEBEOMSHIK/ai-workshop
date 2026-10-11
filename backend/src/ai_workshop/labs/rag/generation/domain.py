@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Literal
 from uuid import UUID
@@ -10,7 +10,14 @@ from ai_workshop.labs.rag.deployments.domain import (
     ProviderKind,
 )
 from ai_workshop.labs.rag.documents.domain import TableCellLocation
+from ai_workshop.labs.rag.generation.numeric_proof_types import (
+    CalculationProposal,
+    NumericValidationBinding,
+    SourceValueCatalogue,
+    VerifiedCalculation,
+)
 from ai_workshop.labs.rag.models.context_evidence import EvidenceBudget
+from ai_workshop.labs.rag.models.numeric_proof_policy import NumericProofPolicy
 
 type ExternalGenerationDisclosureVersion = Literal[
     "external-generation-v1", "codex-external-generation-v1"
@@ -143,6 +150,7 @@ class GenerationProfile:
     response_schema_version: int
     deployment: ModelDeploymentVersion | None = None
     evidence_budget: EvidenceBudget | None = None
+    numeric_proof_policy: NumericProofPolicy | None = None
 
     def __post_init__(self) -> None:
         string_fields = (
@@ -187,6 +195,7 @@ class GenerationRequest:
     evidence: tuple["GroundingEvidence", ...]
     profile: GenerationProfile
     correlation_id: str
+    numeric_catalogue: SourceValueCatalogue | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,6 +222,7 @@ class GroundingEvidence:
 class GeneratedClaim:
     text: str
     evidence_ids: tuple[UUID, ...]
+    calculations: tuple[CalculationProposal, ...] = ()
 
     def __post_init__(self) -> None:
         clean_text = self.text.strip()
@@ -235,6 +245,8 @@ class StructuredGeneration:
 class GeneratedCitation:
     claim_index: int
     evidence_ids: tuple[UUID, ...]
+    claim_text: str | None = field(default=None, repr=False)
+    calculations: tuple[VerifiedCalculation, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,6 +258,7 @@ class GenerationOutcome:
     turn_id: UUID | None = None
     validation_token: str | None = None
     execution: GenerationExecutionSnapshot | None = None
+    numeric_validation: NumericValidationBinding | None = None
 
 
 def generation_execution_snapshot(

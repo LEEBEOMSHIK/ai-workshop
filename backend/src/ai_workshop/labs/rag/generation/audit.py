@@ -1,3 +1,4 @@
+from asyncio import CancelledError
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
@@ -10,6 +11,9 @@ from ai_workshop.labs.rag.generation.audit_models import (
     GenerationAuditWorkspacePolicySnapshotRecord,
     GenerationExecutionAuditRecord,
 )
+from ai_workshop.labs.rag.generation.numeric_proof_types import NumericValidationBinding
+from ai_workshop.labs.rag.generation.numeric_validation import ValidatedNumericGeneration
+from ai_workshop.shared.errors import AppError
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,7 +103,33 @@ class SqlAlchemyGenerationAuditRepository:
         return audit
 
     async def commit(self) -> None:
-        await self._session.commit()
+        try:
+            await self._session.commit()
+        except BaseException as error:
+            await self._session.rollback()
+            if isinstance(error, CancelledError):
+                raise
+            raise AppError(
+                "llm_unavailable", "생성 실행 기록을 안전하게 저장할 수 없습니다.", 503
+            ) from None
+
+    async def add_validated(
+        self, audit: GenerationExecutionAudit, validated: ValidatedNumericGeneration
+    ) -> NumericValidationBinding:
+        from ai_workshop.labs.rag.generation.numeric_validation_repository import (
+            binding_from_record,
+            prepare_receipt,
+        )
+
+        receipt = prepare_receipt(audit, validated)
+        try:
+            await self.add(audit)
+            self._session.add(receipt)
+            await self._session.flush()
+        except BaseException:
+            await self._session.rollback()
+            raise
+        return binding_from_record(receipt)
 
     async def get(self, audit_id: UUID) -> GenerationExecutionAudit | None:
         record = await self._session.get(GenerationExecutionAuditRecord, audit_id)
@@ -108,9 +138,7 @@ class SqlAlchemyGenerationAuditRepository:
         rows = (
             await self._session.scalars(
                 select(GenerationAuditWorkspacePolicySnapshotRecord)
-                .where(
-                    GenerationAuditWorkspacePolicySnapshotRecord.audit_id == audit_id
-                )
+                .where(GenerationAuditWorkspacePolicySnapshotRecord.audit_id == audit_id)
                 .order_by(GenerationAuditWorkspacePolicySnapshotRecord.workspace_id)
             )
         ).all()

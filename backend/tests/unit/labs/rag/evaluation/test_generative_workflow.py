@@ -93,7 +93,12 @@ async def test_duplicate_delivery_does_not_execute_claimed_pipeline_twice():
     from ai_workshop.config import Settings
     from ai_workshop.labs.rag.evaluation.generative_workflow import GenerativeWorkflow
 
-    workflow = GenerativeWorkflow(None, Settings())
+    workflow = GenerativeWorkflow(
+        None,
+        Settings(
+            _env_file=None, environment="test", secret_key="synthetic-unit-test-secret-key-only"
+        ),
+    )
     workflow.repository.claim_run = AsyncMock(side_effect=[uuid4(), None])
     workflow._execute_claimed = AsyncMock()
     run_id = uuid4()

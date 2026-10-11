@@ -11,6 +11,7 @@ from ai_workshop.labs.rag.conversations.schemas import (
     ConversationCreate,
     ConversationDetail,
     ConversationRename,
+    ConversationStart,
     ConversationSummary,
     ConversationTurnCreate,
 )
@@ -20,10 +21,19 @@ from ai_workshop.labs.rag.domains.api import (
     get_domain_search_executor,
     get_domain_service,
 )
+from ai_workshop.labs.rag.domains.repository import (
+    SqlAlchemyDomainConfigurationProvider,
+    SqlAlchemyDomainRepository,
+)
+from ai_workshop.labs.rag.domains.schemas import DomainSearchResponse
 from ai_workshop.labs.rag.domains.service import DomainService
 from ai_workshop.labs.rag.executions.repository import SqlAlchemyExecutionRecorder
 from ai_workshop.labs.rag.generation.codex_admin_api import require_codex_mutation
 from ai_workshop.labs.rag.generation.codex_http_lifecycle import run_until_disconnect
+from ai_workshop.labs.rag.generation.numeric_restore import verify_numeric_views
+from ai_workshop.labs.rag.generation.numeric_validation_repository import (
+    SqlAlchemyNumericValidationRepository,
+)
 from ai_workshop.platform.identity.api import get_current_user
 from ai_workshop.platform.identity.domain import User
 from ai_workshop.shared.db import create_engine, create_session_factory
@@ -47,6 +57,38 @@ async def get_conversation_service(
 ) -> AsyncIterator[ConversationService]:
     engine = create_engine(settings)
     sessions = create_session_factory(engine)
+
+    async def final_authority(slug: str, actor_id: UUID) -> None:
+        # Generation audit may commit the request session. This post-execution
+        # check needs fresh current authority, independent of that transaction.
+        async with sessions() as session:
+            await DomainService(
+                SqlAlchemyDomainRepository(session),
+                SqlAlchemyDomainConfigurationProvider(session, settings, actor_id=actor_id),
+            ).detail_for_actor(slug, actor_id)
+
+    async def numeric_verifier(
+        actor_id: UUID, execution_id: UUID | None, response: DomainSearchResponse
+    ) -> None:
+        generation = response.generation
+        if (
+            execution_id is None
+            and generation.numeric_validation is None
+            and all(claim.calculations is None for claim in generation.citations)
+        ):
+            return
+        async with sessions() as session:
+            await verify_numeric_views(
+                SqlAlchemyNumericValidationRepository(session),
+                actor_id=actor_id,
+                execution_id=execution_id,
+                status=generation.status,
+                answer=generation.text,
+                claims=generation.citations,
+                binding=generation.numeric_validation,
+                configuration_version_id=response.configuration_version.version_id,
+            )
+
     try:
         yield ConversationService(
             SqlAlchemyConversationRepository(sessions),
@@ -54,6 +96,9 @@ async def get_conversation_service(
             domains,
             executor,
             recorder=SqlAlchemyExecutionRecorder(sessions),
+            title_max_length=settings.rag_conversation_title_max_length,
+            final_authority=final_authority,
+            numeric_verifier=numeric_verifier,
         )
     finally:
         await engine.dispose()
@@ -75,11 +120,32 @@ async def create_conversation(
     return await service.create(slug, user.id, request.title)
 
 
+@router.post("/start", response_model=ConversationDetail, status_code=201)
+async def start_conversation(
+    slug: str,
+    request: ConversationStart,
+    transport: Request,
+    user: Actor,
+    service: Service,
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ConversationDetail:
+    if request.codex_input_approval is not None:
+        require_codex_mutation(transport, settings)
+    return await run_until_disconnect(transport, service.start(slug, user.id, request))
+
+
 @router.get("/{conversation_id}", response_model=ConversationDetail)
 async def get_conversation(
     slug: str, conversation_id: UUID, user: Actor, service: Service
 ) -> ConversationDetail:
     return await service.detail(slug, user.id, conversation_id)
+
+
+@router.get("/starts/{request_id}", response_model=ConversationDetail)
+async def start_status(
+    slug: str, request_id: UUID, user: Actor, service: Service
+) -> ConversationDetail:
+    return await service.start_status(slug, user.id, request_id)
 
 
 @router.patch("/{conversation_id}", response_model=ConversationDetail)

@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import pytest
 
-from ai_workshop.labs.rag.conversations.domain import reserve_turn
+from ai_workshop.labs.rag.conversations.domain import Conversation, reserve_turn
 from ai_workshop.labs.rag.conversations.schemas import ConversationTurnCreate
 from ai_workshop.labs.rag.conversations.service import ConversationService
 from ai_workshop.labs.rag.domains.schemas import DomainSearchResponse
@@ -100,6 +100,22 @@ def response():
     )
 
 
+async def seed_conversation(service, slug, actor, title=None):
+    """Seed a synthetic preexisting aggregate; production has no empty-create API."""
+    now = datetime.now(UTC)
+    item = Conversation(
+        uuid4(),
+        actor,
+        await service.repository.domain_id(slug),
+        title or "Legacy title",
+        1,
+        now,
+        now,
+    )
+    await service.repository.create(item)
+    return await service.detail(slug, actor, item.id)
+
+
 @pytest.fixture
 def setup():
     repo = MemoryRepository()
@@ -107,7 +123,7 @@ def setup():
         identity=AsyncMock(return_value="identity"), visible=AsyncMock(return_value=True)
     )
     domains = SimpleNamespace(detail_for_actor=AsyncMock(), resolve_search=AsyncMock())
-    executor = SimpleNamespace(execute=AsyncMock(return_value=response()))
+    executor = SimpleNamespace(execute=AsyncMock(return_value=response()), preflight=AsyncMock())
     service = ConversationService(repo, access, domains, executor)
     incoming = ConversationTurnCreate(
         request_id=uuid4(),
@@ -122,9 +138,9 @@ def setup():
 @pytest.mark.asyncio
 async def test_owned_crud_and_foreign_owner_denial(setup):
     service, repo, _, _, actor, _ = setup
-    created = await service.create("domain", actor, None)
-    assert created.title.startswith("새 대화")
-    assert len(await service.list_for_actor("domain", actor)) == 1
+    created = await seed_conversation(service, "domain", actor, None)
+    assert created.title == ""
+    assert await service.list_for_actor("domain", actor) == []
     stranger = uuid4()
     assert await service.list_for_actor("domain", stranger) == []
     for method, args in (
@@ -146,7 +162,7 @@ async def test_owned_crud_and_foreign_owner_denial(setup):
 @pytest.mark.asyncio
 async def test_replay_saved_history_and_redaction_dependency_closure(setup):
     service, repo, access, executor, actor, incoming = setup
-    created = await service.create("domain", actor, None)
+    created = await seed_conversation(service, "domain", actor, None)
     first = await service.submit("domain", actor, created.id, incoming)
     replay = await service.submit("domain", actor, created.id, incoming)
     assert replay == first and executor.execute.await_count == 1
@@ -173,7 +189,7 @@ async def test_replay_saved_history_and_redaction_dependency_closure(setup):
 @pytest.mark.asyncio
 async def test_cancel_and_late_completion_cannot_resurrect(setup):
     service, repo, _, executor, actor, incoming = setup
-    created = await service.create("domain", actor, None)
+    created = await seed_conversation(service, "domain", actor, None)
     started, release = asyncio.Event(), asyncio.Event()
 
     async def execute(**kwargs):
@@ -199,7 +215,7 @@ async def test_cancel_and_late_completion_cannot_resurrect(setup):
 @pytest.mark.asyncio
 async def test_delete_while_running_never_restores_bodies(setup):
     service, repo, _, executor, actor, incoming = setup
-    created = await service.create("domain", actor, None)
+    created = await seed_conversation(service, "domain", actor, None)
     started, release = asyncio.Event(), asyncio.Event()
 
     async def execute(**kwargs):
@@ -223,7 +239,7 @@ async def test_delete_while_running_never_restores_bodies(setup):
 @pytest.mark.asyncio
 async def test_failed_and_stale_turns_are_persisted_without_automatic_retry(setup):
     service, repo, _, executor, actor, incoming = setup
-    created = await service.create("domain", actor, None)
+    created = await seed_conversation(service, "domain", actor, None)
     executor.execute.side_effect = RuntimeError("Private provider details")
     failed = await service.submit("domain", actor, created.id, incoming)
     assert failed.turns[0].error_code == "conversation_execution_failed"
@@ -241,7 +257,7 @@ async def test_failed_and_stale_turns_are_persisted_without_automatic_retry(setu
 @pytest.mark.asyncio
 async def test_new_consent_does_not_authorize_old_queries_or_dependent_answers(setup):
     service, repo, access, executor, actor, incoming = setup
-    created = await service.create("domain", actor, None)
+    created = await seed_conversation(service, "domain", actor, None)
     first = await service.submit("domain", actor, created.id, incoming)
     approved = incoming.model_copy(
         update={
@@ -266,7 +282,7 @@ async def test_new_consent_does_not_authorize_old_queries_or_dependent_answers(s
 @pytest.mark.asyncio
 async def test_changed_scope_and_insufficient_answer_never_enter_history(setup):
     service, _, access, executor, actor, incoming = setup
-    created = await service.create("domain", actor, None)
+    created = await seed_conversation(service, "domain", actor, None)
     insufficient = response()
     insufficient.generation.status = "insufficient_evidence"
     insufficient.generation.text = None
@@ -292,7 +308,7 @@ async def test_changed_scope_and_insufficient_answer_never_enter_history(setup):
 @pytest.mark.asyncio
 async def test_cancel_before_execution_prevents_provider_call(setup):
     service, _, access, executor, actor, incoming = setup
-    created = await service.create("domain", actor, None)
+    created = await seed_conversation(service, "domain", actor, None)
     entered, release = asyncio.Event(), asyncio.Event()
     original = service._history
 
@@ -323,7 +339,7 @@ async def test_unexpected_execution_failure_logs_only_safe_diagnostics(setup, ca
 
     executor.execute.side_effect = explode
     incoming = incoming.model_copy(update={"query": "PRIVATE-QUESTION-NEVER-LOG"})
-    created = await service.create("domain", actor, None)
+    created = await seed_conversation(service, "domain", actor, None)
     with caplog.at_level(logging.ERROR):
         result = await service.submit("domain", actor, created.id, incoming)
     assert result.turns[0].error_code == "conversation_execution_failed"

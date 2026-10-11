@@ -28,6 +28,7 @@ from ai_workshop.labs.rag.domains.service import (
 from ai_workshop.labs.rag.generation.readiness import SqlAlchemyGenerationReadiness
 from ai_workshop.labs.rag.ingestion.domain import EnsureIndexedCommand
 from ai_workshop.labs.rag.search.configuration_port import ResolvedSearchConfiguration
+from ai_workshop.platform.identity.models import UserRecord
 from ai_workshop.platform.workspaces.domain import WorkspaceKind
 from ai_workshop.platform.workspaces.models import (
     WorkspaceMembershipRecord,
@@ -127,6 +128,9 @@ class SqlAlchemyDomainRepository:
                 )
                 .where(
                     WorkspaceRecord.id.in_(workspace_ids),
+                    select(UserRecord.id)
+                    .where(UserRecord.id == actor_id, UserRecord.is_active.is_(True))
+                    .exists(),
                     workspace_is_active(),
                     workspace_read_allowed(actor_id),
                     or_(

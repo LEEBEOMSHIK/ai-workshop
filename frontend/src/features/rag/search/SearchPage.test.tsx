@@ -36,7 +36,10 @@ describe("SearchPage", () => {
     await user.selectOptions(screen.getByLabelText("저장된 RAG 구성"), current.id);
     const input = screen.getByRole("searchbox");
     async function approveAndSend(question: string) {
-      await user.type(input, question);
+      // This regression exercises request cancellation, not per-key typing.
+      // Paste keeps the real input/consent events without dozens of DOM scans.
+      await user.click(input);
+      await user.paste(question);
       await user.selectOptions(screen.getByLabelText("이번 질문과 전송 이력의 분류"), "synthetic");
       await user.click(screen.getByRole("checkbox", { name: "이번 질문의 외부 처리를 확인했습니다" }));
       await user.click(screen.getByRole("button", { name: "질문 보내기" }));
@@ -59,7 +62,8 @@ describe("SearchPage", () => {
     });
     expect(screen.queryByTestId("submitted-search-result")).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    await user.type(input, "Fresh question");
+    await user.click(input);
+    await user.paste("Fresh question");
     expect(screen.getByRole("button", { name: "질문 보내기" })).toBeDisabled();
     await user.selectOptions(screen.getByLabelText("이번 질문과 전송 이력의 분류"), "synthetic");
     expect(screen.getByRole("button", { name: "질문 보내기" })).toBeDisabled();

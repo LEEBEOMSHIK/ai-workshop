@@ -72,6 +72,7 @@ from ai_workshop.platform.workspaces.models import WorkspaceMembershipRecord, Wo
 from ai_workshop.platform.workspaces.permissions import workspace_read_allowed
 
 from .evidence_approval_lifecycle import mutate_evidence_approval
+from .numeric_catalogue import build_source_value_catalogue
 
 
 def _deny(code: Code) -> NoReturn:
@@ -620,6 +621,18 @@ class SqlAlchemyCodexAuthorizationSource:
                 evidence=(),
                 profile=profile,
                 correlation_id="",
+                # Reconstruct only the trusted prompt/schema identity here. Actual
+                # evidence and its catalogue are independently checked by the executor.
+                numeric_catalogue=(
+                    build_source_value_catalogue(
+                        (),
+                        request_id=context.request_id,
+                        configuration_version_id=configuration.version_id,
+                        profile=profile,
+                    )
+                    if profile.response_schema_version == 3
+                    else None
+                ),
             )
         envelope = build_codex_prompt(request)
         disclosure = generation_disclosure(deployment)

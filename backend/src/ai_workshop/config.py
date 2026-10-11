@@ -22,6 +22,8 @@ from ai_workshop.labs.rag.generation.codex_runner_registry import (
 )
 from ai_workshop.platform.publishing.package import PublicPersona
 
+DEFAULT_ATTACHMENT_DRAFT_RECONCILE_SECONDS = 60
+
 
 class LearningLimits(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -94,6 +96,11 @@ class Settings(BaseSettings):
     pdf_timeout_seconds: int = Field(default=15, strict=True, gt=0)
     pdf_max_concurrent: int = Field(default=2, strict=True, gt=0)
     elasticsearch_url: str = "http://127.0.0.1:9200"
+    elasticsearch_ca_certs: Path | None = None
+    elasticsearch_api_key: SecretStr | None = Field(default=None, repr=False)
+    elasticsearch_access_epoch_id: UUID | None = None
+    elasticsearch_access_epoch: int | None = Field(default=None, strict=True, gt=0)
+    elasticsearch_role: Literal["reader", "writer", "collector"] | None = None
     elasticsearch_index_prefix: str = "ai-workshop-rag"
     rag_index_store_id: str | None = Field(default=None, max_length=80)
     rag_index_cluster_uuid: str | None = Field(default=None, max_length=128)
@@ -105,6 +112,11 @@ class Settings(BaseSettings):
     )
     evaluation_authoring_max_cases: int = Field(default=50, strict=True, ge=1, le=500)
     rag_selected_documents_max_count: int = Field(default=100, strict=True, ge=1, le=1000)
+    rag_conversation_title_max_length: int = Field(default=64, ge=2, le=180)
+    rag_attachment_draft_ttl_minutes: int = Field(default=1440, ge=1)
+    rag_attachment_draft_reconcile_interval_seconds: int = Field(
+        default=DEFAULT_ATTACHMENT_DRAFT_RECONCILE_SECONDS, ge=1
+    )
 
     @field_validator(
         "evaluation_authoring_max_documents",
@@ -147,6 +159,39 @@ class Settings(BaseSettings):
         if value is not None and fullmatch(r"[a-z][a-z0-9_]{0,79}", value) is None:
             raise ValueError("RAG artifact store ID must be an exact machine identifier.")
         return value
+
+    @field_validator("elasticsearch_access_epoch", mode="before")
+    @classmethod
+    def parse_elasticsearch_epoch(cls, value: object) -> object:
+        # Process/.env settings are text; proof JSON integer validation remains strict.
+        if type(value) is str and fullmatch(r"[1-9][0-9]*", value):
+            return int(value)
+        return value
+
+    @model_validator(mode="after")
+    def validate_elasticsearch_public_security(self) -> Self:
+        url = urlsplit(self.elasticsearch_url)
+        secure_values = (
+            self.elasticsearch_ca_certs,
+            self.elasticsearch_access_epoch_id,
+            self.elasticsearch_access_epoch,
+        )
+        credentials = (self.elasticsearch_api_key, self.elasticsearch_role)
+        secure = any(v is not None for v in (*secure_values, *credentials)) or url.scheme == "https"
+        if secure and (
+            url.scheme != "https"
+            or not url.hostname
+            or url.username is not None
+            or url.password is not None
+            or url.query
+            or url.fragment
+            or url.path not in {"", "/"}
+            or any(v is None for v in secure_values)
+            or (credentials[0] is None) != (credentials[1] is None)
+            or (credentials[0] is not None and not credentials[0].get_secret_value())
+        ):
+            raise ValueError("elasticsearch_secure_configuration_invalid")
+        return self
 
     @field_validator("rag_index_store_id")
     @classmethod

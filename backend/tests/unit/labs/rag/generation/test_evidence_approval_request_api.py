@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from ai_workshop.config import Settings
+from ai_workshop.config import Settings, get_settings
 from ai_workshop.labs.rag.generation.evidence_approval_request_schemas import (
     EvidenceApprovalRequestCreate,
     EvidenceApprovalRequestDecision,
@@ -12,10 +12,17 @@ from ai_workshop.labs.rag.generation.evidence_approval_request_schemas import (
 from ai_workshop.main import create_app
 from ai_workshop.platform.identity.api import get_current_user
 from ai_workshop.platform.identity.domain import User, UserRole
+from ai_workshop.shared.db import get_session
 
 
 def test_request_routes_require_authentication_before_accessing_documents() -> None:
-    client = TestClient(create_app())
+    app = create_app()
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        _env_file=None, environment="test", secret_key="synthetic-unit-test-secret-key-only"
+    )
+    # Keep real authentication; an absent cookie must not query this database port.
+    app.dependency_overrides[get_session] = lambda: None
+    client = TestClient(app)
     for path in (
         "/api/v1/rag/evidence-approval-requests",
         "/api/v1/admin/rag/evidence-approval-requests",

@@ -88,7 +88,7 @@ async def test_codex_registration_fails_before_repository_access(new_version: bo
 async def test_codex_generation_readiness_rejects_historical_ready_health(monkeypatch):
     deployment = codex_deployment()
     service = readiness(
-        SimpleNamespace(bindings=(), deployment_version_id=VERSION_ID),
+        SimpleNamespace(bindings=(), deployment_version_id=VERSION_ID, config={}),
         replace(health(), observed_provider_model_id=deployment.provider_model_id),
     )
 

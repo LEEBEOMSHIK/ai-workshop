@@ -5,13 +5,14 @@ from typing import Protocol
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.sql.elements import ColumnElement
 
 from ai_workshop.config import Settings
 from ai_workshop.labs.rag.conversations.attachment_lifecycle import reconcile_deleted_attachments
 from ai_workshop.labs.rag.conversations.attachment_models import ConversationAttachmentRecord
-from ai_workshop.labs.rag.conversations.models import ConversationRecord
+from ai_workshop.labs.rag.conversations.models import AttachmentDraftRecord, ConversationRecord
 from ai_workshop.labs.rag.documents.models import RagIndexBuildRecord, RagProjectionRecord
 from ai_workshop.labs.rag.domains.repository import (
     SqlAlchemyDomainConfigurationProvider,
@@ -24,7 +25,6 @@ from ai_workshop.platform.assets.intake_repository import UploadIntakeJournal
 from ai_workshop.platform.assets.library import get_library_service
 from ai_workshop.platform.assets.provenance_contracts import SourceIdentity
 from ai_workshop.platform.assets.schemas import DocumentResponse
-from ai_workshop.platform.assets.temporary_contracts import TemporaryBinding
 from ai_workshop.platform.assets.upload_contracts import UploadClaim
 from ai_workshop.platform.identity.domain import User
 from ai_workshop.platform.workspaces.models import WorkspaceRecord
@@ -71,7 +71,7 @@ def eligible_attachment_workspace(
 
 class AttachmentBinding(Protocol):
     owner_id: UUID
-    conversation_id: UUID
+    conversation_id: UUID | None
     workspace_id: UUID
     planned_document_id: UUID | None
     planned_version_id: UUID | None
@@ -85,11 +85,17 @@ def require_upload_binding(
     source: SourceIdentity,
     *,
     live: bool,
+    draft_id: UUID | None = None,
 ) -> None:
     if (
         not live
         or record.owner_id != actor_id
-        or record.conversation_id != conversation_id
+        or (
+            record.conversation_id != conversation_id
+            if draft_id is None
+            else getattr(record, "draft_id", None) != draft_id
+        )
+        or getattr(record, "excluded_at", None) is not None
         or record.workspace_id != source.workspace_id
         or record.planned_document_id != source.document_id
         or record.planned_version_id != source.asset_version_id
@@ -114,6 +120,7 @@ class ConversationAttachmentResponse(BaseModel):
     document: DocumentResponse | None
     status: str
     error_code: str | None = None
+    excluded_at: datetime | None = None
 
 
 class ConversationAttachmentService:
@@ -142,9 +149,27 @@ class ConversationAttachmentService:
         )
         if lock:
             query = query.with_for_update()
-        if await session.scalar(query) is None:
+        record = await session.scalar(query)
+        if record is None:
             raise AppError("not_found", "The conversation was not found.", 404)
+        if lock and record.legacy_state != "active":
+            raise AppError(
+                "legacy_draft_required", "Restore the previous unsent attachment draft.", 409
+            )
         return context
+
+    def parent_predicate(self, id: UUID) -> ColumnElement[bool]:
+        legacy = select(AttachmentDraftRecord.id).where(
+            AttachmentDraftRecord.legacy_conversation_id == id
+        )
+        bound = select(AttachmentDraftRecord.bound_conversation_id).where(
+            AttachmentDraftRecord.legacy_conversation_id == id
+        )
+        return or_(
+            ConversationAttachmentRecord.conversation_id == id,
+            ConversationAttachmentRecord.draft_id.in_(legacy),
+            ConversationAttachmentRecord.conversation_id.in_(bound),
+        )
 
     async def _spaces(
         self,
@@ -214,27 +239,53 @@ class ConversationAttachmentService:
     async def confirm_upload_termination(self, attachment_id: UUID) -> None:
         """Called only after the owning upload coroutine has returned or joined cleanup."""
         async with self.sessions.begin() as session:
-            conversation_id = await session.scalar(
-                select(
-                    ConversationAttachmentRecord.conversation_id,
-                ).where(ConversationAttachmentRecord.id == attachment_id)
-            )
-            if conversation_id is None:
+            identity = (
+                await session.execute(
+                    select(
+                        ConversationAttachmentRecord.conversation_id,
+                        ConversationAttachmentRecord.draft_id,
+                        ConversationAttachmentRecord.intake_id,
+                    ).where(ConversationAttachmentRecord.id == attachment_id)
+                )
+            ).one_or_none()
+            if identity is None:
                 return
-            conversation = await session.get(
-                ConversationRecord, conversation_id, with_for_update=True
+            conversation_id, draft_id, intake_id = identity
+            # Intake -> RAG parent -> attachment; a joined coroutine plus cleaned
+            # intake certifies transport termination, even for a failed upload.
+            intake = (
+                await session.get(UploadIntakeRecord, intake_id, with_for_update=True)
+                if intake_id
+                else None
+            )
+            conversation = (
+                await session.get(ConversationRecord, conversation_id, with_for_update=True)
+                if conversation_id
+                else None
+            )
+            draft = (
+                await session.get(AttachmentDraftRecord, draft_id, with_for_update=True)
+                if draft_id
+                else None
             )
             row = await session.get(
                 ConversationAttachmentRecord, attachment_id, with_for_update=True
             )
-            if row is None or row.intake_id is None:
+            if row is None:
                 return
-            intake = await session.get(UploadIntakeRecord, row.intake_id)
-            if intake is not None and intake.state == "cleaned" and intake.error_code is None:
+            if row.intake_id is None or (
+                intake is not None and intake.state == "cleaned" and intake.error_code is None
+            ):
                 row.upload_terminated_at = datetime.now(UTC)
                 await session.flush()
             if conversation is not None:
                 await reconcile_deleted_attachments(session, conversation)
+            if draft is not None and draft.state in {"abandoned", "expired"}:
+                from ai_workshop.labs.rag.conversations.attachment_lifecycle import (
+                    reconcile_draft_attachments,
+                )
+
+                await reconcile_draft_attachments(session, draft)
 
     async def list(
         self,
@@ -256,7 +307,7 @@ class ConversationAttachmentService:
             rows = await session.scalars(
                 select(ConversationAttachmentRecord)
                 .where(
-                    ConversationAttachmentRecord.conversation_id == conversation_id,
+                    self.parent_predicate(conversation_id),
                     ConversationAttachmentRecord.owner_id == user.id,
                 )
                 .order_by(ConversationAttachmentRecord.created_at)
@@ -267,6 +318,7 @@ class ConversationAttachmentService:
                     result.append(
                         ConversationAttachmentResponse(
                             id=row.id,
+                            excluded_at=row.excluded_at,
                             document=None,
                             status="failed",
                             error_code="attachment_access_changed",
@@ -280,6 +332,7 @@ class ConversationAttachmentService:
                     result.append(
                         ConversationAttachmentResponse(
                             id=row.id,
+                            excluded_at=row.excluded_at,
                             document=None,
                             status="failed" if interrupted else "uploading",
                             error_code="attachment_upload_interrupted" if interrupted else None,
@@ -294,6 +347,7 @@ class ConversationAttachmentService:
                     result.append(
                         ConversationAttachmentResponse(
                             id=row.id,
+                            excluded_at=row.excluded_at,
                             document=None,
                             status="failed",
                             error_code="attachment_access_changed",
@@ -334,11 +388,14 @@ class ConversationAttachmentService:
                 result.append(
                     ConversationAttachmentResponse(
                         id=row.id,
+                        excluded_at=row.excluded_at,
                         document=DocumentResponse.from_domain(document),
                         status=status,
                         error_code=(
-                            "attachment_processing_failed" if status == "failed"
-                            else "attachment_outside_generation_scope" if status == "stored"
+                            "attachment_processing_failed"
+                            if status == "failed"
+                            else "attachment_outside_generation_scope"
+                            if status == "stored"
                             else None
                         ),
                     )
@@ -355,8 +412,10 @@ class ConversationUploadJournal(UploadIntakeJournal):
         conversation_id: UUID,
         actor_id: UUID,
         attachment_id: UUID,
+        draft_id: UUID | None = None,
     ) -> None:
         super().__init__(service.sessions)
+        self.draft_id = draft_id
         self.service, self.slug = service, slug
         self.conversation_id, self.actor_id, self.attachment_id = (
             conversation_id,
@@ -364,28 +423,37 @@ class ConversationUploadJournal(UploadIntakeJournal):
             attachment_id,
         )
 
-    async def reserve(
-        self,
-        *,
-        user_id: UUID,
-        workspace_id: UUID | None,
-        document_id: UUID | None,
-        binding: TemporaryBinding,
-    ) -> UploadIntakeClaim:
-        claim = await super().reserve(
-            user_id=user_id, workspace_id=workspace_id, document_id=document_id, binding=binding
+    async def reserved(self, session: AsyncSession, claim: UploadIntakeClaim) -> None:
+        context = await self.service.authorize(
+            session, self.slug, self.conversation_id, self.actor_id, lock=True
         )
-        async with self.sessions.begin() as session:
-            await self.service.authorize(
-                session, self.slug, self.conversation_id, self.actor_id, lock=True
+        if claim.source.workspace_id not in {
+            space.id for space in await self.service._spaces(session, context, self.actor_id)
+        }:
+            raise AppError(
+                "attachment_workspace_forbidden", "The attachment storage permission changed.", 403
             )
-            row = await session.get(
-                ConversationAttachmentRecord, self.attachment_id, with_for_update=True
+        row = await session.get(
+            ConversationAttachmentRecord, self.attachment_id, with_for_update=True
+        )
+        if (
+            row is None
+            or row.state != "uploading"
+            or row.owner_id != self.actor_id
+            or row.workspace_id != claim.source.workspace_id
+            or row.excluded_at is not None
+        ):
+            raise AppError(
+                "conversation_attachment_changed", "The attachment reservation changed.", 409
             )
-            assert row is not None
-            row.intake_id, row.planned_document_id = claim.id, claim.source.document_id
-            row.planned_version_id = claim.source.asset_version_id
-        return claim
+        if (
+            row.conversation_id != self.conversation_id
+            if self.draft_id is None
+            else row.draft_id != self.draft_id
+        ):
+            raise AppError("conversation_attachment_changed", "The attachment parent changed.", 409)
+        row.intake_id, row.planned_document_id = claim.id, claim.source.document_id
+        row.planned_version_id = claim.source.asset_version_id
 
     async def prepare_attachment(
         self, session: AsyncSession, claim: UploadIntakeClaim, original: UploadClaim
@@ -402,7 +470,14 @@ class ConversationUploadJournal(UploadIntakeJournal):
             ConversationAttachmentRecord, self.attachment_id, with_for_update=True
         )
         assert row is not None
-        require_upload_binding(row, self.actor_id, self.conversation_id, original.source, live=True)
+        require_upload_binding(
+            row,
+            self.actor_id,
+            self.conversation_id,
+            original.source,
+            live=True,
+            draft_id=self.draft_id,
+        )
 
     async def attach(
         self, session: AsyncSession, claim: UploadIntakeClaim, original: UploadClaim
@@ -412,7 +487,14 @@ class ConversationUploadJournal(UploadIntakeJournal):
             ConversationAttachmentRecord, self.attachment_id, with_for_update=True
         )
         assert row is not None
-        require_upload_binding(row, self.actor_id, self.conversation_id, original.source, live=True)
+        require_upload_binding(
+            row,
+            self.actor_id,
+            self.conversation_id,
+            original.source,
+            live=True,
+            draft_id=self.draft_id,
+        )
         row.document_id, row.asset_version_id = (
             original.source.document_id,
             original.source.asset_version_id,

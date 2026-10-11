@@ -11,8 +11,19 @@ import { getExecutionDetail, type ExecutionDetail } from "./api";
 import { ExecutionStages, duration } from "./ExecutionStages";
 import { answerLabels, executionLabels } from "./ExecutionListPage";
 import styles from "./ExecutionMonitoring.module.css";
+import { ClaimCitationReview } from "../configurations/ClaimCitationReview";
+import { BudgetTrace } from "../conversation/BudgetTrace";
 
 const score = (value: number | null | undefined) => value == null ? "미기록" : value.toFixed(4);
+const numericErrors: Record<string, string> = {
+  calculation_operand_not_supported: "계산 피연산자가 해당 주장이나 요청의 원문과 일치하지 않습니다.",
+  calculation_result_span_invalid: "계산 결과의 답변 내 위치가 유효하지 않습니다.",
+  calculation_unit_not_supported: "허용되지 않은 단위 또는 계산입니다.",
+  calculation_result_mismatch: "원문으로 재계산한 값과 답변의 결과가 다릅니다.",
+  calculation_limit_exceeded: "계산 검증의 안전한 처리 한도를 초과했습니다.",
+  numeric_validation_binding_invalid: "저장된 계산 근거와 실행 기록이 일치하지 않습니다.",
+  generation_schema_not_supported: "선택한 생성 서비스가 계산 근거 응답 형식을 지원하지 않습니다.",
+};
 const reasons: Record<string, string> = { selected: "선택", budget_exceeded: "입력 예산 초과", below_threshold: "기준 점수 미달", conflict_context_budget_exceeded: "상충 근거 예산 초과" };
 
 export function ExecutionDetailPage({ id, kind = "execution" }: { id: string; kind?: "execution" | "legacy" }) {
@@ -36,7 +47,7 @@ export function ExecutionDetailPage({ id, kind = "execution" }: { id: string; ki
     {detail ? <>
       <header><p className={styles.eyebrow}>질문별 실행 상세</p><h1>{detail.query}</h1><p>{new Date(detail.created_at).toLocaleString("ko-KR")} · {duration(detail.duration_ms)}</p>
         <div className={styles.badges}><span data-state={detail.status}>실행: {executionLabels[detail.status]}</span><span>답변: {answerLabels[detail.answer_status ?? ""] ?? "미기록"}</span><span>품질: {detail.quality_status === "unreviewed" ? "미검증" : detail.quality_status === "passed" ? "통과" : "실패"}</span></div>
-        {detail.error_code ? <p role="alert">실패 코드: <code>{detail.error_code}</code></p> : null}
+        {detail.error_code ? <p role="alert">{numericErrors[detail.error_code] ?? "실패 코드:"} <code>{detail.error_code}</code></p> : null}
         {detail.record_kind === "legacy" ? <p>이전 기록 · 상세 단계 미기록</p> : !detail.observation_complete ? <p>일부 관측 기록이 누락되었습니다.</p> : null}
         {detail.conversation_id && detail.domain_slug ? <Link href={`${ragDomainChatPath(detail.domain_slug)}?conversation=${detail.conversation_id}`}>기존 대화 열기</Link> : null}
       </header>
@@ -50,7 +61,12 @@ export function ExecutionDetailPage({ id, kind = "execution" }: { id: string; ki
           return item ? <button key={`${citation.claim_index}-${evidenceId}`} onClick={() => setEvidence(item)}>[{citation.claim_index + 1}] {item.source.title} · {item.source.location.page ?? "—"}쪽 원문</button> : <span key={`${citation.claim_index}-${evidenceId}`}>인용 원문 연결을 확인할 수 없습니다.</span>;
         }))}</div>
         {!detail.generation?.citations?.length ? <p>저장된 답변 인용이 없습니다.</p> : null}
-        <details><summary>생성에 전달된 전체 근거 ({detail.evidence.length})</summary><div className={styles.badges}>{detail.evidence.map(item => <button key={item.source.evidence_unit_id} onClick={() => setEvidence(item)}>{item.source.title} · {item.source.location.page ?? "—"}쪽 원문</button>)}</div></details>
+        {detail.generation?.citations?.length ? <ClaimCitationReview claims={detail.generation.citations} sources={detail.evidence.map(item => ({ evidence_id: item.source.evidence_unit_id, document_id: item.source.document_id, asset_version_id: item.source.asset_version_id, projection_id: item.source.projection_id, title: item.source.title, page: item.source.location.page }))} /> : null}
+        <details><summary>기록된 생성 근거 원문 ({detail.evidence.length})</summary>
+          <p>생성 요청에 선택된 근거: {selection ? `${selection.selected_count}개` : "미기록"}.</p>
+          {!detail.evidence.length && selection && selection.selected_count > 0 ? <p>이 실행에서 표시할 수 있는 근거 원문 기록이 없습니다.</p> : null}
+          <div className={styles.badges}>{detail.evidence.map(item => <button key={item.source.evidence_unit_id} onClick={() => setEvidence(item)}>{item.source.title} · {item.source.location.page ?? "—"}쪽 원문</button>)}</div>
+        </details>
       </section>
       <section><h2>처리 단계</h2><p className={styles.hint}>실패 표시와 단계별 소요 시간으로 중단 위치와 지연 구간을 확인합니다. 생략은 실행하지 않은 단계, 미기록은 관측 정보가 없는 단계입니다.</p><ExecutionStages stages={detail.stages} /></section>
       <details className={styles.card}><summary>검색 근거·유사도·선택 사유</summary>
@@ -59,6 +75,7 @@ export function ExecutionDetailPage({ id, kind = "execution" }: { id: string; ki
           <p>문맥 코사인 기준 {score(selection.min_semantic_score)} · 키워드 충족률 기준 {score(selection.min_keyword_coverage)}</p>
           {selection.candidates?.map(item => <article className={styles.candidate} key={item.chunk_id ?? item.evidence_unit_id}>
             <strong>{reasons[item.reason] ?? item.reason}</strong> · {item.page ?? "—"}쪽
+            <BudgetTrace trace={item.budget_trace} reason={item.reason} />
             <dl><dt>문맥 코사인</dt><dd>{score(item.semantic_score)}</dd><dt>키워드 충족률</dt><dd>{score(item.keyword_coverage)}</dd><dt>BM25 점수 / 순위</dt><dd>{score(item.sparse_score)} / {item.sparse_rank ?? "—"}</dd><dt>Dense 점수 / 순위</dt><dd>{score(item.dense_score)} / {item.dense_rank ?? "—"}</dd><dt>RRF 점수 / 순위</dt><dd>{score(item.fused_score)} / {item.fused_rank ?? "—"}</dd></dl>
             <Link href={buildSourceHref(item.asset_version_id, item.projection_id, [], item.page)}>이 후보의 원문 열기</Link>
             <small className={styles.identifier}>문서 {item.document_id} · 버전 {item.asset_version_id}</small>
@@ -66,7 +83,7 @@ export function ExecutionDetailPage({ id, kind = "execution" }: { id: string; ki
         </div></> : <p>이 실행에는 검색 후보 기록이 없습니다.</p>}
       </details>
       <details className={styles.card}><summary>입력 예산·실행 구성</summary>
-        {selection ? <dl><dt>그룹 / 근거 단위 / 문자 제한</dt><dd>{selection.group_limit ?? "미기록"} / {selection.unit_limit ?? "미기록"} / {selection.character_limit ?? "미기록"}</dd><dt>전달 근거 단위</dt><dd>{selection.selected_count}</dd><dt>근거 JSON 크기</dt><dd>{selection.serialized_bytes ?? "미기록"} bytes (토큰 수 아님)</dd><dt>구성 버전</dt><dd>{selection.configuration_version_id}</dd><dt>색인 프로파일</dt><dd>{selection.indexing_profile_id}</dd><dt>검색 프로파일</dt><dd>{selection.retrieval_profile_id}</dd><dt>생성 프로파일</dt><dd>{selection.generation_profile_id}</dd><dt>답변 정책 버전</dt><dd>{selection.answer_policy_version_id}</dd></dl> : <p>상세 구성 기록이 없습니다.</p>}
+        {selection ? <dl><dt>그룹 / 근거 단위 / 문자 제한</dt><dd>{selection.group_limit ?? "미기록"} / {selection.unit_limit ?? "미기록"} / {selection.character_limit ?? "미기록"}</dd><dt>선택된 근거 단위</dt><dd>{selection.selected_count}</dd><dt>근거 JSON 크기</dt><dd>{selection.serialized_bytes ?? "미기록"} bytes (토큰 수 아님)</dd><dt>구성 버전</dt><dd>{selection.configuration_version_id}</dd><dt>색인 프로파일</dt><dd>{selection.indexing_profile_id}</dd><dt>검색 프로파일</dt><dd>{selection.retrieval_profile_id}</dd><dt>생성 프로파일</dt><dd>{selection.generation_profile_id}</dd><dt>답변 정책 버전</dt><dd>{selection.answer_policy_version_id}</dd></dl> : <p>상세 구성 기록이 없습니다.</p>}
         {detail.usage?.map((usage, index) => <p key={index}>{usage.requested_model} · 공급자 보고 입력 {usage.input_tokens ?? "미보고"} / 출력 {usage.output_tokens ?? "미보고"} 토큰 · {usage.status}</p>)}
       </details>
       <details className={styles.card}><summary>품질 평가</summary><p>정답표 또는 검토 결과가 연결되어야 정답 여부를 판단할 수 있습니다.</p>{detail.evaluation_run_id && detail.evaluation_case_id ? <Link href={`${routes.adminRagConfigurations}?tab=comparison&run=${detail.evaluation_run_id}&case=${detail.evaluation_case_id}`}>연결된 평가 사례</Link> : <p>연결된 생성형 평가가 없습니다.</p>}</details>

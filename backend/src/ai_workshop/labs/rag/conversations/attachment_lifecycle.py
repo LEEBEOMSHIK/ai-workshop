@@ -14,7 +14,11 @@ from sqlalchemy.dialects.postgresql import JSONPATH
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ai_workshop.labs.rag.conversations.attachment_models import ConversationAttachmentRecord
-from ai_workshop.labs.rag.conversations.models import ConversationRecord, ConversationTurnRecord
+from ai_workshop.labs.rag.conversations.models import (
+    AttachmentDraftRecord,
+    ConversationRecord,
+    ConversationTurnRecord,
+)
 from ai_workshop.platform.assets.provenance_contracts import ResourceIdentity, SourceIdentity
 from ai_workshop.platform.assets.provenance_repository import ProvenanceRepository
 from ai_workshop.platform.jobs.models import JobRecord, JobSourceRecord
@@ -58,6 +62,8 @@ def assess_attachment_cleanup(
 async def reconcile_deleted_attachments(
     session: AsyncSession,
     conversation: ConversationRecord,
+    *,
+    draft_id: UUID | None = None,
 ) -> None:
     """Caller holds conversation row lock. Lock order is conversation -> attachments."""
     if conversation.deleted_at is None:
@@ -66,7 +72,9 @@ async def reconcile_deleted_attachments(
         await session.scalars(
             select(ConversationAttachmentRecord)
             .where(
-                ConversationAttachmentRecord.conversation_id == conversation.id,
+                ConversationAttachmentRecord.conversation_id == conversation.id
+                if draft_id is None
+                else ConversationAttachmentRecord.draft_id == draft_id,
                 ConversationAttachmentRecord.owner_id == conversation.owner_id,
             )
             .order_by(ConversationAttachmentRecord.id)
@@ -75,13 +83,17 @@ async def reconcile_deleted_attachments(
     ).all()
     if not rows:
         return
-    unconfirmed_turn = await session.scalar(
-        select(ConversationTurnRecord.id)
-        .where(
-            ConversationTurnRecord.conversation_id == conversation.id,
-            ConversationTurnRecord.execution_terminated.is_(False),
+    unconfirmed_turn = (
+        None
+        if draft_id is not None
+        else await session.scalar(
+            select(ConversationTurnRecord.id)
+            .where(
+                ConversationTurnRecord.conversation_id == conversation.id,
+                ConversationTurnRecord.execution_terminated.is_(False),
+            )
+            .limit(1)
         )
-        .limit(1)
     )
     now = datetime.now(UTC)
     for row in rows:
@@ -164,6 +176,55 @@ async def reconcile_deleted_attachments(
         row.cleanup_state = decision.state
         row.cleanup_blockers = list(decision.blockers)
         row.cleanup_checked_at = now
+
+
+async def reconcile_draft_attachments(session: AsyncSession, draft: AttachmentDraftRecord) -> None:
+    if draft.state not in {"expired", "abandoned"}:
+        return
+    # The common inventory reads references only and never locks Platform sources.
+    parent = ConversationRecord(id=draft.id, owner_id=draft.owner_id, deleted_at=draft.updated_at)
+    await reconcile_deleted_attachments(session, parent, draft_id=draft.id)
+
+
+async def list_draft_cleanup(
+    sessions: async_sessionmaker[AsyncSession], owner_id: UUID, domain_id: UUID
+) -> list[dict[str, object]]:
+    async with sessions.begin() as session:
+        drafts = (
+            await session.scalars(
+                select(AttachmentDraftRecord)
+                .where(
+                    AttachmentDraftRecord.owner_id == owner_id,
+                    AttachmentDraftRecord.domain_id == domain_id,
+                    AttachmentDraftRecord.state.in_(("abandoned", "expired")),
+                )
+                .order_by(AttachmentDraftRecord.id)
+                .with_for_update()
+            )
+        ).all()
+        for draft in drafts:
+            await reconcile_draft_attachments(session, draft)
+        rows = (
+            await session.scalars(
+                select(ConversationAttachmentRecord)
+                .where(
+                    ConversationAttachmentRecord.draft_id.in_([draft.id for draft in drafts]),
+                    ConversationAttachmentRecord.owner_id == owner_id,
+                )
+                .order_by(ConversationAttachmentRecord.id)
+            )
+        ).all()
+        return [
+            {
+                "id": row.id,
+                "draft_id": row.draft_id,
+                "cleanup_state": row.cleanup_state,
+                "blockers": row.cleanup_blockers,
+                "requested_at": row.cleanup_requested_at,
+                "checked_at": row.cleanup_checked_at,
+            }
+            for row in rows
+        ]
 
 
 async def reconcile_owner_cleanup(

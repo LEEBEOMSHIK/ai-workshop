@@ -43,6 +43,13 @@ class Conversation:
     updated_at: datetime
     deleted_at: datetime | None = None
     turns: list[Turn] = field(default_factory=list)
+    title_origin: Literal["auto", "manual", "legacy"] = "legacy"
+    title_source_turn_id: UUID | None = None
+    title_derivation: Literal["extracted", "preserved", "fallback"] | None = None
+    title_policy_version: str | None = None
+    title_error_code: str | None = None
+    legacy_state: str = "active"
+    attachment_draft_id: UUID | None = None
 
     def touch(self, now: datetime) -> None:
         self.revision += 1

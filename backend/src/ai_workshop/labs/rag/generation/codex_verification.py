@@ -21,6 +21,7 @@ from .codex_request import CodexRequestContext
 from .codex_runner_registry import CodexRunnerRegistry, ResolvedCodexRunner
 from .codex_stream import CodexStreamResult
 from .codex_wire import parse_codex_grounded_wire_v1
+from .codex_wire_v2 import parse_codex_grounded_wire_v2
 from .codex_workspace import CodexWorkspaceResult
 from .domain import (
     CODEX_GENERATION_DISCLOSURE_VERSION,
@@ -32,6 +33,7 @@ from .domain import (
     GenerationStatus,
 )
 from .execution import GenerationProviderError, ProviderExecutionMetadata, ProviderHealthResult
+from .numeric_catalogue import build_source_value_catalogue
 from .structured_output import parse_contextualization_v1
 
 
@@ -419,10 +421,21 @@ def stage_audit_record(
                 raise ValueError("codex_stage_model_mismatch")
             code = "codex_stage_schema_invalid"
             if isinstance(request, GenerationRequest):
-                parse_codex_grounded_wire_v1(
-                    events.final_text,
-                    allowed_evidence_ids={item.evidence_id for item in request.evidence},
-                )
+                allowed = {item.evidence_id for item in request.evidence}
+                if profile.response_schema_version == 3:
+                    if (
+                        profile.numeric_proof_policy is None
+                        or request.numeric_catalogue is None
+                        or request.numeric_catalogue.request_id != context.request_id
+                    ):
+                        raise ValueError("codex_stage_schema_invalid")
+                    parse_codex_grounded_wire_v2(
+                        events.final_text,
+                        allowed_evidence_ids=allowed,
+                        policy=profile.numeric_proof_policy,
+                    )
+                else:
+                    parse_codex_grounded_wire_v1(events.final_text, allowed_evidence_ids=allowed)
             else:
                 strict_context_query(events.final_text)
             outcome, code = "completed", None
@@ -472,11 +485,16 @@ def verification_binding(
         or deployment.provider is not ProviderKind.DEVELOPMENT_CODEX_EXEC
         or not deployment.development_only
         or deployment.runner_ref != runner.reference
-        or profile.prompt_ref not in {
-            "rag-codex-answer-v3", "rag-codex-answer-v4", "rag-codex-answer-v5",
+        or profile.prompt_ref
+        not in {
+            "rag-codex-answer-v3",
+            "rag-codex-answer-v4",
+            "rag-codex-answer-v5",
+            "rag-codex-answer-v6",
         }
         or (
-            profile.prompt_ref in {"rag-codex-answer-v4", "rag-codex-answer-v5"}
+            profile.prompt_ref
+            in {"rag-codex-answer-v4", "rag-codex-answer-v5", "rag-codex-answer-v6"}
             and profile.evidence_budget is None
         )
         or profile.runtime_model != deployment.provider_model_id
@@ -496,7 +514,24 @@ def verification_binding(
             build_codex_prompt(ContextualizationRequest("", (), profile))
         ),
         CodexPromptSignature.from_envelope(
-            build_codex_prompt(GenerationRequest("", "", (), (), profile, ""))
+            build_codex_prompt(
+                GenerationRequest(
+                    "",
+                    "",
+                    (),
+                    (),
+                    profile,
+                    "",
+                    build_source_value_catalogue(
+                        (),
+                        request_id=UUID(int=0),
+                        configuration_version_id=configuration.configuration_version_id,
+                        profile=profile,
+                    )
+                    if profile.response_schema_version == 3
+                    else None,
+                )
+            )
         ),
     )
 
@@ -740,12 +775,30 @@ class CodexVerificationService:
                     (),
                     profile,
                     str(context.request_id),
+                    build_source_value_catalogue(
+                        (),
+                        request_id=context.request_id,
+                        configuration_version_id=configuration_version_id,
+                        profile=profile,
+                    )
+                    if profile.response_schema_version == 3
+                    else None,
                 ),
             )
             observed = _observed(second)
             generated = strict_stage_events(second, profile)
-            parsed = parse_codex_grounded_wire_v1(generated.final_text, allowed_evidence_ids=())
-            if parsed.status is not GenerationStatus.INSUFFICIENT_EVIDENCE:
+            if profile.response_schema_version == 3:
+                assert profile.numeric_proof_policy is not None
+                generated_status = parse_codex_grounded_wire_v2(
+                    generated.final_text,
+                    allowed_evidence_ids=(),
+                    policy=profile.numeric_proof_policy,
+                ).status
+            else:
+                generated_status = parse_codex_grounded_wire_v1(
+                    generated.final_text, allowed_evidence_ids=()
+                ).status
+            if generated_status is not GenerationStatus.INSUFFICIENT_EVIDENCE:
                 raise ValueError("codex_verification_schema_invalid")
             if contextual.observed_model != generated.observed_model:
                 raise ValueError("codex_verification_model_mismatch")

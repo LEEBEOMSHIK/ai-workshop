@@ -11,6 +11,7 @@ class Journal:
     def __init__(self):
         self.open = False
         self.closed = False
+        self.dispatched = False
 
     async def reserve(self, *args):
         if self.open:
@@ -20,6 +21,9 @@ class Journal:
 
     async def finish(self, operation_id):
         self.open, self.closed = False, True
+
+    async def dispatch(self, operation_id):
+        self.dispatched = True
 
 
 @pytest.mark.parametrize(
@@ -42,6 +46,7 @@ async def test_alias_reservation_and_confirmed_end(mode):
     async def mutate():
         nonlocal calls
         assert journal.open
+        assert journal.dispatched
         calls += 1
         if mode == "timeout":
             raise TimeoutError("synthetic-secret")
@@ -101,3 +106,33 @@ async def test_wrong_cluster_never_reserves_or_writes():
             forbidden,
         )
     assert not journal.open
+
+
+@pytest.mark.parametrize("code", ["rag_index_attempt_busy", "rag_index_writer_unconfirmed"])
+async def test_dispatch_failure_never_invokes_mutation(code):
+    journal = Journal()
+
+    async def dispatch(operation_id):
+        raise IndexTrackingError(code)
+
+    journal.dispatch = dispatch
+
+    async def cluster():
+        return "cluster"
+
+    async def forbidden():
+        pytest.fail("Dispatch must commit before any mutation or observation")
+
+    with pytest.raises(IndexTrackingError):
+        await run_alias_operation(
+            journal,
+            IndexBinding("rag", "cluster"),
+            "test-active",
+            uuid4(),
+            uuid4(),
+            (),
+            cluster,
+            forbidden,
+            forbidden,
+        )
+    assert journal.open and not journal.closed and not journal.dispatched

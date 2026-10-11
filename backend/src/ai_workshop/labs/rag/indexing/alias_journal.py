@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ai_workshop.labs.rag.indexing.alias_models import AliasOperationRecord
+from ai_workshop.labs.rag.indexing.alias_models import AliasClusterGateRecord, AliasOperationRecord
 from ai_workshop.labs.rag.indexing.tracking_contracts import IndexBinding, IndexTrackingError
 
 
@@ -37,6 +37,9 @@ class AliasJournal:
         operation_id = uuid4()
         try:
             async with self.sessions.begin() as session:
+                gate = await lock_cluster_gate(session, binding.cluster_uuid)
+                if gate.state != "admitted":
+                    raise IndexTrackingError("rag_index_attempt_busy")
                 created = await session.scalar(
                     insert(AliasOperationRecord)
                     .values(
@@ -48,6 +51,7 @@ class AliasJournal:
                         document_processing_profile_id=processing_profile_id,
                         targets=list(targets),
                         state="open",
+                        phase="reserved",
                     )
                     .on_conflict_do_nothing(
                         index_elements=["cluster_uuid", "alias"],
@@ -61,6 +65,38 @@ class AliasJournal:
             raise IndexTrackingError("rag_index_writer_unconfirmed") from None
         return operation_id
 
+    async def dispatch(self, operation_id: UUID) -> None:
+        """Commit the one-way transmission boundary before entering any callback.
+
+        Read immutable cluster identity first, then lock gate -> exact operation.
+        Uncertain commit always prevents dispatch; there is no dispatch replay.
+        """
+        try:
+            async with self.sessions.begin() as session:
+                original = await session.scalar(
+                    select(AliasOperationRecord).where(AliasOperationRecord.id == operation_id)
+                )
+                if original is None:
+                    raise IndexTrackingError("rag_index_writer_unconfirmed")
+                gate = await lock_cluster_gate(session, original.cluster_uuid)
+                if gate.state != "admitted":
+                    raise IndexTrackingError("rag_index_attempt_busy")
+                row = await session.scalar(
+                    select(AliasOperationRecord)
+                    .where(
+                        AliasOperationRecord.id == operation_id,
+                        AliasOperationRecord.state == "open",
+                        AliasOperationRecord.phase == "reserved",
+                    )
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+                if row is None or row.state != "open" or row.phase != "reserved":
+                    raise IndexTrackingError("rag_index_writer_unconfirmed")
+                row.phase = "dispatching"
+        except SQLAlchemyError:
+            raise IndexTrackingError("rag_index_writer_unconfirmed") from None
+
     async def finish(self, operation_id: UUID) -> None:
         try:
             async with self.sessions.begin() as session:
@@ -73,8 +109,28 @@ class AliasJournal:
                     raise IndexTrackingError("rag_index_writer_unconfirmed")
                 if row.state == "closed":
                     return
+                if row.phase not in {"dispatching", "legacy_unknown"}:
+                    raise IndexTrackingError("rag_index_writer_unconfirmed")
                 row.state = "closed"
                 row.result_code = "confirmed"
                 row.closed_at = datetime.now(UTC)
         except SQLAlchemyError:
             raise IndexTrackingError("rag_index_writer_unconfirmed") from None
+
+
+async def lock_cluster_gate(session: AsyncSession, cluster_uuid: str) -> AliasClusterGateRecord:
+    """Concurrent first admissions serialize on PostgreSQL's unique-key upsert."""
+    await session.execute(
+        insert(AliasClusterGateRecord)
+        .values(cluster_uuid=cluster_uuid)
+        .on_conflict_do_nothing(index_elements=["cluster_uuid"])
+    )
+    gate = await session.scalar(
+        select(AliasClusterGateRecord)
+        .where(AliasClusterGateRecord.cluster_uuid == cluster_uuid)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if gate is None:
+        raise IndexTrackingError("rag_index_writer_unconfirmed")
+    return gate

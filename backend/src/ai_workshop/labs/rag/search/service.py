@@ -28,6 +28,32 @@ if TYPE_CHECKING:
 
 
 class SearchApplicationService(RagExecutionPipeline):
+    async def validate_acceptance(
+        self, *, actor_id: UUID, request: SearchRequest, configuration: ResolvedSearchConfiguration
+    ) -> None:
+        """Deterministic scope/policy checks only; no retriever or model runtime."""
+        if not set(request.workspace_ids).issubset(configuration.workspace_ids):
+            raise AppError("not_found", "The requested resource was not found.", 404)
+        processing = (
+            configuration.document_processing_profile_id
+            or configuration.active_index_alias.document_processing_profile_id
+        )
+        await self.scope_resolver.resolve(
+            actor_id=actor_id,
+            workspace_ids=tuple(dict.fromkeys(request.workspace_ids)),
+            folder_ids=tuple(dict.fromkeys(request.folder_ids)),
+            document_ids=tuple(request.document_ids) if request.document_ids is not None else None,
+            indexing_profile_id=configuration.indexing_profile_id,
+            document_processing_profile_id=processing,
+        )
+        await self.validate_generation_acceptance(
+            actor_id=actor_id,
+            request=request,
+            configuration=configuration,
+            workspace_ids=tuple(dict.fromkeys(configuration.workspace_ids)),
+            requires_contextualization=False,
+        )
+
     async def search(self, *, actor_id: UUID, request: SearchRequest) -> SearchResult:
         configuration = await self.configuration_resolver.resolve(
             request.configuration_id,

@@ -1,4 +1,7 @@
-from fastapi import FastAPI
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from ai_workshop.labs.rag.configurations.api import router as rag_configuration_router
@@ -7,6 +10,7 @@ from ai_workshop.labs.rag.conversations.attachment_api import (
     cleanup_router as rag_attachment_cleanup_router,
 )
 from ai_workshop.labs.rag.conversations.attachment_api import router as rag_attachment_router
+from ai_workshop.labs.rag.conversations.draft_api import router as rag_draft_router
 from ai_workshop.labs.rag.deployments.api import router as rag_deployment_router
 from ai_workshop.labs.rag.domains.api import admin_router as rag_domain_admin_router
 from ai_workshop.labs.rag.domains.api import router as rag_domain_router
@@ -17,6 +21,9 @@ from ai_workshop.labs.rag.executions.api import router as rag_execution_router
 from ai_workshop.labs.rag.generation.codex_admin_api import router as rag_codex_admin_router
 from ai_workshop.labs.rag.generation.evidence_approval_request_api import (
     router as rag_evidence_request_router,
+)
+from ai_workshop.labs.rag.generation.numeric_validation_models import (
+    NumericValidationRecord as NumericValidationRecord,
 )
 from ai_workshop.labs.rag.models.admin_api import router as rag_model_admin_router
 from ai_workshop.labs.rag.models.api import router as rag_model_router
@@ -40,13 +47,20 @@ from ai_workshop.shared.errors import COMMON_ERROR_RESPONSES, register_error_han
 from ai_workshop.shared.request_context import CorrelationIdMiddleware
 
 
-def create_app() -> FastAPI:
+def create_app(*, startup_admission: Callable[[], Awaitable[None]] | None = None) -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        if startup_admission is not None:
+            await startup_admission()
+        yield
+
     application = FastAPI(
         title="AI Workshop API",
         version="0.1.0",
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
         responses=COMMON_ERROR_RESPONSES,
+        lifespan=lifespan,
     )
     application.add_middleware(
         CORSMiddleware,
@@ -80,6 +94,7 @@ def create_app() -> FastAPI:
     application.include_router(rag_conversation_router)
     application.include_router(rag_execution_router)
     application.include_router(rag_attachment_router)
+    application.include_router(rag_draft_router)
     application.include_router(rag_attachment_cleanup_router)
     application.include_router(rag_domain_admin_router)
     application.include_router(rag_evaluation_router)
@@ -96,7 +111,25 @@ def create_app() -> FastAPI:
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    @application.get("/api/v1/ready", tags=["system"])
+    async def ready() -> dict[str, str]:
+        if startup_admission is not None:
+            from ai_workshop.infrastructure.search.access_credentials import AccessCredentialError
+
+            try:
+                await startup_admission()
+            except AccessCredentialError as exc:
+                raise HTTPException(503, detail={"error_code": exc.code}) from None
+        return {"status": "ready"}
+
     return application
 
 
-app = create_app()
+async def _original_startup_admission() -> None:
+    from ai_workshop.config import get_settings
+    from ai_workshop.labs.rag.indexing.access_epoch_runtime import verify_original_runtime
+
+    await verify_original_runtime(get_settings())
+
+
+app = create_app(startup_admission=_original_startup_admission)

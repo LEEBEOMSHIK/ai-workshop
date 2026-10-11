@@ -35,6 +35,7 @@ from .codex_verification import CodexStageAuditPort, stage_audit_record
 from .codex_workspace import CodexWorkspaceExecutor, CodexWorkspaceResult
 from .domain import ContextualizationRequest, GenerationProfile, GenerationRequest
 from .execution import GenerationProviderError
+from .numeric_catalogue import build_source_value_catalogue
 
 
 class CodexRequestAuthorizationSource(CodexAuthorizationSource, Protocol):
@@ -59,16 +60,25 @@ def _codex_deployment(profile: GenerationProfile) -> ModelDeploymentVersion:
         or deployment.runner_ref is None
         or profile.runtime_model != deployment.provider_model_id
         or profile.model_id != deployment.model_definition_id
-        or profile.prompt_ref not in {
-            "rag-codex-answer-v3", "rag-codex-answer-v4", "rag-codex-answer-v5",
+        or profile.prompt_ref
+        not in {
+            "rag-codex-answer-v3",
+            "rag-codex-answer-v4",
+            "rag-codex-answer-v5",
+            "rag-codex-answer-v6",
         }
         or (
-            profile.prompt_ref in {"rag-codex-answer-v4", "rag-codex-answer-v5"}
+            profile.prompt_ref
+            in {"rag-codex-answer-v4", "rag-codex-answer-v5", "rag-codex-answer-v6"}
             and profile.evidence_budget is None
         )
         or profile.context_prompt_ref != "rag-codex-contextualize-v1"
         or type(profile.response_schema_version) is not int
-        or profile.response_schema_version != 2
+        or (
+            profile.response_schema_version
+            != (3 if profile.prompt_ref == "rag-codex-answer-v6" else 2)
+        )
+        or (profile.response_schema_version == 3 and profile.numeric_proof_policy is None)
         or type(profile.max_output_tokens) is not int
         or profile.max_output_tokens <= 0
         or type(profile.timeout_seconds) not in (float, int)
@@ -174,6 +184,15 @@ class CodexRequestExecutor:
             raise GenerationProviderError("codex_request_invalid", retryable=False)
         context = replace(context)
         deployment = _codex_deployment(request.profile)
+        if isinstance(request, GenerationRequest) and request.profile.response_schema_version == 3:
+            expected = build_source_value_catalogue(
+                request.evidence,
+                request_id=context.request_id,
+                configuration_version_id=context.configuration_version_id,
+                profile=request.profile,
+            )
+            if request.numeric_catalogue != expected:
+                raise GenerationProviderError("codex_binding_mismatch", retryable=False)
         assert deployment.runner_ref is not None
         runner = self._registry.resolve(deployment.runner_ref)
         timeout = min(

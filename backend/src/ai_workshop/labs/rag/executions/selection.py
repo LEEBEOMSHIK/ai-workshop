@@ -1,4 +1,5 @@
 import json
+from typing import TYPE_CHECKING
 
 from ai_workshop.labs.rag.executions.domain import (
     MAX_RECORDED_CANDIDATES,
@@ -10,14 +11,16 @@ from ai_workshop.labs.rag.generation.evidence_payload import serialize_evidence
 from ai_workshop.labs.rag.highlighting.context import ContextSelection
 from ai_workshop.labs.rag.highlighting.domain import EvidenceSource
 from ai_workshop.labs.rag.retrieval.domain import FusedHit
-from ai_workshop.labs.rag.search.configuration_port import ResolvedSearchConfiguration
+
+if TYPE_CHECKING:
+    from ai_workshop.labs.rag.search.configuration_port import ResolvedSearchConfiguration
 
 
 def selection_observation(
     sources: tuple[EvidenceSource, ...],
     hits: tuple[FusedHit, ...],
     context: ContextSelection | None,
-    configuration: ResolvedSearchConfiguration,
+    configuration: "ResolvedSearchConfiguration",
     selected_count: int,
     evidence: tuple[GroundingEvidence, ...],
     top_k: int,
@@ -48,6 +51,7 @@ def selection_observation(
                 keyword_coverage=item.keyword_coverage,
                 selected=item.selected,
                 reason=item.reason,
+                budget_trace=item.budget_trace,
             )
         )
     profile = configuration.generation_profile

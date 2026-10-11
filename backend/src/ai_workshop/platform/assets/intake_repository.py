@@ -149,7 +149,11 @@ class UploadIntakeJournal:
                 )
             )
             await session.flush()
+            await self.reserved(session, claim)
         return claim
+
+    async def reserved(self, session: AsyncSession, claim: UploadIntakeClaim) -> None:
+        """Participant extension: bind reservation in its source/intake transaction."""
 
     async def _intake(self, session: AsyncSession, claim: UploadIntakeClaim) -> UploadIntakeRecord:
         row = await session.scalar(

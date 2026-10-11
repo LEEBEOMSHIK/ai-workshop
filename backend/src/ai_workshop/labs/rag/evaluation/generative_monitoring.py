@@ -157,9 +157,13 @@ class GenerativeMonitoringReader:
                 generation=MonitoringGeneration(
                     status=result.observation.generation_status or "not_requested",
                     text=result.answer,
+                    numeric_validation=result.numeric_validation,
                     citations=[
                         GeneratedCitationResponse(
-                            claim_index=c.claim_index, evidence_ids=list(c.evidence_ids)
+                            claim_index=c.claim_index,
+                            evidence_ids=list(c.evidence_ids),
+                            claim_text=c.claim_text,
+                            calculations=c.calculations,
                         )
                         for c in result.citations
                     ],

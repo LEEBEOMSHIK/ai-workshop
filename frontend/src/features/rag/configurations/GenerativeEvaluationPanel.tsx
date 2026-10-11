@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { GenerativeEvaluationResults } from "./GenerativeEvaluationResults";
+import { ClaimCitationReview } from "./ClaimCitationReview";
 import { EvaluationExecutionDiagnostics } from "./EvaluationExecutionDiagnostics";
 import { useEffect, useRef, useState } from "react";
 import { ApiError } from "../../../shared/api/client";
@@ -205,6 +206,7 @@ export function GenerativeEvaluationPanel({ configurations, workspaces, initialR
         {item.execution_id ? <Link href={executionPath(item.execution_id)}>실행 단계 상세</Link> : <p>연결된 실행 기록이 없습니다.</p>}
         <CitationSources sources={item.sources} /><EvaluationExecutionDiagnostics executionId={item.execution_id} /></> : null}
         {view === "review" ? <>
+        <ClaimCitationReview key={item.id} claims={item.claim_citations} sources={item.sources} />
         {item.judgment ? <p>판정 출처: {item.judgment.provenance === "rule" ? `정답 규칙 v${item.judgment.rule_version} (문자열 조건 범위)` : `검토자 ${item.judgment.reviewer_id} · ${item.judgment.reviewed_at}`} · {item.judgment.reason}</p> : null}
 
         {item.status === "completed" && item.result_digest ? <details><summary>이 답변 검토</summary><label>검토 근거<textarea value={reviewReasons[item.id] ?? ""} onChange={event => setReviewReasons(values => ({ ...values, [item.id]: event.target.value }))} /></label>

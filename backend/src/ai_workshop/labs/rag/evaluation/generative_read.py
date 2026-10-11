@@ -27,9 +27,31 @@ from ai_workshop.labs.rag.evaluation.generative_schemas import (
 )
 from ai_workshop.labs.rag.evaluation.models import EvaluationDatasetCaseRecord
 from ai_workshop.labs.rag.executions.models import ExecutionRecord
+from ai_workshop.labs.rag.generation.numeric_restore import verify_numeric_views
+from ai_workshop.labs.rag.generation.numeric_validation_repository import (
+    SqlAlchemyNumericValidationRepository,
+)
 from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecord
 from ai_workshop.platform.workspaces.models import WorkspaceRecord
 from ai_workshop.platform.workspaces.permissions import workspace_read_allowed
+
+
+def frozen_generation_profile_id(
+    snapshot: dict[str, object], configuration_version_id: UUID
+) -> UUID:
+    candidates = cast(list[dict[str, object]], snapshot.get("candidates", []))
+    for candidate in candidates:
+        if candidate.get("configuration_version_id") == str(configuration_version_id):
+            component = cast(dict[str, object], candidate["component_snapshot"])
+            profiles = cast(list[dict[str, object]], component["profiles"])
+            values = [
+                UUID(str(profile["id"]))
+                for profile in profiles
+                if profile.get("kind") == "generation"
+            ]
+            if len(values) == 1:
+                return values[0]
+    raise unavailable()
 
 
 async def visible_run(session: AsyncSession, actor_id: UUID, run: GenerativeRunRecord) -> bool:
@@ -130,6 +152,23 @@ async def run_detail(session: AsyncSession, actor_id: UUID, run_id: UUID) -> Gen
     views = []
     for attempt in attempts:
         result = PrivateGenerativeResult.model_validate(attempt.result) if attempt.result else None
+        if result is not None and attempt.status == "completed":
+            try:
+                await verify_numeric_views(
+                    SqlAlchemyNumericValidationRepository(session),
+                    actor_id=actor_id,
+                    execution_id=attempt.execution_id,
+                    status=result.observation.generation_status or "not_requested",
+                    answer=result.answer,
+                    claims=result.citations,
+                    binding=result.numeric_validation,
+                    configuration_version_id=attempt.configuration_version_id,
+                    generation_profile_id=frozen_generation_profile_id(
+                        run.snapshot, attempt.configuration_version_id
+                    ),
+                )
+            except Exception:
+                raise unavailable() from None
         rule = ExpectedAnswerRule.model_validate(run.expected_rules[str(attempt.case_id)])
         judgment = judge_propositions(result, rule) if result else None
         review = judgments.get(attempt.id)
@@ -161,6 +200,8 @@ async def run_detail(session: AsyncSession, actor_id: UUID, run_id: UUID) -> Gen
                 execution_id=attempt.execution_id if attempt.execution_id in executions else None,
                 result_digest=attempt.result_digest,
                 answer=result.answer if result else None,
+                claim_citations=list(result.citations) if result else [],
+                numeric_validation=result.numeric_validation if result else None,
                 observation=result.observation if result else None,
                 metrics=evaluate_generative(result.observation, rule, judgment) if result else None,
                 judgment=judgment,

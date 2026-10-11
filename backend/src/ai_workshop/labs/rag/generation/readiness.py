@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +13,7 @@ from ai_workshop.labs.rag.deployments.repository import (
 )
 from ai_workshop.labs.rag.generation.codex_composition import codex_services
 from ai_workshop.labs.rag.generation.codex_verification import CodexVerificationService
+from ai_workshop.labs.rag.generation.numeric_validation_repository import numeric_storage_ready
 
 
 class SqlAlchemyGenerationReadiness:
@@ -24,6 +26,7 @@ class SqlAlchemyGenerationReadiness:
         verification: CodexVerificationService | None = None,
     ) -> None:
         self.settings = settings
+        self.session = session
         self.actor_id, self.verification = actor_id, verification
         self.profiles = SqlAlchemyRagConfigurationRepository(session)
         self.deployments = SqlAlchemyDeploymentRepository(session)
@@ -37,7 +40,20 @@ class SqlAlchemyGenerationReadiness:
         deployment = await self.deployments.get_version(profile.deployment_version_id)
         if deployment is None:
             return False
+        generation = profile.config.get("generation")
+        if (
+            isinstance(generation, Mapping)
+            and generation.get("response_schema_version") == 3
+            and deployment.provider is not ProviderKind.DEVELOPMENT_CODEX_EXEC
+        ):
+            return False
         if deployment.provider is ProviderKind.DEVELOPMENT_CODEX_EXEC:
+            if (
+                isinstance(generation, Mapping)
+                and generation.get("response_schema_version") == 3
+                and not await numeric_storage_ready(self.session)
+            ):
+                return False
             actor_id = getattr(self, "actor_id", None)
             if actor_id is None or configuration_version_id is None:
                 return False

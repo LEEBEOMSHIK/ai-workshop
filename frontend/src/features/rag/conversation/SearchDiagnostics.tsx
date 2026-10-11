@@ -1,5 +1,6 @@
 import type { DomainSearchResult } from "./api";
 import { buildSourceHref } from "../search/source-route-query";
+import { BudgetTrace } from "./BudgetTrace";
 
 const reasons: Record<string, string> = {
   selected: "선택", context_member: "문맥으로 포함", below_threshold: "임계값 미달",
@@ -39,7 +40,8 @@ export function SearchDiagnostics({ diagnostics, query }: {
           <td>{score(contexts.get(item.source.chunk_id))}</td>
           <td>{score(item.keyword_coverage)}</td>
           <td>{item.eligible ? "통과" : "미달"} / {item.selected ? "전달" : "제외"}</td>
-          <td>{reasons[item.reason] ?? item.reason}</td>
+          <td>{reasons[item.reason] ?? item.reason}{item.evidence_unit_id === null
+            ? <BudgetTrace trace={item.budget_trace} reason={item.reason} /> : null}</td>
         </tr>)}</tbody>
       </table>
     </div>

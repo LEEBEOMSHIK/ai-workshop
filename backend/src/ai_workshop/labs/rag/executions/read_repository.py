@@ -1,4 +1,5 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import aclosing
 from dataclasses import dataclass
 from typing import Protocol, cast
 from uuid import UUID
@@ -9,9 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ai_workshop.labs.rag.conversations.domain import Turn, TurnStatus
 from ai_workshop.labs.rag.conversations.models import ConversationRecord, ConversationTurnRecord
 from ai_workshop.labs.rag.domains.models import RagDomainRecord
+from ai_workshop.labs.rag.domains.schemas import DomainSearchResponse
 from ai_workshop.labs.rag.executions.models import ExecutionRecord
 from ai_workshop.labs.rag.executions.schemas import ExecutionUsage
 from ai_workshop.labs.rag.generation.audit_models import GenerationExecutionAuditRecord
+from ai_workshop.labs.rag.generation.numeric_restore import verify_numeric_views
+from ai_workshop.labs.rag.generation.numeric_validation_repository import (
+    SqlAlchemyNumericValidationRepository,
+)
 
 
 @dataclass
@@ -68,7 +74,7 @@ class SqlAlchemyMonitoringRepository:
 
     async def _entries(
         self, actor_id: UUID, id: UUID | None = None, *, legacy: bool = False
-    ) -> AsyncIterator[MonitoringEntry]:
+    ) -> AsyncGenerator[MonitoringEntry]:
         async with self.sessions() as session:
             query = (
                 select(
@@ -96,6 +102,22 @@ class SqlAlchemyMonitoringRepository:
                 )
             result = await session.stream(query.execution_options(yield_per=100))
             async for conversation, row, slug, execution in result:
+                if row.status == "completed" and row.response is not None:
+                    try:
+                        response = DomainSearchResponse.model_validate(row.response)
+                        generation = response.generation
+                        await verify_numeric_views(
+                            SqlAlchemyNumericValidationRepository(session),
+                            actor_id=actor_id,
+                            execution_id=execution.id if execution else None,
+                            status=generation.status,
+                            answer=generation.text,
+                            claims=generation.citations,
+                            binding=generation.numeric_validation,
+                            configuration_version_id=response.configuration_version.version_id,
+                        )
+                    except Exception:
+                        continue
                 yield MonitoringEntry(
                     conversation.owner_id,
                     conversation.id,
@@ -128,6 +150,7 @@ class SqlAlchemyMonitoringRepository:
         *,
         legacy: bool = False,
     ) -> MonitoringEntry | None:
-        async for entry in self._entries(actor_id, id, legacy=legacy):
-            return entry
+        async with aclosing(self._entries(actor_id, id, legacy=legacy)) as entries:
+            async for entry in entries:
+                return entry
         return None

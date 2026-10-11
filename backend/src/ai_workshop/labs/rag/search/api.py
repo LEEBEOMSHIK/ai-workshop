@@ -42,6 +42,7 @@ from ai_workshop.labs.rag.search.schemas import (
     SourceLocationResponse,
 )
 from ai_workshop.labs.rag.search.service import SearchApplicationService
+from ai_workshop.labs.rag.search.session import get_search_session
 from ai_workshop.labs.rag.search.viewer import ViewerService
 from ai_workshop.labs.rag.search.viewer_repository import (
     SqlAlchemyViewerResourceAccessRepository,
@@ -55,7 +56,7 @@ router = APIRouter(prefix="/api/v1/rag", tags=["rag-search"])
 
 
 def get_search_configuration_resolver(
-    session: Annotated[AsyncSession, Depends(get_session)],
+    session: Annotated[AsyncSession, Depends(get_search_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> SearchConfigurationResolverPort:
     from ai_workshop.labs.rag.configurations.repository import (
@@ -66,7 +67,7 @@ def get_search_configuration_resolver(
 
 
 async def get_search_service(
-    session: Annotated[AsyncSession, Depends(get_session)],
+    session: Annotated[AsyncSession, Depends(get_search_session)],
     settings: Annotated[Settings, Depends(get_settings)],
     configuration_resolver: Annotated[
         SearchConfigurationResolverPort,

@@ -40,6 +40,59 @@ async def test_prepared_source_version_change_aborts_before_generation(monkeypat
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("frozen", [False, True])
+async def test_source_revocation_during_audit_commit_never_returns_answer(monkeypatch, frozen):
+    service, configuration, scope, _, _, runtime, audit = _acceptance_harness()
+
+    async def revoke():
+        scope.switch_a_version()
+
+    monkeypatch.setattr(service.generation_audit_repository, "commit", revoke)
+    arguments = dict(
+        actor_id=ACTOR_ID,
+        request=_selected_request([DOCUMENT_ID]),
+        configuration=configuration,
+        conversation_scope=_domain_scope(),
+    )
+    if frozen:
+        from ai_workshop.labs.rag.search.pipeline import PipelineInput
+
+        snapshot = await scope.resolve(
+            actor_id=ACTOR_ID,
+            workspace_ids=configuration.workspace_ids,
+            folder_ids=(),
+            indexing_profile_id=configuration.indexing_profile_id,
+            document_ids=(DOCUMENT_ID,),
+        )
+
+        async def validate(identities):
+            from ai_workshop.labs.rag.retrieval.integrity import require_authorized_identities
+
+            current = await scope.resolve(
+                actor_id=ACTOR_ID,
+                workspace_ids=configuration.workspace_ids,
+                folder_ids=(),
+                indexing_profile_id=configuration.indexing_profile_id,
+                document_ids=(DOCUMENT_ID,),
+            )
+            require_authorized_identities(identities, current)
+
+        operation = service.execute(
+            PipelineInput(
+                **arguments,
+                resolved_scope=snapshot,
+                frozen_access=validate,
+            )
+        )
+    else:
+        operation = service.search_resolved(**arguments)
+    with pytest.raises(AppError) as raised:
+        await operation
+    assert raised.value.code == "conversation_scope_changed"
+    assert len(runtime.generation_requests) == 1
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "change", ["folder_exit", "related_exit", "related_stays", "unrelated_exit", "document_move"]
 )

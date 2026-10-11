@@ -1,9 +1,14 @@
 # 첫 질문 기준 대화 생성과 첨부 초안
 
-- 상태: 사용자 동작 방향 승인, 구현 계약 검토 대기
-- 기준일: 2026-09-27
-- 문제 이력: `docs/issues/issues.json`의 대화 선행 생성 항목
+- 상태: 구현·독립 리뷰·본래 환경 반영과 관련 검증 완료(2026-09-30)
+- 기준일: 2026-09-30 (최초 2026-09-27)
+- 문제 이력: 관리자 DB `ISSUE-00001` (이전 `RAG-0001`)
 - 범위: 기존 RAG conversations·Asset upload·현재 프론트. 기존 DB/계정/공간 사용.
+- 결정: [ADR-0031](../../decisions/0031-first-question-conversation-and-drafts.md)
+
+2026-09-30 사용자 요구로 첫 질문의 대상과 요청 목적을 나타내는 제목을 포함했다.
+이 문서는 구현 계약이다. 백엔드·프론트 연결과 본래 DB0060·서버 반영을 완료했다.
+실행 증거와 미검증 경계는 [작업 기록](../../worklogs/2026-09-30-first-question-conversations.md)에 둔다. 활성 구성·모델은 유지한다.
 
 ## 문제와 성공 기준
 
@@ -25,8 +30,13 @@
 
 ## 데이터 및 권한
 
+- 첫 접수 원장 `rag_conversation_starts`: owner_id, domain_id, request_id, request_digest,
+  conversation_id, first_turn_id, created_at. `(owner_id, domain_id, request_id)`는 unique다.
+  초안 없는 시작도 이 원장을 사용하고 대화 삭제 뒤에는 digest와 삭제 식별자를 보존해 replay를 410으로 막는다.
 - 신규 `rag_attachment_drafts`: id, owner_id, domain_id, state(open/bound/abandoned/expired),
-  revision, created_at, updated_at, expires_at, bound_conversation_id 및 최초 전송의 멱등성 정보.
+  revision, create_request_id, created_at, updated_at, expires_at, bound_conversation_id,
+  legacy_conversation_id 및 최초 전송의 멱등성 정보. create key와 legacy mapping은 각각 unique다.
+  bound 상태/참조 일치, positive revision, state check와 open expires_at index를 명명한다.
 - 기존 첨부의 conversation_id를 nullable로 변경하고 draft_id를 추가한다.
   첨부는 정확히 하나의 conversation/draft에 속하도록 DB 제약을 둔다. 원본·intake 식별자는 바꾸지 않는다.
 - draft 접근은 현재 도메인 접근 + 현재 활성 사용자 + 본인 소유를 모두 검사한다.
@@ -34,6 +44,10 @@
 - 초안 생성/예약/최종 업로드 연결/첫 질문 결합에서 상태·revision·권한을 다시 검사한다.
   도메인 접근 철회·초안 포기 후 늦게 끝난 업로드는 정상 연결할 수 없다.
 - 초안이나 첨부가 존재한다고 검색·외부 전송 권한이 생기지 않는다. stored 파일은 기존 정책대로 자동 선택하지 않는다.
+- 첨부 manifest의 `excluded_at`은 질문 전 제외를 영속 기록한다. 제외해도 attachment의
+  conversation/draft 부모 관계는 유지한다. 클라이언트에서 행을 숨기는 것만으로 제외를 처리하지 않는다.
+- 대화에는 title_origin(auto/manual/legacy), title_source_turn_id 및 title_derivation
+  (extracted/preserved/fallback)를 기록한다. 제목 정책 버전과 안전한 실패 코드는 본문 없이 기록한다.
 
 ## API와 첫 질문 접수
 
@@ -41,9 +55,15 @@
 
 - `POST /rag/domains/{slug}/attachment-drafts`: 요청 식별자로 멱등 생성. 파일 선택 시에만 호출.
 - 초안별 옵션·첨부 upload/list API: 기존 세션 첨부 계약을 재사용하되 대상 소유자를 draft로 구분한다.
+- 초안 옵션 조회는 파일 선택 패널을 열 때 도메인 경로에서 읽기 전용으로 제공한다.
+  옵션 조회·기존 문서 선택만으로 draft나 conversation을 생성하지 않는다.
+- 초안 첨부 제외 API는 owner·open·expected revision을 확인한다. 같은 제외 요청은 멱등이다.
 - 초안 조회/포기 API: owner 전용, 포기는 revision을 확인하고 중복 요청은 같은 결과를 반환한다.
 - `POST /rag/domains/{slug}/conversations/start`: 첫 질문의 기존 요청 필드와 선택적 draft_id/draft_revision을 받는다.
   request_id는 최초 제출부터 재시도까지 유지한다. 클라이언트가 생성한 세션 ID를 신뢰하지 않는다.
+- `GET /rag/domains/{slug}/conversations/starts/{request_id}`: 현재 owner/domain 권한으로 접수 원장을
+  조회해 현재 ACL이 적용된 ConversationDetail을 반환한다. 실행 대기 중에도 접수된 ID로 기존 cancel API를
+  사용할 수 있다.404는 접수 미확인, 삭제된 접수는410이며 no-store다.
 - 기존 무질문 `POST /conversations` 생성 경로는 제거하고 410과 신규 start 사용 안내를 반환한다.
   구버전 클라이언트의 호출도 빈 세션을 만들 수 없어야 한다. 서버·프론트·API 타입을 함께 배포한다.
 
@@ -71,6 +91,57 @@ interrupted로 보존한다. 같은 request_id replay가 외부 생성을 다시
 start 중 업로드/검증이 진행 중이면 409와 대기 상태를 반환하고 세션을 만들지 않는다.
 stored 첨부는 저장 이력으로 연결할 수 있지만 질문의 검색 대상으로 암묵적으로 포함하지 않는다.
 
+초안이 있는 접수도 현재 create 후 submit을 순서대로 호출해서 구현하지 않는다. 하나의 repository/UoW가
+접수 원장·대화·첫 turn·초안 bound·첨부 FK 이전을 같은 DB 트랜잭션에 기록한다. 그 뒤 기존 submit의
+예약 이후 실행 코어를 재사용한다. 접수 원장 충돌은 rollback 후 현재 권한으로 조회해 같은 결과를 반환한다.
+질문 분류·외부 전송 동의·선택 범위의 결정적 거부는 생성 전에 검사한다. 접수 뒤 provider/runtime 오류는
+실제 질문이 있는 failed 세션으로 보존한다. 의미 없는 공백 질문은 유효한 첫 질문으로 접수하지 않는다.
+
+업로드 transport가 실행 중이거나 종료 미확인인 첨부는 시작을 보류한다. 업로드 실패 이력을 모두
+영구 busy로 취급하지 않는다. 제외했거나 종료 확인된 failed 첨부는 저장 이력으로 보존할 수 있다.
+검색에 선택된 첨부는 실제 READY·현재 권한을 검사하고, stored/outside-scope 첨부는 답변 근거로 승격하지 않는다.
+
+## 질문 의도에 맞는 제목
+
+제목은 첫 질문을 유효하게 접수하는 트랜잭션에서 한 번 계산해 첫 turn과 함께 저장한다.
+입력은 첫 질문만 사용한다. 첨부 파일명·본문·검색 결과·답변·이전 대화·계정 정보는 입력하지 않는다.
+대상·조건·부정 표현·비교 대상과 요청 목적을 보존하며, 질문에 없는 결론·답·일자·대상을 추가하지 않는다.
+
+이번 계약은 추가 모델 호출이 없는 **보수적인 추출·문법 정리**다. 공백을 정리하고 명확한 일반 요청 어미만
+제목 형태로 바꾼다. 특정 문서 ID·상품·질문 문자열을 분기하지 않는다. 지원하지 않는 짧은 문법은 질문 표현을
+그대로 보존한다. 복합 질문에서 한 요청만 임의 선택하거나 부정어를 삭제하지 않는다. 인용문·코드·혼합 언어는
+확신 없는 변환을 피한다. 임의 장문의 일반 의미 요약을 보장하는 정책으로 표시하지 않는다.
+
+짧은 제목의 정책 한계는 typed 설정 `rag_conversation_title_max_length`로 관리한다.
+초기값은64자, 허용 범위는2~180자이며 기존 API/DB의180자 상한을 넘지 않는다.
+후보가 이 한계를 넘거나 첫 질문만으로 대상을 정할 수 없으면 `새 대화`를 fallback으로 사용한다.
+앞부분을 자르고 extracted로 기록하지 않는다. 제목 계산 실패도 fallback과 안전한 코드만 남기고 질문을 접수한다.
+제목 생성 실패를 이유로 대화를 삭제하거나 질문·외부 생성을 재전송하지 않는다.
+
+후속 질문·새로고침·응답 유실 replay에서 제목을 재계산하지 않는다. 사용자가 이름을 바꾸면 origin은 manual이고
+기존 revision 검사로 저장한다. 원래 질문 제목을 후속 자동 처리로 덮어쓰지 않는다. 기존 세션은 제목을 유지하며
+legacy로 분류한다. 과거 질문을 읽어 제목을 대량 backfill하지 않는다.
+
+| 합성 첫 질문 | 기대 제목/처리 |
+| --- | --- |
+| AM-LAB-840의 대금 지급일이 언제야? | AM-LAB-840 대금 지급일 확인 |
+| 파이썬 리스트와 튜플의 차이를 설명해 주세요 | 파이썬 리스트와 튜플의 차이 설명 |
+| CPU request와 limit을 비교해 주세요 | CPU request와 limit 비교 |
+| 밤나무 뿌리와 잎의 역할을 각각 설명해 주세요 | 밤나무 뿌리와 잎의 역할을 각각 설명 |
+| 백업을 삭제하지 않고 복원할 수 있나요? | 질문 표현 보존, 부정어 유지 |
+| 그건 언제 돼요? | 새 대화, fallback |
+| 긴 배경 뒤에 실제 요청이 있는 질문 | 한계 초과 시 fallback, 앞부분만 추출 성공으로 표시하지 않음 |
+
+목록·상세·start replay는 현재 활성 사용자·소유·도메인 접근을 확인한다. 첫 turn이 현재 source ACL로
+가려지면 제목도 서버에서 `접근할 수 없는 대화`로 대체한다. manual/legacy 제목도 첫 turn이 가려진 세션에서는
+같은 보수적 가림을 적용한다. 첫 turn이 없는 legacy 초안은 제목을 표시하지 않는다. 첫 turn visibility와
+dependency closure는 현재 access 코어를 재사용하며, 저장된 title만 반환하는 목록 경로를 바꾼다.
+생성 실패/미답변 첫 turn도 workspace/document 권한 재검증을 생략하지 않는다.
+
+모든 새 응답은 no-store다. 질문·제목·파일명을 URL·로그·telemetry·Git 문제 기록에 넣지 않는다.
+기존 generation prompt/schema·프로파일·활성 구성·외부 전송 승인·모델 런타임을 바꾸지 않는다.
+나중에 일반 의미 요약 모델을 도입하려면 별도 정책·승인·지연·비용 계약으로 다룬다.
+
 ## 프론트와 이탈
 
 sessionId와 draftId를 별도 상태로 관리한다. draftId는 owner 전용 복원용 URL 상태로 보존할 수 있지만
@@ -79,14 +150,26 @@ sessionId와 draftId를 별도 상태로 관리한다. draftId는 owner 전용 �
 start 응답이 늦게 도착해도 이미 새 초안/다른 대화로 이동했다면 현재 화면을 덮어쓰지 않는다.
 이전 start의 성공은 서버에 보존하고 목록 재조회로 확인할 수 있다.
 
+첫 start 응답 대기·응답 유실 시 request_id로 접수를 조회한다. 사용자가 중지를 눌러도 단순 fetch abort를
+서버 취소 완료로 표시하지 않는다. 접수 ID를 확인한 뒤 기존 turn cancel을 사용한다. 접수 조회404만으로
+나중의 접수를 배제할 수 없으므로 원본 payload/key와 취소 대기 상태를 유지하며, 접수 전의 명확한 요청 거절 또는
+접수 확인·실제 cancel 결과를 확인하기 전에는 키를 버리거나 새 요청으로 자동 재전송하지 않는다.
+원래 POST의 일반404도 접수 후 권한 변경에서 발생할 수 있으므로 미접수 증거가 아니다.
+확정 거절은 실제 접수 전 경로가 검증된 상태·오류 코드로 제한하며, 알 수 없는4xx는 원래 키로 복구한다.
+
+생성 감사 기록의 commit은 요청 DB session의 transaction을 종료할 수 있다. 답변 저장 뒤 현재 도메인
+권한을 재확인할 때는 독립된 짧은 session에서 기존 DomainService의 같은 권한 검사를 수행한다.
+감사 commit을 제거하거나 최종 권한 검사를 생략해 응답 오류를 회피하지 않는다.
+
 명시적 새 대화/초안 취소는 포기를 요청한다. 창 닫기 이벤트 전달만으로 정리를 보장하지 않는다.
 새로고침은 유효한 초안을 복원한다. 만료된 초안은 복원 불가 이유와 첨부 보존/정리 상태를 표시한다.
 업로드가 없는 단순 화면 방문은 서버 초안도 만들지 않는다.
 
 ## 만료와 원본 정리
 
-미전송 초안의 보존 기간은 설정으로 관리하며 초기 제안은 마지막 사용자 변경부터 24시간이다.
-조회/poll만으로 만료를 무기한 연장하지 않는다. 서버 worker가 만료를 판정하며 실행 간격도 설정값이다.
+미전송 초안은 마지막 사용자 manifest 변경부터24시간을 초기 정책으로 한다.
+`rag_attachment_draft_ttl_minutes=1440`, `rag_attachment_draft_reconcile_interval_seconds=60`을 typed 설정으로 둔다.
+조회/poll·업로드 완료 상태 갱신만으로 만료를 연장하지 않는다. 서버 worker가 만료를 판정한다.
 bound 전환과 만료는 동일 draft 잠금으로 직렬화한다. 업로드 종료가 미확인이면 만료 상태로 신규 쓰기를 막고
 기존 intake·writer 종료 확인이 끝날 때까지 원본을 보존한다.
 
@@ -95,6 +178,16 @@ cleanup_waiting 또는 cleanup_candidate로 전환하고 이유·시각을 기�
 파일함에서 이미 재사용하거나 다른 대화가 참조하는 원본은 제거하지 않는다.
 현재 코드의 정리 후보 판정과 실제 삭제가 분리되어 있으므로, 만료를 물리 삭제 완료로 표시하지 않는다.
 후속 관리 메뉴에서도 보존 사유를 읽을 수 있도록 owner 전용 초안 정리 inventory를 제공한다.
+
+draft·legacy 부모를 가진 첨부에도 upload 코루틴 종료와 intake 정리 완료 확인을 기록한다.
+현재 `conversation_id is None`이면 종료 확인을 건너뛰는 코드를 그대로 재사용하지 않는다.
+공유 잠금 순서는 Platform upload의 source/intake 잠금 → RAG 부모(draft 또는 conversation) → attachment다.
+draft/attachment를 잠근 채 Platform upload source 잠금을 뒤늦게 잡는 역순 경로를 만들지 않는다.
+intake 예약과 RAG 첨부 예약의 결합은 동일 트랜잭션 확장 지점으로 처리한다. Platform이 RAG를 import하지
+않으며 Platform 예약 commit 뒤 별도 binding 실패로 소유자가 없는 intake를 남기는 구현은 사용하지 않는다.
+접수에서 저장 권한 재검사가 필요한 workspace 잠금은 draft보다 먼저 잡는다.
+포기·만료는 RAG 부모 → attachment 순서로 처리하며 Platform source 쓰기 잠금을 요구하지 않는다.
+legacy 전환 차단은 conversation → attachment로 확정·commit한 후 별도 draft → attachment 결합을 수행한다.
 
 ## 기존 빈 세션과 마이그레이션
 
@@ -111,13 +204,16 @@ cleanup_waiting 또는 cleanup_candidate로 전환하고 이유·시각을 기�
 legacy 행을 역순으로 잠그지 않도록 한다. 활성 writer가 존재할 때 첨부 FK만 먼저 옮기는 것은 금지한다.
 백업·migration 검증 후 본래 DB에 반영하며 별도 사용자 실행 환경·계정은 만들지 않는다.
 
+새 draft 또는 start 원장이 생긴 뒤 구 schema로 단순 downgrade하면 부모·멱등성 정보를 잃는다.
+downgrade는 해당 데이터 존재 여부를 제약/컬럼 제거 전에 검사해 중단한다. 복원은 검증된 백업이나
+모든 새 데이터가 없음을 확인한 경우에만 수행하며 신규 사용자 자료를 삭제해 rollback 조건을 만들지 않는다.
+
 ## 문제 이력
 
-`docs/issues/issues.json`을 문제별 상태 정본으로 두고 README에서 사람이 읽는 목록을 연결한다.
-id/area/status/symptom/cause/resolution/verification/remaining/evidence/history를 기록한다.
-작업 문서·ADR·커밋은 근거로 연결한다. 본래 환경 미검증을 해결 완료로 표기하지 않는다.
-메뉴 구현 시 이 데이터를 읽는 어댑터와 관리자 접근 경계를 추가한다. 지금 공개 페이지나 빈 메뉴는 만들지 않는다.
-실제 질문 본문·문서 내용·계정 비밀·원시 로그는 이력에 복사하지 않는다.
+문제 상태의 정본은 [관리자 문제 이력 DB](../../issues/README.md)다. JSON은 최초 이관 보존 자료이다.
+기존 ISSUE-00001에 날짜별 구현·검증·남은 범위를 인증 관리 API/화면으로 기록한다.
+설계·ADR·검증 기록은 DB 문서의 정확한 ID/불변 버전으로 연결하고 기존 연결을 자동 교체하지 않는다.
+본래 환경 미검증을 해결 완료로 표시하지 않는다. 실제 질문·문서·제목·계정·비밀·원시 로그는 이력에 복사하지 않는다.
 
 ## 검증 및 완료 기준
 
@@ -132,6 +228,9 @@ id/area/status/symptom/cause/resolution/verification/remaining/evidence/history�
 8. 기존 질문이 있는 세션은 계속 복원 가능. 기존 빈 세션은 이관 결과·보류 이유와 함께 보존.
 9. 백엔드 단위·DB 통합·API와 프론트 상태 전이 검증, 타입/린트, 독립 권한 리뷰.
 10. 본래 환경에서 메뉴 반복·첨부 초안·첫 질문·목록 복원 검증 후 이력 상태를 갱신.
+11. 제목의 대상/목적·조건·부정·복합 요청 보존, 장문/모호함 fallback, 생성 실패 격리,
+    첫 질문 replay·후속 질문·수동 이름 변경 후 제목 유지. 원문 권한 철회 시 목록/상세/replay 제목 가림.
+12. 제목용 외부 호출0회, generation profile/활성 구성 변경0건. 합성 fixture만 사용하고 첫 질문/제목을 로그에 남기지 않음.
 
 구현 파일 경계: conversations 모델/repository/service/API/lifecycle, migration, ConversationPage/Attachments와
 sessions-api, API 타입 생성물 및 관련 테스트. 새 메뉴·새 모델 런타임·외부 전송 정책 변경은 포함하지 않는다.

@@ -8,6 +8,7 @@ export const routes = {
   workshopHome: "/workshop/workspaces",
   workshopRagSearch: "/workshop/rag/search",
   workshopLearning: "/workshop/learning",
+  workshopFlows: "/workshop/flows",
   adminRagExecutions: "/admin/rag/executions",
   adminRagDomains: "/admin/rag/domains",
   adminRagConfigurations: "/admin/rag/configurations",
@@ -17,6 +18,10 @@ export const routes = {
   adminSystemIssues: "/admin/system/issues",
   adminPublishing: "/admin/publishing",
 } as const;
+
+export function flowchartPath(categoryId: string, flowId: string): string {
+  return `${routes.workshopFlows}/${encodeURIComponent(categoryId)}/${encodeURIComponent(flowId)}`;
+}
 
 export function publicStudyPath(publicSlug: string): string {
   return `/studies/${encodeURIComponent(publicSlug)}`;

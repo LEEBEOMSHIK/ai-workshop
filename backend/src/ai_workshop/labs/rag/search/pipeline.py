@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from time import perf_counter
 from typing import TYPE_CHECKING, Protocol
@@ -55,6 +55,13 @@ from ai_workshop.labs.rag.generation.integrity import (
     ConversationScopeBinding,
     ConversationTurnSigner,
     ScopedTurnVerification,
+)
+from ai_workshop.labs.rag.generation.numeric_catalogue import build_source_value_catalogue
+from ai_workshop.labs.rag.generation.numeric_proof_types import NumericValidationBinding
+from ai_workshop.labs.rag.generation.numeric_validation import (
+    NumericProofValidator,
+    ValidatedNumericGeneration,
+    validated_numeric_abstention,
 )
 from ai_workshop.labs.rag.generation.prompts import (
     PromptNotFoundError,
@@ -120,6 +127,10 @@ class GenerationRuntimeResolverPort(Protocol):
 class GenerationAuditRepositoryPort(Protocol):
     async def add(self, audit: GenerationExecutionAudit) -> GenerationExecutionAudit: ...
 
+    async def add_validated(
+        self, audit: GenerationExecutionAudit, validated: ValidatedNumericGeneration
+    ) -> NumericValidationBinding: ...
+
     async def commit(self) -> None: ...
 
 
@@ -134,6 +145,7 @@ class PreparedGeneration:
     runtime: GenerationRuntimePort
     policy: PolicyDecision
     execution: GenerationExecutionSnapshot
+    request_id: UUID = field(default_factory=uuid4)
 
 
 class SearchSourceResolverPort(Protocol):
@@ -679,6 +691,9 @@ class RagExecutionPipeline:
             contextualization_execution=contextualization_execution,
             conversation_scope=resolved_conversation_scope,
         )
+        # Generation/audit persistence may release its original authorization
+        # transaction. Re-read authority before returning an answer or proof.
+        await revalidate_access(required_sources)
         if generation_profile is not None and generation_answers:
             stages["generation"] = _elapsed_ms(generation_started)
         if generation.status is GenerationStatus.INSUFFICIENT_EVIDENCE and not generation_answers:
@@ -818,7 +833,7 @@ class RagExecutionPipeline:
             history.append(turn)
         return tuple(history)
 
-    async def _prepare_generation(
+    async def validate_generation_acceptance(
         self,
         *,
         actor_id: UUID,
@@ -826,7 +841,7 @@ class RagExecutionPipeline:
         configuration: ResolvedSearchConfiguration,
         workspace_ids: tuple[UUID, ...],
         requires_contextualization: bool,
-    ) -> PreparedGeneration | None:
+    ) -> tuple[PolicyDecision, GenerationExecutionSnapshot] | None:
         profile = configuration.generation_profile
         if profile is None:
             return None
@@ -912,11 +927,39 @@ class RagExecutionPipeline:
                 or approval_input.disclosure_version != CODEX_GENERATION_DISCLOSURE_VERSION
             ):
                 raise _safe_generation_error("codex_input_approval_required")
+        return policy, execution
+
+    async def _prepare_generation(
+        self,
+        *,
+        actor_id: UUID,
+        request: SearchRequest,
+        configuration: ResolvedSearchConfiguration,
+        workspace_ids: tuple[UUID, ...],
+        requires_contextualization: bool,
+    ) -> PreparedGeneration | None:
+        accepted = await self.validate_generation_acceptance(
+            actor_id=actor_id,
+            request=request,
+            configuration=configuration,
+            workspace_ids=workspace_ids,
+            requires_contextualization=requires_contextualization,
+        )
+        if accepted is None:
+            return None
+        policy, execution = accepted
+        profile = configuration.generation_profile
+        assert profile is not None and profile.deployment is not None
+        deployment = profile.deployment
+        request_id = uuid4()
+        if deployment.provider is ProviderKind.DEVELOPMENT_CODEX_EXEC:
+            approval_input = request.codex_input_approval
+            assert approval_input is not None
             if self.codex_runtime_factory is None:
                 raise _safe_generation_error("codex_runtime_unavailable")
             context = CodexRequestContext(
                 actor_id,
-                uuid4(),
+                request_id,
                 CodexCallOperation.SEARCH,
                 configuration.configuration_version_id,
                 tuple(sorted(set(request.workspace_ids))),
@@ -960,7 +1003,9 @@ class RagExecutionPipeline:
                 )
                 raise _safe_generation_error(code) from None
             runtime = resolved.adapter
-        return PreparedGeneration(runtime=runtime, policy=policy, execution=execution)
+        return PreparedGeneration(
+            runtime=runtime, policy=policy, execution=execution, request_id=request_id
+        )
 
     async def _generate(
         self,
@@ -980,8 +1025,48 @@ class RagExecutionPipeline:
         if profile is None:
             return GenerationOutcome(status=GenerationStatus.NOT_REQUESTED)
         assert prepared_generation is not None
+        catalogue = None
+        validated = None
+        if profile.response_schema_version == 3:
+            try:
+                if (
+                    profile.deployment is None
+                    or profile.deployment.provider is not ProviderKind.DEVELOPMENT_CODEX_EXEC
+                ):
+                    raise ValueError("generation_schema_not_supported")
+                catalogue = build_source_value_catalogue(
+                    evidence,
+                    request_id=prepared_generation.request_id,
+                    configuration_version_id=configuration.configuration_version_id,
+                    profile=profile,
+                )
+            except ValueError as error:
+                code = (
+                    str(error)
+                    if str(error)
+                    in {"calculation_limit_exceeded", "generation_schema_not_supported"}
+                    else "structured_output_invalid"
+                )
+                await self._record_audit(
+                    actor_id=actor_id,
+                    configuration=configuration,
+                    policy=prepared_generation.policy,
+                    evidence_ids=tuple(e.evidence_id for e in evidence),
+                    status="failed",
+                    safe_error_code=code,
+                    provider_execution=contextualization_execution,
+                )
+                await trace.end("citation_validation", state="failed", reason=code)
+                raise _safe_generation_error(code) from None
         if not evidence:
-            await self._record_audit(
+            if catalogue is not None:
+                validated = validated_numeric_abstention(
+                    catalogue=catalogue,
+                    profile=profile,
+                    request_id=prepared_generation.request_id,
+                    configuration_version_id=configuration.configuration_version_id,
+                )
+            binding = await self._record_audit(
                 actor_id=actor_id,
                 configuration=configuration,
                 policy=prepared_generation.policy,
@@ -989,10 +1074,12 @@ class RagExecutionPipeline:
                 status="allowed",
                 safe_error_code=None,
                 provider_execution=contextualization_execution,
+                validated=validated,
             )
             return GenerationOutcome(
                 status=GenerationStatus.INSUFFICIENT_EVIDENCE,
                 execution=prepared_generation.execution,
+                numeric_validation=binding,
             )
         generation_runtime = prepared_generation.runtime
         assert self.turn_signer is not None
@@ -1007,6 +1094,7 @@ class RagExecutionPipeline:
                     evidence=evidence,
                     profile=profile,
                     correlation_id=correlation_id_context.get(),
+                    numeric_catalogue=catalogue,
                 )
             )
             if not _execution_is_exact(
@@ -1075,13 +1163,21 @@ class RagExecutionPipeline:
             await trace.end(
                 "citation_validation", state="skipped", reason="generation_insufficient"
             )
-            await self._record_audit(
+            if catalogue is not None:
+                validated = validated_numeric_abstention(
+                    catalogue=catalogue,
+                    profile=profile,
+                    request_id=prepared_generation.request_id,
+                    configuration_version_id=configuration.configuration_version_id,
+                )
+            binding = await self._record_audit(
                 actor_id=actor_id,
                 configuration=configuration,
                 policy=prepared_generation.policy,
                 evidence_ids=tuple(item.evidence_id for item in evidence),
                 status="allowed",
                 safe_error_code=None,
+                validated=validated,
                 provider_execution=_combine_execution(
                     contextualization_execution,
                     generation_result.execution,
@@ -1091,10 +1187,22 @@ class RagExecutionPipeline:
                 status=GenerationStatus.INSUFFICIENT_EVIDENCE,
                 execution=actual_execution,
                 reason_codes=("evidence_content_insufficient",),
+                numeric_validation=binding,
             )
         assert draft is not None
         await trace.begin("citation_validation")
-        outcome = CitationValidator().validate(draft, allowed_evidence=evidence)
+        if catalogue is not None:
+            validated = NumericProofValidator().validate(
+                draft,
+                evidence=evidence,
+                catalogue=catalogue,
+                profile=profile,
+                request_id=prepared_generation.request_id,
+                configuration_version_id=configuration.configuration_version_id,
+            )
+            outcome = validated.outcome
+        else:
+            outcome = CitationValidator().validate(draft, allowed_evidence=evidence)
         if outcome.status is not GenerationStatus.ANSWERED or outcome.text is None:
             # Keep validator-owned reason codes in the existing stage record;
             # HTTP responses and provider audits retain the generic safe error.
@@ -1140,7 +1248,7 @@ class RagExecutionPipeline:
             validation_token=validation_token,
             execution=actual_execution,
         )
-        await self._record_audit(
+        binding = await self._record_audit(
             actor_id=actor_id,
             configuration=configuration,
             policy=prepared_generation.policy,
@@ -1152,8 +1260,9 @@ class RagExecutionPipeline:
                 generation_result.execution,
             ),
             latency_ms=_elapsed_ms(generation_started),
+            validated=validated,
         )
-        return answered
+        return replace(answered, numeric_validation=binding)
 
     async def _record_audit(
         self,
@@ -1166,11 +1275,12 @@ class RagExecutionPipeline:
         safe_error_code: str | None,
         provider_execution: ProviderExecutionMetadata | None = None,
         latency_ms: int | None = None,
-    ) -> None:
+        validated: ValidatedNumericGeneration | None = None,
+    ) -> NumericValidationBinding | None:
         profile = configuration.generation_profile
         repository = self.generation_audit_repository
         if profile is None:
-            return
+            return None
         deployment = profile.deployment
         if deployment is None or policy is None or repository is None:
             raise _safe_generation_error("deployment_not_ready")
@@ -1225,8 +1335,13 @@ class RagExecutionPipeline:
                 execution_id=trace.execution_id(),
                 created_at=datetime.now(UTC),
             )
-            await repository.add(audit)
+            binding = None
+            if validated is not None:
+                binding = await repository.add_validated(audit, validated)
+            else:
+                await repository.add(audit)
             await repository.commit()
+            return binding
         except Exception:
             raise AppError(
                 "llm_unavailable",
@@ -1265,6 +1380,8 @@ class _ResolvedScopeResolver:
 
 
 _SAFE_GENERATION_ERRORS: dict[str, tuple[str, int]] = {
+    "generation_schema_not_supported": ("선택한 생성 서비스가 응답 형식을 지원하지 않습니다.", 409),
+    "calculation_limit_exceeded": ("계산 검증의 안전한 처리 한도를 초과했습니다.", 502),
     **{
         "codex_authorization_" + code.value: ("Codex authorization was denied.", 403)
         for code in CodexAuthorizationErrorCode

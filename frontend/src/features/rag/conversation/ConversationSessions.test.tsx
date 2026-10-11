@@ -16,12 +16,12 @@ it("keeps an existing session draft after turn authentication expires and only r
   let authenticated = false;
   vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
     const path = String(url);
-    if (path.endsWith("/folders")) return json([]);
+    if (path.endsWith("/folders") || path.endsWith("/attachments")) return json([]);
     if (path.endsWith("/conversations")) {
       if (init?.method === "POST") throw new Error("Must preserve the existing session");
       return json([summary]);
     }
-    if (path.endsWith("/turns")) {
+    if (path.endsWith("/turns") || path.endsWith("/start")) {
       requests.push(JSON.parse(String(init?.body)));
       if (!authenticated) return new Response(JSON.stringify({error:{code:"not_authenticated",message:"private detail",correlation_id:"auth-test"}}), {status:401,headers:{"content-type":"application/json"}});
       return json({...summary, revision:2, turns:[turn,{...turn,id:"turn-2",sequence:2,status:"completed",query:"보존된 새 질문",response:{status:"supported",answer:null,conflict_state:"none",conflicts:[],warnings:[],related_sources:[],configuration_version:{configuration_id:"config",version_id:"config-version",version:1},experimental:false,resolved_query:"보존된 새 질문",generation:{status:"answered",text:"로그인 후 답변",citations:[],reason_codes:[],turn_id:"turn-2",validation_token:"synthetic",execution:null},domain_context:{domain_id:"domain",connection_version_id:"connection",workspace_ids:["workspace"],folder_ids:[]},selected_scope:null}}]});
@@ -49,7 +49,7 @@ it("keeps an existing session draft after turn authentication expires and only r
 it("restores the URL-selected server conversation and preserves it on new chat", async () => {
   window.history.replaceState(null, "", "/?conversation=session-1");
   vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL) => {
-    if (String(url).endsWith("/folders")) return json([]);
+    if (String(url).endsWith("/folders") || String(url).endsWith("/attachments")) return json([]);
     if (String(url).endsWith("/conversations")) return json([summary]);
     return json({...summary, turns: [turn]});
   }));
@@ -66,7 +66,7 @@ it("renames and deletes the selected session using the current server revision",
   const mutations: Array<{path: string; init: RequestInit}> = [];
   vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
     const path = String(url);
-    if (path.endsWith("/folders")) return json([]);
+    if (path.endsWith("/folders") || path.endsWith("/attachments")) return json([]);
     if (path.endsWith("/conversations")) return json([summary]);
     if (init?.method === "PATCH") { mutations.push({path, init}); return json({...summary, title: "새 제목", revision: 2, turns: [turn]}); }
     if (init?.method === "DELETE") { mutations.push({path, init}); return new Response(null, {status: 204}); }
@@ -90,9 +90,9 @@ it("reuses the request ID after a transport failure and never sends local respon
   const requests: Record<string, unknown>[] = [];
   vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
     const path = String(url);
-    if (path.endsWith("/folders")) return json([]);
+    if (path.endsWith("/folders") || path.endsWith("/attachments")) return json([]);
     if (path.endsWith("/conversations")) return json(init?.method === "POST" ? {...summary, turns: []} : []);
-    if (path.endsWith("/turns")) {
+    if (path.endsWith("/turns") || path.endsWith("/start")) {
       requests.push(JSON.parse(String(init?.body)));
       if (requests.length === 1) throw new TypeError("Network error");
       return json({...summary, revision: 2, turns: [{...turn, query: "새 질문"}]});
@@ -113,7 +113,7 @@ it("hides redacted turns and ignores a late detail after switching sessions", as
   let resolveOld!: (response: Response) => void;
   vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL) => {
     const path = String(url);
-    if (path.endsWith("/folders")) return json([]);
+    if (path.endsWith("/folders") || path.endsWith("/attachments")) return json([]);
     if (path.endsWith("/conversations")) return json([summary, {...summary, id: "session-2", title: "다른 대화"}]);
     if (path.endsWith("/session-1")) return new Promise<Response>(resolve => { resolveOld = resolve; });
     return json({...summary, id: "session-2", title: "다른 대화", turns: [{...turn, redacted: true, request_scope: null, query: "표시 금지"}]});
@@ -134,14 +134,15 @@ it("creates a session, sends diagnostics without client history, and cancels the
     const path = String(url); calls.push(path);
     if (path.endsWith("/folders") || path.endsWith("/attachments")) return json([]);
     if (path.endsWith("/cancel")) return json({...summary, revision: 3, turns: [{...turn, query: "새 질문", status: "cancelled"}]});
-    if (path.endsWith("/turns")) { sent = JSON.parse(String(init?.body)); return new Promise<Response>(() => {}); }
+    if (path.endsWith("/start")) { sent = JSON.parse(String(init?.body)); return new Promise<Response>(() => {}); }
+    if (path.includes("/starts/")) return json({...summary, turns: [{...turn, status:"running", execution_terminated:false}]});
     if (path.endsWith("/conversations")) return json(init?.method === "POST" ? {...summary, turns: []} : []);
-    return json({...summary, turns: []});
+    return json({...summary, turns: [turn]});
   }));
   render(<ConversationPage domain={domain} initialWorkspaceIds={["workspace"]} />);
   fireEvent.change(screen.getByRole("textbox", {name: "질문"}), {target: {value: "새 질문"}});
   fireEvent.click(screen.getByRole("button", {name: "질문 보내기"}));
-  await waitFor(() => expect(sent).toMatchObject({query: "새 질문", include_diagnostics: true, expected_revision: 1}));
+  await waitFor(() => expect(sent).toMatchObject({query: "새 질문", include_diagnostics: true}));
   expect(sent).not.toHaveProperty("history");
   expect(sent?.request_id).toBeTruthy();
   fireEvent.click(screen.getByRole("button", {name: "답변 취소"}));
@@ -152,7 +153,7 @@ it("creates a session, sends diagnostics without client history, and cancels the
 it("blocks another send until cancellation termination is confirmed", async () => {
   window.history.replaceState(null, "", "/?conversation=session-1");
   vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL) => {
-    if (String(url).endsWith("/folders")) return json([]);
+    if (String(url).endsWith("/folders") || String(url).endsWith("/attachments")) return json([]);
     if (String(url).endsWith("/conversations")) return json([summary]);
     return json({...summary, turns: [{...turn, status: "cancelled", execution_terminated: false}]});
   }));

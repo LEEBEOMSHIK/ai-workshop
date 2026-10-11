@@ -11,6 +11,10 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ai_workshop.labs.rag.executions.domain import StageName
+from ai_workshop.labs.rag.generation.numeric_proof_schemas import (
+    NumericValidationBindingView,
+    VerifiedCalculationView,
+)
 
 METRIC_VERSION: Literal["generative-v1"] = "generative-v1"
 type JudgmentStatus = Literal["passed", "failed", "unreviewed"]
@@ -78,6 +82,16 @@ class GenerativeObservation(FrozenValue):
 class ClaimCitation(FrozenValue):
     claim_index: int = Field(ge=0)
     evidence_ids: tuple[UUID, ...]
+    # Omission preserves the exact canonical bytes/digest of historical results.
+    claim_text: str | None = Field(
+        default=None,
+        min_length=1,
+        repr=False,
+        exclude_if=lambda value: value is None,
+    )
+    calculations: tuple[VerifiedCalculationView, ...] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class PrivateGenerativeResult(FrozenValue):
@@ -85,6 +99,9 @@ class PrivateGenerativeResult(FrozenValue):
     answer: str | None = None
     citations: tuple[ClaimCitation, ...] = ()
     evidence: tuple[dict[str, object], ...] = ()
+    numeric_validation: NumericValidationBindingView | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class CorrectnessJudgment(FrozenValue):

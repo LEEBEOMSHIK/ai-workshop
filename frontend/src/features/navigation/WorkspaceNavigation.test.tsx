@@ -2,8 +2,14 @@ import { render, screen } from "@testing-library/react";
 
 import { routes } from "../../shared/routing/routes";
 import { WorkspaceNavigation } from "./WorkspaceNavigation";
+import { currentMenuItem } from "./areaMenus";
 
 describe("WorkspaceNavigation", () => {
+  it("exposes flowcharts to members and marks detailed flows as the same menu", () => {
+    render(<WorkspaceNavigation user={{ id: "flow-member", email: "member@example.test", display_name: "Member", role: "member" }} />);
+    expect(screen.getByRole("link", { name: "흐름도" })).toHaveAttribute("href", "/workshop/flows");
+    expect(currentMenuItem("workspace", "/workshop/flows/rag/multiturn")?.label).toBe("흐름도");
+  });
   it("links the private workshop navigation to canonical routes", () => {
     render(
       <WorkspaceNavigation

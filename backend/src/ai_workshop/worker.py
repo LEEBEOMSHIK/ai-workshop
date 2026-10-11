@@ -11,7 +11,7 @@ from celery import Celery, Task  # type: ignore[import-untyped]
 from fastapi import Depends
 from sqlalchemy.exc import DisconnectionError, OperationalError, SQLAlchemyError, TimeoutError
 
-from ai_workshop.config import Settings, get_settings
+from ai_workshop.config import DEFAULT_ATTACHMENT_DRAFT_RECONCILE_SECONDS, Settings, get_settings
 from ai_workshop.labs.rag.configurations.repository import (
     SqlAlchemyRagConfigurationRepository,
 )
@@ -32,6 +32,7 @@ from ai_workshop.labs.rag.ingestion.domain import (
     RagIngestionBusy,
     RagIngestionError,
 )
+from ai_workshop.labs.rag.ingestion.error_policy import classify_ingestion_error
 from ai_workshop.labs.rag.ingestion.handoff import (
     RagAssetHandoffReconciler,
     RagAssetHandoffResult,
@@ -51,8 +52,6 @@ from ai_workshop.labs.rag.ingestion.tasks import create_rag_ingestion_workflow
 from ai_workshop.labs.rag.models.document_processing import (
     LEGACY_DOCUMENT_PROCESSING_PROFILE_ID,
 )
-from ai_workshop.labs.rag.ocr.contracts import OcrRuntimeError
-from ai_workshop.labs.rag.parsing.contracts import ParsingError
 from ai_workshop.platform.assets.dispatch import (
     AssetVerificationDispatchReconciler,
     SqlAlchemyAssetVerificationDispatchRepository,
@@ -69,6 +68,7 @@ RAG_DISPATCH_RECONCILE_TASK = "ai_workshop.rag.reconcile_dispatches"
 RAG_ASSET_HANDOFF_RECONCILE_TASK = "ai_workshop.rag.reconcile_asset_handoffs"
 RAG_EVALUATION_TASK = "ai_workshop.rag.evaluate_configuration_run"
 RAG_EVALUATION_DISPATCH_RECONCILE_TASK = "ai_workshop.rag.reconcile_evaluation_dispatches"
+RAG_ATTACHMENT_DRAFT_RECONCILE_TASK = "ai_workshop.rag.reconcile_attachment_drafts"
 
 configure_windows_selector_policy()
 load_models()
@@ -152,6 +152,19 @@ def create_celery(
         task_serializer="json",
         timezone="UTC",
         beat_schedule={
+            "reconcile-rag-attachment-drafts": {
+                "task": RAG_ATTACHMENT_DRAFT_RECONCILE_TASK,
+                "schedule": float(
+                    settings.rag_attachment_draft_reconcile_interval_seconds
+                    if settings
+                    else int(
+                        environ.get(
+                            "AI_WORKSHOP_RAG_ATTACHMENT_DRAFT_RECONCILE_INTERVAL_SECONDS",
+                            str(DEFAULT_ATTACHMENT_DRAFT_RECONCILE_SECONDS),
+                        )
+                    )
+                ),
+            },
             "reconcile-rag-ingestion-dispatches": {
                 "task": RAG_DISPATCH_RECONCILE_TASK,
                 "schedule": 5.0,
@@ -264,6 +277,10 @@ def create_celery(
         resolved_settings = settings or get_settings()
         run(_reconcile_rag_dispatches(resolved_settings, application))
 
+    @application.task(name=RAG_ATTACHMENT_DRAFT_RECONCILE_TASK, ignore_result=True, shared=False)  # type: ignore
+    def reconcile_attachment_drafts() -> None:
+        run(_reconcile_attachment_drafts(settings or get_settings()))
+
     @application.task(  # type: ignore
         name=RAG_ASSET_HANDOFF_RECONCILE_TASK,
         ignore_result=True,
@@ -355,6 +372,9 @@ def create_celery(
             code, _ = _rag_error(exc)
         raise RuntimeError(code) from None
 
+    from ai_workshop.labs.rag.indexing.access_epoch_worker import register_celery_admission
+
+    register_celery_admission(application, lambda: settings or get_settings())
     return application
 
 
@@ -442,6 +462,16 @@ async def _reconcile_rag_dispatches(settings: Settings, application: Celery) -> 
             SqlAlchemyRagDispatchRepository(sessions),
             CeleryRagJobSender(application),
         ).run_once()
+    finally:
+        await engine.dispose()
+
+
+async def _reconcile_attachment_drafts(settings: Settings) -> None:
+    from ai_workshop.labs.rag.conversations.draft_service import AttachmentDraftService
+
+    engine = create_engine(settings)
+    try:
+        await AttachmentDraftService(create_session_factory(engine), settings).reconcile()
     finally:
         await engine.dispose()
 
@@ -566,22 +596,7 @@ async def _reconcile_evaluation_dispatches(settings: Settings, application: Cele
 
 
 def _rag_error(exc: Exception) -> tuple[str, bool]:
-    from ai_workshop.labs.rag.indexing.tracked_elasticsearch import IndexPreparationFailed
-    from ai_workshop.labs.rag.indexing.tracking_contracts import IndexTrackingError
-
-    if isinstance(exc, IndexPreparationFailed):
-        return exc.code, (exc.writer_confirmed_ended and exc.code == "rag_index_observation_failed")
-    if isinstance(exc, IndexTrackingError):
-        return exc.code, False
-    if isinstance(exc, RagIngestionError):
-        return exc.code, exc.retryable
-    if isinstance(exc, (ParsingError, OcrRuntimeError)):
-        return exc.code, False
-    if isinstance(exc, (OperationalError, TimeoutError, DisconnectionError)):
-        return "database_transient", True
-    if isinstance(exc, OSError):
-        return "parser_unavailable", True
-    return "rag_ingestion_failed", False
+    return classify_ingestion_error(exc)
 
 
 def _asset_error(exc: Exception) -> tuple[str, bool]:

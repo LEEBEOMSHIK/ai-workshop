@@ -102,12 +102,41 @@ async def upload_attachment(
 ) -> ConversationAttachmentResponse:
     response.headers["Cache-Control"] = "no-store"
     attachment_id = await service.reserve(slug, conversation_id, user.id, workspace_id)
+    return await perform_upload(
+        slug,
+        conversation_id,
+        workspace_id,
+        request,
+        background_tasks,
+        user,
+        service,
+        intakes,
+        dispatcher,
+        attachment_id,
+    )
+
+
+async def perform_upload(
+    slug: str,
+    conversation_id: UUID,
+    workspace_id: UUID,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    user: User,
+    service: ConversationAttachmentService,
+    intakes: HttpUploadIntakeService,
+    dispatcher: CeleryJobDispatcher,
+    attachment_id: UUID,
+    *,
+    draft_id: UUID | None = None,
+) -> ConversationAttachmentResponse:
     journal = ConversationUploadJournal(
         service,
         slug=slug,
         conversation_id=conversation_id,
         actor_id=user.id,
         attachment_id=attachment_id,
+        draft_id=draft_id,
     )
     scoped = HttpUploadIntakeService(journal, intakes.store, intakes.coordinator)
     try:

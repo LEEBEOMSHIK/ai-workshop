@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import AwareDatetime, BaseModel, Field
 
 from ai_workshop.labs.rag.executions.domain import ExecutionState, StageName, StageObservation
+from ai_workshop.labs.rag.generation.numeric_proof_schemas import NumericValidationBindingView
 from ai_workshop.labs.rag.search.schemas import (
     EvidenceAnswerResponse,
     GeneratedCitationResponse,
@@ -65,6 +66,9 @@ class MonitoringGeneration(BaseModel):
     citations: list[GeneratedCitationResponse] = Field(default_factory=list)
     reason_codes: list[str] = Field(default_factory=list)
     execution: GenerationExecutionResponse | None = None
+    numeric_validation: NumericValidationBindingView | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class ExecutionUsage(BaseModel):

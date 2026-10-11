@@ -274,6 +274,8 @@ x86_64에서 text·table·bbox 실제 추론과 처리 시간을 통과해야 �
 
 각각 별도 터미널에서 위 `.env` 로드 블록을 먼저 실행한다. Windows Celery worker는 `--pool=solo`를 사용하며 애플리케이션 진입 시 psycopg와 호환되는 Selector 정책을 설정한다.
 
+아래 명령은 **저장소 루트 `C:\projects\ai-workshop`에서** 실행하고 숨김 시작 스크립트도 같은 작업 디렉터리를 유지한다. `.env`를 루트에서 읽은 뒤 `backend`로 이동하면 상대 경로인 `.local-data/models`를 다른 위치에서 찾아 `query_tokenizer_unavailable`이 발생할 수 있다. health와 생성 연결 검사 성공만으로 검색 모델 캐시 적재 성공을 판정하지 않는다.
+
 Windows API는 아래 명시적 loop factory를 사용한다. Uvicorn의 `--loop asyncio`는 reload 없는 Windows 실행에서 정책과 무관하게 Proactor 루프를 선택하므로, Selector 정책 설정만으로는 psycopg async 호환성이 보장되지 않는다. 같은 factory를 유지하면 `--reload`를 생략한 실행도 Selector 루프를 사용한다.
 
 ```powershell
@@ -365,6 +367,17 @@ Codex는 로컬에서 실행해도 질문·포함된 대화·승인 근거를 Op
 검증 자료도 평가 스냅샷·승인 이력에 남는다. 현재 완전 삭제 UI가 없으므로 임시 업로드 후
 완전 삭제를 약속하지 말고 보관 범위를 먼저 승인받는다. 실제 검증 현황과 남은 게이트는
 [연결 진행 기록](../worklogs/2026-09-09-codex-rag-activation.md)을 따른다.
+
+모델 호출을 포함한 수동 평가를 시작하기 전에 **평가를 실행할 프로세스의 외부 연결 권한**을
+확인한다. 백엔드의 연결 검사 성공을 다른 실행 프로세스의 연결 성공으로 간주하지 않는다.
+작업 도구의 제한된 실행 환경에서는 같은 CLI·설정으로 버전 확인이 성공해도 외부 TLS 연결이
+Windows 오류 `10013`으로 거절될 수 있다. 먼저 모델 요청·인증 정보 전송 없는 연결 점검으로
+실행 권한 차이를 확인하고, 모델 평가는 승인된 원래 서버·worker 실행 경로에서 수행한다.
+수동 실행이 필요한 경우에도 해당 실행 권한과 호출 상한을 별도로 확인한다.
+runner의 보안 설정이나 전송 승인, 모델을 바꾸어 연결 차이를 숨기지 않는다.
+실패한 평가를 덮어쓰거나 자동 재전송하지 않으며, 웹 사용 검증은 정상 브라우저 요청으로
+답변·인용·저장·새로고침 복원까지 확인한다. 과거 실행이 상세 process failure를 기록하지
+않았다면 새 연결 점검만으로 그 실행의 정확한 실패 사유를 확정하지 않는다.
 
 ### 문서 전송 승인 복구 적용
 
@@ -544,6 +557,76 @@ activation과 parity 모두 위 store/cluster 설정을 요구하며, 기존 미
 전체 삭제 완료 증명이 아니다. UI/API에서 호출하는 전체 purge 조립은 후속이다.
 
 자세한 불변식과 잠금 순서는 [별칭·쓰기 차단 설계](../superpowers/specs/2026-09-20-rag-alias-write-fence-design.md)를 따른다.
+
+미종료 요청의 정상 복구는 [ADR-0032](../decisions/0032-rag-alias-recovery.md)와 [정상 복구 계약](../superpowers/specs/2026-09-30-rag-alias-recovery-design.md)에 따라 구현·독립 검토됐고 본래0061을 반영했다. 실제 종료 증거 수집은 아직 미완료다. 현재 alias·task 부재·기존 재시작만으로 원장을 직접 해제하지 않는다. 신규 전송 단계와 gate/receipt를 포함한0061 배포는 기존 writer를 실제 종료한 뒤 시행해야 하며 구 writer와 혼합하지 않는다.
+
+지원할 운영 경계는 신뢰하는 관리자·Docker daemon이 통제하는 Windows local의 직접 loopback 단일 ES다. CIM으로 Python이 없다는 사실만으로 curl/Node/PowerShell/WSL/터널/Docker 내부 writer까지 모두 배제했다고 판단하지 않는다. Postgres·Redis의 기존 Docker network 접근도 관리자의 통제 경계에 포함된다. 다른 node/프록시/원격 writer나 과거 endpoint 이력이 미확정이면 요청은 open으로 유지한다.
+
+복구 순서는 exact snapshot/owner 확인 → durable cluster freeze → 이전 client와 재시작 supervisor 종료 확인 → 동일 immutable ES container 실제 stop 확인 → 같은 volume으로 start 및 cluster/영속 node 동일·ephemeral/JVM 새 generation 확인 → client/gate/snapshot 재검사 → atomic 종료 receipt readback이다. DB lock을 유지한 채 프로세스나 Docker를 조작하지 않는다. 이후 exact gate release와 현재 DB 기준 정상 profile parity를 따로 검증하고 기존 API/worker/beat를 같은 `.env`로 재시작한다. 서버 복원이 성공해도 receipt가 없으면 복구 성공이 아니다. receipt 응답 유실은 같은 request readback으로 확인하며 새 mutation으로 추측하지 않는다.
+
+로컬 운영 진입점은 `python -m ai_workshop.labs.rag.indexing.alias_recovery_cli`이며
+`preview`, `preflight`, `freeze`, `status`, `recover`, `release`를 별도로 실행한다. 모든 명령에 exact
+`--operation`과 현재 OWNER의 `--actor`를 지정하고, preview/preflight 외에는 처음 보존한 동일
+`--request`를 사용한다. freeze에는 preview의 `--snapshot-sha256`도 필요하다.
+먼저 상속된 `AI_WORKSHOP_*`를 비우며 CLI가 저장소의 원래 `.env`를 직접 읽게 한다.
+recover의 PowerShell controller는 고정된 환경 초기화·저장소 이동·정확한 CLI 실행만 허용하며,
+임의 부가 명령·script wrapper나 proof 파일을 추가하면 거부한다.
+
+유지보수를 시작하기 전에 같은 operation/actor로 `preflight`를 실행한다. 고정 읽기 명령으로만
+현재 지원 조건을 관찰하며 서버·gate·receipt·alias를 변경하지 않는다. `ready`도
+`termination_proven=false`, `parity=not_run`이다. 전송 전 reserved는 `not_required`다.
+`blocked`는 비정상 종료 코드와 안전한 진단을 반환하며 서버를 중지하거나 차단을 새로 잡지 않는다.
+새 legacy/dispatching `freeze`도 owner/snapshot/readback 확인 후 이 검사를 먼저 수행한다.
+정확한 기존 frozen claim·terminal receipt 재접수, reserved·closed 경로는 불필요한 HOST 검사를
+반복하지 않으며 기존 DB CAS와 재접수 계약을 유지한다. 사전검사 결과는 이후 recover의
+종료 증거로 재사용하지 않는다. [사전검사 설계](../superpowers/specs/2026-10-01-rag-alias-preflight-design.md)를 따른다.
+
+접근 epoch 전환의 부분 배포 관찰은 같은 로컬 CLI의 `preflight-access-epoch --operation <기존 UUID> --actor <현재 OWNER UUID>`로 실행한다.
+기존 v1 사전검사와 별도로 고정 Docker context/daemon/container·기존 이미지/named volume 및 실제 단일 ES 노드를 읽는다.
+IDE·Codex·frontend를 종료하거나 전체 client 부재를 요구하지 않는다. 정상 관찰도 `deployment_observed=true`일 뿐,
+항상 `preflight=blocked`, `historical_control_settlement=unknown`, `termination_proven=false`, `parity=not_run`이며 종료 코드1이다.
+전체 ingress·독점 volume 사용·과거 제어 종료·native controller 준비를 증명하지 않으며 recover나 release를 이어 실행하지 않는다.
+새 epoch/credential/receipt 생성이나 서버 재시작은 없다. raw inspect/env/오류 대신 고정 진단만 출력한다.
+[정확한 범위](../decisions/0033-rag-access-epoch.md#2026-10-08-읽기-전용-사전검사-구현-범위)를 따른다.
+
+현재 본래 ARM64 호스트의 native helper/controller는 설치된 공식 PowerShell7.6.6의
+`C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.6.0_arm64__8wekyb3d8bbwe\pwsh.exe`와
+SHA256 `abb215e4d87889c85a18333a310b1dbdae33e78a25e13dc7cf129fbdaea848e0`에 고정한다.
+운영 전 Microsoft 서명·파일 해시를 확인하며, 경로/해시가 변하면 새 검증 전에는 거부한다.
+현재 Windows PowerShell5.1은 서명 조회 모듈을 로드하지 못했다. 이를 숨겨 자동 전환하거나
+정책을 바꾸지 않으며 기존 공식7을 명시적으로 사용한다. recover의 실행 shell도 같은 정확한
+경로를 지정한다. 이 로컬 배포 경계는 일반 production 또는 다른 호스트 지원을 뜻하지 않는다.
+
+2026-10-01 실제 본래 호스트는 HOST 관찰45초 초과와 exact 허용 범위 밖 IDE/Codex/tool/
+frontend build child/Docker build process로 복구 조건을 충족하지 못했다. 서명·이름·부모·
+현재 ES 연결 부재만으로 예외를 추가하거나 관련 없는 앱을 종료하지 않는다. 요청은
+open/frozen revision1·receipt0, ES는 기존 실행이며 새로운 parity는 미실행이다.
+원래 API·worker·beat는 같은 `.env`로 복원했으나 **클러스터 전체의 새 alias 예약·전송은
+차단**된다. health200 또는 worker ready를 색인 정상화로 보고하지 않는다. 재시도 전
+호스트 지원 경계·freeze 전 사전 검사 재설계가 필요하며 [실행 기록](../worklogs/2026-09-30-rag-alias-recovery.md)을 확인한다.
+
+후속 preflight를 본래 환경에서 서버 중지 없이 실행한 결과는
+`blocked / local_command_failed / termination_proven=false`다. 고정 HOST 읽기 추가 진단은
+파일 식별 조건의 `file_identity_unverified`로 중단됐고 완전한 inventory가 아니다.
+전후 DB·원문·ES 실행 세대·health를 보존했다. 이 상태에서 recover·해제·parity를 진행하지 않으며
+정확한 파일 식별 조건과 지원되는 실제 종료 경계를 먼저 해결한다.
+[사전검사 검증 기록](../worklogs/2026-10-01-rag-alias-preflight.md)을 따른다.
+
+추가 읽기 조사에서는 첫 Identity 거부가 **Node 실행 파일 상위 디렉터리의 심볼릭 링크**로
+확인됐다. 기존 계약에서 의도적으로 거부하는 reparse 경로이며, 문자열 정규화 수정이나 링크
+허용으로 바꾸지 않는다. [HOST 원인·진단 전달 기록](../worklogs/2026-10-01-rag-host-identity-diagnostics.md)에
+해당 조건과 안전한 상세 진단의 구현·검증 범위를 누적한다. 전체 client 종료 증거와 실제
+별칭 복구의 완료 조건은 그대로 유지한다.
+
+종료 receipt의 과거 claim은 현재 cluster gate의 소유권과 다르다. 해제 후 같은 요청의 freeze
+재접수는 과거 receipt 조회이며 차단을 다시 획득하지 않는다. 새로운 요청이 gate를 소유한
+경우에도 과거 request/revision으로 현재 차단 권한을 추정하지 않는다. 모호한 DB 응답은
+동일 request의 status로만 확인하고 자동 재전송·release·parity를 진행하지 않는다.
+
+0061 최초 반영은 구 API·worker·beat와 supervisor를 먼저 종료한 뒤 migration과 원래 DB의
+rollback 검증을 수행하고 새 CLI로 freeze한다. 평상시 이미0061인 환경의 복구는 위 freeze
+순서를 따른다. 운영자는 현재 요청의 실제 차단과 종료 receipt를 각각 확정한 뒤 해제하고,
+현재 DB 기준 `run_once(profile_id=...)` 한 번의 새 정상 parity 결과를 별도로 확인한다.
 
 ### 추적 RAG 산출물 저장소 활성화 전제
 
@@ -949,10 +1032,53 @@ node node_modules/vitest/vitest.mjs run --pool=threads --maxWorkers=1 --reporter
 2026-09-21 본래 DB는 migration0050이다. 기존 계정으로 로그인하고 도메인 대화의 왼쪽 목록에서 저장된 대화를 다시 연다.
 새 대화는 기존 세션을 보존한다. 도입 전에 화면 메모리에서 사라진 대화는 복구되지 않는다.
 입력창 `+`의 기존 문서 선택은 읽기 전용이며, PC 첨부는 현재 도메인이 허용한 사용자 소유 개인/임시 공간이 있어야 한다.
-현재 자산운용 도메인은 공용 합성 공간만 연결되어 PC 첨부를 사용할 수 없다. 임의의 새 환경이나 공용 저장 fallback을 만들지 않는다.
+당시 자산운용 도메인은 공용 합성 공간만 연결되어 PC 첨부를 사용할 수 없었다.
+2026-09-27부터 첨부 저장 권한과 생성 구독 범위를 분리했다. 기존 개인 공간에 저장할 수 있지만,
+생성 범위 밖 파일은 `저장됨 · 현재 답변에 사용 불가`이며 개인 공간의 외부 전송 `deny`는 유지한다.
+임의의 새 환경이나 공용 저장 fallback을 만들지 않는다.
 응답의 검색 진단에서 문장/문맥 cosine, BM25/dense/RRF 원점수, 선택 사유와 단계별 시간을 구분해 확인한다.
 삭제된 첨부의 보존 이유는 소유자 API `/api/v1/rag/domains/{slug}/conversation-attachment-cleanup`에 고정 코드로 남는다.
 `cleanup_waiting`은 종료 또는 참조 증거가 부족한 상태이며 삭제 실패를 숨기는 성공 상태가 아니다. 실제 원본 자동 삭제는 활성화하지 않았다.
+
+### 첫 질문 접수·첨부 초안 적용
+
+계약은 [ADR-0031](../decisions/0031-first-question-conversation-and-drafts.md)과
+[실행 계획](../superpowers/plans/2026-09-30-first-question-conversation.md)을 따른다.
+실제 적용 여부와 검증 시점은 WORKBOARD에서 확인한다. 화면·코드 존재만으로 본래 DB 적용을 추정하지 않는다.
+
+반영 전 본래 DB의 백업과 원본·계정·대화·활성 구성 metadata 기준값을 보존한다.
+beat를 먼저 중지하고 worker의 active/reserved/scheduled 작업, 진행 중 turn·미종료 upload·open intake를
+확인한다. API·worker의 실제 프로세스 종료를 확인한 뒤에만 `0060_first_question`을 적용한다.
+활성 작업이 있으면 종료 증거를 기다리며 상태·예약·큐를 직접 지워 통과시키지 않는다.
+새 API·worker·beat는 같은 코드와 본래 `.env`로 실행한다. 구 writer를 다시 시작하지 않는다.
+새 draft/start 데이터가 있으면 downgrade를 차단하므로 자동 downgrade로 복구하지 않는다.
+
+방문·새 대화·기존 문서 선택은 세션을 만들지 않는다. 실제 PC 파일 선택/드롭에서만 서버 draft를 만들며,
+첫 유효 질문은 `POST /api/v1/rag/domains/{slug}/conversations/start`로 한 번 접수한다.
+첫 질문 기준 제목은 로컬에서 한 번 만들고, 후속 질문과 새로고침은 수동 제목을 유지한다.
+응답 유실·첫 접수 대기에는 `GET .../conversations/starts/{request_id}`를 사용한다.
+404는 접수 미확인이며 fetch abort를 서버 취소 완료로 보지 않는다. 접수 ID 확인 후 기존 cancel을 사용한다.
+재전송은 원래 request_id와 payload를 보존한다.
+원래 POST의 일반404도 접수 후 권한 변경에서 발생할 수 있다. 접수 전 거절로 검증된 오류 코드 외에는
+HTTP4xx만으로 미접수라고 단정하거나 새 request_id로 바꾸지 않는다.
+
+초안 새로고침 복원·제외·포기는 서버 상태로 확인한다. 제외된 파일도 writer 종료가 확인되기 전에는
+결합할 수 없다. `GET .../attachment-draft-cleanup`의 보존/대기 사유를 확인하며 원본을 물리 삭제하지 않는다.
+기존 빈 세션은 목록에서 숨기고 `POST .../conversations/{id}/restore-draft`로 복원한다.
+현재 원문 접근 권한이 사라진 첫 turn은 제목도 서버에서 가린다.
+
+Codex 실행기가 업데이트되어 해시가 달라지면 먼저 실제 파일의 공식 서명·버전·해시와 해당 버전의
+명령 계약을 검증한다. command whitelist와 테스트가 승인된 정확한 버전만 등록하고,
+기존 경로·모델·제한·전송 정책을 유지한 채 runner의 버전·해시만 갱신한다.
+설정 파일의 비공개 백업과 동시 수정 방지·교체 후 검증을 수행한다. 파일 교체 실패 시 반영을 중단하고
+실제 파일·ACL·백업 상태를 조사한다. 실패했다고 기존 파일이 그대로 남았다고 가정하지 않는다.
+API 재시작 후 **활성 구성의 합성 연결 검사**를 실제로 다시 수행한다. 저장 proof를 수동 수정하지 않는다.
+
+본래 DB 검증은 새 스키마와 활성 구성 준비를 확인한 뒤 opt-in
+`backend/tests/integration/labs/rag/domains/test_original_first_question.py`만 실행한다.
+이 fixture는 기존 계정·공간을 사용하고 outer transaction/SAVEPOINT와 최종 rollback으로 시험 쓰기를 보존하지 않는다.
+별도 DB를 생성·삭제하는 일반 integration fixture를 본래 환경에 실행하지 않는다.
+이 검사는 실제 브라우저·모델·파일 저장·다중 연결 commit 경합 검증을 대신하지 않는다.
 
 ### 문제·개선 이력 DB 관리
 
@@ -1014,3 +1140,29 @@ DB downgrade로 이전 번호를 삭제하지 않는다. 앱 롤백이 필요하
 ### 로그인 유효시간 설정
 
 AI_WORKSHOP_SESSION_LIFETIME_MINUTES는 새 로그인 JWT와 세션 쿠키의 유효시간(분)을 함께 지정한다. 기본값은 30이며 1~1440 범위다. 현재 로컬 작업 환경은 사용자 요청으로 480(8시간)을 사용한다. 변경 후 API를 재시작한다. 이미 발급된 토큰의 만료 시각은 바뀌지 않으며, 새 로그인부터 적용된다. 만료된 토큰을 연장하거나 인증 검증을 건너뛰지 않는다.
+
+### 원문 계산 근거의 본래 DB 되돌림 시험
+
+이 파일만 독립 검토 후 명시적으로 실행한다. 전체 integration이나 다른 원본 trial을 대신 실행하지 않는다.
+기존 `.env`를 읽고 inherited AI_WORKSHOP 설정을 시험 프로세스 안에서 제거한다. 기존 owner·승인 합성 원문을
+사용하며 새 계정·DB·모델 호출을 만들지 않는다. COMMIT을 거부하는 한 연결 안에서 DDL와 임시 검증 행을
+시험한 뒤 전부 rollback한다. 기존 행 해시·함수 OID/정의·0061 스키마를 비교하고, 새 table/function이 없는
+상태에서 실제 legacy 조회를 다시 확인한다. 임시 의미 판정은 SQL 계약 fixture이며 모델 품질의 증거가 아니다.
+
+```powershell
+Set-Location C:\projects\ai-workshop\backend
+$env:AI_WORKSHOP_VERIFY_ORIGINAL_NUMERIC_PROOF = '1'
+try {
+    .venv\Scripts\python.exe -m pytest tests/integration/labs/rag/evaluation/test_original_numeric_proof.py -q --assert=plain --tb=short
+}
+finally {
+    Remove-Item Env:AI_WORKSHOP_VERIFY_ORIGINAL_NUMERIC_PROOF -ErrorAction SilentlyContinue
+}
+```
+
+opt-in이 없으면 4건이 SKIP된다. 실제 반영은 이 시험과 별도다. 현재0061에서 정확한0062→0063 경로를
+검토·승인하기 전 `upgrade head`·stamp·API 재시작을 실행하지 않는다.0062는 access-epoch 저장·receipt
+제약을 변경하며 ES 전환 자체는 실행하지 않는다.0063은 numeric receipt와 기존 승인 함수의 검증 호출을
+추가한다.0063 downgrade는 차단되므로 적용 후 데이터 제거로 되돌리지 않는다. [상세 경계](../worklogs/2026-10-05-rag-numeric-proof-implementation.md).
+
+2026-10-06 사용자가 실제 반영을 승인한 뒤 본래 DB에 정확한0062→0063을 적용했다. API는 같은 루트/.env·모델 캐시로만 재시작했고 새 합성 연결을 통과했다. 기존117테이블 보존 및 독립 legacy복원 확인과 별개로 새75회 평가를 완료해64정상/11검증거절·의미63통과/1실패·승격409를 기록했다. 후보는pending/defaultfalse이고 브라우저는미검증이다. [반영·평가 기록](../worklogs/2026-10-06-rag-numeric-proof-rollout.md). 위 rollback trial은0061 사전조건 전용이므로 현재0063의 본래 DB에서 재실행하지 않는다. 이를 위해 DB를 downgrade·stamp하거나 새 테스트 환경을 만들지 않는다. worker/beat·Docker·활성 도메인 연결·별칭 gate를 이 numeric migration 때문에 바꾸지 않는다. private pg_dump는 목록 검증만 했으며 별도 실제 복원 시험 통과로 보고하지 않는다.

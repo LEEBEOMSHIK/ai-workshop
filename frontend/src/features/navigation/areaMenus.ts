@@ -36,6 +36,7 @@ export const areaMenus: Record<Area, { label: string; items: readonly MenuItem[]
     { label: "파일함", href: routes.workshopHome, prefixes: [routes.workshopHome], domainFiles:true },
     { label: "RAG 대화", href: routes.workshopRagSearch, prefixes: [routes.workshopRagSearch, "/workshop/rag/sources"], domainChat: true },
     { label: "학습 기록", href: routes.workshopLearning, prefixes: [routes.workshopLearning] },
+    { label: "흐름도", href: routes.workshopFlows, prefixes: [routes.workshopFlows] },
   ] },
   admin: { label: "관리자 운영", items: adminMenuGroups.flatMap(group => group.items) },
 };

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
+from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
+from dataclasses import replace
 from datetime import UTC, datetime
 from enum import StrEnum
+from hashlib import sha256
 from pathlib import Path
 from typing import Protocol
 from uuid import UUID, uuid4
@@ -13,11 +17,13 @@ from uuid import UUID, uuid4
 from ai_workshop.labs.rag.conversations.domain import Conversation, Turn, reserve_turn
 from ai_workshop.labs.rag.conversations.schemas import (
     ConversationDetail,
+    ConversationStart,
     ConversationSummary,
     ConversationTurnCreate,
     ConversationTurnResponse,
     RequestScope,
 )
+from ai_workshop.labs.rag.conversations.title_policy import REDACTED_TITLE, derive_title
 from ai_workshop.labs.rag.domains.api import DomainSearchExecutorPort
 from ai_workshop.labs.rag.domains.schemas import DomainSearchRequest, DomainSearchResponse
 from ai_workshop.labs.rag.domains.service import DomainService
@@ -27,6 +33,7 @@ from ai_workshop.labs.rag.executions.domain import (
     ExecutionRecorder,
 )
 from ai_workshop.labs.rag.executions.observer import ExecutionObserver, observed_call
+from ai_workshop.labs.rag.generation.domain import CODEX_GENERATION_DISCLOSURE_VERSION
 from ai_workshop.labs.rag.search.schemas import ConversationTurnRequest
 from ai_workshop.shared.errors import AppError
 
@@ -84,8 +91,13 @@ def _log_execution_failure(exc: Exception, phase: ExecutionPhase, request_id: UU
 
 class ConversationRepository(Protocol):
     async def domain_id(self, slug: str) -> UUID: ...
-    async def create(self, item: Conversation) -> None: ...
     async def list(self, owner_id: UUID, domain_id: UUID) -> list[Conversation]: ...
+    async def find_start(
+        self, owner_id: UUID, domain_id: UUID, request_id: UUID, digest: str | None
+    ) -> Conversation | None: ...
+    async def start(
+        self, item: Conversation, request: ConversationStart, digest: str
+    ) -> tuple[Conversation, bool]: ...
 
     async def record_termination(
         self,
@@ -112,8 +124,15 @@ class ConversationService:
         domains: DomainService,
         executor: DomainSearchExecutorPort,
         recorder: ExecutionRecorder | None = None,
+        title_max_length: int = 64,
+        final_authority: Callable[[str, UUID], Awaitable[object]] | None = None,
+        numeric_verifier: Callable[[UUID, UUID | None, DomainSearchResponse], Awaitable[None]]
+        | None = None,
     ) -> None:
         self.recorder = recorder
+        self.title_max_length = title_max_length
+        self.final_authority = final_authority or domains.detail_for_actor
+        self.numeric_verifier = numeric_verifier
         self.repository, self.access, self.domains, self.executor = (
             repository,
             access,
@@ -123,19 +142,23 @@ class ConversationService:
 
     async def create(self, slug: str, actor_id: UUID, title: str | None) -> ConversationDetail:
         await self.domains.detail_for_actor(slug, actor_id)
-        domain_id = await self.repository.domain_id(slug)
-        now = datetime.now(UTC)
-        item = Conversation(
-            uuid4(), actor_id, domain_id, title or f"새 대화 {now:%Y-%m-%d %H:%M}", 1, now, now
+        raise AppError(
+            "conversation_start_required",
+            "Submit the first question using conversations/start.",
+            410,
         )
-        await self.repository.create(item)
-        return await self._view(item)
 
     async def list_for_actor(self, slug: str, actor_id: UUID) -> list[ConversationSummary]:
+        await self.domains.detail_for_actor(slug, actor_id)
         domain_id = await self.repository.domain_id(slug)
-        return [self._summary(item) for item in await self.repository.list(actor_id, domain_id)]
+        return [
+            ConversationSummary(**(await self._view(item)).model_dump(exclude={"turns"}))
+            for item in await self.repository.list(actor_id, domain_id)
+            if item.turns
+        ]
 
     async def detail(self, slug: str, actor_id: UUID, id: UUID) -> ConversationDetail:
+        await self.domains.detail_for_actor(slug, actor_id)
         domain_id = await self.repository.domain_id(slug)
         async with self.repository.locked(actor_id, domain_id, id) as item:
             item.recover(datetime.now(UTC))
@@ -144,14 +167,18 @@ class ConversationService:
     async def rename(
         self, slug: str, actor_id: UUID, id: UUID, title: str, revision: int
     ) -> ConversationDetail:
+        await self.domains.detail_for_actor(slug, actor_id)
         domain_id = await self.repository.domain_id(slug)
         async with self.repository.locked(actor_id, domain_id, id) as item:
+            self._require_writer(item)
             item.require_revision(revision)
             item.title = title
+            item.title_origin = "manual"
             item.touch(datetime.now(UTC))
         return await self._view(item)
 
     async def delete(self, slug: str, actor_id: UUID, id: UUID, revision: int) -> None:
+        await self.domains.detail_for_actor(slug, actor_id)
         domain_id = await self.repository.domain_id(slug)
         async with self.repository.locked(actor_id, domain_id, id) as item:
             item.require_revision(revision)
@@ -169,6 +196,7 @@ class ConversationService:
     async def cancel(
         self, slug: str, actor_id: UUID, id: UUID, request_id: UUID
     ) -> ConversationDetail:
+        await self.domains.detail_for_actor(slug, actor_id)
         domain_id = await self.repository.domain_id(slug)
         async with self.repository.locked(actor_id, domain_id, id) as item:
             target = next((turn for turn in item.turns if turn.request_id == request_id), None)
@@ -183,9 +211,11 @@ class ConversationService:
     async def submit(
         self, slug: str, actor_id: UUID, id: UUID, request: ConversationTurnCreate
     ) -> ConversationDetail:
+        await self.domains.detail_for_actor(slug, actor_id)
         domain_id = await self.repository.domain_id(slug)
         # Replay is checked before current scope validation: it never triggers another call.
         async with self.repository.locked(actor_id, domain_id, id) as item:
+            self._require_writer(item)
             item.recover(datetime.now(UTC))
             existing = next(
                 (turn for turn in item.turns if turn.request_id == request.request_id), None
@@ -207,6 +237,101 @@ class ConversationService:
             turn, created = reserve_turn(item, request, identity, datetime.now(UTC))
         if not created:
             return await self._view(item)
+        return await self._execute_reserved(slug, actor_id, item, turn, request)
+
+    @staticmethod
+    def _require_writer(item: Conversation) -> None:
+        if item.legacy_state != "active":
+            raise AppError(
+                "legacy_draft_required", "Restore the previous unsent attachment draft.", 409
+            )
+
+    async def start(
+        self, slug: str, actor_id: UUID, request: ConversationStart
+    ) -> ConversationDetail:
+        await self.domains.detail_for_actor(slug, actor_id)
+        domain_id = await self.repository.domain_id(slug)
+        digest = sha256(
+            json.dumps(
+                request.model_dump(mode="json", exclude={"request_id"}), sort_keys=True
+            ).encode()
+        ).hexdigest()
+        existing = await self.repository.find_start(actor_id, domain_id, request.request_id, digest)
+        if existing is not None:
+            async with self.repository.locked(actor_id, domain_id, existing.id) as existing:
+                existing.recover(datetime.now(UTC))
+            return await self._view(existing)
+        turn_request = request.turn_request()
+        approval = request.codex_input_approval
+        if approval is not None and (
+            approval.consented is not True
+            or approval.disclosure_version != CODEX_GENERATION_DISCLOSURE_VERSION
+        ):
+            raise AppError(
+                "codex_input_approval_required",
+                "Exact public/synthetic Codex input consent is required.",
+                422,
+            )
+        await self.domains.resolve_search(
+            slug=slug,
+            actor_id=actor_id,
+            connection_version_id=request.connection_version_id,
+            workspace_ids=tuple(request.workspace_ids),
+            folder_ids=tuple(request.folder_ids),
+            document_ids=tuple(request.document_ids) if request.document_ids is not None else None,
+        )
+        # The concrete executor validates selected READY scope and deterministic
+        # provider consent before acceptance, without executing generation.
+        preflight = getattr(self.executor, "preflight", None)
+        if preflight is None:
+            raise AppError(
+                "conversation_preflight_unavailable",
+                "First-question acceptance validation is unavailable.",
+                503,
+            )
+        await preflight(
+            slug=slug,
+            actor_id=actor_id,
+            request=DomainSearchRequest.model_validate(
+                turn_request.model_dump(
+                    exclude={"request_id", "expected_revision"}, exclude_none=True
+                )
+            ),
+        )
+        identity = await self.access.identity(actor_id, turn_request)
+        now = datetime.now(UTC)
+        derived = derive_title(request.query, self.title_max_length)
+        item = Conversation(uuid4(), actor_id, domain_id, derived.title, 1, now, now)
+        turn, _ = reserve_turn(item, turn_request, identity, now)
+        item.title_origin, item.title_source_turn_id = "auto", turn.id
+        item.title_derivation, item.title_policy_version = (
+            derived.derivation,
+            derived.policy_version,
+        )
+        item.title_error_code = derived.error_code
+        item, created = await self.repository.start(item, request, digest)
+        if not created:
+            return await self._view(item)
+        return await self._execute_reserved(slug, actor_id, item, item.turns[0], turn_request)
+
+    async def start_status(self, slug: str, actor_id: UUID, request_id: UUID) -> ConversationDetail:
+        await self.domains.detail_for_actor(slug, actor_id)
+        domain_id = await self.repository.domain_id(slug)
+        item = await self.repository.find_start(actor_id, domain_id, request_id, None)
+        if item is None:
+            raise AppError("not_found", "The first question has not been accepted.", 404)
+        return await self.detail(slug, actor_id, item.id)
+
+    async def _execute_reserved(
+        self,
+        slug: str,
+        actor_id: UUID,
+        item: Conversation,
+        turn: Turn,
+        request: ConversationTurnCreate,
+    ) -> ConversationDetail:
+        id = item.id
+        domain_id = item.domain_id
         observer = (
             ExecutionObserver(ExecutionIdentity(actor_id=actor_id, turn_id=turn.id), self.recorder)
             if self.recorder is not None
@@ -262,7 +387,7 @@ class ConversationService:
                         task.cancel()
                         break
             phase = ExecutionPhase.EXECUTE
-            result = await task
+            result = await asyncio.shield(task)
         except asyncio.CancelledError:
             cancelled = True
         except AppError as exc:
@@ -271,46 +396,84 @@ class ConversationService:
             _log_execution_failure(exc, phase, request.request_id)
             # Never persist provider exception messages or private tracebacks.
             error = "conversation_execution_failed"
-        finally:
-            if task is not None and not task.done():
-                task.cancel()
+
+        async def finalize() -> ConversationDetail:
+            nonlocal result, error
+            # Request cancellation must not reach executor finally twice or skip
+            # terminal persistence. The transport owner joins this entire task.
+            if task is not None:
+                if not task.done() and not task.cancelling():
+                    task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
-        if observer:
-            if error or cancelled:
-                await observer.fail(error or "conversation_cancelled")
-            await observer.begin("persistence")
-        try:
-            async with self.repository.locked(actor_id, domain_id, id) as current:
-                target = next(value for value in current.turns if value.id == turn.id)
-                target.execution_terminated = True
-                if target.status == "running":
-                    target.status = "cancelled" if cancelled else "failed" if error else "completed"
-                    target.error_code = "conversation_cancelled" if cancelled else error
-                    target.response = result.model_dump(mode="json") if result is not None else None
-                target.updated_at = datetime.now(UTC)
-                current.touch(target.updated_at)
-        except AppError as exc:
-            if exc.status_code == 404:
-                await self.repository.record_termination(actor_id, domain_id, id, turn.id)
-                if observer:
-                    await observer.fail("conversation_deleted")
-                    await observer.finish(
-                        ExecutionOutcome(state="cancelled", error_code="conversation_deleted")
+            authority_error = None
+            try:
+                await self.final_authority(slug, actor_id)
+                if result is not None and not cancelled and error is None:
+                    candidate = replace(turn, response=result.model_dump(mode="json"))
+                    if not await self.access.visible(actor_id, candidate):
+                        raise AppError(
+                            "conversation_source_unavailable",
+                            "The conversation source is unavailable.",
+                            404,
+                        )
+                    if self.numeric_verifier is not None:
+                        await self.numeric_verifier(actor_id, turn.execution_id, result)
+            except AppError as exc:
+                error, result = exc.code, None
+                if exc.code != "conversation_source_unavailable":
+                    authority_error = exc
+            if observer:
+                if error or cancelled:
+                    await observer.fail(error or "conversation_cancelled")
+                await observer.begin("persistence")
+            try:
+                async with self.repository.locked(actor_id, domain_id, id) as current:
+                    target = next(value for value in current.turns if value.id == turn.id)
+                    target.execution_terminated = True
+                    if target.status == "running":
+                        target.status = (
+                            "cancelled" if cancelled else "failed" if error else "completed"
+                        )
+                        target.error_code = "conversation_cancelled" if cancelled else error
+                        target.response = (
+                            result.model_dump(mode="json") if result is not None else None
+                        )
+                    target.updated_at = datetime.now(UTC)
+                    current.touch(target.updated_at)
+            except AppError as exc:
+                if exc.status_code == 404:
+                    await self.repository.record_termination(actor_id, domain_id, id, turn.id)
+                    if observer:
+                        await observer.fail("conversation_deleted")
+                        await observer.finish(
+                            ExecutionOutcome(state="cancelled", error_code="conversation_deleted")
+                        )
+                    raise AppError("not_found", "The conversation was deleted.", 404) from None
+                raise
+            if observer:
+                target.observation_complete = observer.complete
+                await observer.end("persistence")
+                await observer.finish(
+                    ExecutionOutcome(
+                        state=target.status,
+                        error_code=target.error_code,
+                        answer_status=result.generation.status if result else None,
                     )
-                raise AppError("not_found", "The conversation was deleted.", 404) from None
-            raise
-        if observer:
-            target.observation_complete = observer.complete
-            await observer.end("persistence")
-            await observer.finish(
-                ExecutionOutcome(
-                    state=target.status,
-                    error_code=target.error_code,
-                    answer_status=result.generation.status if result else None,
                 )
-            )
-            target.observation_complete = observer.complete
-        return await self._view(current)
+                target.observation_complete = observer.complete
+            if authority_error is not None:
+                raise authority_error
+            return await self._view(current)
+
+        cleanup = asyncio.create_task(finalize())
+        while not cleanup.done():
+            try:
+                await asyncio.shield(cleanup)
+            except asyncio.CancelledError:
+                # Cleanup owns the already-known execution outcome. A later
+                # transport cancellation must not rewrite completion or failure.
+                continue
+        return cleanup.result()
 
     async def _history(
         self, item: Conversation, current: Turn, request: ConversationTurnCreate
@@ -374,6 +537,20 @@ class ConversationService:
                 turn,
                 external=external,
             )
+            if (
+                visible[turn.id]
+                and turn.status == "completed"
+                and turn.response is not None
+                and self.numeric_verifier is not None
+            ):
+                try:
+                    await self.numeric_verifier(
+                        item.owner_id,
+                        turn.execution_id,
+                        DomainSearchResponse.model_validate(turn.response),
+                    )
+                except Exception:
+                    visible[turn.id] = False
         return visible
 
     async def _view(self, item: Conversation) -> ConversationDetail:
@@ -404,7 +581,13 @@ class ConversationService:
                     observation_complete=turn.observation_complete if allowed else None,
                 )
             )
-        return ConversationDetail(**self._summary(item).model_dump(), turns=turns)
+        summary = self._summary(item)
+        if not item.turns:
+            summary.title = ""
+        elif not visible[item.turns[0].id]:
+            summary.title = REDACTED_TITLE
+            summary.title_error_code = None
+        return ConversationDetail(**summary.model_dump(), turns=turns)
 
     @staticmethod
     def _summary(item: Conversation) -> ConversationSummary:
@@ -414,4 +597,11 @@ class ConversationService:
             revision=item.revision,
             created_at=item.created_at,
             updated_at=item.updated_at,
+            title_origin=item.title_origin,
+            title_source_turn_id=item.title_source_turn_id,
+            title_derivation=item.title_derivation,
+            title_policy_version=item.title_policy_version,
+            title_error_code=item.title_error_code,
+            legacy_state=item.legacy_state,
+            attachment_draft_id=item.attachment_draft_id,
         )

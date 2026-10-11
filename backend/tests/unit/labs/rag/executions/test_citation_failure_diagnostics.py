@@ -242,7 +242,12 @@ async def test_evaluation_persists_terminal_or_active_failure_stage(monkeypatch,
     monkeypatch.setattr(module, "FrozenGenerativeAdapter", Adapter)
     monkeypatch.setattr(module, "get_search_service", pipelines)
     monkeypatch.setattr(module, "SqlAlchemyExecutionRecorder", lambda sessions: Recorder())
-    workflow = module.GenerativeWorkflow(sessions, Settings())
+    workflow = module.GenerativeWorkflow(
+        sessions,
+        Settings(
+            _env_file=None, environment="test", secret_key="synthetic-unit-test-secret-key-only"
+        ),
+    )
     workflow.repository = Repository()
     await workflow._execute_claimed(run_id, token)
     assert len(records) == 1

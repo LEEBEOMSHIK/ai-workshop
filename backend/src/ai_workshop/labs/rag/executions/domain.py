@@ -4,6 +4,8 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from ai_workshop.labs.rag.models.budget_trace import BudgetTrace
+
 StageName = Literal[
     "request",
     "history",
@@ -63,6 +65,7 @@ class CandidateObservation(Metadata):
     keyword_coverage: float | None = None
     selected: bool = False
     reason: str = Field(max_length=80, pattern=r"^[a-z0-9_]+$")
+    budget_trace: BudgetTrace | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class SelectionObservation(Metadata):

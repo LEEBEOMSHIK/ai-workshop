@@ -16,12 +16,20 @@ def attachment_case(monkeypatch):
     workspace_id, version_id = uuid4(), uuid4()
     user = SimpleNamespace(id=uuid4())
     row = SimpleNamespace(
-        id=uuid4(), workspace_id=workspace_id, document_id=uuid4(),
-        state="attached", created_at=datetime.now(UTC),
+        id=uuid4(),
+        workspace_id=workspace_id,
+        document_id=uuid4(),
+        state="attached",
+        created_at=datetime.now(UTC),
+        excluded_at=None,
     )
     document = SimpleNamespace(
-        id=row.document_id, workspace_id=workspace_id, folder_id=None,
-        name="synthetic.txt", metadata_revision=1, active_version_id=version_id,
+        id=row.document_id,
+        workspace_id=workspace_id,
+        folder_id=None,
+        name="synthetic.txt",
+        metadata_revision=1,
+        active_version_id=version_id,
         versions=[SimpleNamespace(id=version_id, number=1, status="ready")],
     )
     context = SimpleNamespace(
@@ -30,12 +38,15 @@ def attachment_case(monkeypatch):
         connection=SimpleNamespace(configuration_version_id=uuid4()),
     )
     config = SimpleNamespace(
-        workspace_ids=[workspace_id], indexing_profile_id=uuid4(),
+        workspace_ids=[workspace_id],
+        indexing_profile_id=uuid4(),
         document_processing_profile_id=uuid4(),
     )
     session = SimpleNamespace(
-        scalars=AsyncMock(return_value=[row]), scalar=AsyncMock(),
-        add=Mock(), get=AsyncMock(),
+        scalars=AsyncMock(return_value=[row]),
+        scalar=AsyncMock(),
+        add=Mock(),
+        get=AsyncMock(),
     )
     manager = MagicMock()
     manager.__aenter__ = AsyncMock(return_value=session)
@@ -47,13 +58,21 @@ def attachment_case(monkeypatch):
     service._spaces = AsyncMock(return_value=[SimpleNamespace(id=workspace_id)])
     config_lookup = AsyncMock(return_value=config)
     monkeypatch.setattr(
-        SqlAlchemyRagConfigurationRepository, "find_server_bound_version", config_lookup,
+        SqlAlchemyRagConfigurationRepository,
+        "find_server_bound_version",
+        config_lookup,
     )
     library = SimpleNamespace(document=AsyncMock(return_value=document))
     monkeypatch.setattr(module, "get_library_service", Mock(return_value=library))
     return SimpleNamespace(
-        service=service, session=session, context=context, config=config,
-        config_lookup=config_lookup, library=library, user=user, row=row,
+        service=service,
+        session=session,
+        context=context,
+        config=config,
+        config_lookup=config_lookup,
+        library=library,
+        user=user,
+        row=row,
     )
 
 
@@ -121,8 +140,11 @@ async def test_finalization_rechecks_revoked_write_access(attachment_case, monke
     monkeypatch.setattr(UploadIntakeJournal, "prepare_attachment", AsyncMock())
     case.service._spaces.return_value = []
     journal = module.ConversationUploadJournal(
-        case.service, slug="demo", conversation_id=uuid4(),
-        actor_id=case.user.id, attachment_id=case.row.id,
+        case.service,
+        slug="demo",
+        conversation_id=uuid4(),
+        actor_id=case.user.id,
+        attachment_id=case.row.id,
     )
     original = SimpleNamespace(source=SimpleNamespace(workspace_id=case.row.workspace_id))
     with pytest.raises(AppError) as error:

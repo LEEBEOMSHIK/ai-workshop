@@ -30,7 +30,8 @@ import { DocumentSelectionPanel } from "./DocumentSelectionPanel";
 import { buildScopeSnapshot, ScopeSelector } from "./ScopeSelector";
 import { selectionFromDocuments, type ScopeMode, type ScopeSnapshot, type Selection, type TranscriptItem } from "./types";
 
-import { cancelConversationTurn, createConversation, deleteConversation, getConversation, listConversations, renameConversation, sendConversationTurn, type ConversationDetail, type ConversationSummary, type TurnRequest } from "./sessions-api";
+import { abandonAttachmentDraft, createAttachmentDraft, getAttachmentDraft, restoreConversationDraft, startConversation, cancelConversationTurn, deleteConversation, getConversation, listConversations, listAttachments, renameConversation, sendConversationTurn, type ConversationDetail, type ConversationSummary, type TurnRequest, type StartRequest, type AttachmentDraft } from "./sessions-api";
+import { PendingStart } from "./pending-start";
 import { ConversationAttachments } from "./ConversationAttachments";
 const authenticationExpiredMessage = "로그인이 만료되었습니다. 다시 로그인한 뒤 질문을 보내 주세요.";
 
@@ -70,7 +71,21 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
   const dragDepth = useRef(0);
   const [attachmentBusy, setAttachmentBusy] = useState(false);
   const pendingRequest = useRef<{sessionId: string; request: TurnRequest} | null>(null);
-  const creatingSession = useRef<Promise<ConversationDetail> | null>(null);
+  const pendingStart = useRef<PendingStart | null>(null);
+  const startJobs = useRef(new Set<PendingStart>());
+  const [legacyId, setLegacyId] = useState<string | null>(null);
+  const [draftRestoreUnavailable, setDraftRestoreUnavailable] = useState(false);
+  const submitting = useRef(false);
+  const attachmentBusyRef = useRef(false);
+  const [draft, setDraft] = useState<AttachmentDraft | null>(null);
+  const draftRef = useRef<AttachmentDraft | null>(null);
+  const creatingDraft = useRef<{key: string; promise: Promise<AttachmentDraft> | null; generation: number} | null>(null);
+  const screenGeneration = useRef(0);
+  const [screenKey, setScreenKey] = useState(0);
+  const mounted = useRef(true);
+  function updateDraft(value: AttachmentDraft | null) { draftRef.current = value; setDraft(value); }
+  function updateAttachmentBusy(value: boolean) { attachmentBusyRef.current = value; setAttachmentBusy(value); }
+
   const [transcript, setTranscript] = useState<TranscriptItem[]>([]);
   const [pendingQuery, setPendingQuery] = useState("");
   const [searching, setSearching] = useState(false);
@@ -86,6 +101,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
   const [selectionPanelOpen, setSelectionPanelOpen] = useState(false);
   const [selectedOriginal, setSelectedOriginal] = useState<{ document: DocumentSummary; versionId: string } | null>(null);
   const requestGeneration = useRef(0);
+  const listRefreshGeneration = useRef(0);
   const requestController = useRef<AbortController | null>(null);
   const composing = useRef(false);
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -115,7 +131,9 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
   }, [attachmentMenuOpen]);
 
   function receiveFiles(files: File[]) {
-    if (!files.length || searching || sessionLoading || requiresDomainReentry || attachmentBusy) return;
+    if (!files.length || submitting.current || searching || sessionLoading || draftRestoreUnavailable || requiresDomainReentry || attachmentBusyRef.current) return;
+    updateAttachmentBusy(true);
+    if (!sessionRef.current) void ensureDraft().catch(() => undefined);
     setPendingFiles(current => [...current, ...files]);
     setUploadOpen(true);
     setExternalConfirmed(false);
@@ -136,9 +154,17 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
     return () => controller.abort();
   }, [domain.workspace_options]);
 
-  useEffect(() => () => {
-    requestGeneration.current += 1;
-    requestController.current?.abort();
+  useEffect(() => {
+    mounted.current = true;
+    setScreenKey(screenGeneration.current);
+    const jobs = startJobs.current;
+    return () => {
+      mounted.current = false;
+      screenGeneration.current += 1;
+      requestGeneration.current += 1;
+      requestController.current?.abort();
+      for (const job of jobs) job.detach();
+    };
   }, []);
 
   useEffect(() => {
@@ -148,15 +174,17 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
   useEffect(() => {
     const controller = new AbortController();
     void listConversations(domain.slug, controller.signal).then(rows => {
-      if (!controller.signal.aborted) setSessions(current => [...current, ...rows.filter(row => !current.some(item => item.id === row.id))]);
+      if (!controller.signal.aborted) setSessions(current => [...rows, ...current.filter(item => !rows.some(row => row.id === item.id))]);
     }).catch(() => {
       if (!controller.signal.aborted) setSessionError("대화 목록을 불러오지 못했습니다.");
     });
     const id = new URL(window.location.href).searchParams.get("conversation");
-    if (id) void selectSession(id);
+    const draftId = new URL(window.location.href).searchParams.get("draft");
+    if (id) void selectSession(id); else if (draftId) void restoreDraft(draftId);
     const onPopState = () => {
       const selected = new URL(window.location.href).searchParams.get("conversation");
-      if (selected) void selectSession(selected); else startNewConversation();
+      const selectedDraft = new URL(window.location.href).searchParams.get("draft");
+      if (selected) void selectSession(selected); else if (selectedDraft) void restoreDraft(selectedDraft); else startNewConversation();
     };
     window.addEventListener("popstate", onPopState);
     return () => { controller.abort(); window.removeEventListener("popstate", onPopState); };
@@ -176,7 +204,10 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
     && query.trim().length >= 2
     && !searching
     && !sessionLoading
+    && !draftRestoreUnavailable
     && !attachmentBusy
+    && !pendingStart.current?.cancelIntent
+    && (!draft || draft.state === "open")
     && !session?.turns.some(turn => turn.status === "running" || (turn.status === "cancelled" && !turn.execution_terminated))
     && !requiresDomainReentry
     && !requiresScopeRevision
@@ -186,8 +217,9 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
     && (!codexProcessing || (classification !== "" && !!domain.generation_execution_preview?.disclosure_version));
 
   function markScopeChange(): boolean {
-    if (searching) return false;
+    if (submitting.current || searching || (pendingStart.current && !pendingStart.current.settled)) return false;
     pendingRequest.current = null;
+    pendingStart.current = null;
     setExternalConfirmed(false);
     setClassification("");
     setError("");
@@ -218,32 +250,71 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
     setSessions(current => [detail, ...current.filter(item => item.id !== detail.id)]);
   }
 
-  function updateUrl(id: string | null) {
+  function updateUrl(id: string | null, draftId: string | null = null) {
     const url = new URL(window.location.href);
     if (id) url.searchParams.set("conversation", id); else url.searchParams.delete("conversation");
+    if (draftId) url.searchParams.set("draft", draftId); else url.searchParams.delete("draft");
     window.history.replaceState(null, "", url);
   }
 
-  async function ensureSession() {
-    if (sessionRef.current) return sessionRef.current;
-    const generation = requestGeneration.current;
-    if (!creatingSession.current) creatingSession.current = createConversation(domain.slug);
-    const creation = creatingSession.current;
+  async function ensureDraft() {
+    if (draftRef.current) return draftRef.current;
+    const generation = screenGeneration.current;
+    if (!creatingDraft.current) creatingDraft.current = {key: crypto.randomUUID(), generation, promise: null};
+    const creation = creatingDraft.current;
+    if (creation.generation !== generation) throw new Error("draft_context_changed");
+    // The key belongs to this file-selection intent and is kept after response loss.
+    creation.promise ??= createAttachmentDraft(domain.slug, creation.key);
     try {
-      const created = await creation;
-      if (requestGeneration.current === generation) { saveSession(created); updateUrl(created.id); }
+      const created = await creation.promise;
+      if (screenGeneration.current !== generation || !mounted.current) {
+        if (created.state === "open") await abandonAttachmentDraft(domain.slug, created);
+        throw new Error("draft_context_changed");
+      }
+      updateDraft(created); updateUrl(null, created.id);
+      creatingDraft.current = null;
       return created;
-    } finally { if (creatingSession.current === creation) creatingSession.current = null; }
+    } catch (caught) {
+      creation.promise = null;
+      if (screenGeneration.current === generation) setSessionError("첨부 초안을 만들지 못했습니다. 같은 파일 선택으로 다시 시도해 주세요.");
+      throw caught;
+    }
+  }
+
+  async function abandonOpenDraft(current = draftRef.current) {
+    if (!current || current.state !== "open") return;
+    // Re-read after any upload reservation; abandoning is a manifest change.
+    const latest = await getAttachmentDraft(domain.slug, current.id);
+    if (latest.state === "open") await abandonAttachmentDraft(domain.slug, latest);
+  }
+
+  async function restoreDraft(id: string) {
+    startNewConversation({abandon: false});
+    const generation = screenGeneration.current;
+    setSessionLoading(true); updateUrl(null, id);
+    try {
+      const restored = await getAttachmentDraft(domain.slug, id);
+      if (screenGeneration.current !== generation) return;
+      if (restored.state === "bound" && restored.bound_conversation_id) { await selectSession(restored.bound_conversation_id); return; }
+      updateDraft(restored); setUploadOpen(true);
+      if (restored.state !== "open") setSessionError(`첨부 초안을 복원할 수 없습니다 (${restored.state}). 원본 파일은 보존됩니다.`);
+    } catch (caught) {
+      if (screenGeneration.current === generation) { setSessionError(caught instanceof ApiError && caught.status === 410 ? "첨부 초안이 만료되었거나 포기되었습니다. 원본 파일은 보존됩니다." : "첨부 초안을 복원하지 못했습니다. 접근 권한과 연결 상태를 확인해 주세요."); setDraftRestoreUnavailable(true); }
+    } finally { if (screenGeneration.current === generation) setSessionLoading(false); }
   }
 
   async function selectSession(id: string) {
+    pendingStart.current?.cancel();
+    screenGeneration.current += 1; setScreenKey(screenGeneration.current);
+    creatingDraft.current = null; updateDraft(null); updateAttachmentBusy(false); submitting.current = false;
     requestGeneration.current += 1;
     const generation = requestGeneration.current;
     requestController.current?.abort();
     setSearching(false); setPendingQuery(""); setTranscript([]); setSession(null); sessionRef.current = null;
     setKnownDocuments([]);
-    pendingRequest.current = null;
+    pendingRequest.current = null; pendingStart.current = null;
     setQuery(""); setError(""); setRetryQuery(""); setSessionError(""); setSessionLoading(true);
+    setLegacyId(null); setDraftRestoreUnavailable(false);
     setExternalConfirmed(false); setClassification(""); setSelectedEvidence(null); setSelectedOriginal(null);
     setRequiresContextReset(false); setRequiresScopeRevision(false); setRequiresDomainReentry(false);
     setEditingTitle(null); setConfirmDelete(false); setUploadOpen(false); setPendingFiles([]); setDraggingFiles(false); dragDepth.current = 0; setAttachmentMenuOpen(false);
@@ -251,7 +322,31 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
     try {
       const detail = await getConversation(domain.slug, id);
       if (requestGeneration.current !== generation) return;
+      if (detail.turns.length === 0) {
+        setLegacyId(id);
+        try {
+          const restored = await restoreConversationDraft(domain.slug, id);
+          if (requestGeneration.current !== generation) return;
+          if (restored.state === "bound" && restored.bound_conversation_id) { await selectSession(restored.bound_conversation_id); return; }
+          updateDraft(restored); updateUrl(null, restored.id); setUploadOpen(true);
+          setSessionError("이전 미전송 초안을 복원했습니다. 원본 파일은 보존됩니다.");
+        } catch (caught) {
+          if (requestGeneration.current === generation) setSessionError(caught instanceof ApiError && caught.code === "legacy_upload_busy" ? "이전 미전송 초안의 업로드 종료를 확인하고 있습니다. 상태를 새로고침해 주세요. (legacy_upload_busy)" : "이전 미전송 초안을 복원하지 못했습니다. 원본 파일은 보존됩니다.");
+          if (requestGeneration.current === generation) setRequiresScopeRevision(true);
+        }
+        return;
+      }
       saveSession(detail);
+      // Restore server-owned attachments independently of the saved search scope.
+      // A late lookup must never open another conversation's attachment panel.
+      const attachmentOwner = () => mounted.current
+        && requestGeneration.current === generation && sessionRef.current?.id === id;
+      void listAttachments(domain.slug, id).then(rows => {
+        if (attachmentOwner() && rows.some(row => !row.excluded_at)) setUploadOpen(true);
+      }).catch(() => {
+        // Let the existing panel retry and expose its safe status error.
+        if (attachmentOwner()) setUploadOpen(true);
+      });
       const last = detail.turns.filter(turn => !turn.redacted).at(-1);
       if (last?.request_scope) {
         setWorkspaceIds(last.request_scope.workspace_ids); setFolderIds(last.request_scope.folder_ids ?? []);
@@ -279,7 +374,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
     if (!session || !editingTitle?.trim()) return;
     const generation = requestGeneration.current;
     try { const detail = await renameConversation(domain.slug, session, editingTitle.trim()); if (requestGeneration.current === generation) { saveSession(detail); setEditingTitle(null); } }
-    catch { setSessionError("대화 제목을 저장하지 못했습니다. 대화를 다시 열어 최신 상태를 확인해 주세요."); }
+    catch { if (requestGeneration.current === generation) setSessionError("대화 제목을 저장하지 못했습니다. 대화를 다시 열어 최신 상태를 확인해 주세요."); }
   }
 
   async function removeSession() {
@@ -291,7 +386,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
       await deleteConversation(domain.slug, current);
       setSessions(current => current.filter(item => item.id !== session.id));
       if (requestGeneration.current === generation) startNewConversation();
-    } catch { setSessionError("대화를 삭제하지 못했습니다. 대화를 다시 열어 최신 상태를 확인해 주세요."); }
+    } catch { if (requestGeneration.current === generation) setSessionError("대화를 삭제하지 못했습니다. 대화를 다시 열어 최신 상태를 확인해 주세요."); }
   }
 
   async function sendQuestion(question: string) {
@@ -299,7 +394,10 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
     const scope = currentScope();
     if (
       normalized.length < 2
-      || searching || sessionLoading || attachmentBusy
+      || submitting.current || searching || sessionLoading || draftRestoreUnavailable || attachmentBusyRef.current
+      || pendingStart.current?.cancelIntent
+      || (draftRef.current && draftRef.current.state !== "open")
+      || sessionRef.current?.turns.some(turn => turn.status === "running" || (turn.status === "cancelled" && !turn.execution_terminated))
       || !domain.ready
       || !domain.connection_version
       || !domain.generation_execution_preview
@@ -314,6 +412,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
       || (codexProcessing && (!classification || !domain.generation_execution_preview.disclosure_version))
     ) return;
 
+    submitting.current = true;
     if (externalProcessing) setExternalConfirmed(false);
     setClassification("");
     requestController.current?.abort();
@@ -327,26 +426,49 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
     setError("");
     setRetryQuery("");
     try {
-      const active = await ensureSession();
-      if (requestGeneration.current !== generation || controller.signal.aborted) return;
-      const request: TurnRequest = pendingRequest.current?.sessionId === active.id && pendingRequest.current.request.query === normalized
-        ? pendingRequest.current.request : {
-        connection_version_id: domain.connection_version.id,
-        query: normalized,
-        workspace_ids: scope.workspaceIds,
-        folder_ids: scope.folderIds,
-        ...(scope.documentIds !== null ? { document_ids: scope.documentIds } : {}),
-        top_k: 10,
-        include_diagnostics: true,
-        request_id: crypto.randomUUID(), expected_revision: active.revision,
-        ...(codexProcessing && classification ? { codex_input_approval: {
-          classification, consented: true, disclosure_version: domain.generation_execution_preview.disclosure_version,
-        } } : {}),
+      const active = sessionRef.current;
+      const common = {
+        connection_version_id: domain.connection_version.id, query: normalized,
+        workspace_ids: scope.workspaceIds, folder_ids: scope.folderIds,
+        ...(scope.documentIds !== null ? {document_ids: scope.documentIds} : {}),
+        top_k: 10, include_diagnostics: true, request_id: crypto.randomUUID(),
+        ...(codexProcessing && classification ? {codex_input_approval: {classification, consented: true, disclosure_version: domain.generation_execution_preview.disclosure_version}} : {}),
       };
-      pendingRequest.current = {sessionId: active.id, request};
-      const detail = await sendConversationTurn(domain.slug, active.id, request, controller.signal);
-      if (requestGeneration.current === generation && !controller.signal.aborted) {
-        saveSession(detail); pendingRequest.current = null; setTranscript([]);
+      if (active) {
+        const request: TurnRequest = pendingRequest.current?.sessionId === active.id && pendingRequest.current.request.query === normalized
+          ? pendingRequest.current.request : {...common, expected_revision: active.revision};
+        pendingRequest.current = {sessionId: active.id, request};
+        const detail = await sendConversationTurn(domain.slug, active.id, request, controller.signal);
+        if (requestGeneration.current === generation && !controller.signal.aborted) { saveSession(detail); pendingRequest.current = null; setTranscript([]); }
+      } else {
+        const owner = screenGeneration.current;
+        let job = pendingStart.current;
+        if (job && !job.settled && job.request.query !== normalized) {
+          setQuery(normalized); throw new Error("pending_start_requires_resolution");
+        }
+        if (!job || job.rejected || job.request.query !== normalized) {
+          const currentDraft = draftRef.current ? await getAttachmentDraft(domain.slug, draftRef.current.id) : null;
+          if (requestGeneration.current !== generation || controller.signal.aborted) return;
+          if (currentDraft) updateDraft(currentDraft);
+          const request: StartRequest = {...common, ...(currentDraft ? {draft_id: currentDraft.id, draft_revision: currentDraft.revision} : {})};
+          job = new PendingStart(domain.slug, request, detail => {
+            if (mounted.current && screenGeneration.current === owner && pendingStart.current === job) {
+              saveSession(detail); updateDraft(null); updateUrl(detail.id); setTranscript([]);
+              if (!detail.turns.some(turn => turn.status === "running")) pendingStart.current = null;
+              submitting.current = false; setSearching(false); setSessionLoading(false); setPendingQuery(""); setError(""); setRetryQuery(""); setSessionError("");
+            } else if (mounted.current) void refreshSessions();
+          }, caught => {
+            if (mounted.current && screenGeneration.current === owner && pendingStart.current === job && job?.cancelIntent) setSessionError(`취소 접수 상태를 확인하고 있습니다. (${caught instanceof ApiError ? caught.code : "network_error"})`);
+          });
+          pendingStart.current = job;
+          startJobs.current.add(job);
+        }
+        try {
+          const posted = startConversation(domain.slug, job.request, controller.signal);
+          void job.recover();
+          const detail = await posted; await job.accept(detail);
+        }
+        catch (caught) { job.reject(caught); throw caught; }
       }
     } catch (caught) {
       if (requestGeneration.current === generation && !controller.signal.aborted) {
@@ -360,6 +482,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
       }
     } finally {
       if (requestGeneration.current === generation) {
+        submitting.current = false;
         requestController.current = null;
         setPendingQuery("");
         setSearching(false);
@@ -377,26 +500,82 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
     requestGeneration.current += 1;
     requestController.current?.abort(); requestController.current = null;
     if (restoreQuery && pendingQuery) setQuery(pendingQuery);
-    setPendingQuery(""); setSearching(false);
+    setPendingQuery(""); setSearching(false); submitting.current = false;
+    const first = pendingStart.current;
+    if (first) {
+      setSessionError("첫 질문 접수와 취소 상태를 확인하고 있습니다. 종료 확인 전에는 다시 전송할 수 없습니다.");
+      first.cancel();
+      return;
+    }
     const pending = pendingRequest.current;
     const running = sessionRef.current?.turns.find(turn => turn.status === "running");
     const sessionId = pending?.sessionId ?? sessionRef.current?.id;
     const requestId = pending?.request.request_id ?? running?.request_id;
-    pendingRequest.current = null;
     if (sessionId && requestId) {
       const generation = requestGeneration.current;
       setSessionLoading(true);
       void cancelConversationTurn(domain.slug, sessionId, requestId).then(detail => {
-        if (requestGeneration.current === generation) saveSession(detail);
+        if (requestGeneration.current === generation) { saveSession(detail); pendingRequest.current = null; }
       }).catch(() => { if (requestGeneration.current === generation) setSessionError("취소 상태를 확인하지 못했습니다. 대화를 다시 열어 확인해 주세요."); })
         .finally(() => { if (requestGeneration.current === generation) setSessionLoading(false); });
-    }
+    } else if (draftRef.current) startNewConversation();
   }
 
-  function startNewConversation() {
+  async function refreshSessions() {
+    const refresh = ++listRefreshGeneration.current;
+    const screen = screenGeneration.current;
+    const request = requestGeneration.current;
+    const selectedId = sessionRef.current?.id;
+    const ownsScreen = () => mounted.current && listRefreshGeneration.current === refresh
+      && screenGeneration.current === screen && requestGeneration.current === request
+      && sessionRef.current?.id === selectedId;
+    function clearPrivateContext() {
+      setTranscript([]); setSelectedEvidence(null); setSelectedOriginal(null);
+      setKnownDocuments([]); updateSelection(null); setWorkspaceIds([]); setFolderIds([]);
+      setScopeMode("workspace"); setRequiresScopeRevision(true);
+    }
+    try {
+      const rows = await listConversations(domain.slug);
+      if (!mounted.current || listRefreshGeneration.current !== refresh) return;
+      setSessions(rows);
+      if (!selectedId || !ownsScreen()) return;
+      const row = rows.find(item => item.id === selectedId);
+      if (!row) return;
+      if (sessionRef.current && sessionRef.current.title !== row.title) {
+        // A changed authoritative title invalidates the cached presentation while
+        // current-permission detail is revalidated, including an open editor.
+        const current = {...sessionRef.current, title: row.title, title_origin: row.title_origin, turns: []};
+        sessionRef.current = current; setSession(current);
+        setEditingTitle(value => value === null ? null : row.title);
+        clearPrivateContext();
+      }
+      const detail = await getConversation(domain.slug, selectedId);
+      if (!ownsScreen()) return;
+      if (sessionRef.current?.title !== detail.title) setEditingTitle(value => value === null ? null : detail.title);
+      if (detail.turns.some(turn => turn.redacted)) clearPrivateContext();
+      saveSession(detail);
+    } catch { if (ownsScreen()) setSessionError("대화 목록을 불러오지 못했습니다."); }
+  }
+
+  function startNewConversation({abandon = true}: {abandon?: boolean} = {}) {
+    const owner = screenGeneration.current + 1;
+    const requestOwner = requestGeneration.current + 1;
+    const leavingDraft = draftRef.current;
+    const abandonDraft = () => { void abandonOpenDraft(leavingDraft).catch(() => {
+      if (mounted.current && screenGeneration.current === owner && requestGeneration.current === requestOwner
+        && !sessionRef.current && !draftRef.current && !creatingDraft.current) {
+        setSessionError("이전 첨부 초안의 포기를 확인하지 못했습니다. 원본 파일은 보존됩니다.");
+      }
+    }); };
+    if (abandon) {
+      if (pendingStart.current) pendingStart.current.disposeDraftOnRejection(abandonDraft);
+      else abandonDraft();
+    }
+    pendingStart.current?.cancel();
+    screenGeneration.current += 1; setScreenKey(screenGeneration.current);
     requestGeneration.current += 1; requestController.current?.abort(); requestController.current = null;
-    pendingRequest.current = null; sessionRef.current = null; creatingSession.current = null;
-    setSession(null); setSessionLoading(false); updateUrl(null);
+    pendingRequest.current = null; pendingStart.current = null; sessionRef.current = null; creatingDraft.current = null; updateDraft(null); updateAttachmentBusy(false); submitting.current = false;
+    setSession(null); setLegacyId(null); setDraftRestoreUnavailable(false); setSessionLoading(false); updateUrl(null);
     setTranscript([]); setQuery(""); setPendingQuery(""); setSearching(false); setError(""); setSessionError("");
     setRetryQuery(""); setExternalConfirmed(false); setClassification(""); setSelectedEvidence(null); setSelectedOriginal(null);
     setRequiresContextReset(false); setRequiresScopeRevision(false); setRequiresDomainReentry(false);
@@ -469,7 +648,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
             type="button"
             className="secondary-button"
             disabled={requiresDomainReentry || requiresScopeRevision}
-            onClick={startNewConversation}
+            onClick={() => startNewConversation()}
           >새 대화</button>
           <Link href={routes.workshopRagSearch} onClick={() => cancelCurrent({ restoreQuery: false })}>도메인 변경</Link>
         </div>
@@ -477,7 +656,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
 
       <div className="conversation-layout">
       <aside className="conversation-sidebar" aria-label="대화 목록">
-        <details open><summary>내 대화</summary>
+        <details open><summary>내 대화</summary><button type="button" onClick={() => void refreshSessions()}>대화 목록 새로고침</button>
         {sessions.length === 0 ? <p>저장된 대화가 없습니다.</p> : <ul>{sessions.map(item => <li key={item.id}><button type="button" aria-current={session?.id === item.id ? "page" : undefined} onClick={() => void selectSession(item.id)}>{item.title}</button></li>)}</ul>}
       </details></aside>
       <div className="conversation-main" onDragEnter={event => {
@@ -497,6 +676,9 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
       }}>
       {draggingFiles ? <div className="conversation-drop-overlay" role="status"><strong>{searching || attachmentBusy || sessionLoading || requiresDomainReentry ? "현재 작업이 끝난 뒤 첨부하세요" : "파일을 놓아 대화에 첨부"}</strong><span>허용된 개인 공간에 저장합니다</span></div> : null}
       {sessionError ? <p role="alert">{sessionError}</p> : null}
+      {legacyId && !draft ? <button type="button" disabled={sessionLoading} onClick={() => void selectSession(legacyId)}>초안 상태 새로고침</button> : null}
+      {draft ? <p role="status">미전송 첨부 초안 · {draft.state === "open" ? "원본 파일 보존" : draft.state}</p> : null}
+      {draft?.state === "open" ? <button type="button" onClick={() => startNewConversation()}>첨부 초안 취소</button> : null}
       {sessionLoading ? <p role="status">대화를 불러오는 중…</p> : null}
       {session ? <div className="conversation-session-heading"><h2>{session.title}</h2>
         <button type="button" aria-label="대화 이름 변경" disabled={searching} onClick={() => setEditingTitle(session.title)}>이름 변경</button>
@@ -538,8 +720,8 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
               documentNames: knownDocuments.filter(item => turn.request_scope?.document_ids?.includes(item.id)).map(item => item.name), documents: knownDocuments,
             }}} onOpenEvidence={openEvidence} onOpenSelectedVersion={openSelectedVersion} />
             : <article className="conversation-turn"><p className="user-message"><strong>나</strong>{turn.query}</p><p role="status">{turn.status === "cancelled" ? (turn.execution_terminated ? "답변 생성을 취소했습니다." : "취소를 요청했습니다. 실행 종료 확인 중입니다.") : turn.status === "interrupted" ? "답변 생성이 중단되었습니다. 새 질문으로 다시 요청할 수 있습니다." : turn.status === "running" ? "답변 생성 중입니다. 상태를 새로고침해 확인할 수 있습니다." : conversationFailure(new ApiError("", 500, turn.error_code ?? "generation_failed")).message}</p>
-              {turn.status === "running" ? <><button type="button" onClick={() => cancelCurrent()}>답변 취소</button><button type="button" onClick={() => void selectSession(session.id)}>상태 새로고침</button></> : null}
-              {turn.status === "cancelled" && !turn.execution_terminated ? <button type="button" onClick={() => void selectSession(session.id)}>상태 새로고침</button> : null}
+              {turn.status === "running" ? <><button type="button" onClick={() => cancelCurrent()}>답변 취소</button><button type="button" onClick={() => void refreshSessions()}>상태 새로고침</button></> : null}
+              {turn.status === "cancelled" && !turn.execution_terminated ? <button type="button" onClick={() => void refreshSessions()}>상태 새로고침</button> : null}
             </article>}
             {canMonitor && !turn.redacted ? <a href={executionPath(turn.execution_id ?? turn.id, turn.execution_id ? "execution" : "legacy")}>실행 단계·근거 확인</a> : null}
         </div>)}
@@ -578,7 +760,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
           if (!markScopeChange()) return;
           updateSelection({...selection, documentIds: selection.documentIds.filter(value => value !== id), documentNames: selection.documentNames.filter((_, candidate) => candidate !== index), documents: selection.documents.filter(document => document.id !== id)});
         }}>×</button></span>)}</div>
-        {uploadOpen ? <ConversationAttachments slug={domain.slug} sessionId={session?.id ?? null} ensureSession={ensureSession} pendingFiles={pendingFiles} onFilesConsumed={() => setPendingFiles([])} onBusy={setAttachmentBusy} onSelect={documents => applyDocuments([...(selectionRef.current?.documents ?? []).filter(item => !documents.some(document => document.id === item.id)), ...documents])} /> : null}
+        {uploadOpen ? <ConversationAttachments key={screenKey} slug={domain.slug} sessionId={session?.id ?? null} draftId={draft?.id ?? null} ensureDraft={ensureDraft} onDraft={value => { if (screenGeneration.current === screenKey) updateDraft(value); }} pendingFiles={pendingFiles} onFilesConsumed={() => setPendingFiles([])} onBusy={value => { if (screenGeneration.current === screenKey) updateAttachmentBusy(value); }} onSelect={documents => applyDocuments([...(selectionRef.current?.documents ?? []).filter(item => !documents.some(document => document.id === item.id)), ...documents])} /> : null}
         {error ? (
           <div className="conversation-error" role="alert">
             <p>{error}</p>
@@ -590,7 +772,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
             ) : requiresDomainReentry ? (
               <Link href={routes.workshopRagSearch}>도메인 선택으로 돌아가기</Link>
             ) : requiresContextReset ? (
-              <button type="button" onClick={markScopeChange}>변경된 범위로 새 문맥 시작</button>
+              <button type="button" onClick={() => { setExternalConfirmed(false); setClassification(""); markScopeChange(); }}>변경된 범위로 새 문맥 시작</button>
             ) : retryQuery ? (
               <button
                 type="button"
@@ -695,6 +877,12 @@ function conversationFailure(caught: unknown): ConversationFailure {
       citation_validation_failed: "생성 답변의 근거 인용을 검증하지 못했습니다.",
       conversation_scope_changed: "문서 버전 또는 선택 범위가 변경되었습니다. 현재 범위로 새 문맥을 시작해 주세요.",
       selected_documents_not_ready: "선택한 문서 중 검색 준비가 끝나지 않은 문서가 있습니다. 선택을 수정해 주세요.",
+      draft_upload_busy: "첨부 업로드의 서버 종료를 아직 확인하지 못했습니다. 첨부 상태를 확인한 뒤 다시 보내 주세요.",
+      draft_revision_conflict: "첨부 초안의 구성이 변경되었습니다. 현재 초안과 검색 범위를 확인해 주세요.",
+      draft_unavailable: "첨부 초안이 만료되었거나 포기되었습니다. 원본 파일은 보존됩니다. 새 대화를 시작해 주세요.",
+      draft_already_bound: "첨부 초안이 이미 다른 대화에 접수되었습니다. 대화 목록을 새로고침해 확인해 주세요.",
+      attachment_workspace_forbidden: "첨부 저장 공간의 현재 쓰기 권한이 변경되었습니다. 첨부와 검색 범위를 확인해 주세요.",
+      conversation_request_conflict: "같은 접수키에 다른 질문 또는 범위가 제출되었습니다. 접수 상태를 확인해 주세요.",
     };
     const reentryCodes = new Set([
       "domain_inactive",

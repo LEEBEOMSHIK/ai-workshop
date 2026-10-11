@@ -19,7 +19,10 @@ class EvidenceBudget:
 def resolve_evidence_budget(config: Mapping[str, object]) -> EvidenceBudget | None:
     value = config.get("context_evidence")
     contextual_prompt = config.get("prompt_ref") in {
-        "rag-codex-answer-v4", "rag-codex-answer-v5", "rag-answer-v2",
+        "rag-codex-answer-v4",
+        "rag-codex-answer-v5",
+        "rag-codex-answer-v6",
+        "rag-answer-v2",
     }
     if value is None:
         if contextual_prompt:

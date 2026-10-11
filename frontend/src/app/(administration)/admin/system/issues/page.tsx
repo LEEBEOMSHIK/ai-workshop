@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { IssueHistoryPage } from "../../../../../features/issue-history/IssueHistoryPage";
+import styles from "../../../../../features/issue-history/IssueHistoryPage.module.css";
 import { loadIssueDetail, loadIssueDocument, loadIssueLedger } from "../../../../../features/issue-history/server-ledger";
 import { requireOwner } from "../../../../../shared/auth/server-session";
 import { routes } from "../../../../../shared/routing/routes";
@@ -24,10 +25,10 @@ export default async function IssueHistoryRoute({searchParams}: {searchParams: P
  });
  if (!result.ok) return <ServerRouteFailure failure={result.failure}/>;
  const {document,issueId,...data} = result.value;
- if (document) return <main style={{maxWidth:"1120px",margin:"0 auto",padding:24}}>
+ if (document) return <main className={styles.documentViewer}>
   <Link href={`${routes.adminSystemIssues}?issue=${encodeURIComponent(issueId!)}`}>← 문제 이력으로 돌아가기</Link>
-  <h1>{document.title}</h1><p>연결 버전 {document.version} · 현재 버전 {document.current_version}</p><p>{document.source_path}</p>
-  <pre style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere",lineHeight:1.7}}>{document.content}</pre>
+  <h1>{document.title}</h1><p className={styles.documentMetadata}>연결 버전 {document.version} · 현재 버전 {document.current_version}</p><p className={styles.documentMetadata}>{document.source_path}</p>
+  <pre className={styles.documentContent}>{document.content}</pre>
  </main>;
  return <IssueHistoryPage {...data}/>;
 }

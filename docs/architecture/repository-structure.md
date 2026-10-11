@@ -23,6 +23,7 @@ ai-workshop/
 │  │  │  ├─ (workspace)/workshop/
 │  │  │  │  ├─ workspaces/
 │  │  │  │  ├─ learning/[recordId]/
+│  │  │  │  ├─ flows/[category]/[flow]/
 │  │  │  │  └─ rag/
 │  │  │  │     ├─ search/
 │  │  │  │     ├─ domains/[slug]/chat/
@@ -37,6 +38,8 @@ ai-workshop/
 │  │  │        ├─ runtime/
 │  │  │        └─ access/
 │  │  ├─ features/
+│  │  │  ├─ flowcharts/             # 공통 타입·검증·뷰어, Labs import 없음
+│  │  │  ├─ project-agents/         # 개발 에이전트 운영 설명 콘텐츠
 │  │  │  ├─ identity/
 │  │  │  ├─ workspaces/
 │  │  │  ├─ assets/

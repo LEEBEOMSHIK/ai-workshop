@@ -1,0 +1,83 @@
+# Controller-only standalone file; never merge with base or bootstrap Compose.
+# Preflight must prove original daemon/image/volume/network IDs, IPAM and no IP conflict.
+# The required original IPv4 and all admitted hostname/IP SANs must match fresh TLS leaves.
+# This file cannot establish prior JVM settlement or authorize the original cutover.
+name: ai-workshop
+
+services:
+  elasticsearch:
+    # Observed RepoDigests manifest must resolve to the original local config image ID.
+    # Never substitute Container.Image/Image.Id as a registry manifest digest.
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.2@${AI_WORKSHOP_ES_ORIGINAL_MANIFEST_DIGEST:?verified original manifest digest is required}
+    pull_policy: never
+    restart: "no"
+    environment:
+      ES_JAVA_OPTS: -Xms1g -Xmx1g
+      AI_WORKSHOP_ES_ORIGINAL_CLUSTER_NAME: ${AI_WORKSHOP_ES_ORIGINAL_CLUSTER_NAME:?observed original cluster name is required}
+    ports:
+      - "127.0.0.1:9200:9200"
+    networks:
+      default:
+        ipv4_address: ${AI_WORKSHOP_ES_ORIGINAL_IPV4:?verified original network IPv4 address is required}
+    volumes:
+      - type: volume
+        source: elasticsearch-data
+        target: /usr/share/elasticsearch/data
+        volume:
+          nocopy: true
+      - type: bind
+        source: ../elasticsearch/elasticsearch-secured.yml
+        target: /usr/share/elasticsearch/config/elasticsearch.yml
+        read_only: true
+        bind:
+          create_host_path: false
+      # Only node keys and public certificates; never a private controller directory.
+      - type: bind
+        source: ${AI_WORKSHOP_ES_TLS_DIRECTORY:?protected original-controller TLS directory is required}/http/node.key
+        target: /usr/share/elasticsearch/config/access-epoch-tls/http/node.key
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${AI_WORKSHOP_ES_TLS_DIRECTORY:?protected original-controller TLS directory is required}/http/node.crt
+        target: /usr/share/elasticsearch/config/access-epoch-tls/http/node.crt
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${AI_WORKSHOP_ES_TLS_DIRECTORY:?protected original-controller TLS directory is required}/http/ca.crt
+        target: /usr/share/elasticsearch/config/access-epoch-tls/http/ca.crt
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${AI_WORKSHOP_ES_TLS_DIRECTORY:?protected original-controller TLS directory is required}/transport/node.key
+        target: /usr/share/elasticsearch/config/access-epoch-tls/transport/node.key
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${AI_WORKSHOP_ES_TLS_DIRECTORY:?protected original-controller TLS directory is required}/transport/node.crt
+        target: /usr/share/elasticsearch/config/access-epoch-tls/transport/node.crt
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${AI_WORKSHOP_ES_TLS_DIRECTORY:?protected original-controller TLS directory is required}/transport/ca.crt
+        target: /usr/share/elasticsearch/config/access-epoch-tls/transport/ca.crt
+        read_only: true
+        bind:
+          create_host_path: false
+    # Authenticated readiness is controller-owned private input, not a secret-bearing command.
+    healthcheck:
+      disable: true
+
+volumes:
+  elasticsearch-data:
+    external: true
+    name: ${AI_WORKSHOP_ES_ORIGINAL_VOLUME:?verified original physical volume is required}
+
+networks:
+  default:
+    external: true
+    name: ai-workshop_default

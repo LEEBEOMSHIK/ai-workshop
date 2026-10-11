@@ -35,6 +35,10 @@ from ai_workshop.labs.rag.executions.observer import ExecutionObserver
 from ai_workshop.labs.rag.executions.repository import SqlAlchemyExecutionRecorder
 from ai_workshop.labs.rag.generation.codex_admin_api import CodexInputApprovalRequest
 from ai_workshop.labs.rag.generation.codex_composition import codex_services
+from ai_workshop.labs.rag.generation.numeric_proof_schemas import (
+    NumericValidationBindingView,
+    calculation_views,
+)
 from ai_workshop.labs.rag.search.api import get_search_configuration_resolver, get_search_service
 from ai_workshop.labs.rag.search.schemas import SearchResponse
 from ai_workshop.shared.errors import AppError
@@ -188,9 +192,15 @@ class GenerativeWorkflow:
                         result = PrivateGenerativeResult(
                             observation=observation,
                             answer=output.generation.text,
+                            numeric_validation=NumericValidationBindingView.from_domain(
+                                output.generation.numeric_validation
+                            ),
                             citations=tuple(
                                 ClaimCitation(
-                                    claim_index=c.claim_index, evidence_ids=c.evidence_ids
+                                    claim_index=c.claim_index,
+                                    evidence_ids=c.evidence_ids,
+                                    claim_text=c.claim_text,
+                                    calculations=calculation_views(c.calculations),
                                 )
                                 for c in output.generation.citations
                             ),
@@ -222,7 +232,25 @@ class GenerativeWorkflow:
                     )
                 )
             await observer.begin("persistence")
-            await self.repository.complete_attempt(attempt_id, token, result, error_code=error)
+            try:
+                await self.repository.complete_attempt(attempt_id, token, result, error_code=error)
+            except AppError as exc:
+                if exc.code != "numeric_validation_binding_invalid" or error is not None:
+                    raise
+                error = exc.code
+                await observer.fail(error)
+                result = PrivateGenerativeResult(
+                    observation=result.observation.model_copy(
+                        update={
+                            "generation_status": None,
+                            "cited_evidence_ids": (),
+                            "citation_valid": None,
+                            "error_code": error,
+                            "failure_stage": "persistence",
+                        }
+                    )
+                )
+                await self.repository.complete_attempt(attempt_id, token, result, error_code=error)
             await observer.end("persistence")
             await observer.finish(
                 ExecutionOutcome(

@@ -705,7 +705,7 @@ async def test_same_selected_scope_history_continues_and_returns_server_scope() 
         ),
     )
 
-    assert resolver.calls == [((DOCUMENT_ID,), PROCESSING_PROFILE_ID)] * 3
+    assert resolver.calls == [((DOCUMENT_ID,), PROCESSING_PROFILE_ID)] * 4
     assert len(retriever.scopes) == 1
     assert retriever.scopes[0].document_ids == (DOCUMENT_ID,)
     assert result.selected_scope is not None
@@ -746,7 +746,7 @@ async def test_selected_domain_keeps_user_history_as_untrusted_input() -> None:
         ),
     )
 
-    assert resolver.calls == [((DOCUMENT_ID,), PROCESSING_PROFILE_ID)] * 3
+    assert resolver.calls == [((DOCUMENT_ID,), PROCESSING_PROFILE_ID)] * 4
     assert len(retriever.scopes) == 1
     assert result.selected_scope is not None
 
@@ -764,7 +764,7 @@ async def test_selected_a_excludes_b_from_retrieval_generation_and_response_scop
         conversation_scope=_domain_scope(),
     )
 
-    assert resolver.calls == [((DOCUMENT_ID,), PROCESSING_PROFILE_ID)] * 4
+    assert resolver.calls == [((DOCUMENT_ID,), PROCESSING_PROFILE_ID)] * 5
     expected_identity = resolver.identities[DOCUMENT_ID]
     assert len(retriever.sparse_scopes) == len(retriever.dense_scopes) == 1
     for scope in (*retriever.sparse_scopes, *retriever.dense_scopes):
@@ -854,6 +854,8 @@ async def test_adding_b_rejects_old_history_then_succeeds_with_new_context() -> 
         ((DOCUMENT_ID,), PROCESSING_PROFILE_ID),
         ((DOCUMENT_ID,), PROCESSING_PROFILE_ID),
         ((DOCUMENT_ID,), PROCESSING_PROFILE_ID),
+        ((DOCUMENT_ID,), PROCESSING_PROFILE_ID),
+        ((DOCUMENT_ID, DOCUMENT_B_ID), PROCESSING_PROFILE_ID),
         ((DOCUMENT_ID, DOCUMENT_B_ID), PROCESSING_PROFILE_ID),
         ((DOCUMENT_ID, DOCUMENT_B_ID), PROCESSING_PROFILE_ID),
         ((DOCUMENT_ID, DOCUMENT_B_ID), PROCESSING_PROFILE_ID),

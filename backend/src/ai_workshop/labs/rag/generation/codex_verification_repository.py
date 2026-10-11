@@ -206,6 +206,11 @@ class SqlAlchemyCodexVerificationLookup:
             if model is None:
                 return None
             profile = resolve_generation_profile(generation, deployment, model)
+            if profile.response_schema_version == 3:
+                from .numeric_validation_repository import numeric_storage_ready
+
+                if not await numeric_storage_ready(session):
+                    return None
             installation = await policies.latest_installation_policy()
             workspace_policies = await policies.latest_workspace_policies(
                 configuration.workspace_ids

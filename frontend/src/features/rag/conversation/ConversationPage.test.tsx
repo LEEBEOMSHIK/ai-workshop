@@ -21,10 +21,25 @@ vi.mock("./sessions-api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./sessions-api")>();
   const { searchDomain } = await import("./api");
   const sessions = new Map<string, import("./sessions-api").ConversationDetail>();
+  const requests = new Map<string, AbortSignal | undefined>();
   return {...actual,
     listConversations: async () => [],
-    createConversation: async () => {
-      const detail = {id: crypto.randomUUID(), title: "새 대화 2026-09-21", revision: 1, created_at: "2026-09-21", updated_at: "2026-09-21", turns: []};
+    getConversationStart: async (_slug: string, requestId: string) => {
+      const {ApiError} = await import("../../../shared/api/client");
+      // This search seam has no server commit after its transport is aborted.
+      // Give detached recovery an authoritative terminal fixture, without fetching
+      // from a subsequent test's global transport mock.
+      if (requests.get(requestId)?.aborted) throw new ApiError("gone", 410, "conversation_unavailable");
+      throw new ApiError("missing", 404, "conversation_start_not_found");
+    },
+    startConversation: async (slug: string, request: import("./sessions-api").StartRequest, signal?: AbortSignal) => {
+      requests.set(request.request_id, signal);
+      const response = await searchDomain(slug, request, signal);
+      const detail: import("./sessions-api").ConversationDetail = {id: crypto.randomUUID(), title: "synthetic title", title_origin: "auto", legacy_state: "active", revision: 1, created_at: "2026-09-21", updated_at: "2026-09-21", turns: [{
+        id: request.request_id, request_id: request.request_id, sequence: 1, status: "completed",
+        query: request.query, response, request_scope: {connection_version_id: request.connection_version_id, workspace_ids: request.workspace_ids, folder_ids: request.folder_ids ?? [], document_ids: request.document_ids ?? null},
+        segment: 1, error_code: null, redacted: false, execution_terminated: true, created_at: "2026-09-21", updated_at: "2026-09-21",
+      }]};
       sessions.set(detail.id, detail); return detail;
     },
     sendConversationTurn: async (slug: string, id: string, request: import("./sessions-api").TurnRequest, signal?: AbortSignal) => {
@@ -298,7 +313,7 @@ describe("ConversationPage", () => {
   it("requires Codex classification and fresh consent for each question and scope", async () => {
     const calls: RequestInit[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (String(input).includes("/folders")) return jsonResponse([]);
+      if (String(input).includes("/folders") || String(input).endsWith("/attachments")) return jsonResponse([]);
       calls.push(init!); return jsonResponse(searchResult(calls.length));
     }));
     const current = externalDomain();
@@ -685,7 +700,7 @@ describe("ConversationPage", () => {
     expect(screen.getByRole("button", { name: "같은 질문 다시 시도" })).toBeEnabled();
   });
 
-  it("requires fresh external processing acknowledgement after cancellation", async () => {
+  it("consumes external acknowledgement on cancellation and blocks a new send until acceptance and server cancellation are confirmed", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       if (String(input).includes("/folders")) return jsonResponse([]);
       return new Promise<Response>(() => undefined);
@@ -702,7 +717,8 @@ describe("ConversationPage", () => {
     expect(consent).not.toBeChecked();
     expect(screen.getByRole("button", { name: "질문 보내기" })).toBeDisabled();
     await user.click(consent);
-    expect(screen.getByRole("button", { name: "질문 보내기" })).toBeEnabled();
+    expect(consent).toBeChecked();
+    expect(screen.getByRole("button", { name: "질문 보내기" })).toBeDisabled();
   });
 
   it("handles the real citation validation error envelope without exposing its private message", async () => {

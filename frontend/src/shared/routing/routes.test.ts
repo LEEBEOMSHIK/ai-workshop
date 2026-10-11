@@ -1,4 +1,5 @@
 import {
+  flowchartPath,
   loginPath,
   learningRecordPath,
   ragDomainChatPath,
@@ -11,6 +12,10 @@ import {
 } from "./routes";
 
 describe("canonical frontend routes", () => {
+  it("encodes flow detail segments under the workspace flow route", () => {
+    expect(routes.workshopFlows).toBe("/workshop/flows");
+    expect(flowchartPath("a/b", "c/d")).toBe("/workshop/flows/a%2Fb/c%2Fd");
+  });
   it("separates public, workshop, and administration URLs", () => {
     expect(routes).toMatchObject({
       home: "/",

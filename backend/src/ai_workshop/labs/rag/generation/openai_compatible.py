@@ -68,15 +68,12 @@ class LocalOpenAICompatibleRuntime:
         if not isinstance(data, list):
             raise GenerationProviderError("provider_invalid_response", retryable=False)
         exact = any(
-            isinstance(item, Mapping)
-            and item.get("id") == self.deployment.provider_model_id
+            isinstance(item, Mapping) and item.get("id") == self.deployment.provider_model_id
             for item in data
         )
         return ProviderHealthResult(
             ready=exact,
-            observed_provider_model_id=(
-                self.deployment.provider_model_id if exact else None
-            ),
+            observed_provider_model_id=(self.deployment.provider_model_id if exact else None),
             execution=self._metadata(started),
         )
 
@@ -87,9 +84,7 @@ class LocalOpenAICompatibleRuntime:
         started = monotonic()
         system_prompt = _safe_load_prompt(request.profile.context_prompt_ref)
         if system_prompt is None:
-            raise GenerationProviderError(
-                "provider_invalid_response", retryable=False
-            ) from None
+            raise GenerationProviderError("provider_invalid_response", retryable=False) from None
         payload = await self._chat_completion(
             profile=request.profile,
             system_prompt=system_prompt,
@@ -107,9 +102,7 @@ class LocalOpenAICompatibleRuntime:
         content = self._message_content(payload)
         resolved_query = _safe_resolved_query(content)
         if resolved_query is None:
-            raise GenerationProviderError(
-                "provider_invalid_response", retryable=False
-            ) from None
+            raise GenerationProviderError("provider_invalid_response", retryable=False) from None
         return ProviderContextualizationResult(
             resolved_query=resolved_query,
             execution=self._metadata(started),
@@ -120,9 +113,7 @@ class LocalOpenAICompatibleRuntime:
         started = monotonic()
         system_prompt = _safe_load_prompt(request.profile.prompt_ref)
         if system_prompt is None:
-            raise GenerationProviderError(
-                "provider_invalid_response", retryable=False
-            ) from None
+            raise GenerationProviderError("provider_invalid_response", retryable=False) from None
         payload = await self._chat_completion(
             profile=request.profile,
             system_prompt=system_prompt,
@@ -136,8 +127,9 @@ class LocalOpenAICompatibleRuntime:
                         for turn in request.history
                     ],
                     "evidence": evidence_payload(
-                    request.evidence, contextual=request.profile.evidence_budget is not None,
-                ),
+                        request.evidence,
+                        contextual=request.profile.evidence_budget is not None,
+                    ),
                 },
                 ensure_ascii=False,
             ),
@@ -145,7 +137,8 @@ class LocalOpenAICompatibleRuntime:
         content = self._message_content(payload)
         if request.profile.evidence_budget is not None and is_context_abstention(content):
             return ProviderGenerationResult(
-                None, self._metadata(started),
+                None,
+                self._metadata(started),
                 status=GenerationStatus.INSUFFICIENT_EVIDENCE,
             )
         generation = _safe_generation(
@@ -153,9 +146,7 @@ class LocalOpenAICompatibleRuntime:
             expected_schema_version=request.profile.response_schema_version,
         )
         if generation is None or not generation.claims:
-            raise GenerationProviderError(
-                "provider_invalid_response", retryable=False
-            ) from None
+            raise GenerationProviderError("provider_invalid_response", retryable=False) from None
         return ProviderGenerationResult(
             generation=generation,
             execution=self._metadata(started),
@@ -206,28 +197,20 @@ class LocalOpenAICompatibleRuntime:
             else:
                 assert response is not None
                 if response.is_redirect:
-                    error = GenerationProviderError(
-                        "provider_invalid_response", retryable=False
-                    )
+                    error = GenerationProviderError("provider_invalid_response", retryable=False)
                 elif response.status_code in {401, 403}:
                     error = GenerationProviderError(
                         "provider_authentication_failed", retryable=False
                     )
                 elif response.status_code == 429:
-                    error = GenerationProviderError(
-                        "provider_rate_limited", retryable=True
-                    )
+                    error = GenerationProviderError("provider_rate_limited", retryable=True)
                 elif response.is_error:
-                    error = GenerationProviderError(
-                        "provider_invalid_response", retryable=False
-                    )
+                    error = GenerationProviderError("provider_invalid_response", retryable=False)
                 else:
                     payload = _safe_response_json(response)
                     if payload is not None:
                         return payload
-                    error = GenerationProviderError(
-                        "provider_invalid_response", retryable=False
-                    )
+                    error = GenerationProviderError("provider_invalid_response", retryable=False)
             if not error.retryable or attempt + 1 >= attempts:
                 raise error from None
             if self.deployment.retry_backoff_seconds:
@@ -299,6 +282,8 @@ class LocalOpenAICompatibleRuntime:
         )
 
     def _validate_profile(self, profile: GenerationProfile) -> None:
+        if profile.response_schema_version == 3:
+            raise GenerationProviderError("generation_schema_not_supported", retryable=False)
         if (
             profile.deployment is None
             or profile.deployment.id != self.deployment.id
@@ -310,24 +295,16 @@ class LocalOpenAICompatibleRuntime:
     def _message_content(payload: Mapping[str, Any]) -> str:
         choices = payload.get("choices")
         if not isinstance(choices, list) or not choices:
-            raise GenerationProviderError(
-                "provider_invalid_response", retryable=False
-            ) from None
+            raise GenerationProviderError("provider_invalid_response", retryable=False) from None
         first = choices[0]
         if not isinstance(first, Mapping):
-            raise GenerationProviderError(
-                "provider_invalid_response", retryable=False
-            ) from None
+            raise GenerationProviderError("provider_invalid_response", retryable=False) from None
         message = first.get("message")
         if not isinstance(message, Mapping):
-            raise GenerationProviderError(
-                "provider_invalid_response", retryable=False
-            ) from None
+            raise GenerationProviderError("provider_invalid_response", retryable=False) from None
         content = message.get("content")
         if not isinstance(content, str):
-            raise GenerationProviderError(
-                "provider_invalid_response", retryable=False
-            ) from None
+            raise GenerationProviderError("provider_invalid_response", retryable=False) from None
         return content
 
 
@@ -410,9 +387,7 @@ def _validate_endpoint(endpoint: str, location: ExecutionLocation) -> None:
     except ValueError:
         address = None
     if address is None:
-        raise ValueError(
-            "The generation runtime endpoint must be a loopback URL."
-        ) from None
+        raise ValueError("The generation runtime endpoint must be a loopback URL.") from None
     if not address.is_loopback:
         raise ValueError("The generation runtime endpoint must be a loopback URL.")
 

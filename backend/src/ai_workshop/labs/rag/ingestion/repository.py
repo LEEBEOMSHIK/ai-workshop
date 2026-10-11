@@ -24,7 +24,8 @@ from ai_workshop.labs.rag.ingestion.models import (
 )
 from ai_workshop.labs.rag.models.models import ProfileRecord
 from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecord
-from ai_workshop.platform.jobs.domain import Job, JobType
+from ai_workshop.platform.jobs.domain import Job, JobStatus, JobType
+from ai_workshop.platform.jobs.models import JobRecord
 from ai_workshop.platform.jobs.repository import SqlAlchemyJobRepository
 
 
@@ -371,6 +372,84 @@ class SqlAlchemyRagDispatchRepository:
     def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
         self.sessions = sessions
 
+    async def cancel_completed(self, job_id: UUID, *, now: datetime) -> bool:
+        """Cancel one unsent obligation after durable success, never forge an ACK.
+
+        A False return means no transition occurred; it does not settle a claimed
+        delivery or prove any writer/process ended. Commit ambiguity propagates.
+        """
+        if type(job_id) is not UUID or type(now) is not datetime or now.utcoffset() != timedelta(0):
+            raise ValueError("rag_dispatch_completion_arguments")
+        async with self.sessions.begin() as session:
+            ingestion = await session.scalar(
+                select(RagIngestionJobRecord)
+                .where(RagIngestionJobRecord.job_id == job_id)
+                .with_for_update()
+            )
+            if ingestion is None or not await self._completed_success(session, ingestion):
+                return False
+            await lock_ingestion_source(session, ingestion.asset_version_id)
+            dispatch = await session.scalar(
+                select(RagIngestionDispatchRecord)
+                .where(RagIngestionDispatchRecord.job_id == job_id)
+                .with_for_update()
+            )
+            changed = self._cancel_pending(dispatch, now=now)
+            await session.flush()
+            return changed
+
+    @staticmethod
+    async def _completed_success(
+        session: AsyncSession, ingestion: RagIngestionJobRecord
+    ) -> bool:
+        # Match lifecycle's ingestion -> job -> projection -> source lock order.
+        job = await session.scalar(
+            select(JobRecord).where(JobRecord.id == ingestion.job_id).with_for_update()
+        )
+        projection = await session.scalar(
+            select(RagProjectionRecord)
+            .where(RagProjectionRecord.id == ingestion.projection_id)
+            .with_for_update()
+        )
+        if (
+            job is None
+            or projection is None
+            or job.type != JobType.RAG_INGESTION
+            or job.asset_version_id != ingestion.asset_version_id
+            or job.user_id != ingestion.requested_by
+            or projection.asset_version_id != ingestion.asset_version_id
+            or projection.indexing_profile_id != ingestion.indexing_profile_id
+            or projection.document_processing_profile_id != ingestion.document_processing_profile_id
+            or job.status == JobStatus.SUCCEEDED
+            and (projection.status != ProjectionStatus.READY or job.stage != "ready")
+        ):
+            raise RagIngestionError(
+                "ingestion_command_mismatch",
+                "The durable RAG dispatch does not match completed ingestion.",
+                retryable=False,
+            )
+        return job.status == JobStatus.SUCCEEDED and projection.status == ProjectionStatus.READY
+
+    @staticmethod
+    def _cancel_pending(dispatch: RagIngestionDispatchRecord | None, *, now: datetime) -> bool:
+        if dispatch is None or dispatch.status != "pending":
+            return False
+        if (
+            dispatch.claim_token is not None
+            or dispatch.claimed_at is not None
+            or dispatch.sent_at is not None
+            or dispatch.cancelled_at is not None
+        ):
+            raise RagIngestionError(
+                "ingestion_state_inconsistent",
+                "The durable RAG dispatch has an unresolved delivery.",
+                retryable=False,
+            )
+        dispatch.status = "cancelled"
+        dispatch.cancelled_at = now
+        dispatch.last_error = "rag_ingestion_already_completed"
+        return True
+
     async def claim_ready(
         self,
         *,
@@ -418,6 +497,7 @@ class SqlAlchemyRagDispatchRepository:
             )
             claims: list[DispatchClaim] = []
             for ingestion in ingestions:
+                completed = await self._completed_success(session, ingestion)
                 try:
                     await lock_ingestion_source(session, ingestion.asset_version_id)
                 except RagIngestionError as exc:
@@ -429,6 +509,11 @@ class SqlAlchemyRagDispatchRepository:
                     .where(RagIngestionDispatchRecord.job_id == ingestion.job_id)
                     .with_for_update()
                 )
+                if completed:
+                    # A stale claimed delivery may still have reached the broker.
+                    # Preserve that uncertainty; do not reclaim or rewrite it.
+                    self._cancel_pending(record, now=now)
+                    continue
                 if record is None or not (
                     (record.status == "pending" and record.available_at <= now)
                     or (

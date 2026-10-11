@@ -18,6 +18,7 @@ from ai_workshop.labs.rag.highlighting.service import (
     _provenance_warnings,
     find_keyword_highlights,
 )
+from ai_workshop.labs.rag.models.budget_trace import BudgetConstraint, BudgetTrace
 from ai_workshop.labs.rag.models.context_evidence import EvidenceBudget as EvidenceBudget
 
 
@@ -38,6 +39,7 @@ class CandidateDiagnostic:
     eligible: bool
     selected: bool
     reason: str
+    budget_trace: BudgetTrace | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,10 +113,23 @@ def select_context(
     ))
     chosen: list[ContextGroup] = []
     count = characters = 0
+    budget_traces: dict[UUID, BudgetTrace] = {}
     for group in eligible:
         size = sum(len(unit.text) for unit in group.units)
-        if (len(chosen) >= budget.max_groups or count + len(group.units) > budget.max_units
-                or characters + size > budget.max_characters):
+        violations: list[BudgetConstraint] = []
+        if len(chosen) >= budget.max_groups:
+            violations.append("groups")
+        if count + len(group.units) > budget.max_units:
+            violations.append("units")
+        if characters + size > budget.max_characters:
+            violations.append("characters")
+        budget_traces[group.source.chunk.chunk_id] = BudgetTrace(
+            incoming_units=len(group.units), incoming_characters=size,
+            before_groups=len(chosen), before_units=count, before_characters=characters,
+            group_limit=budget.max_groups, unit_limit=budget.max_units,
+            character_limit=budget.max_characters, violated=tuple(violations),
+        )
+        if violations:
             continue
         chosen.append(group)
         count += len(group.units)
@@ -129,6 +144,7 @@ def select_context(
         group in eligible, group in chosen,
         blocked or ("selected" if group in chosen else
                     "budget_exceeded" if group in eligible else "below_threshold"),
+        budget_traces.get(group.source.chunk.chunk_id),
     ) for group in groups)
     diagnostic_warning = None
     if include_diagnostics:
@@ -150,6 +166,7 @@ def select_context(
             diagnostics.append(CandidateDiagnostic(
                 group.source.chunk.chunk_id, None, group.keyword_coverage,
                 group.semantic_score, qualifies, selected, reason,
+                budget_traces.get(group.source.chunk.chunk_id),
             ))
         for (group, unit), score in zip(unit_pairs, unit_scores, strict=True):
             coverage = find_keyword_highlights(query=query, text=unit.text,

@@ -6,6 +6,7 @@ def load_models() -> None:
     from ai_workshop.labs.rag.domains import models as rag_domain_models
     from ai_workshop.labs.rag.evaluation import models as rag_evaluation_models
     from ai_workshop.labs.rag.generation import codex_slot_models, codex_verification_models
+    from ai_workshop.labs.rag.indexing import access_epoch_models
     from ai_workshop.labs.rag.ingestion import artifact_models as rag_artifact_models
     from ai_workshop.labs.rag.ingestion import models as rag_ingestion_models
     from ai_workshop.labs.rag.models import models as rag_models
@@ -21,6 +22,7 @@ def load_models() -> None:
     from ai_workshop.platform.workspaces import models as workspace_models
 
     _ = (
+        access_epoch_models.AccessEpochRecord,
         asset_models.AssetVersionRecord,
         asset_provenance_models.AssetSourceRelationRecord,
         asset_purge_inventory_models.AssetPurgeInventoryRecord,

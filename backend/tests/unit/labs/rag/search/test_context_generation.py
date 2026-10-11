@@ -76,6 +76,7 @@ async def test_context_only_evidence_reaches_generation_and_every_citation_is_re
         item.evidence_id for item in runtime.received.evidence]
     assert audits.audits[-1].evidence_ids == (source.chunk.evidence_units[0].id,)
     response = SearchResponse.from_domain(result)
+    assert response.generation.citations[0].claim_text == "An explanation."
     assert bool(response.diagnostics) is diagnostics
     if response.diagnostics:
         assert response.diagnostics.candidates[0].sparse_score == 7.2

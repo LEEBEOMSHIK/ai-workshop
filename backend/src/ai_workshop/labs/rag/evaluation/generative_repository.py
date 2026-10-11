@@ -321,6 +321,28 @@ class GenerativeRepository:
                 raise AppError("evaluation_claim_lost", "The execution claim has expired.", 409)
             if result.observation.execution_id != row.execution_id:
                 raise ValueError("Observation belongs to another execution.")
+            if error_code is None:
+                from ai_workshop.labs.rag.evaluation.generative_read import (
+                    frozen_generation_profile_id,
+                )
+                from ai_workshop.labs.rag.generation.numeric_restore import verify_numeric_views
+                from ai_workshop.labs.rag.generation.numeric_validation_repository import (
+                    SqlAlchemyNumericValidationRepository,
+                )
+
+                await verify_numeric_views(
+                    SqlAlchemyNumericValidationRepository(session),
+                    actor_id=run.owner_id,
+                    execution_id=row.execution_id,
+                    configuration_version_id=row.configuration_version_id,
+                    generation_profile_id=frozen_generation_profile_id(
+                        run.snapshot, row.configuration_version_id
+                    ),
+                    status=result.observation.generation_status or "",
+                    answer=result.answer,
+                    claims=result.citations,
+                    binding=result.numeric_validation,
+                )
             row.result = result.model_dump(mode="json")
             row.result_bytes, row.result_digest = canonical(row.result), result.digest()
             row.error_code, row.finished_at = error_code, datetime.now(UTC)

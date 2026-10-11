@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { GenerativeEvaluationPanel } from "./GenerativeEvaluationPanel";
@@ -251,4 +251,114 @@ it("displays only the independently preserved retrieval measurement after a fail
   fireEvent.click(screen.getByRole("tab", { name: "근거·진단" }));
   expect(screen.getByText("50.0%")).toBeVisible();
   expect(screen.getAllByText(/실패·중단으로 측정값 확인 불가/)).toHaveLength(1);
+});
+
+it("reviews exact recorded claims and only their matching sources in a collapsed section", async () => {
+  const claim = "첫 문장입니다. 두 번째 문장도 같은 주장입니다.\n그러나 이 연결 구문은 분리하지 않습니다.";
+  const source = { evidence_id: "evidence-1", document_id: "document-1", asset_version_id: "asset-1", projection_id: "projection-1", title: "합성 원문", page: 4 };
+  vi.mocked(api.loadGenerativeRun).mockResolvedValue({ ...run, attempts: [{ ...run.attempts[0],
+    claim_citations: [{ claim_index: 0, claim_text: claim, evidence_ids: ["evidence-1"] }, { claim_index: 1, claim_text: "다른 주장", evidence_ids: ["unavailable"] }],
+    sources: [source, { ...source, evidence_id: "unrelated", title: "다른 인용 원문", asset_version_id: "asset-other" }],
+  }] });
+  render(<GenerativeEvaluationPanel configurations={[]} workspaces={[]} initialRunId="run-1" />);
+  await screen.findByText("합성 답변");
+  expect(screen.queryByText("주장별 인용 근거")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("tab", { name: "검토" }));
+  const disclosure = screen.getByText("주장별 인용 근거").closest("details")!;
+  expect(disclosure).not.toHaveAttribute("open");
+  await userEvent.setup().click(within(disclosure).getByText("주장별 인용 근거"));
+  const first = within(disclosure).getByRole("heading", { name: "주장 1" }).closest("li")!;
+  expect(first.querySelector("p")?.textContent).toBe(claim);
+  expect(within(first).getByRole("link", { name: "합성 원문 · 4쪽 인용 원문 · 근거 1건" })).toHaveAttribute("href", "/workshop/rag/sources/asset-1?projectionId=projection-1&page=4");
+  expect(within(disclosure).queryByRole("link", { name: /다른 인용 원문/ })).not.toBeInTheDocument();
+  const second = within(disclosure).getByRole("heading", { name: "주장 2" }).closest("li")!;
+  expect(within(second).getByText("현재 조회 가능한 인용 원문이 없습니다.")).toBeVisible();
+  expect(within(second).queryByRole("link")).not.toBeInTheDocument();
+  expect(api.startGenerativeRun).not.toHaveBeenCalled();
+  expect(api.reviewGenerativeAttempt).not.toHaveBeenCalled();
+});
+
+it.each([
+  { name: "missing citations", claims: undefined },
+  { name: "empty citations", claims: [] },
+  { name: "null text", claims: [{ claim_index: 0, evidence_ids: ["legacy"], claim_text: null }] },
+  { name: "missing text", claims: [{ claim_index: 0, evidence_ids: ["legacy"] }] },
+])("does not reconstruct unrecorded claim boundaries ($name)", async ({ claims: claim_citations }) => {
+  vi.mocked(api.loadGenerativeRun).mockResolvedValue({ ...run, attempts: [{ ...run.attempts[0], answer: "과거 합쳐진 답변. 문장 경계를 추정하면 안 됩니다.", claim_citations }] });
+  render(<GenerativeEvaluationPanel configurations={[]} workspaces={[]} initialRunId="run-1" />);
+  await screen.findByText("과거 합쳐진 답변. 문장 경계를 추정하면 안 됩니다.");
+  fireEvent.click(screen.getByRole("tab", { name: "검토" }));
+  await userEvent.setup().click(screen.getByText("주장별 인용 근거"));
+  expect(screen.getByText(/원래 주장 텍스트 경계가 기록되지 않았습니다/)).toBeVisible();
+  expect(screen.queryByText("과거 합쳐진 답변. 문장 경계를 추정하면 안 됩니다.")).not.toBeInTheDocument();
+});
+
+it("shows only the newly selected attempt's claims after a delayed refresh", async () => {
+  const selectedRun = { ...run, attempts: [
+    { ...run.attempts[0], claim_citations: [{ claim_index: 0, claim_text: "첫 사례의 주장", evidence_ids: [] }] },
+    { ...run.attempts[0], id: "claim-attempt-2", case_id: "claim-case-2", query: "다음 사례 질문", claim_citations: [{ claim_index: 0, claim_text: "다음 사례의 주장", evidence_ids: [] }] },
+  ] };
+  let resolveRefresh!: (value: api.GenerativeRun) => void;
+  vi.mocked(api.loadGenerativeRun).mockResolvedValueOnce(selectedRun).mockImplementationOnce(() => new Promise(resolve => { resolveRefresh = resolve; }));
+  render(<GenerativeEvaluationPanel configurations={[]} workspaces={[]} initialRunId="run-1" />);
+  await screen.findByText("합성 답변");
+  fireEvent.click(screen.getByRole("tab", { name: "검토" }));
+  await userEvent.setup().click(screen.getByText("주장별 인용 근거"));
+  expect(screen.getByText("첫 사례의 주장")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "결과 새로고침" }));
+  fireEvent.click(screen.getByRole("button", { name: /다음 사례 질문/ }));
+  await act(async () => resolveRefresh(selectedRun));
+  expect(screen.queryByText("첫 사례의 주장")).not.toBeInTheDocument();
+  expect(screen.getByText("주장별 인용 근거").closest("details")).not.toHaveAttribute("open");
+  await userEvent.setup().click(screen.getByText("주장별 인용 근거"));
+  expect(screen.getByText("다음 사례의 주장")).toBeVisible();
+});
+
+it("marks a partially unavailable claim citation without displaying its missing ID", async () => {
+  const source = { evidence_id: "available-evidence", document_id: "document-1", asset_version_id: "asset-1", projection_id: "projection-1", title: "조회 가능한 합성 원문", page: 2 };
+  vi.mocked(api.loadGenerativeRun).mockResolvedValue({ ...run, attempts: [{ ...run.attempts[0],
+    claim_citations: [{ claim_index: 0, claim_text: "두 근거에 연결된 합성 주장입니다.", evidence_ids: [source.evidence_id, "unavailable-evidence-id"] }],
+    sources: [source],
+  }] });
+  render(<GenerativeEvaluationPanel configurations={[]} workspaces={[]} initialRunId="run-1" />);
+  await screen.findByText("합성 답변");
+  fireEvent.click(screen.getByRole("tab", { name: "검토" }));
+  await userEvent.setup().click(screen.getByText("주장별 인용 근거"));
+  const disclosure = screen.getByText("주장별 인용 근거").closest("details")!;
+  expect(within(disclosure).getByText("일부 인용 원문은 현재 조회할 수 없습니다.")).toBeVisible();
+  expect(within(disclosure).getAllByRole("link")).toHaveLength(1);
+  expect(within(disclosure).getByRole("link", { name: "조회 가능한 합성 원문 · 2쪽 인용 원문 · 근거 1건" })).toHaveAttribute("href", "/workshop/rag/sources/asset-1?projectionId=projection-1&page=2");
+  expect(disclosure).not.toHaveTextContent("unavailable-evidence-id");
+  expect(within(disclosure).queryByText("현재 조회 가능한 인용 원문이 없습니다.")).not.toBeInTheDocument();
+  expect(api.startGenerativeRun).not.toHaveBeenCalled();
+  expect(api.reviewGenerativeAttempt).not.toHaveBeenCalled();
+});
+
+it("groups each claim's sources by exact version, projection and page with evidence counts", async () => {
+  const source = { evidence_id: "evidence-1", document_id: "document-1", asset_version_id: "asset-1", projection_id: "projection-1", title: "합성 PDF", page: 2 };
+  const sources = [source, { ...source, evidence_id: "evidence-2" },
+    { ...source, evidence_id: "other-version", asset_version_id: "asset-2" },
+    { ...source, evidence_id: "other-page", page: 3 },
+    { ...source, evidence_id: "other-projection", projection_id: "projection-2" }];
+  vi.mocked(api.loadGenerativeRun).mockResolvedValue({ ...run, attempts: [{ ...run.attempts[0], sources,
+    claim_citations: [{ claim_index: 0, claim_text: "첫 주장", evidence_ids: sources.map(item => item.evidence_id) },
+      { claim_index: 1, claim_text: "다음 주장도 같은 원문 위치를 인용합니다.", evidence_ids: [source.evidence_id, "evidence-2"] }],
+  }] });
+  render(<GenerativeEvaluationPanel configurations={[]} workspaces={[]} initialRunId="run-1" />);
+  await screen.findByText("합성 답변");
+  fireEvent.click(screen.getByRole("tab", { name: "검토" }));
+  await userEvent.setup().click(screen.getByText("주장별 인용 근거"));
+  const first = screen.getByRole("heading", { name: "주장 1" }).closest("li")!;
+  expect(within(first).getAllByRole("link")).toHaveLength(4);
+  expect(within(first).getByRole("link", { name: "합성 PDF · 2쪽 인용 원문 · 근거 2건" })).toHaveAttribute("href", "/workshop/rag/sources/asset-1?projectionId=projection-1&page=2");
+  expect(within(first).getAllByRole("link").map(item => item.getAttribute("href"))).toEqual([
+    "/workshop/rag/sources/asset-1?projectionId=projection-1&page=2",
+    "/workshop/rag/sources/asset-2?projectionId=projection-1&page=2",
+    "/workshop/rag/sources/asset-1?projectionId=projection-1&page=3",
+    "/workshop/rag/sources/asset-1?projectionId=projection-2&page=2",
+  ]);
+  const second = screen.getByRole("heading", { name: "주장 2" }).closest("li")!;
+  expect(within(second).getAllByRole("link")).toHaveLength(1);
+  expect(within(second).getByRole("link", { name: "합성 PDF · 2쪽 인용 원문 · 근거 2건" })).toHaveAttribute("href", "/workshop/rag/sources/asset-1?projectionId=projection-1&page=2");
+  expect(screen.queryByText("일부 인용 원문은 현재 조회할 수 없습니다.")).not.toBeInTheDocument();
 });

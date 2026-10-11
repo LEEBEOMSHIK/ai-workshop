@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 
 import type { GameStore } from "../features/office-game/gameStore";
-import { loginPath, routes } from "../shared/routing/routes";
+import { routes } from "../shared/routing/routes";
 import HomeRoute, { metadata } from "./page";
 
 // Canvas/WebGL and real keyboard movement belong to office.e2e.ts. Keep the
@@ -27,8 +27,8 @@ describe("HomeRoute", () => {
       screen.getByRole("link", { name: /AI Labs/ }),
     ).toHaveAttribute("href", routes.labs);
     expect(
-      screen.getByRole("link", { name: "내 작업소" }),
-    ).toHaveAttribute("href", loginPath(routes.workshopHome));
+      screen.getByRole("link", { name: "비공개 작업소 입장" }),
+    ).toHaveAttribute("href", routes.workshopHome);
     expect(await screen.findByRole("button", { name: "이동 키가 반응하지 않으면 여기를 클릭" })).toBeVisible();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });

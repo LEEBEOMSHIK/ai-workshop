@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from ai_workshop.labs.rag.evaluation.generative import (
+    ClaimCitation,
     CorrectnessJudgment,
     ExpectedAnswerRule,
     GenerativeAcceptancePolicy,
@@ -12,6 +13,7 @@ from ai_workshop.labs.rag.evaluation.generative import (
     GenerativeObservation,
 )
 from ai_workshop.labs.rag.generation.codex_admin_api import CodexInputApprovalRequest
+from ai_workshop.labs.rag.generation.numeric_proof_schemas import NumericValidationBindingView
 from ai_workshop.labs.rag.search.schemas import ConversationTurnRequest
 
 
@@ -62,6 +64,10 @@ class GenerativeAttemptView(BaseModel):
     judgment: CorrectnessJudgment | None
     error_code: str | None
     sources: list[GenerativeSourceView]
+    claim_citations: list[ClaimCitation] = Field(default_factory=list)
+    numeric_validation: NumericValidationBindingView | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class GenerativeRunView(BaseModel):

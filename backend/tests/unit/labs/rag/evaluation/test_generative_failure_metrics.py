@@ -89,18 +89,45 @@ async def test_checkpoint_keeps_exact_ids_separate_from_bounded_candidate_record
     assert other.selected_evidence_ids == ()
 
 
-@pytest.mark.parametrize("failure", ["generation", "citation_validation"])
-async def test_workflow_persists_pre_failure_ids_and_permission_exposures(monkeypatch, failure):
+@pytest.mark.parametrize("failure", ["generation", "citation_validation", "persistence", None])
+@pytest.mark.parametrize("numeric", [False, True])
+async def test_workflow_persists_pre_failure_ids_and_permission_exposures(
+    monkeypatch, failure, numeric
+):
     from contextlib import asynccontextmanager
     from types import SimpleNamespace
 
     from ai_workshop.config import Settings
     from ai_workshop.labs.rag.evaluation import generative_workflow as module
     from ai_workshop.labs.rag.evaluation.generative import PrivateGenerativeResult
+    from ai_workshop.labs.rag.generation.domain import (
+        GeneratedCitation,
+        GenerationOutcome,
+        GenerationStatus,
+    )
     from ai_workshop.shared.errors import AppError
 
     run_id, token, attempt_id, case_id = (uuid4() for _ in range(4))
     owner, execution_id, allowed, unexpected = (uuid4() for _ in range(4))
+    from ai_workshop.labs.rag.generation.numeric_proof_types import NumericValidationBinding
+    from ai_workshop.labs.rag.models.numeric_proof_policy import SOURCE_NUMERIC_PROOF_V1
+
+    binding = (
+        NumericValidationBinding(
+            uuid4(),
+            uuid4(),
+            uuid4(),
+            uuid4(),
+            uuid4(),
+            3,
+            SOURCE_NUMERIC_PROOF_V1.ref,
+            SOURCE_NUMERIC_PROOF_V1.digest,
+            "0" * 64,
+            "1" * 64,
+        )
+        if numeric
+        else None
+    )
     run = SimpleNamespace(owner_id=owner, dataset_snapshot_id=uuid4(), input_approval=None)
     attempt = SimpleNamespace(
         id=attempt_id, execution_id=execution_id, case_id=case_id, configuration_version_id=uuid4()
@@ -127,6 +154,8 @@ async def test_workflow_persists_pre_failure_ids_and_permission_exposures(monkey
             return attempt
 
         async def complete_attempt(self, id, claim, result, *, error_code):
+            if failure == "persistence" and error_code is None:
+                raise AppError("numeric_validation_binding_invalid", "Safe rejection.", 409)
             records.append(PrivateGenerativeResult.model_validate(result.model_dump(mode="json")))
 
         async def finish_run(self, id, claim):
@@ -144,10 +173,32 @@ async def test_workflow_persists_pre_failure_ids_and_permission_exposures(monkey
             pass
 
         async def prepare(self, *args):
-            return None
+            return SimpleNamespace(configuration=SimpleNamespace(generation_profile=None))
 
     class Pipeline:
         async def execute(self, prepared, *, observer):
+            if failure in (None, "persistence"):
+                return SimpleNamespace(
+                    retrieved_evidence_ids=(allowed,),
+                    grounding_evidence=(SimpleNamespace(evidence=SimpleNamespace(id=allowed)),),
+                    generation=GenerationOutcome(
+                        status=GenerationStatus.ANSWERED,
+                        text="First sentence. Still the first claim. Second claim.",
+                        numeric_validation=binding,
+                        citations=(
+                            GeneratedCitation(
+                                0,
+                                (allowed,),
+                                "First sentence. Still the first claim.",
+                                calculations=() if numeric else None,
+                            ),
+                            GeneratedCitation(
+                                1, (allowed,), "Second claim.", calculations=() if numeric else None
+                            ),
+                        ),
+                    ),
+                )
+
             async def fail():
                 trace.capture_evidence_ids(retrieved=(allowed, unexpected), selected=(allowed,))
                 await observer.end("request")
@@ -181,12 +232,44 @@ async def test_workflow_persists_pre_failure_ids_and_permission_exposures(monkey
     monkeypatch.setattr(module, "get_search_configuration_resolver", lambda *args: None)
     monkeypatch.setattr(module, "FrozenGenerativeAdapter", Adapter)
     monkeypatch.setattr(module, "get_search_service", pipelines)
+    if failure in (None, "persistence"):
+        monkeypatch.setattr(
+            module.SearchResponse,
+            "from_domain",
+            lambda output: SimpleNamespace(grounding_evidence=[]),
+        )
     monkeypatch.setattr(module, "SqlAlchemyExecutionRecorder", lambda sessions: Recorder())
-    workflow = module.GenerativeWorkflow(sessions, Settings())
+    workflow = module.GenerativeWorkflow(
+        sessions,
+        Settings(
+            _env_file=None, environment="test", secret_key="synthetic-unit-test-secret-key-only"
+        ),
+    )
     workflow.repository = Repository()
     await workflow._execute_claimed(run_id, token)
     assert len(records) == 1
     observed = records[0].observation
+    if failure is None:
+        assert observed.error_code is None
+        assert (
+            records[0].numeric_validation.domain() if records[0].numeric_validation else None
+        ) == binding
+        assert all(c.calculations == (() if numeric else None) for c in records[0].citations)
+        assert observed.generation_status == "answered"
+        assert observed.citation_valid is True
+        assert observed.access_exposures == ()
+        assert records[0].answer == "First sentence. Still the first claim. Second claim."
+        assert [citation.claim_text for citation in records[0].citations] == [
+            "First sentence. Still the first claim.",
+            "Second claim.",
+        ]
+        return
+    if failure == "persistence":
+        assert observed.error_code == "numeric_validation_binding_invalid"
+        assert observed.failure_stage == "persistence"
+        assert records[0].answer is None and records[0].citations == ()
+        assert records[0].numeric_validation is None
+        return
     assert observed.retrieved_evidence_ids == (allowed, unexpected)
     assert observed.selected_evidence_ids == (allowed,)
     assert observed.access_exposures == (unexpected,)

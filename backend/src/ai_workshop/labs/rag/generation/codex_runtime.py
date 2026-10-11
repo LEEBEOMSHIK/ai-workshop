@@ -20,6 +20,7 @@ from .codex_execution import CodexRequestExecutor, _codex_deployment
 from .codex_request import CodexRequestContext
 from .codex_stream import CodexStreamResult
 from .codex_wire import parse_codex_grounded_wire_v1
+from .codex_wire_v2 import parse_codex_grounded_wire_v2
 from .codex_workspace import CodexWorkspaceResult
 from .domain import ContextualizationRequest, GenerationProfile, GenerationRequest
 from .execution import (
@@ -30,6 +31,8 @@ from .execution import (
     ProviderHealthResult,
 )
 from .structured_output import StructuredOutputValidationError, parse_contextualization_v1
+from .structured_output_v2 import GroundedGenerationResultV2
+from .structured_output_v3 import GroundedGenerationResultV3
 from .windows_process import ProcessFailure
 
 _SAFE_CODES = frozenset(
@@ -38,6 +41,7 @@ _SAFE_CODES = frozenset(
         "provider_invalid_response",
         "provider_model_mismatch",
         "structured_output_invalid",
+        "calculation_limit_exceeded",
         "provider_timeout",
         "provider_request_failed",
         "codex_workspace_cleanup_failed",
@@ -77,8 +81,12 @@ def _safe_errors[**P, T](
         except GenerationProviderError as error:
             if type(error.code) is str and error.code in _SAFE_CODES:
                 code = error.code
-        except StructuredOutputValidationError:
-            code = "structured_output_invalid"
+        except StructuredOutputValidationError as error:
+            code = (
+                "calculation_limit_exceeded"
+                if str(error) == "calculation_limit_exceeded"
+                else "structured_output_invalid"
+            )
         except Exception:
             pass
         raise GenerationProviderError(code, retryable=False)
@@ -154,13 +162,35 @@ class CodexExecRuntime:
         if type(request) is not GenerationRequest:
             raise GenerationProviderError("codex_request_invalid", retryable=False)
         self._validate_profile(request.profile)
+        if request.profile.response_schema_version == 3:
+            from .numeric_catalogue import build_source_value_catalogue
+
+            catalogue = request.numeric_catalogue
+            if catalogue is None or catalogue != build_source_value_catalogue(
+                request.evidence,
+                request_id=self.context.request_id,
+                configuration_version_id=self.context.configuration_version_id,
+                profile=self.profile,
+            ):
+                raise GenerationProviderError("codex_binding_mismatch", retryable=False)
         if (await self.health()).ready is not True:
             raise GenerationProviderError("deployment_not_ready", retryable=False)
         events = self._validated_events(await self.executor.execute(self.context, request=request))
-        result = parse_codex_grounded_wire_v1(
-            events.final_text,
-            allowed_evidence_ids={item.evidence_id for item in request.evidence},
-        )
+        allowed = {item.evidence_id for item in request.evidence}
+        result: GroundedGenerationResultV3 | GroundedGenerationResultV2
+        if request.profile.response_schema_version == 3:
+            policy, catalogue = request.profile.numeric_proof_policy, request.numeric_catalogue
+            if (
+                policy is None
+                or catalogue is None
+                or catalogue.request_id != self.context.request_id
+            ):
+                raise GenerationProviderError("codex_binding_mismatch", retryable=False)
+            result = parse_codex_grounded_wire_v2(
+                events.final_text, allowed_evidence_ids=allowed, policy=policy
+            )
+        else:
+            result = parse_codex_grounded_wire_v1(events.final_text, allowed_evidence_ids=allowed)
         return ProviderGenerationResult(
             result.generation,
             self._metadata(started, events.usage, events.observed_model),

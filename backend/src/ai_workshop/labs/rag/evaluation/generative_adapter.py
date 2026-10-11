@@ -1,7 +1,7 @@
 """Frozen evaluation inputs; current authorization remains in the shared pipeline."""
 
 from dataclasses import replace
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 from ai_workshop.labs.rag.evaluation.domain import EvaluationCase
@@ -131,7 +131,9 @@ class FrozenGenerativeAdapter:
                 workspace_ids=list(scenario.workspace_ids),
                 folder_ids=list(scenario.folder_ids),
                 top_k=candidate.retrieval_k,
-                history=cast(dict, sources.get("case_histories", {})).get(str(case.id), []),
+                history=cast(dict[str, Any], sources.get("case_histories", {})).get(
+                    str(case.id), []
+                ),
                 experimental=True,
                 codex_input_approval=self.input_approval,
             ),

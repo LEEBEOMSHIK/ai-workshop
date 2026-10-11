@@ -56,6 +56,9 @@ def get_domain_service(
 
 
 class DomainSearchExecutorPort(Protocol):
+    async def preflight(
+        self, *, slug: str, actor_id: UUID, request: DomainSearchRequest
+    ) -> None: ...
     async def execute(
         self,
         *,
@@ -83,6 +86,28 @@ class DomainSearchExecutor:
         self.domains = domains
         self.configurations = configurations
         self.search = search
+
+    async def preflight(self, *, slug: str, actor_id: UUID, request: DomainSearchRequest) -> None:
+        context = await self.domains.resolve_search(
+            slug=slug,
+            actor_id=actor_id,
+            connection_version_id=request.connection_version_id,
+            workspace_ids=tuple(request.workspace_ids),
+            folder_ids=tuple(request.folder_ids),
+            document_ids=tuple(request.document_ids) if request.document_ids is not None else None,
+        )
+        configuration = await self.configurations.resolve_domain_version(
+            context.configuration_version_id, actor_id
+        )
+        data = request.model_dump(exclude={"connection_version_id"}, exclude_none=True)
+        data.update(
+            configuration_id=context.configuration_id, experimental=configuration.experimental
+        )
+        await self.search.validate_acceptance(
+            actor_id=actor_id,
+            request=SearchRequest.model_validate(data),
+            configuration=configuration,
+        )
 
     async def execute(
         self,

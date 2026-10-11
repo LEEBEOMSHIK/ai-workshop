@@ -28,6 +28,12 @@ article.card { display: grid; gap: var(--evaluation-gap); }
 .page dd { margin: 0; overflow-wrap: anywhere; }
 .sources { display: grid; gap: .5rem; min-width: 0; }
 .sources ul { display: grid; gap: .6rem; margin: 0; padding-left: 1.2rem; }
+.claimReview { border-top: 1px solid var(--color-border-subtle); }
+.claimList { display: grid; gap: var(--evaluation-gap); list-style: none; padding: 0; margin: .75rem 0 0; }
+.claimList > li { display: grid; gap: .5rem; }
+.claimList h4 { margin: 0; font-size: .9rem; }
+.claimList ul { display: grid; gap: .4rem; margin: 0; padding-left: 1.2rem; }
+.claimText { white-space: pre-wrap; overflow-wrap: anywhere; }
 .results { display: grid; grid-template-columns: minmax(15rem, 1fr) minmax(0, 3fr); gap: 1.25rem; min-width: 0; align-items: start; }
 .questionList { display: grid; gap: .5rem; min-width: 0; padding: .25rem; }
 .questionList ul, .runHistory { display: grid; gap: 0; list-style: none; padding: 0; margin: 0; }
@@ -77,3 +83,7 @@ article.card { display: grid; gap: var(--evaluation-gap); }
   .runToolbar > details.card { padding-inline: .4rem; }
   .runToolbar summary { font-size: .8rem; }
 }
+.calculationReview { margin-block: .75rem; padding: .75rem; border: 1px solid var(--border, #cbd5e1); border-radius: .5rem; }
+.calculationReview summary { cursor: pointer; font-weight: 600; }
+.calculationReview ol { padding-left: 1.25rem; }
+.calculationReview li { overflow-wrap: anywhere; }

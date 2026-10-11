@@ -1,6 +1,18 @@
 # 자산운용 문서 RAG AI 검색 설계
 
+- 본래 생성·세션 후속 검증(2026-10-07): 같은 runner의 제한/일반 Python 부모 TLS 권한 차이를 모델 호출 없이 확인했다. 정상 Chrome의 기존세션 합성 Markdown 후속1개에서 답변·claim1/원문근거2·원문 일치·새로고침 복원과8단계 완료를 확인했다. 활성32와pending128을 유지한다. 과거8평가 실패의 정확한 process failure는 미기록이므로 원인확정·PDF128 품질 통과로 확대하지 않는다. 권한취소·실제첨부/모바일·실패/timeout·별칭/DLL·Git 인계 등 기능 마감은 남는다. [검증 기록](../../worklogs/2026-10-07-rag-generation-execution-path-verification.md).
+
+- 후속 비교 구현·제한 평가 실행(2026-10-07): [승인 설계](../../superpowers/specs/2026-10-07-rag-context-budget-isolation-design.md)와 [4단계 계획](../../superpowers/plans/2026-10-07-rag-context-budget-isolation.md)에 따라 같은 입력32/128 비교, 6사례 공통 기준선·POST 직전 독립 해시 검증, 자동 규칙·독립 판정 분리를 구현했다. helper47·기존11회귀·타입/린트 통과 및 Q02·Q03 필요 근거 복구를 확인한 뒤 정상 pending 후보1과6문항×2회 평가를 실행했다. 연결 검증2회는 성공했지만 평가 생성8회는 provider_request_failed, completed4는 양성 유보 계약failed여서 통과·answered0이다. 활성32·전체 원문·옛 이력을 유지하고 승격하지 않았다. 실제 생성 실행 경로 원인을 먼저 확인하며 기능 마감은 미완료다. [실행 보고서](../../worklogs/2026-10-07-rag-context-budget-isolation-execution.md).
+
+- 원문 기반 계산 검증(승인·구현, 2026-10-06 본래0063/API 반영): [ADR-0036](../../decisions/0036-rag-source-backed-calculation.md), [명세](../../superpowers/specs/2026-10-05-rag-numeric-proof-design.md). 새 schema3에서 자기 인용 원문 숫자를 재계산하며, 별도 immutable receipt와 요청·실행·원문 위치를 대조한다. 기존 schema1/2·숫자 표기 계약과 활성 구성은 유지한다. 새75회는64정상/11검증거절·의미63통과/1실패로 종료, receipt64복원과 승격409를 확인했으며 후보는pending/defaultfalse다. 실제%p proof10/통화환산0, 브라우저미검증으로 합성 연결이나 산술 통과가 품질 완료를 뜻하지 않는다. [본래 반영·평가](../../worklogs/2026-10-06-rag-numeric-proof-rollout.md), [구현·검증 및 반영 경계](../../worklogs/2026-10-05-rag-numeric-proof-implementation.md).
+
+- 검증된 주장 기록: [ADR-0034](../../decisions/0034-rag-claim-citation-trace.md). 원래 주장 텍스트를 그대로 보존하며 과거 미기록 결과의 문장 경계를 추정하지 않는다.
+- 숫자·날짜 인용 검증 수정: [ADR-0035](../../decisions/0035-rag-exact-value-canonicalization.md). 동일 값의 표기만 정규화하고 부호·단위·전체 값을 보존한다. [검증 기록](../../worklogs/2026-10-05-rag-exact-value-validation.md)의 수정 전75건과 수정 후 실패5건 재시도를 구분한다.
+
 - 생성형 평가 경로 공유(구현·자동 검증 완료, 실모델 평가 대기): [ADR-0030](../../decisions/0030-rag-generative-evaluation.md). 실제 대화와 평가가 같은 검색·문맥 선택·생성·인용 검증 코어를 사용하며, 불변 평가 스냅샷과 현재 권한·외부 전송 승인은 별도로 검사한다. 추출형 v1 통과는 생성형 정답 통과가 아니다.
+
+- 첫 질문 접수·첨부 초안·질문 제목(본래 환경 반영 완료): [ADR-0031](../../decisions/0031-first-question-conversation-and-drafts.md), [상세 계약](../../superpowers/specs/2026-09-27-first-question-conversation-design.md). 질문 전에는 대화를 생성하지 않으며, 기존 자료·환경을 유지한다. 실제 적용·검증 경계는 [작업 기록](../../worklogs/2026-09-30-first-question-conversations.md)을 따른다.
+- 미종료 별칭 요청 정상 복구(구현 중): [ADR-0032](../../decisions/0032-rag-alias-recovery.md), [상세 계약](../../superpowers/specs/2026-09-30-rag-alias-recovery-design.md), [실행 계획](../../superpowers/plans/2026-09-30-rag-alias-recovery.md). 과거 요청은 전송 미확인 상태로 보존하며 exact 종료 증거 없이 해제하지 않는다.
 
 - 상태: 승인됨
 - 기준일: 2026-09-05
@@ -397,6 +409,16 @@ Generation 프로파일의 불변 버전을 조합한 저장된 RAG 구성을 �
 
 첫 구현은 AI 검색 모드를 대상으로 한다.
 
+### Agents SDK 도입 — 다음 작업 등록 (2026-10-04)
+
+사용자 요청에 따라 다음 개발 작업은 OpenAI Agents SDK 기반 서비스 RAG 실행 계층 도입으로 잡는다. 현재 검색·생성 파이프라인은 비교 기준으로 유지하고, SDK 어댑터·기존 세션/권한 연결·필요한 전문 역할 협업·실행 모니터링·본래 환경 검증을 단계적으로 진행한다. 도입 목적과 책임 경계, 호환성·ADR 준비 및 완료 기준은 [도입 준비 계획](../../superpowers/plans/2026-10-04-rag-agents-sdk-adoption.md)을 따른다.
+
+이번 등록은 SDK 설치나 활성화 완료가 아니다. SDK는 실행 조율 수단이며 기존 DB 대화 이력·현재 권한/범위·문서 revision·외부 전송 승인·인용 검증을 대체하지 않는다. 프로젝트 개발 Codex의 협업 도구와 기존 Codex SDK Provider 조사도 별개로 유지한다. 실제 실행 계약 변경 전에는 호환성 확인과 ADR·상세 구현 계획을 확정한다.
+
+### 벡터 저장소 비교·로컬 LLM 파인튜닝 — 후속 등록 (2026-10-04)
+
+사용자 요청으로 Agents SDK 도입에 이어 Elasticsearch·전용 벡터 DB·PostgreSQL/pgvector 비교와 로컬 생성 LLM 파인튜닝을 추가 후속 작업으로 등록한다. 저장소 실험은 동일 청크·벡터·권한 필터·BM25/RRF를 유지해 비교하고, 학습 실험은 동일 검색 근거에서 기반 로컬 모델의 학습 전후를 비교한다. 상세 범위·평가 지표·자료 보존·장치 확인·진행 게이트는 [후속 계획](../../superpowers/plans/2026-10-04-rag-vector-store-and-local-llm-experiments.md)을 따른다. 등록은 설치·이관·학습·실험 실행 완료가 아니다.
+
 ## 11. 오류와 복구
 
 - 각 파이프라인 단계는 멱등성을 가져야 한다.
@@ -520,6 +542,7 @@ Generation Profile과 Deployment·Model 연결, 현재 환경과 최신 health�
 `context` 하이라이트는 생성에 함께 전달된 문맥이며, `keyword`/`semantic` 일치와 구분한다.
 선택적 `include_diagnostics`는 반환된 권한 내 후보의 원점수·cosine·선택 사유·실측 시간을 반환하며 응답을 캐시하지 않는다.
 진단만을 위한 계산 실패는 경고와 미계산으로 표시하고 생성 근거 선택을 바꾸지 않는다.
+실제 예산 검사 시점의 수치와 초과 종류는 [입력 예산 진단 설계](../../superpowers/specs/2026-10-06-rag-budget-diagnostics-design.md)에 따라 적격 그룹에만 `budget_trace`로 전달·기록한다. 실행 모니터링에는 진단 표시 여부와 무관하게 같은 관측을 저장한다. 관련성 미달은 검사 전 제외로, 충돌에 따른 최종 전달 취소는 앞선 예산 판정과 구분한다. 옛 기록은 수치를 추정하지 않는다.
 기존 프로파일은 그대로 유지하며, 새 프로파일의 실제 양성·음성 생성 평가 전에 기본 구성으로 승격하지 않는다.
 
 - 모든 정상 검색 결과가 권한이 허용된 원문 위치로 이동한다.
@@ -545,6 +568,13 @@ Generation Profile과 Deployment·Model 연결, 현재 환경과 최신 health�
 - 사용자가 저장한 RAG 구성만 저장 목록과 비교 대상에 추가된다.
 
 ## 영속 대화 세션
+
+HTTP 검색의 DB session은 요청 전체를 하나의 명시적 `begin()`으로 감싸지 않는다.
+생성 감사와 numeric receipt의 명시적 commit 이후에도 같은 검색 session의 새 트랜잭션에서
+최종 원문 권한을 재확인해야 하기 때문이다. 검색 구성·scope·정책·감사는 같은 RAG 전용
+session dependency를 공유하고, 정상 반환 뒤 남은 작업은 commit하며 실패·취소 시에는
+현재 미commit 작업만 rollback한다. 이미 저장된 감사는 보존하고 session과 engine은 항상
+종료한다. Platform의 요청 session과 대화 예약·종료 기록의 별도 session 수명은 유지한다.
 
 [세션·첨부 설계](../../superpowers/specs/2026-09-21-rag-conversation-sessions-ux-design.md)에 따라
 RAG conversations 모듈이 소유자·도메인별 세션과 서버 turn을 저장한다. 클라이언트는 history snapshot을 제출하지 않는다.

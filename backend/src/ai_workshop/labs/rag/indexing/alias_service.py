@@ -23,6 +23,8 @@ class AliasJournalPort(Protocol):
 
     async def finish(self, operation_id: UUID) -> None: ...
 
+    async def dispatch(self, operation_id: UUID) -> None: ...
+
 
 async def alias_cluster_uuid(settings: Settings) -> str:
     client = create_elasticsearch(settings)
@@ -70,6 +72,7 @@ async def run_alias_operation(
         targets,
     )
     try:
+        await journal.dispatch(operation_id)
         if await mutate() is not True or await observe() != targets:
             raise IndexTrackingError("rag_index_writer_unconfirmed")
         await journal.finish(operation_id)

@@ -1347,6 +1347,127 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/rag/domains/{slug}/attachment-draft-cleanup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Cleanup */
+        get: operations["cleanup_api_v1_rag_domains__slug__attachment_draft_cleanup_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/domains/{slug}/attachment-drafts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create */
+        post: operations["create_api_v1_rag_domains__slug__attachment_drafts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/domains/{slug}/attachment-drafts/{draft_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Detail */
+        get: operations["detail_api_v1_rag_domains__slug__attachment_drafts__draft_id__get"];
+        put?: never;
+        post?: never;
+        /** Abandon */
+        delete: operations["abandon_api_v1_rag_domains__slug__attachment_drafts__draft_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/domains/{slug}/attachment-drafts/{draft_id}/attachment-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Options */
+        get: operations["options_api_v1_rag_domains__slug__attachment_drafts__draft_id__attachment_options_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/domains/{slug}/attachment-drafts/{draft_id}/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Attachments */
+        get: operations["attachments_api_v1_rag_domains__slug__attachment_drafts__draft_id__attachments_get"];
+        put?: never;
+        /** Upload */
+        post: operations["upload_api_v1_rag_domains__slug__attachment_drafts__draft_id__attachments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/domains/{slug}/attachment-drafts/{draft_id}/attachments/{attachment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Exclude */
+        delete: operations["exclude_api_v1_rag_domains__slug__attachment_drafts__draft_id__attachments__attachment_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/domains/{slug}/attachment-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Domain Options */
+        get: operations["domain_options_api_v1_rag_domains__slug__attachment_options_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/rag/domains/{slug}/conversation-attachment-cleanup": {
         parameters: {
             query?: never;
@@ -1436,6 +1557,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/rag/domains/{slug}/conversations/{conversation_id}/restore-draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore */
+        post: operations["restore_api_v1_rag_domains__slug__conversations__conversation_id__restore_draft_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/rag/domains/{slug}/conversations/{conversation_id}/turns": {
         parameters: {
             query?: never;
@@ -1464,6 +1602,40 @@ export interface paths {
         put?: never;
         /** Cancel Turn */
         post: operations["cancel_turn_api_v1_rag_domains__slug__conversations__conversation_id__turns__request_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/domains/{slug}/conversations/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Conversation */
+        post: operations["start_conversation_api_v1_rag_domains__slug__conversations_start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rag/domains/{slug}/conversations/starts/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Start Status */
+        get: operations["start_status_api_v1_rag_domains__slug__conversations_starts__request_id__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1942,6 +2114,23 @@ export interface paths {
         };
         /** Pdf Page */
         get: operations["pdf_page_api_v1_rag_sources__asset_version_id__pdf_pages__page_number__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Ready */
+        get: operations["ready_api_v1_ready_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2625,8 +2814,32 @@ export interface components {
             components["schemas"]["Coordinate"],
             components["schemas"]["Coordinate"]
         ];
+        /** BudgetTrace */
+        BudgetTrace: {
+            /** Before Characters */
+            before_characters: number;
+            /** Before Groups */
+            before_groups: number;
+            /** Before Units */
+            before_units: number;
+            /** Character Limit */
+            character_limit: number;
+            /** Group Limit */
+            group_limit: number;
+            /** Incoming Characters */
+            incoming_characters: number;
+            /** Incoming Units */
+            incoming_units: number;
+            /** Unit Limit */
+            unit_limit: number;
+            /** Violated */
+            violated: ("groups" | "units" | "characters")[];
+        };
+        /** @enum {string} */
+        CalculationOperation: "percentage_point_difference" | "convert_krw_unit";
         /** CandidateDiagnosticResponse */
         CandidateDiagnosticResponse: {
+            budget_trace?: components["schemas"]["BudgetTrace"] | null;
             /** Dense Rank */
             dense_rank: number | null;
             /** Dense Score */
@@ -2658,6 +2871,7 @@ export interface components {
              * Format: uuid
              */
             asset_version_id: string;
+            budget_trace?: components["schemas"]["BudgetTrace"] | null;
             /** Chunk Id */
             chunk_id?: string | null;
             /** Dense Rank */
@@ -2758,6 +2972,17 @@ export interface components {
              * @default 0
              */
             sort_order: number;
+        };
+        /** ClaimCitation */
+        ClaimCitation: {
+            /** Calculations */
+            calculations?: components["schemas"]["VerifiedCalculationView"][] | null;
+            /** Claim Index */
+            claim_index: number;
+            /** Claim Text */
+            claim_text?: string | null;
+            /** Evidence Ids */
+            evidence_ids: string[];
         };
         /** CodexEvidenceApprovalRequest */
         CodexEvidenceApprovalRequest: {
@@ -2968,6 +3193,8 @@ export interface components {
             document: components["schemas"]["DocumentResponse"] | null;
             /** Error Code */
             error_code?: string | null;
+            /** Excluded At */
+            excluded_at?: string | null;
             /**
              * Id
              * Format: uuid
@@ -2983,6 +3210,8 @@ export interface components {
         };
         /** ConversationDetail */
         ConversationDetail: {
+            /** Attachment Draft Id */
+            attachment_draft_id?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -2993,10 +3222,29 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Legacy State
+             * @default active
+             */
+            legacy_state: string;
             /** Revision */
             revision: number;
             /** Title */
             title: string;
+            /** Title Derivation */
+            title_derivation?: ("extracted" | "preserved" | "fallback") | null;
+            /** Title Error Code */
+            title_error_code?: string | null;
+            /**
+             * Title Origin
+             * @default legacy
+             * @enum {string}
+             */
+            title_origin: "auto" | "manual" | "legacy";
+            /** Title Policy Version */
+            title_policy_version?: string | null;
+            /** Title Source Turn Id */
+            title_source_turn_id?: string | null;
             /** Turns */
             turns: components["schemas"]["ConversationTurnResponse"][];
             /**
@@ -3012,8 +3260,46 @@ export interface components {
             /** Title */
             title: string;
         };
+        /** ConversationStart */
+        ConversationStart: {
+            codex_input_approval?: components["schemas"]["CodexInputApprovalRequest"] | null;
+            /**
+             * Connection Version Id
+             * Format: uuid
+             */
+            connection_version_id: string;
+            /** Document Ids */
+            document_ids?: string[] | null;
+            /** Draft Id */
+            draft_id?: string | null;
+            /** Draft Revision */
+            draft_revision?: number | null;
+            /** Folder Ids */
+            folder_ids?: string[];
+            /**
+             * Include Diagnostics
+             * @default true
+             */
+            include_diagnostics: boolean;
+            /** Query */
+            query: string;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /**
+             * Top K
+             * @default 10
+             */
+            top_k: number;
+            /** Workspace Ids */
+            workspace_ids: string[];
+        };
         /** ConversationSummary */
         ConversationSummary: {
+            /** Attachment Draft Id */
+            attachment_draft_id?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -3024,10 +3310,29 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Legacy State
+             * @default active
+             */
+            legacy_state: string;
             /** Revision */
             revision: number;
             /** Title */
             title: string;
+            /** Title Derivation */
+            title_derivation?: ("extracted" | "preserved" | "fallback") | null;
+            /** Title Error Code */
+            title_error_code?: string | null;
+            /**
+             * Title Origin
+             * @default legacy
+             * @enum {string}
+             */
+            title_origin: "auto" | "manual" | "legacy";
+            /** Title Policy Version */
+            title_policy_version?: string | null;
+            /** Title Source Turn Id */
+            title_source_turn_id?: string | null;
             /**
              * Updated At
              * Format: date-time
@@ -3686,6 +3991,45 @@ export interface components {
             kind: components["schemas"]["WorkspaceKind"];
             /** Name */
             name: string;
+        };
+        /** DraftCreate */
+        DraftCreate: {
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+        };
+        /** DraftResponse */
+        DraftResponse: {
+            /** Bound Conversation Id */
+            bound_conversation_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Legacy Conversation Id */
+            legacy_conversation_id: string | null;
+            /** Revision */
+            revision: number;
+            /** State */
+            state: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** ErrorDetail */
         ErrorDetail: {
@@ -4501,8 +4845,12 @@ export interface components {
         };
         /** GeneratedCitationResponse */
         GeneratedCitationResponse: {
+            /** Calculations */
+            calculations?: components["schemas"]["VerifiedCalculationView"][] | null;
             /** Claim Index */
             claim_index: number;
+            /** Claim Text */
+            claim_text?: string | null;
             /** Evidence Ids */
             evidence_ids: string[];
         };
@@ -4555,6 +4903,7 @@ export interface components {
             /** Citations */
             citations: components["schemas"]["GeneratedCitationResponse"][];
             execution: components["schemas"]["GenerationExecutionResponse"] | null;
+            numeric_validation?: components["schemas"]["NumericValidationBindingView"] | null;
             /** Reason Codes */
             reason_codes: string[];
             /**
@@ -4628,6 +4977,8 @@ export interface components {
              * Format: uuid
              */
             case_id: string;
+            /** Claim Citations */
+            claim_citations?: components["schemas"]["ClaimCitation"][];
             /**
              * Configuration Version Id
              * Format: uuid
@@ -4644,6 +4995,7 @@ export interface components {
             id: string;
             judgment: components["schemas"]["CorrectnessJudgment"] | null;
             metrics: components["schemas"]["GenerativeMetrics"] | null;
+            numeric_validation?: components["schemas"]["NumericValidationBindingView"] | null;
             observation: components["schemas"]["GenerativeObservation"] | null;
             /** Query */
             query: string;
@@ -5531,6 +5883,7 @@ export interface components {
             /** Citations */
             citations?: components["schemas"]["GeneratedCitationResponse"][];
             execution?: components["schemas"]["GenerationExecutionResponse"] | null;
+            numeric_validation?: components["schemas"]["NumericValidationBindingView"] | null;
             /** Reason Codes */
             reason_codes?: string[];
             /** Status */
@@ -5599,6 +5952,50 @@ export interface components {
              * Format: uuid
              */
             workspace_id: string;
+        };
+        /** NumericValidationBindingView */
+        NumericValidationBindingView: {
+            /**
+             * Audit Id
+             * Format: uuid
+             */
+            audit_id: string;
+            /** Catalogue Digest */
+            catalogue_digest: string;
+            /**
+             * Configuration Version Id
+             * Format: uuid
+             */
+            configuration_version_id: string;
+            /**
+             * Generation Profile Id
+             * Format: uuid
+             */
+            generation_profile_id: string;
+            /** Payload Digest */
+            payload_digest: string;
+            /** Policy Digest */
+            policy_digest: string;
+            /**
+             * Policy Ref
+             * @constant
+             */
+            policy_ref: "source-numeric-proof-v1";
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 3;
+            /**
+             * Validation Id
+             * Format: uuid
+             */
+            validation_id: string;
         };
         /** OriginalPreviewResponse */
         OriginalPreviewResponse: {
@@ -6451,6 +6848,69 @@ export interface components {
          * @enum {string}
          */
         UserRole: "owner" | "member";
+        /** VerifiedCalculationView */
+        VerifiedCalculationView: {
+            /** Operands */
+            operands: components["schemas"]["VerifiedOperandView"][];
+            operation: components["schemas"]["CalculationOperation"];
+            /**
+             * Policy Ref
+             * @constant
+             */
+            policy_ref: "source-numeric-proof-v1";
+            /** Result End */
+            result_end: number;
+            /** Result Start */
+            result_start: number;
+        };
+        /** VerifiedOperandView */
+        VerifiedOperandView: {
+            /**
+             * Asset Version Id
+             * Format: uuid
+             */
+            asset_version_id: string;
+            /** Char End */
+            char_end: number;
+            /** Char Start */
+            char_start: number;
+            /**
+             * Chunk Id
+             * Format: uuid
+             */
+            chunk_id: string;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /**
+             * Element Id
+             * Format: uuid
+             */
+            element_id: string;
+            /**
+             * Evidence Id
+             * Format: uuid
+             */
+            evidence_id: string;
+            /** Page */
+            page: number | null;
+            /**
+             * Projection Id
+             * Format: uuid
+             */
+            projection_id: string;
+            /** Token End */
+            token_end: number;
+            /** Token Start */
+            token_start: number;
+            /**
+             * Unit
+             * @enum {string}
+             */
+            unit: "%" | "원" | "만원" | "억원";
+        };
         /**
          * VersionStatus
          * @enum {string}
@@ -12871,6 +13331,636 @@ export interface operations {
             };
         };
     };
+    cleanup_api_v1_rag_domains__slug__attachment_draft_cleanup_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    create_api_v1_rag_domains__slug__attachment_drafts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DraftCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    detail_api_v1_rag_domains__slug__attachment_drafts__draft_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draft_id: string;
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    abandon_api_v1_rag_domains__slug__attachment_drafts__draft_id__delete: {
+        parameters: {
+            query: {
+                expected_revision: number;
+            };
+            header?: never;
+            path: {
+                draft_id: string;
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    options_api_v1_rag_domains__slug__attachment_drafts__draft_id__attachment_options_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draft_id: string;
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentOptionsResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    attachments_api_v1_rag_domains__slug__attachment_drafts__draft_id__attachments_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draft_id: string;
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationAttachmentResponse"][];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    upload_api_v1_rag_domains__slug__attachment_drafts__draft_id__attachments_post: {
+        parameters: {
+            query: {
+                expected_revision: number;
+                workspace_id: string;
+            };
+            header?: never;
+            path: {
+                draft_id: string;
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationAttachmentResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    exclude_api_v1_rag_domains__slug__attachment_drafts__draft_id__attachments__attachment_id__delete: {
+        parameters: {
+            query: {
+                expected_revision: number;
+            };
+            header?: never;
+            path: {
+                attachment_id: string;
+                draft_id: string;
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    domain_options_api_v1_rag_domains__slug__attachment_options_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachmentOptionsResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     attachment_cleanup_api_v1_rag_domains__slug__conversation_attachment_cleanup_get: {
         parameters: {
             query?: never;
@@ -13499,6 +14589,74 @@ export interface operations {
             };
         };
     };
+    restore_api_v1_rag_domains__slug__conversations__conversation_id__restore_draft_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     submit_turn_api_v1_rag_domains__slug__conversations__conversation_id__turns_post: {
         parameters: {
             query?: never;
@@ -13577,6 +14735,145 @@ export interface operations {
             header?: never;
             path: {
                 conversation_id: string;
+                request_id: string;
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationDetail"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    start_conversation_api_v1_rag_domains__slug__conversations_start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConversationStart"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationDetail"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    start_status_api_v1_rag_domains__slug__conversations_starts__request_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
                 request_id: string;
                 slug: string;
             };
@@ -15933,6 +17230,73 @@ export interface operations {
             };
             /** @description Source object unavailable. */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    ready_api_v1_ready_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

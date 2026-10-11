@@ -69,3 +69,9 @@
 .management textarea {resize:vertical; width:100%; box-sizing:border-box;}
 .page button {cursor:pointer;}
 .documentBody {white-space:pre-wrap; overflow-wrap:anywhere; max-height:30rem; overflow:auto;}
+.documentViewer { box-sizing: border-box; width: 100%; min-width: 0; max-width: 70rem; margin: 0 auto; padding: clamp(1rem, 3vw, 1.5rem); overflow-wrap: anywhere; }
+.documentViewer h1 { font-family: inherit; font-size: clamp(1.4rem, 3vw, 1.9rem); font-weight: 650; line-height: 1.4; letter-spacing: normal; margin: 1rem 0 .5rem; }
+.documentViewer a { color: var(--color-accent-text); line-height: 1.65; text-underline-offset: .2rem; }
+.documentViewer a:focus-visible { outline: 2px solid var(--color-accent-text); outline-offset: 3px; }
+.documentMetadata { color: #a4b2c2; font-size: .85rem; line-height: 1.65; margin: .35rem 0; }
+.documentContent { min-width: 0; max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }

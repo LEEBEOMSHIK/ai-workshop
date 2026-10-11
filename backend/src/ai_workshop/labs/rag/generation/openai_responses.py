@@ -89,15 +89,12 @@ class OpenAIResponsesRuntime:
         if not isinstance(data, list):
             raise GenerationProviderError("provider_invalid_response", retryable=False)
         exact = any(
-            isinstance(item, Mapping)
-            and item.get("id") == self.deployment.provider_model_id
+            isinstance(item, Mapping) and item.get("id") == self.deployment.provider_model_id
             for item in data
         )
         return ProviderHealthResult(
             ready=exact,
-            observed_provider_model_id=(
-                self.deployment.provider_model_id if exact else None
-            ),
+            observed_provider_model_id=(self.deployment.provider_model_id if exact else None),
             execution=self._metadata(started),
         )
 
@@ -109,9 +106,7 @@ class OpenAIResponsesRuntime:
         started = monotonic()
         instructions = _safe_load_prompt(request.profile.context_prompt_ref)
         if instructions is None:
-            raise GenerationProviderError(
-                "provider_invalid_response", retryable=False
-            ) from None
+            raise GenerationProviderError("provider_invalid_response", retryable=False) from None
         response = await self._create_response(
             profile=request.profile,
             instructions=instructions,
@@ -128,14 +123,10 @@ class OpenAIResponsesRuntime:
             expected_model=self.deployment.provider_model_id,
         )
         if output_text is None or usage is None:
-            raise GenerationProviderError(
-                "provider_invalid_response", retryable=False
-            ) from None
+            raise GenerationProviderError("provider_invalid_response", retryable=False) from None
         resolved_query = _safe_contextualization(output_text)
         if resolved_query is None:
-            raise GenerationProviderError(
-                "structured_output_invalid", retryable=False
-            ) from None
+            raise GenerationProviderError("structured_output_invalid", retryable=False) from None
         return ProviderContextualizationResult(
             resolved_query=resolved_query,
             execution=self._metadata(
@@ -150,16 +141,15 @@ class OpenAIResponsesRuntime:
         started = monotonic()
         instructions = _safe_load_prompt(request.profile.prompt_ref)
         if instructions is None:
-            raise GenerationProviderError(
-                "provider_invalid_response", retryable=False
-            ) from None
+            raise GenerationProviderError("provider_invalid_response", retryable=False) from None
         current_content = json.dumps(
             {
                 "schema_version": request.profile.response_schema_version,
                 "question": request.question,
                 "resolved_query": request.resolved_query,
                 "evidence": evidence_payload(
-                    request.evidence, contextual=request.profile.evidence_budget is not None,
+                    request.evidence,
+                    contextual=request.profile.evidence_budget is not None,
                 ),
             },
             ensure_ascii=False,
@@ -180,12 +170,11 @@ class OpenAIResponsesRuntime:
             expected_model=self.deployment.provider_model_id,
         )
         if output_text is None or usage is None:
-            raise GenerationProviderError(
-                "provider_invalid_response", retryable=False
-            ) from None
+            raise GenerationProviderError("provider_invalid_response", retryable=False) from None
         if request.profile.evidence_budget is not None and is_context_abstention(output_text):
             return ProviderGenerationResult(
-                None, self._metadata(started, input_tokens=usage[0], output_tokens=usage[1]),
+                None,
+                self._metadata(started, input_tokens=usage[0], output_tokens=usage[1]),
                 status=GenerationStatus.INSUFFICIENT_EVIDENCE,
             )
         generation = _safe_generation(
@@ -193,9 +182,7 @@ class OpenAIResponsesRuntime:
             allowed_evidence_ids={item.evidence_id for item in request.evidence},
         )
         if generation is None:
-            raise GenerationProviderError(
-                "structured_output_invalid", retryable=False
-            ) from None
+            raise GenerationProviderError("structured_output_invalid", retryable=False) from None
         return ProviderGenerationResult(
             generation=generation,
             execution=self._metadata(
@@ -270,9 +257,7 @@ class OpenAIResponsesRuntime:
                             "provider_authentication_failed", retryable=False
                         )
                     elif response.status_code == 429:
-                        error = GenerationProviderError(
-                            "provider_rate_limited", retryable=True
-                        )
+                        error = GenerationProviderError("provider_rate_limited", retryable=True)
                     elif response.is_error:
                         error = GenerationProviderError(
                             "provider_invalid_response", retryable=False
@@ -351,6 +336,8 @@ class OpenAIResponsesRuntime:
         )
 
     def _validate_profile(self, profile: GenerationProfile) -> None:
+        if profile.response_schema_version == 3:
+            raise GenerationProviderError("generation_schema_not_supported", retryable=False)
         if (
             profile.deployment is None
             or profile.deployment.id != self.deployment.id
@@ -369,8 +356,7 @@ def _input_items(
     bound = min(_MAX_REQUEST_HISTORY_TURNS, profile.context_policy.max_history_turns)
     selected_history = history[-bound:]
     input_items: list[dict[str, object]] = [
-        {"role": turn.role.value, "content": turn.content}
-        for turn in selected_history
+        {"role": turn.role.value, "content": turn.content} for turn in selected_history
     ]
     input_items.append({"role": "user", "content": current_content})
     return input_items

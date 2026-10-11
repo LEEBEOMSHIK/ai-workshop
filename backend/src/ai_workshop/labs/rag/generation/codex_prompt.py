@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ai_workshop.labs.rag.generation.codex_wire import CODEX_GROUNDED_WIRE_SCHEMA_V1
+from ai_workshop.labs.rag.generation.codex_wire_v2 import CODEX_GROUNDED_WIRE_SCHEMA_V2
 from ai_workshop.labs.rag.generation.domain import (
     ContextualizationRequest,
     GenerationRequest,
@@ -51,16 +52,12 @@ def build_codex_prompt(
     task_ref, schema_ref, schema_version, schema = _trusted_selection(request)
     trusted_assets = _load_trusted_assets(task_ref)
     if trusted_assets is None:
-        raise CodexPromptConfigurationError(
-            "The configured Codex prompt profile is not available."
-        )
+        raise CodexPromptConfigurationError("The configured Codex prompt profile is not available.")
     control, task, control_version, task_version = trusted_assets
 
     schema_json = _canonical_json(schema)
     payload = _payload(request)
-    developer_instructions = "\n\n".join(
-        (control, task, f"Output schema:\n{schema_json}")
-    )
+    developer_instructions = "\n\n".join((control, task, f"Output schema:\n{schema_json}"))
     return CodexPromptEnvelope(
         developer_instructions=developer_instructions,
         stdin_json=_canonical_json(payload),
@@ -81,9 +78,32 @@ def _trusted_selection(
     request: ContextualizationRequest | GenerationRequest,
 ) -> tuple[str, str, int, dict[str, Any]]:
     profile = request.profile
+    if profile.response_schema_version == 3:
+        if (
+            profile.prompt_ref != "rag-codex-answer-v6"
+            or profile.numeric_proof_policy is None
+            or profile.context_prompt_ref != _CONTEXTUALIZE_REF
+            or profile.evidence_budget is None
+        ):
+            _raise_invalid_profile()
+        assert profile.numeric_proof_policy is not None
+        if isinstance(request, GenerationRequest):
+            catalogue = request.numeric_catalogue
+            if (
+                catalogue is None
+                or catalogue.generation_profile_id != profile.profile_id
+                or catalogue.policy_digest != profile.numeric_proof_policy.digest
+            ):
+                _raise_invalid_profile()
+            return profile.prompt_ref, "codex-grounded-wire-v2", 2, CODEX_GROUNDED_WIRE_SCHEMA_V2
+        return _CONTEXTUALIZE_REF, "contextualization-v1", 1, CONTEXTUALIZATION_SCHEMA_V1
     if (
-        profile.prompt_ref not in (
-            _ANSWER_REF, _WIRE_ANSWER_REF, "rag-codex-answer-v4", "rag-codex-answer-v5",
+        profile.prompt_ref
+        not in (
+            _ANSWER_REF,
+            _WIRE_ANSWER_REF,
+            "rag-codex-answer-v4",
+            "rag-codex-answer-v5",
         )
         or profile.context_prompt_ref != _CONTEXTUALIZE_REF
         or profile.response_schema_version != 2
@@ -115,16 +135,33 @@ def _load_trusted_assets(task_ref: str) -> tuple[str, str, int, int] | None:
 def _payload(request: ContextualizationRequest | GenerationRequest) -> dict[str, object]:
     payload: dict[str, object] = {
         "question": request.question,
-        "history": [
-            {"role": turn.role.value, "content": turn.content} for turn in request.history
-        ],
+        "history": [{"role": turn.role.value, "content": turn.content} for turn in request.history],
         "evidence": [],
     }
     if isinstance(request, GenerationRequest):
         payload["resolved_query"] = request.resolved_query
         payload["evidence"] = evidence_payload(
-            request.evidence, contextual=request.profile.evidence_budget is not None,
+            request.evidence,
+            contextual=request.profile.evidence_budget is not None,
         )
+        if request.profile.response_schema_version == 3 and request.numeric_catalogue is not None:
+            catalogue = request.numeric_catalogue
+            payload["numeric_catalogue"] = {
+                "request_id": str(catalogue.request_id),
+                "policy_ref": catalogue.policy_ref,
+                "catalogue_digest": catalogue.digest,
+                "tokens": [
+                    {
+                        "token_id": t.token_id,
+                        "evidence_id": str(t.evidence_id),
+                        "start": t.start,
+                        "end": t.end,
+                        "unit": t.unit,
+                        "value": str(t.value),
+                    }
+                    for t in catalogue.tokens
+                ],
+            }
     return payload
 
 
@@ -143,9 +180,7 @@ def _sha256(value: str) -> str:
 
 
 def _raise_invalid_profile() -> None:
-    raise CodexPromptConfigurationError(
-        "The configured Codex prompt profile is not available."
-    )
+    raise CodexPromptConfigurationError("The configured Codex prompt profile is not available.")
 
 
 __all__ = [

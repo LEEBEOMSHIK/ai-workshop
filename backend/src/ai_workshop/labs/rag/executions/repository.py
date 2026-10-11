@@ -114,5 +114,5 @@ async def finish_execution(
         )
     if row is not None and row.status == "running":
         row.status, row.answer_status = outcome.state, outcome.answer_status
-        row.error_code, row.complete = outcome.error_code, outcome.complete
+        row.error_code = outcome.error_code
         row.ended_at = datetime.now(UTC)

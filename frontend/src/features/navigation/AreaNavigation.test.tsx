@@ -70,7 +70,7 @@ it("separates fixed area links from the current workspace menu", () => {
   expect(within(areas).getAllByRole("link").map((link) => link.textContent)).toEqual(["AI Lab", "비공개 작업소", "관리자"]);
   expect(within(areas).getByRole("link", { name: "AI Lab" })).toHaveAttribute("href", "/labs");
   expect(within(areas).getByRole("link", { name: "비공개 작업소" })).toHaveAttribute("aria-current", "location");
-  expect(within(screen.getByRole("navigation", { name: "비공개 작업소" })).getAllByRole("link").map((link) => link.textContent)).toEqual(["파일함", "RAG 대화", "학습 기록"]);
+  expect(within(screen.getByRole("navigation", { name: "비공개 작업소" })).getAllByRole("link").map((link) => link.textContent)).toEqual(["파일함", "RAG 대화", "학습 기록", "흐름도"]);
 });
 
 it("keeps only administration menus in the lower row with exact page selection", () => {
@@ -96,6 +96,7 @@ it("labels only the stored owner role as 마스터 without changing member label
 it.each([
   ["/workshop/workspaces/w/documents", "파일함"],
   ["/workshop/learning/record", "학습 기록"],
+  ["/workshop/flows/rag/multiturn", "흐름도"],
   ["/workshop/rag/search", "RAG 대화"],
   ["/workshop/rag/domains/asset-management/chat", "RAG 대화"],
   ["/workshop/rag/domains/encoded%20slug/chat/", "RAG 대화"],
@@ -145,6 +146,8 @@ it("keeps grouped menu, area links and account reachable in sidebar keyboard ord
   expect(screen.getByRole("link", { name: "RAG 대화" })).toHaveFocus();
   await user.tab();
   expect(screen.getByRole("link", { name: "학습 기록" })).toHaveFocus();
+  await user.tab();
+  expect(screen.getByRole("link", { name: "흐름도" })).toHaveFocus();
   await user.tab();
   expect(screen.getByRole("link", { name: "AI Lab" })).toHaveFocus();
   await user.tab();

@@ -1,0 +1,53 @@
+# Shared by isolated bootstrap and the final secured original-volume JVM.
+# The controller validates original cluster identity/settings before applying this file.
+# Elasticsearch's substitution fails if this public original value is absent.
+cluster.name: ${AI_WORKSHOP_ES_ORIGINAL_CLUSTER_NAME}
+discovery.type: single-node
+network.host: 0.0.0.0
+http.port: 9200
+transport.port: 9300
+
+xpack.security.enabled: true
+xpack.security.autoconfiguration.enabled: false
+xpack.security.enrollment.enabled: false
+# Anonymous access is enabled by assigning roles; an empty list grants none.
+xpack.security.authc.anonymous.roles: []
+# reset-password requires the file realm; its temporary user must be cleaned up.
+# Mount this file and the six TLS files only, leaving users/users_roles writable.
+xpack.security.authc.realms.file.file1.order: 0
+xpack.security.authc.realms.file.file1.enabled: true
+xpack.security.authc.realms.native.native1.order: 1
+xpack.security.authc.realms.native.native1.enabled: true
+
+# Private node keys only: never mount CA signing keys into the server.
+# HTTP clients authenticate with scoped keys and verify the CA and URL hostname.
+# SANs must cover localhost, verified loopback, service DNS and admitted direct IPs.
+xpack.security.http.ssl.enabled: true
+xpack.security.http.ssl.verification_mode: full
+xpack.security.http.ssl.client_authentication: none
+xpack.security.http.ssl.key: access-epoch-tls/http/node.key
+xpack.security.http.ssl.certificate: access-epoch-tls/http/node.crt
+xpack.security.http.ssl.certificate_authorities: [access-epoch-tls/http/ca.crt]
+
+# A distinct project CA and mandatory client certificates protect transport ingress.
+xpack.security.transport.ssl.enabled: true
+xpack.security.transport.ssl.verification_mode: full
+xpack.security.transport.ssl.client_authentication: required
+xpack.security.transport.ssl.key: access-epoch-tls/transport/node.key
+xpack.security.transport.ssl.certificate: access-epoch-tls/transport/node.crt
+xpack.security.transport.ssl.certificate_authorities: [access-epoch-tls/transport/ca.crt]
+
+# No API-key remote-cluster listener; omit remote_cluster_client from default roles.
+# No extra HTTP/transport profiles or remote-cluster connections are declared here.
+remote_cluster_server.enabled: false
+node.roles:
+  - master
+  - data
+  - data_content
+  - data_hot
+  - data_warm
+  - data_cold
+  - data_frozen
+  - ingest
+  - ml
+  - transform

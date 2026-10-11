@@ -6,6 +6,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from ai_workshop.labs.rag.deployments.domain import ExecutionLocation, ProviderKind
 from ai_workshop.labs.rag.documents.domain import SourceKind, SourceLocation
 from ai_workshop.labs.rag.generation.codex_admin_api import CodexInputApprovalRequest
+from ai_workshop.labs.rag.generation.numeric_proof_schemas import (
+    NumericValidationBindingView,
+    VerifiedCalculationView,
+    calculation_views,
+)
 from ai_workshop.labs.rag.highlighting.domain import (
     AnswerStatus,
     ConflictState,
@@ -13,6 +18,7 @@ from ai_workshop.labs.rag.highlighting.domain import (
     HighlightKind,
     HighlightSpan,
 )
+from ai_workshop.labs.rag.models.budget_trace import BudgetTrace
 from ai_workshop.labs.rag.retrieval.selection import reject_explicit_empty_document_ids
 from ai_workshop.labs.rag.search.pipeline import RelatedSource, SearchResult
 
@@ -46,6 +52,14 @@ class SearchRequest(BaseModel):
 class GeneratedCitationResponse(BaseModel):
     claim_index: int
     evidence_ids: list[UUID]
+    claim_text: str | None = Field(
+        default=None,
+        repr=False,
+        exclude_if=lambda value: value is None,
+    )
+    calculations: tuple[VerifiedCalculationView, ...] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class GenerationExecutionResponse(BaseModel):
@@ -74,6 +88,9 @@ class GenerationResponse(BaseModel):
     turn_id: UUID | None
     validation_token: str | None
     execution: GenerationExecutionResponse | None
+    numeric_validation: NumericValidationBindingView | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class SourceLocationResponse(BaseModel):
@@ -257,6 +274,7 @@ class CandidateDiagnosticResponse(BaseModel):
     eligible: bool
     selected: bool
     reason: str
+    budget_trace: BudgetTrace | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class SearchDiagnosticsResponse(BaseModel):
@@ -289,6 +307,7 @@ class SearchDiagnosticsResponse(BaseModel):
                     eligible=item.eligible,
                     selected=item.selected,
                     reason=item.reason,
+                    budget_trace=item.budget_trace,
                 )
                 for item in diagnostic.candidates
             ],
@@ -365,10 +384,15 @@ class SearchResponse(BaseModel):
                     GeneratedCitationResponse(
                         claim_index=item.claim_index,
                         evidence_ids=list(item.evidence_ids),
+                        claim_text=item.claim_text,
+                        calculations=calculation_views(item.calculations),
                     )
                     for item in result.generation.citations
                 ],
                 reason_codes=list(result.generation.reason_codes),
+                numeric_validation=NumericValidationBindingView.from_domain(
+                    result.generation.numeric_validation
+                ),
                 turn_id=result.generation.turn_id,
                 validation_token=result.generation.validation_token,
                 execution=(

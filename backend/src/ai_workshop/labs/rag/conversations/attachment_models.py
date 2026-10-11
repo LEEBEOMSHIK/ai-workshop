@@ -14,6 +14,10 @@ class ConversationAttachmentRecord(UUIDPrimaryKeyMixin, Base):
     __tablename__ = "rag_conversation_attachments"
     __table_args__ = (
         CheckConstraint(
+            "(conversation_id IS NULL) <> (draft_id IS NULL)", name="ck_rag_attachment_parent"
+        ),
+        Index("ix_rag_attachment_draft", "draft_id", "owner_id"),
+        CheckConstraint(
             "state IN ('uploading','attached','failed')", name="ck_conversation_attachment_state"
         ),
         Index("ix_conversation_attachment_owner", "conversation_id", "owner_id"),
@@ -22,9 +26,13 @@ class ConversationAttachmentRecord(UUIDPrimaryKeyMixin, Base):
             name="ck_conversation_attachment_cleanup",
         ),
     )
-    conversation_id: Mapped[UUID] = mapped_column(
-        ForeignKey("rag_conversations.id", ondelete="RESTRICT"), nullable=False
+    conversation_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("rag_conversations.id", ondelete="RESTRICT")
     )
+    draft_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("rag_attachment_drafts.id", ondelete="RESTRICT")
+    )
+    excluded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     owner_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     intake_id: Mapped[UUID | None] = mapped_column(ForeignKey("http_upload_intakes.id"))

@@ -67,7 +67,7 @@ async def test_semantic_processing_profile_reaches_selected_scope_for_legacy_tar
         configuration=configuration,
         conversation_scope=_scope(fingerprint="a" * 64),
     )
-    assert resolver.calls == [((DOCUMENT_ID,), PROCESSING_PROFILE_ID)] * 3
+    assert resolver.calls == [((DOCUMENT_ID,), PROCESSING_PROFILE_ID)] * 4
     assert len(retriever.scopes) == 1 and result.selected_scope is not None
     assert configuration.active_index_alias is target
     assert target.document_processing_profile_id is None
@@ -89,7 +89,7 @@ async def test_existing_configuration_stub_can_use_processing_named_alias():
         configuration=configuration,
         conversation_scope=_scope(fingerprint="a" * 64),
     )
-    assert resolver.calls == [((DOCUMENT_ID,), PROCESSING_PROFILE_ID)] * 3
+    assert resolver.calls == [((DOCUMENT_ID,), PROCESSING_PROFILE_ID)] * 4
 
 
 @pytest.mark.asyncio

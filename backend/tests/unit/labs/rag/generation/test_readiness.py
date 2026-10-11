@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import UUID
 
 import pytest
@@ -16,6 +17,30 @@ from ai_workshop.labs.rag.generation.readiness import SqlAlchemyGenerationReadin
 
 PROFILE_ID = UUID("10000000-0000-0000-0000-000000000001")
 VERSION_ID = UUID("10000000-0000-0000-0000-000000000002")
+
+
+async def test_schema3_codex_is_not_ready_without_numeric_storage_capability():
+    from tests.unit.labs.rag.deployments.test_domain import codex_deployment
+
+    service = readiness(
+        SimpleNamespace(
+            bindings=(),
+            deployment_version_id=VERSION_ID,
+            config={"generation": {"response_schema_version": 3}},
+        ),
+        None,
+    )
+    service.actor_id = UUID(int=1)
+    service.profiles.find_version_visible = AsyncMock(
+        return_value=SimpleNamespace(generation_profile_id=PROFILE_ID)
+    )
+    service.session = SimpleNamespace(scalar=AsyncMock(return_value=False))
+    service.deployments.get_version = AsyncMock(return_value=codex_deployment())
+    service.verification = SimpleNamespace(
+        status=AsyncMock(return_value=SimpleNamespace(ready=True))
+    )
+    assert await service.is_ready(PROFILE_ID, configuration_version_id=UUID(int=2)) is False
+    service.verification.status.assert_not_awaited()
 
 
 def deployment() -> ModelDeploymentVersion:
@@ -64,9 +89,7 @@ class Deployments:
         assert version_id == VERSION_ID
         return deployment()
 
-    async def latest_health_check(
-        self, version_id: UUID
-    ) -> DeploymentHealthCheck | None:
+    async def latest_health_check(self, version_id: UUID) -> DeploymentHealthCheck | None:
         self.health_version_ids.append(version_id)
         return self.health
 
@@ -96,7 +119,11 @@ async def test_readiness_uses_latest_health_for_exact_deployment_version() -> No
     )
     deployments = Deployments(health)
     service = readiness(
-        SimpleNamespace(bindings=(), deployment_version_id=VERSION_ID),
+        SimpleNamespace(
+            bindings=(),
+            deployment_version_id=VERSION_ID,
+            config={"generation": {"response_schema_version": 1}},
+        ),
         health,
     )
     service.deployments = deployments

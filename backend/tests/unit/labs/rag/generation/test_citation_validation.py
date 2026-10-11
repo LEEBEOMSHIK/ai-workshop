@@ -130,11 +130,96 @@ def test_korean_numeric_or_date_claim_must_match_cited_evidence(
 
 def test_incomplete_projection_provenance_is_rejected() -> None:
     outcome = CitationValidator().validate(
-        generation(
-            GeneratedClaim(text="위험 한도입니다.", evidence_ids=(EVIDENCE_ID,))
-        ),
+        generation(GeneratedClaim(text="위험 한도입니다.", evidence_ids=(EVIDENCE_ID,))),
         allowed_evidence=(evidence(projection_id=None),),
     )
 
     assert outcome.status is GenerationStatus.CITATION_VALIDATION_FAILED
     assert outcome.reason_codes == ("evidence_provenance_incomplete",)
+
+
+@pytest.mark.parametrize(
+    ("evidence_text", "claim_text"),
+    [
+        ("2026-09-01", "2026년 9월 1일"),
+        ("2026년 09월 01일", "2026-9-1"),
+        ("7%", "7.0 %"),
+        ("7퍼센트", "7%"),
+        ("1,000원", "1000원"),
+        ("1000원", "1,000.00 원"),
+        ("-7%", "−7.00%"),
+        ("0.15%p", "0.150 퍼센트포인트"),
+        ("0.15%p", "0.15 % p"),
+        ("0.15%p", "0.15 퍼센트 포인트"),
+        ("0.15%p", "0.15％p"),
+        ("3년", "3.0 년"),
+    ],
+)
+def test_equivalent_numeric_spellings_keep_exact_claim_text(
+    evidence_text: str,
+    claim_text: str,
+) -> None:
+    outcome = CitationValidator().validate(
+        generation(GeneratedClaim(text=claim_text, evidence_ids=(EVIDENCE_ID,))),
+        allowed_evidence=(evidence(text=evidence_text),),
+    )
+
+    assert outcome.status is GenerationStatus.ANSWERED
+    assert outcome.text == claim_text
+    assert outcome.citations[0].claim_text == claim_text
+
+
+@pytest.mark.parametrize(
+    ("evidence_text", "claim_text"),
+    [
+        ("-7%", "7%"),
+        ("7%", "-7%"),
+        ("0.15%p", "0.15%"),
+        ("0.15%", "0.15%p"),
+        ("0.15%", "0.15% p"),
+        ("0.15%", "0.15퍼센트 포인트"),
+        ("0.15%", "0.15％p"),
+        ("1000원", "2000원"),
+        ("1000원", "1,00원"),
+        ("1억원", "10000만원"),
+        ("7.01%", "7.0%"),
+        ("2026-09-01", "2026년 9월 2일"),
+        ("2026-09-01", "2026년"),
+        ("0.15%", "15%"),
+        ("2026-02-28", "2026년 2월 30일"),
+    ],
+)
+def test_numeric_sign_unit_or_value_changes_remain_rejected(
+    evidence_text: str,
+    claim_text: str,
+) -> None:
+    outcome = CitationValidator().validate(
+        generation(GeneratedClaim(text=claim_text, evidence_ids=(EVIDENCE_ID,))),
+        allowed_evidence=(evidence(text=evidence_text),),
+    )
+
+    assert outcome.status is GenerationStatus.CITATION_VALIDATION_FAILED
+    assert outcome.reason_codes == ("exact_value_not_supported",)
+    assert outcome.text is None
+    assert outcome.citations == ()
+
+
+def test_numeric_equivalence_uses_only_cited_evidence() -> None:
+    other_id = UUID("10000000-0000-0000-0000-000000000002")
+    outcome = CitationValidator().validate(
+        generation(GeneratedClaim(text="7.0 %", evidence_ids=(EVIDENCE_ID,))),
+        allowed_evidence=(evidence(text="8%"), evidence(evidence_id=other_id, text="7%")),
+    )
+
+    assert outcome.status is GenerationStatus.CITATION_VALIDATION_FAILED
+    assert outcome.reason_codes == ("exact_value_not_supported",)
+    assert outcome.text is None
+
+
+def test_calendar_date_is_not_reinterpreted_as_year_duration_in_prose() -> None:
+    outcome = CitationValidator().validate(
+        generation(GeneratedClaim(text="적용일은 2026-09-01입니다.", evidence_ids=(EVIDENCE_ID,))),
+        allowed_evidence=(evidence(text="적용일은 2026년 9월 1일입니다."),),
+    )
+
+    assert outcome.status is GenerationStatus.ANSWERED

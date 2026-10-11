@@ -31,8 +31,10 @@ it("preserves failed input and request id when retrying a mutation", async () =>
     render(<IssueManagement categories={[root, category]} issue={issue} onSaved={vi.fn()}/>);
     await user.click(screen.getByText("카테고리 관리"));
     await user.click(screen.getByText("카테고리 등록"));
-    await user.type(screen.getByLabelText("고유 코드"), "new");
-    await user.type(screen.getByLabelText("카테고리 이름"), "새 분류");
+    await user.click(screen.getByLabelText("고유 코드"));
+    await user.paste("new");
+    await user.click(screen.getByLabelText("카테고리 이름"));
+    await user.paste("새 분류");
     const form = screen.getByLabelText("고유 코드").closest("form")!;
     await user.click(within(form).getByRole("button", { name: "저장" }));
     expect(await within(form).findByRole("alert")).toHaveTextContent("일시 오류");

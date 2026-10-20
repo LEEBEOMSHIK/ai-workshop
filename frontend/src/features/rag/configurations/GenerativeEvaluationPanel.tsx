@@ -4,6 +4,7 @@ import { ClaimCitationReview } from "./ClaimCitationReview";
 import { EvaluationExecutionDiagnostics } from "./EvaluationExecutionDiagnostics";
 import { useEffect, useRef, useState } from "react";
 import { ApiError } from "../../../shared/api/client";
+import { ChoiceGroup } from "../../../shared/ui/ChoiceGroup";
 import { executionPath } from "../../../shared/routing/routes";
 import { buildSourceHref } from "../search/source-route-query";
 import { EvaluationAuthoringPanel } from "./EvaluationAuthoringPanel";
@@ -11,10 +12,11 @@ import type { SavedConfiguration, Workspace } from "./api";
 import { loadConfigurations } from "./api";
 import * as api from "./generative-api";
 import styles from "./GenerativeEvaluation.module.css";
+import { useEvaluationPreparation, type PreparationMode } from "./useEvaluationPreparation";
 
 const judgmentLabel = { passed: "통과", failed: "실패", unreviewed: "미검증" };
 const coverage = (value: number | null | undefined) => value == null ? "대상 없음" : `${(value * 100).toFixed(1)}%`;
-const runLabel: Record<string, string> = { pending: "대기", running: "실행 중", completed: "실행 완료", failed: "실행 실패", interrupted: "중단" };
+const runLabel: Record<string, string> = { pending: "대기", running: "실행 중", completed: "실행 완료", failed: "실행 실패", interrupted: "중단", cancelled: "취소" };
 
 type Attempt = api.GenerativeRun["attempts"][number];
 
@@ -38,6 +40,7 @@ function citationLabel(item: Attempt) {
   return item.metrics?.citation_valid == null ? "미검증" : item.metrics.citation_valid ? "유효" : "실패";
 }
 function answerPlaceholder(item: Attempt) {
+  if (item.status === "cancelled") return "시작 전에 취소된 평가입니다. 모델을 호출하지 않았습니다.";
   if (item.status === "pending") return "실행 대기 중입니다.";
   if (item.status === "running") return "답변을 생성하고 있습니다.";
   if (item.status === "failed") return "실행에 실패해 답변을 저장하지 못했습니다.";
@@ -76,21 +79,20 @@ export function GenerativeEvaluationPanel({ configurations, workspaces, initialR
   const [current, setCurrent] = useState<api.GenerativeRun | null>(null);
   const [caseId, setCaseId] = useState(initialCaseId ?? "");
   const selectedCase = useRef({ runId: initialRunId ?? "", caseId: initialCaseId ?? "" });
-  const [snapshot, setSnapshot] = useState<api.AuthoringSnapshot | null>(null);
-  const [snapshotId, setSnapshotId] = useState("");
-  const [rules, setRules] = useState<Record<string, api.GenerativeRule>>({});
+  const [mode, setMode] = useState<PreparationMode>("saved");
+  const activeMode = useRef<PreparationMode>("saved");
+  const { snapshot, snapshotId, rules, histories, retrievalK, repetitions, consented,
+    setSnapshot, setSnapshotId, setRules, setHistories, setRetrievalK, setRepetitions, setConsented } = useEvaluationPreparation(mode);
+  const savedRequest = useRef<AbortController | null>(null);
+  const [savedLoading, setSavedLoading] = useState(false);
   const [versions, setVersions] = useState<string[]>([]);
   const [policyId, setPolicyId] = useState("");
   const [policyName, setPolicyName] = useState("");
   const [thresholds, setThresholds] = useState({ context: "1", correctness: "1", abstention: "1", latency: "120000" });
   const [policyVersion, setPolicyVersion] = useState(1);
-  const [repetitions, setRepetitions] = useState(2);
-  const [retrievalK, setRetrievalK] = useState(10);
-  const [histories, setHistories] = useState<Record<string, string>>({});
   const submission = useRef<{ fingerprint: string; id: string } | null>(null);
-  const [classification, setClassification] = useState<"" | "public" | "synthetic">("");
-  const [consented, setConsented] = useState(false);
   const [busy, setBusy] = useState(false);
+  const actionPending = useRef(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [reviewReasons, setReviewReasons] = useState<Record<string, string>>({});
@@ -104,7 +106,7 @@ export function GenerativeEvaluationPanel({ configurations, workspaces, initialR
     ]).then(([items, saved, selected]) => {
       if (!controller.signal.aborted) { setRuns(items); setPolicies(saved); setCurrent(selected); if (selected) { const id = initialCaseId || selected.attempts[0]?.case_id || ""; selectedCase.current = { runId: selected.id, caseId: id }; setCaseId(id); linkState(selected.id, id); } }
     }).catch(() => { if (!controller.signal.aborted) setError("평가 기록을 열 수 없습니다. 로그인과 현재 원문 권한을 확인해 주세요."); });
-    return () => { live.current = false; controller.abort(); };
+    return () => { live.current = false; controller.abort(); savedRequest.current?.abort(); };
   }, [initialRunId, initialCaseId]);
   function linkState(run: string, selectedCase: string) {
     const url = new URL(window.location.href); url.searchParams.set("tab", "comparison");
@@ -118,10 +120,48 @@ export function GenerativeEvaluationPanel({ configurations, workspaces, initialR
     setCaseId(selected); setCurrent(run); setRuns(items => [run, ...items.filter(item => item.id !== run.id)]); linkState(run.id, selected);
   }
   async function perform(action: () => Promise<void>) {
-    if (busy) return;
+    if (actionPending.current) return;
+    actionPending.current = true;
     setBusy(true); setError(""); setMessage("");
     try { await action(); } catch (cause) { if (live.current) setError(cause instanceof ApiError ? cause.message : "요청을 처리하지 못했습니다. 현재 입력은 유지됩니다."); }
-    finally { if (live.current) setBusy(false); }
+    finally { actionPending.current = false; if (live.current) setBusy(false); }
+  }
+  async function cancelRun(runId: string) {
+    try {
+      const run = await api.cancelGenerativeRun(runId);
+      if (live.current) { receiveRun(run); setMessage("시작 전 평가를 취소했습니다. 입력과 이력은 보존됩니다."); }
+    } catch (cause) {
+      if (!(cause instanceof ApiError) || cause.status !== 409) throw cause;
+      try {
+        const run = await api.loadGenerativeRun(runId);
+        if (live.current) receiveRun(run);
+      } catch {
+        if (live.current) setError("취소 요청이 거절됐습니다. 최신 상태를 불러오지 못했습니다. 결과 새로고침으로 확인해 주세요.");
+        return;
+      }
+      if (live.current) setError("취소할 수 없는 상태입니다. 최신 실행 상태를 확인해 주세요.");
+    }
+  }
+  function changeMode(next: PreparationMode) {
+    if (next === activeMode.current) return;
+    ++intent.current; activeMode.current = next;
+    savedRequest.current?.abort(); savedRequest.current = null;
+    setSavedLoading(false); setMessage(""); setError(""); setMode(next);
+  }
+  async function loadSavedSnapshot() {
+    if (activeMode.current !== "saved" || savedRequest.current) return;
+    const controller = new AbortController(); savedRequest.current = controller;
+    const operation = ++intent.current;
+    setSavedLoading(true); setMessage(""); setError("");
+    const isCurrent = () => live.current && !controller.signal.aborted && activeMode.current === "saved" && operation === intent.current;
+    try {
+      const value = await api.loadAuthoringSnapshot(snapshotId.trim(), controller.signal);
+      if (isCurrent()) { receiveSnapshot(value); setMessage("저장된 평가 자료를 불러왔습니다. 정답 규칙과 실행 조건을 확인해 주세요."); }
+    } catch (cause) {
+      if (isCurrent()) setError(cause instanceof ApiError ? cause.message : "평가 자료를 불러오지 못했습니다. 현재 입력은 유지됩니다.");
+    } finally {
+      if (savedRequest.current === controller) { savedRequest.current = null; if (live.current) setSavedLoading(false); }
+    }
   }
   function receiveSnapshot(value: api.AuthoringSnapshot, k = retrievalK, count = repetitions) {
     setRetrievalK(k); setRepetitions(count); setHistories({}); setConsented(false);
@@ -131,11 +171,19 @@ export function GenerativeEvaluationPanel({ configurations, workspaces, initialR
       required_evidence_groups: item.expected_evidence_ids.map(id => [id]), required_propositions: [], forbidden_propositions: [],
     }])));
   }
-  const available = configurations.filter(item => item.generation_profile_id && !item.is_system);
+  function supportsExecution(configuration: SavedConfiguration) {
+    const provider = configuration.generation_execution_preview?.provider;
+    return provider !== "development_codex_exec";
+  }
+  function supportsVersion(version: string) {
+    const configuration = configurations.find(item => item.version_id === version);
+    // The latest-only catalog cannot classify older versions; preserve their existing common actions.
+    return configuration == null || supportsExecution(configuration);
+  }
+  const available = configurations.filter(item => item.generation_profile_id && !item.is_system && supportsExecution(item));
+  const canRetryCurrent = !!current?.attempts.length && current.attempts.every(item => supportsVersion(item.configuration_version_id));
   const chosen = available.filter(item => versions.includes(item.version_id));
-  const codex = chosen.some(item => item.generation_execution_preview?.provider === "development_codex_exec");
   const external = chosen.some(item => item.generation_execution_preview?.external_transfer);
-  const disclosure = chosen.find(item => item.generation_execution_preview?.provider === "development_codex_exec")?.generation_execution_preview?.disclosure_version;
   const attemptCounts = (current?.attempts ?? []).reduce<Record<string, number>>((counts, item) => {
     counts[item.status] = (counts[item.status] ?? 0) + 1;
     return counts;
@@ -145,20 +193,25 @@ export function GenerativeEvaluationPanel({ configurations, workspaces, initialR
 
     {error ? <p role="alert">{error}</p> : null}{message ? <p role="status">{message}</p> : null}
     <div className={styles.runToolbar}><details className={styles.card}><summary>새 생성형 평가 준비</summary>
-      <fieldset disabled={busy}><legend>저장된 평가 자료 다시 사용</legend>
-        <label>저장된 평가 자료 ID<input value={snapshotId} onChange={event => setSnapshotId(event.target.value)} /></label>
-        <button type="button" disabled={!snapshotId.trim()} onClick={() => void perform(async () => {
-          const operation = ++intent.current;
-          const value = await api.loadAuthoringSnapshot(snapshotId.trim());
-          if (live.current && operation === intent.current) { receiveSnapshot(value); setMessage("저장된 평가 자료를 불러왔습니다. 정답 규칙과 실행 조건을 확인해 주세요."); }
-        })}>평가 자료 불러오기</button>
-        {snapshot ? <p>사용 중인 평가 자료: {snapshot.id} · {snapshot.cases.length}개 사례</p> : null}
-      </fieldset>
-      <EvaluationAuthoringPanel configurations={available} workspaces={workspaces} onRun={() => {}}
-        onInvalidate={() => { ++intent.current; setSnapshot(null); setRules({}); setHistories({}); setConsented(false); }} beginOperation={() => ++intent.current} isCurrentOperation={value => value === intent.current}
-        onSnapshot={receiveSnapshot} />
+      <ChoiceGroup variant="segmented" legend="평가 자료 준비 방식" disabled={busy} value={mode} onChange={changeMode}
+        options={[{ value: "saved", label: "저장 자료 재사용" }, { value: "create", label: "새 자료 작성" }]}
+        description="방식을 바꿔도 각 방식의 입력은 유지됩니다. 현재 선택한 방식의 자료와 규칙으로만 실행합니다." />
+      {mode === "saved" ? <fieldset disabled={busy || savedLoading}><legend>저장된 평가 자료 다시 사용</legend>
+        <label>저장된 평가 자료 ID<input value={snapshotId} onChange={event => { setSnapshotId(event.target.value); setMessage(""); setError(""); }} /></label>
+        <button type="button" disabled={!snapshotId.trim()} onClick={() => void loadSavedSnapshot()}>평가 자료 불러오기</button>
+        {savedLoading ? <p role="status">저장된 평가 자료를 불러오는 중…</p> : null}
+      </fieldset> : null}
+      <div hidden={mode !== "create"}>
+        <EvaluationAuthoringPanel active={mode === "create"} configurations={available} workspaces={workspaces} onRun={() => {}}
+          onInvalidate={() => { if (activeMode.current !== "create") return; ++intent.current; setSnapshot(null); setRules({}); setHistories({}); setConsented(false); setMessage(""); setError(""); }}
+          beginOperation={() => activeMode.current === "create" ? ++intent.current : -1}
+          isCurrentOperation={value => activeMode.current === "create" && value === intent.current}
+          onSnapshot={(value, k, count) => { if (activeMode.current === "create") receiveSnapshot(value, k, count); }} />
+      </div>
+      {snapshot ? <p>사용 중인 평가 자료: {snapshot.id} · {snapshot.cases.length}개 사례</p> : null}
       {snapshot ? <section><h3>답변 내용 판정 범위</h3><p>아래 문자열 규칙을 비워 두면 답변 내용은 미검증이며 별도 검토가 필요합니다. 규칙 일치는 일반적인 의미 정확도를 보장하지 않습니다.</p>
-        {snapshot.cases.map(item => <fieldset key={item.id} disabled={busy}><legend>{item.query}</legend>
+        {snapshot.cases.map(item => <fieldset key={item.id} disabled={busy || savedLoading}><legend>{item.query}</legend>
+          <p>기대 결과: {item.expected_answer_status === "insufficient_evidence" ? "근거 부족" : "정상 답변"}</p>
           <label>이전 질문 문맥 (선택, 원문 그대로 고정)<textarea value={histories[item.id] ?? ""} maxLength={8000} onChange={event => setHistories(values => ({ ...values, [item.id]: event.target.value }))} /></label>
           <label>반드시 포함할 내용 (한 줄에 하나)<textarea value={rules[item.id]?.required_propositions.join("\n") ?? ""} onChange={event => setRules(values => ({ ...values, [item.id]: { ...values[item.id], required_propositions: event.target.value.split("\n") } }))} /></label>
           <label>포함하면 안 되는 내용 (한 줄에 하나)<textarea value={rules[item.id]?.forbidden_propositions.join("\n") ?? ""} onChange={event => setRules(values => ({ ...values, [item.id]: { ...values[item.id], forbidden_propositions: event.target.value.split("\n") } }))} /></label>
@@ -174,17 +227,15 @@ export function GenerativeEvaluationPanel({ configurations, workspaces, initialR
           setPolicies(values => [policy, ...values.filter(value => value.id !== policy.id)]); setPolicyId(policy.id); setMessage("승격 기준을 저장했습니다.");
         })}>승격 기준 저장</button>
       </fieldset></details>
-      <fieldset disabled={busy}><legend>명시적 생성 실행</legend>
+      <fieldset disabled={busy || savedLoading}><legend>명시적 생성 실행</legend>
         <label>생성형 승격 기준<select value={policyId} onChange={event => setPolicyId(event.target.value)}><option value="">저장된 기준 선택</option>{policies.map(item => <option key={item.id} value={item.id}>{item.name} v{item.definition.version}</option>)}</select></label>
         <label>검색 K<input type="number" min={1} max={50} value={retrievalK} onChange={event => setRetrievalK(Number(event.target.value))} /></label>
         <label>사례별 반복 횟수<input type="number" min={2} max={5} value={repetitions} onChange={event => setRepetitions(Number(event.target.value))} /></label>
-        {codex ? <label>질문 자료 분류<select value={classification} onChange={event => setClassification(event.target.value as typeof classification)}><option value="">선택</option><option value="synthetic">합성 자료</option><option value="public">공개 자료</option></select></label> : null}
         {external ? <label><input type="checkbox" checked={consented} onChange={event => setConsented(event.target.checked)} />모든 평가 질문·이전 문맥·승인된 근거의 외부 처리와 반복 실행 사용량을 확인했습니다.</label> : null}
-        <button type="button" disabled={!Number.isInteger(retrievalK) || retrievalK < 1 || retrievalK > 50 || !Number.isInteger(repetitions) || repetitions < 2 || repetitions > 5 || !snapshot || !versions.length || !policyId || (external && !consented) || (codex && (!classification || !disclosure))} onClick={() => void perform(async () => {
-          if (!snapshot) return;
+        <button type="button" disabled={!Number.isInteger(retrievalK) || retrievalK < 1 || retrievalK > 50 || !Number.isInteger(repetitions) || repetitions < 2 || repetitions > 5 || !snapshot || !versions.length || !policyId || (external && !consented) || chosen.length !== versions.length} onClick={() => void perform(async () => {
+          if (!snapshot || !chosen.length || chosen.length !== versions.length || (external && !consented)) return;
           const input = { dataset_snapshot_id: snapshot.id, configuration_version_ids: versions, policy_id: policyId, expected_rules: Object.fromEntries(Object.entries(rules).map(([id, rule]) => [id, { ...rule, required_propositions: rule.required_propositions.filter(value => value.trim()), forbidden_propositions: rule.forbidden_propositions.filter(value => value.trim()) }])), repetition_count: repetitions, retrieval_k: retrievalK,
-            case_histories: Object.fromEntries(Object.entries(histories).filter(([, value]) => value.trim()).map(([id, content]) => [id, [{ role: "user" as const, content }]])),
-            ...(codex && classification && disclosure ? { input_approval: { classification, consented: true, disclosure_version: disclosure } } : {}) };
+            case_histories: Object.fromEntries(Object.entries(histories).filter(([, value]) => value.trim()).map(([id, content]) => [id, [{ role: "user" as const, content }]])) };
           const fingerprint = JSON.stringify(input);
           if (submission.current?.fingerprint !== fingerprint) submission.current = { fingerprint, id: crypto.randomUUID() };
           const run = await api.startGenerativeRun({ ...input, request_id: submission.current.id });
@@ -195,7 +246,10 @@ export function GenerativeEvaluationPanel({ configurations, workspaces, initialR
     <details className={styles.card}><summary>실행 이력 · {runs.length}건</summary><ul className={styles.runHistory}>{runs.map(item => <li key={item.id}><button type="button" disabled={busy} aria-pressed={current?.id === item.id} onClick={() => void perform(async () => receiveRun(await api.loadGenerativeRun(item.id)))}>{new Date(item.created_at).toLocaleString("ko-KR")} · {runLabel[item.status] ?? item.status}</button></li>)}</ul></details></div>
     {current ? <>
       <div className={styles.badges}><span>실행: {runLabel[current.status] ?? current.status}</span><span>사례별 {current.repetition_count}회</span><button disabled={busy} onClick={() => void perform(async () => receiveRun(await api.loadGenerativeRun(current.id)))}>결과 새로고침</button>
-        {current.status === "failed" ? <button disabled={busy} onClick={() => void perform(async () => receiveRun(await api.retryGenerativeRun(current.id)))}>실패한 사례 재시도</button> : null}</div>
+        {current.status === "pending" ? <button type="button" disabled={busy} onClick={() => void perform(() => cancelRun(current.id))}>시작 전 평가 취소</button> : null}
+        {current.status === "failed" && canRetryCurrent ? <button disabled={busy} onClick={() => void perform(async () => receiveRun(await api.retryGenerativeRun(current.id)))}>실패한 사례 재시도</button> : null}</div>
+      {current.status === "cancelled" ? <dl aria-label="평가 취소 기록"><dt>취소 요청자</dt><dd>{current.cancelled_by ?? "미기록"}</dd><dt>취소 시각</dt><dd>{current.cancelled_at ? new Date(current.cancelled_at).toLocaleString("ko-KR") : "미기록"}</dd><dt>취소 사유</dt><dd>{current.cancellation_reason === "user_requested" ? "사용자 요청" : current.cancellation_reason ?? "미기록"}</dd></dl> : null}
+      {attemptCounts.cancelled ? <p>취소된 시도 {attemptCounts.cancelled}건</p> : null}
       <p aria-live="polite">전체 시도 {current.attempts.length}건 · 완료 {attemptCounts.completed ?? 0}건 · 진행 {attemptCounts.running ?? 0}건 · 대기 {attemptCounts.pending ?? 0}건 · 실패 {attemptCounts.failed ?? 0}건 · 중단 {attemptCounts.interrupted ?? 0}건</p>
       <GenerativeEvaluationResults key={current.id} run={current} caseId={caseId} onSelect={id => { selectedCase.current = { runId: current.id, caseId: id }; setCaseId(id); linkState(current.id, id); }} renderAttempt={(item, view) => <article className={styles.card} key={item.id}>
         <h3>{configurations.find(c => c.version_id === item.configuration_version_id)?.name ?? `구성 ${item.configuration_version_id}`} · v{configurations.find(c => c.version_id === item.configuration_version_id)?.version ?? "?"}</h3><p>반복 {item.repetition + 1} · 시도 {item.attempt_number} · {runLabel[item.status] ?? item.status}</p>
@@ -213,7 +267,7 @@ export function GenerativeEvaluationPanel({ configurations, workspaces, initialR
           {(["passed", "failed", "unreviewed"] as const).map(status => <button key={status} disabled={busy || !reviewReasons[item.id]?.trim()} onClick={() => void perform(async () => receiveRun(await api.reviewGenerativeAttempt(current.id, item.id, { result_digest: item.result_digest!, status, reason: reviewReasons[item.id] })))}>{judgmentLabel[status]}로 기록</button>)}
         </details> : <p>완료된 답변을 검토할 수 있습니다.</p>}</> : null}
       </article>} />
-      {current.status === "completed" ? <details><summary>DB 검증 후 구성에 생성형 통과 반영</summary><p>저장된 기준과 모든 반복 사례의 증거를 DB에서 재검증합니다. 활성 도메인 연결 변경은 별도 관리 동작입니다.</p>{[...new Set(current.attempts.map(item => item.configuration_version_id))].map(version => <button key={version} disabled={busy} onClick={() => void perform(async () => {
+      {current.status === "completed" ? <details><summary>DB 검증 후 구성에 생성형 통과 반영</summary><p>저장된 기준과 모든 반복 사례의 증거를 DB에서 재검증합니다. 활성 도메인 연결 변경은 별도 관리 동작입니다.</p>{[...new Set(current.attempts.map(item => item.configuration_version_id))].filter(supportsVersion).map(version => <button key={version} disabled={busy} onClick={() => void perform(async () => {
         await api.acceptGenerativeRun(current.id, version); setMessage("정확한 구성 버전에 생성형 평가 통과를 반영했습니다.");
         if (onConfigurationUpdated) for (const config of await loadConfigurations()) onConfigurationUpdated(config);
       })}>{configurations.find(c => c.version_id === version)?.name ?? "구성"} 통과 검증·반영</button>)}</details> : null}

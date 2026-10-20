@@ -10,7 +10,6 @@ import type {
   Workspace,
 } from "./api";
 import { loadDeploymentOptions, saveConfiguration } from "./api";
-import { loadCodexRunners, type CodexRunner } from "../models/api";
 import { DocumentProcessingDetails } from "./DocumentProcessingDetails";
 import {
   documentProcessingOptionLabel,
@@ -66,22 +65,20 @@ export function ConfigurationBuilder({
   const [retrievalProfileId, setRetrievalProfileId] = useState(
     compatibleRetrievalProfiles[0]?.id ?? "",
   );
+  const [deploymentOptions, setDeploymentOptions] = useState<DeploymentOption[]>([]);
   const generationProfiles = useMemo(
     () => profiles.filter((profile) =>
       profile.kind === "generation"
       && !profile.legacy
-      && Boolean(profile.deployment_version_id),
+      && Boolean(profile.deployment_version_id)
+      && !deploymentOptions.some((option) => option.deployment_version_id === profile.deployment_version_id && option.provider === "development_codex_exec"),
     ),
-    [profiles],
+    [profiles, deploymentOptions],
   );
   const [answerMode, setAnswerMode] = useState<"extractive" | "generative">("extractive");
   const [generationProfileId, setGenerationProfileId] = useState("");
-  const [deploymentOptions, setDeploymentOptions] = useState<DeploymentOption[]>([]);
-  const [codexRunners, setCodexRunners] = useState<CodexRunner[]>([]);
-  const [codexCatalogUnavailable, setCodexCatalogUnavailable] = useState(false);
   function canConfigure(deployment: DeploymentOption | undefined): boolean {
-    if (deployment?.provider !== "development_codex_exec") return deployment?.readiness.ready === true;
-    return codexRunners.some((runner) => runner.runner_ref === deployment.runner_ref && runner.local_preflight_passed);
+    return deployment?.provider !== "development_codex_exec" && deployment?.readiness.ready === true;
   }
   const [deploymentOptionsState, setDeploymentOptionsState] = useState<"idle" | "loading" | "loaded" | "error">("idle");
   const [externalApproved, setExternalApproved] = useState(false);
@@ -122,14 +119,9 @@ export function ConfigurationBuilder({
     deploymentController.current = nextController;
     setDeploymentOptionsState("loading");
     void loadDeploymentOptions(nextController.signal)
-      .then(async (options) => {
-        let catalogUnavailable = false;
-        const runners = options.some((item) => item.provider === "development_codex_exec")
-          ? await loadCodexRunners(nextController.signal).catch(() => { catalogUnavailable = true; return []; }) : [];
+      .then((options) => {
         if (deploymentController.current !== nextController || nextController.signal.aborted) return;
         setDeploymentOptions(options);
-        setCodexRunners(runners);
-        setCodexCatalogUnavailable(catalogUnavailable);
         setDeploymentOptionsState("loaded");
       })
       .catch(() => {
@@ -381,7 +373,6 @@ export function ConfigurationBuilder({
               </select>
             </label>
           ) : null}
-          {answerMode === "generative" && codexCatalogUnavailable ? <p role="status">Codex runner 사전점검 목록을 확인할 수 없습니다. Codex 초안 저장은 차단됩니다. 다른 공급자의 준비 상태는 유지됩니다.</p> : null}
           {answerMode === "generative" && deploymentOptionsState === "loading" ? (
             <p role="status">실행 가능한 생성 배포를 불러오는 중…</p>
           ) : null}
@@ -428,7 +419,6 @@ export function ConfigurationBuilder({
           {answerMode === "generative" ? (
             <p className="control-help">후속질문 문맥과 인용 검증 정책이 Generation Profile 버전에 함께 고정됩니다.</p>
           ) : null}
-          {answerMode === "generative" && generationDeployment?.provider === "development_codex_exec" ? <p role="status">로컬 사전점검을 통과한 구성은 연결 검사 전에도 저장할 수 있습니다. 저장 후 이 구성 버전의 합성 연결 검사와 실제 검색 평가가 필요합니다.</p> : null}
         </fieldset>
 
         <fieldset disabled={saving}>
@@ -543,6 +533,8 @@ function deploymentReasonLabel(reason: string): string {
     deployment_not_ready: "실행 준비 확인 필요",
     provider_authentication_failed: "공급자 인증 확인 필요",
     provider_rate_limited: "공급자 요청 한도 초과",
+    provider_busy: "로컬 모델이 다른 요청을 처리 중입니다. 잠시 후 다시 시도해 주세요.",
+    provider_input_too_large: "모델 입력 한도를 초과했습니다. 질문과 근거 범위를 줄여 주세요.",
     provider_timeout: "공급자 응답 시간 초과",
     provider_invalid_response: "공급자 응답 확인 필요",
   };

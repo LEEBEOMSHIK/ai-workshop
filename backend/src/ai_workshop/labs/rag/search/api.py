@@ -16,6 +16,8 @@ from ai_workshop.labs.rag.generation.codex_admin_api import (
 from ai_workshop.labs.rag.generation.codex_composition import CodexServices
 from ai_workshop.labs.rag.generation.codex_http_lifecycle import run_until_disconnect
 from ai_workshop.labs.rag.generation.integrity import ConversationTurnSigner
+from ai_workshop.labs.rag.generation.local_model_host import LocalModelHost
+from ai_workshop.labs.rag.generation.local_runtime_dependency import get_local_model_host
 from ai_workshop.labs.rag.generation.runtime_resolver import (
     GenerationRuntimeResolver,
     builtin_generation_runtime_factories,
@@ -74,6 +76,7 @@ async def get_search_service(
         Depends(get_search_configuration_resolver),
     ],
     codex: Annotated[CodexServices, Depends(get_codex_services)],
+    local_model_host: Annotated[LocalModelHost, Depends(get_local_model_host)],
 ) -> AsyncIterator[SearchApplicationService]:
     client = create_elasticsearch(settings)
     try:
@@ -96,7 +99,11 @@ async def get_search_service(
                 environment=settings.environment,
                 endpoint_refs=settings.provider_endpoint_refs,
                 secret_refs=settings.provider_secret_refs,
-                factories=builtin_generation_runtime_factories(),
+                factories=builtin_generation_runtime_factories(
+                    provider_endpoint_dialects=settings.provider_endpoint_dialects,
+                ),
+                local_model_refs=settings.local_model_refs,
+                local_model_host=local_model_host,
             ),
             generation_audit_repository=SqlAlchemyGenerationAuditRepository(session),
             codex_runtime_factory=codex.runtime_factory,

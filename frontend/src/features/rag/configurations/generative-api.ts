@@ -14,7 +14,8 @@ export const listGenerativePolicies = (signal?: AbortSignal) => apiRequest<Gener
 export const createGenerativePolicy = (json: GenerativePolicyCreate) => apiRequest<GenerativePolicy>(`${base}/policies`, { method: "POST", json });
 export const startGenerativeRun = (json: GenerativeRunCreate) => apiRequest<GenerativeRun>(base, { method: "POST", json, headers: { "x-codex-request": "1" } });
 export const retryGenerativeRun = (id: string) => apiRequest<GenerativeRun>(`${base}/${encodeURIComponent(id)}/retry`, { method: "POST", json: {}, headers: { "x-codex-request": "1" } });
+export const cancelGenerativeRun = (id: string) => apiRequest<GenerativeRun>(`${base}/${encodeURIComponent(id)}/cancel`, { method: "POST", json: { reason: "user_requested" } });
 export const reviewGenerativeAttempt = (run: string, attempt: string, json: components["schemas"]["GenerativeReviewRequest"]) => apiRequest<GenerativeRun>(`${base}/${encodeURIComponent(run)}/attempts/${encodeURIComponent(attempt)}/judgments`, { method: "POST", json });
 export const acceptGenerativeRun = (run: string, version: string) => apiRequest<components["schemas"]["GenerativeAcceptanceView"]>(`${base}/${encodeURIComponent(run)}/accept/${encodeURIComponent(version)}`, { method: "POST" });
 
-export const loadAuthoringSnapshot = (id: string) => apiRequest<AuthoringSnapshot>(`/api/v1/rag/evaluation-authoring/snapshots/${encodeURIComponent(id)}`);
+export const loadAuthoringSnapshot = (id: string, signal?: AbortSignal) => apiRequest<AuthoringSnapshot>(`/api/v1/rag/evaluation-authoring/snapshots/${encodeURIComponent(id)}`, { signal });

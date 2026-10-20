@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID
@@ -25,6 +26,12 @@ class ResolvedExternalApproval:
     workspace_policies: tuple[ResolvedWorkspacePolicyApproval, ...]
 
 
+class OwnedEmbeddingPort(EmbeddingPort, Protocol):
+    def close(self) -> None:
+        """Release this exclusive runtime, synchronously, idempotently and without raising."""
+        ...
+
+
 @dataclass(frozen=True, slots=True)
 class ResolvedSearchConfiguration:
     configuration_id: UUID
@@ -44,6 +51,9 @@ class ResolvedSearchConfiguration:
     external_approval: ResolvedExternalApproval | None = None
     # Semantic source selection is independent of legacy physical alias naming.
     document_processing_profile_id: UUID | None = None
+    # A fresh exclusive runtime per execution. None means embedding is borrowed.
+    # Replacing embedding with a different source must also clear this factory.
+    request_owned_embedding_factory: Callable[[], OwnedEmbeddingPort] | None = None
 
     def __post_init__(self) -> None:
         if self.configuration_version < 1:

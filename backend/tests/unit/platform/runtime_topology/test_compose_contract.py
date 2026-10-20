@@ -99,10 +99,11 @@ def test_cpu_ocr_extra_is_explicit_and_the_ambiguous_extra_is_absent() -> None:
         "paddlepaddle==3.2.2",
         "paddlex[ocr]==3.7.2",
     ]
-    assert pyproject["tool"]["uv"]["sources"]["torch"] == {
-        "index": "pytorch-cpu",
-        "extra": "embedding-cpu",
-    }
+    assert extras["generation-cpu"] == ["transformers==5.16.1", "torch==2.13.0"]
+    assert pyproject["tool"]["uv"]["sources"]["torch"] == [
+        {"index": "pytorch-cpu", "extra": "embedding-cpu"},
+        {"index": "pytorch-cpu", "extra": "generation-cpu"},
+    ]
     assert pyproject["tool"]["uv"]["index"] == [
         {
             "name": "pytorch-cpu",

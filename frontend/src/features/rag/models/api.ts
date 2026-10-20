@@ -159,3 +159,12 @@ export async function registerYamlProfile(
     json: request,
   });
 }
+
+export type ProfileCreate = components["schemas"]["ProfileCreate"];
+
+export function registerGenerationProfile(input: ProfileCreate): Promise<ProfileSummary> {
+  return apiRequest<ProfileSummary>("/api/v1/admin/rag/profiles/generation", {
+    method: "POST",
+    json: input,
+  });
+}

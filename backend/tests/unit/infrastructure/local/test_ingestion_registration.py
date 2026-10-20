@@ -2,6 +2,7 @@
 
 import importlib
 import os
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
@@ -17,7 +18,16 @@ from ai_workshop.infrastructure.search.access_credentials import (
 )
 
 
-async def test_ingestion_requires_one_bound_job_and_only_writer_credential() -> None:
+async def test_ingestion_requires_one_bound_job_and_only_writer_credential(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ai_workshop.infrastructure.local import service_launcher as launcher_module
+
+    monkeypatch.setattr(
+        launcher_module,
+        "approved_python",
+        lambda _root: SimpleNamespace(executable=Path("C:/synthetic-conda/python.exe")),
+    )
     fixtures: Any = importlib.import_module("tests.unit.infrastructure.local.test_service_launcher")
     protected, runtime = fixtures.ProtectedMemory(), fixtures.Runtime()
     store = WindowsCredentialStore("C:/synthetic-workshop", protected, protected)

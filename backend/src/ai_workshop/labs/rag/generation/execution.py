@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from collections.abc import Awaitable
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -15,11 +17,63 @@ if TYPE_CHECKING:
     from ai_workshop.labs.rag.generation.contracts import GenerationRuntimePort
 
 
+PROVIDER_TERMINATION_UNCONFIRMED = "provider_termination_unconfirmed"
+
+
+@dataclass
+class GenerationTermination:
+    """Per-conversation HTTP attempts; completing a retry cannot settle an earlier attempt."""
+
+    pending: set[object] = field(default_factory=set)
+
+    @property
+    def confirmed(self) -> bool:
+        return not self.pending
+
+
+_termination: ContextVar[GenerationTermination | None] = ContextVar(
+    "generation_termination", default=None,
+)
+
+
+async def tracked_generation_call[T](
+    operation: Awaitable[T], termination: GenerationTermination,
+) -> T:
+    token = _termination.set(termination)
+    try:
+        return await operation
+    finally:
+        _termination.reset(token)
+
+
+async def track_local_http_attempt[T](operation: Awaitable[T]) -> T:
+    """A cancelled/failed transport is not evidence of remote inference termination.
+
+    A full non-streaming HTTP response settles only its own attempt. No process-exit
+    or unload claim is made, and ambiguous earlier attempts remain pending.
+    """
+    termination = _termination.get()
+    attempt = object()
+    if termination is not None:
+        termination.pending.add(attempt)
+    result = await operation
+    if termination is not None:
+        termination.pending.discard(attempt)
+    return result
+
+
 class GenerationProviderError(RuntimeError):
-    def __init__(self, code: str, *, retryable: bool) -> None:
+    execution: ProviderExecutionMetadata | None = None
+
+    def __init__(
+        self, code: str, *, retryable: bool,
+        execution: ProviderExecutionMetadata | None = None,
+    ) -> None:
         super().__init__(code)
         self.code = code
         self.retryable = retryable
+        if execution is not None:
+            self.execution = execution
 
 
 @dataclass(frozen=True, slots=True)

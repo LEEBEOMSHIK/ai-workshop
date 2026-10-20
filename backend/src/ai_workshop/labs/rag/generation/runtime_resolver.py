@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from typing import Literal
 
 from pydantic import SecretStr
 
@@ -19,6 +20,8 @@ from ai_workshop.labs.rag.generation.execution import (
     GenerationProviderError,
     ResolvedGenerationRuntime,
 )
+from ai_workshop.labs.rag.generation.local_model_host import LocalModelHost, LocalModelSpec
+from ai_workshop.labs.rag.generation.local_transformers import LocalTransformersRuntime
 from ai_workshop.labs.rag.generation.openai_compatible import (
     LocalOpenAICompatibleRuntime,
 )
@@ -31,16 +34,21 @@ GenerationRuntimeFactory = Callable[
 ]
 
 
-def builtin_generation_runtime_factories() -> dict[
+def builtin_generation_runtime_factories(
+    *,
+    provider_endpoint_dialects: Mapping[str, Literal["openai", "ollama"]] | None = None,
+) -> dict[
     ProviderKind,
     GenerationRuntimeFactory,
 ]:
+    dialects = dict(provider_endpoint_dialects or {})
     return {
         ProviderKind.LOCAL_OPENAI_COMPATIBLE: (
             lambda deployment, endpoint, secret: LocalOpenAICompatibleRuntime(
                 deployment=deployment,
                 endpoint=endpoint,
                 api_key=secret,
+                dialect=dialects.get(deployment.endpoint_ref or "", "openai"),
             )
         ),
         ProviderKind.OPENAI_RESPONSES: (
@@ -61,11 +69,15 @@ class GenerationRuntimeResolver:
         endpoint_refs: Mapping[str, str],
         secret_refs: Mapping[str, SecretStr],
         factories: Mapping[ProviderKind, GenerationRuntimeFactory],
+        local_model_refs: Mapping[str, LocalModelSpec] | None = None,
+        local_model_host: LocalModelHost | None = None,
     ) -> None:
         self._environment = _normalize_environment(environment)
         self._endpoint_resolver = EndpointReferenceResolver(endpoint_refs)
         self._secret_resolver = SecretReferenceResolver(secret_refs)
         self._factories = dict(factories)
+        self._local_model_refs = dict(local_model_refs or {})
+        self._local_model_host = local_model_host
 
     def resolve(
         self,
@@ -89,6 +101,20 @@ class GenerationRuntimeResolver:
                     else "provider_not_allowed"
                 ),
                 retryable=False,
+            )
+        if deployment.provider is ProviderKind.LOCAL_TRANSFORMERS:
+            spec = self._local_model_refs.get(deployment.local_model_ref or "")
+            if (
+                spec is None
+                or self._local_model_host is None
+                or spec.model_id != deployment.provider_model_id
+            ):
+                raise GenerationProviderError("deployment_not_ready", retryable=False)
+            return ResolvedGenerationRuntime(
+                deployment,
+                LocalTransformersRuntime(
+                    deployment=deployment, spec=spec, host=self._local_model_host
+                ),
             )
         if (
             deployment.provider is ProviderKind.DEVELOPMENT_CODEX_EXEC

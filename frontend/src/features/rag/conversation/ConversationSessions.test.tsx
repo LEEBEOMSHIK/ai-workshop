@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, vi } from "vitest";
 import { ConversationPage } from "./ConversationPage";
 import type { Domain } from "../domains/api";
+import type { DomainSearchResult, Evidence } from "./api";
 
 const domain: Domain = { id: "domain", slug: "example", display_name: "자료 대화", description: "", active: true, ready: true, connection_version: {id: "connection", version: 1}, readiness: {search_ready: true, answer_ready: true, service_ready: true, reason_codes: []}, workspace_options: [{id: "workspace", name: "자료", kind: "personal", expires_at: null}], generation_execution_preview: {deployment_name: "local", model_name: "local", model_version: 1, provider: "local_openai_compatible", disclosure_version: "v1", location: "local", external_transfer: false, disclosure: "로컬 처리"} };
 const summary = {id: "session-1", title: "저장된 대화", revision: 1, created_at: "2026-09-21T00:00:00Z", updated_at: "2026-09-21T00:00:00Z"};
@@ -162,4 +163,66 @@ it("blocks another send until cancellation termination is confirmed", async () =
   fireEvent.change(screen.getByRole("textbox", {name: "질문"}), {target: {value: "다음 질문"}});
   expect(screen.getByRole("button", {name: "질문 보내기"})).toBeDisabled();
   expect(screen.getByRole("button", {name: "상태 새로고침"})).toBeVisible();
+});
+
+
+it("restores a context-grounded generated answer and opens its exact source after a new session is saved", async () => {
+  const excerpt = "합성 자료의 발행일은 2026-09-03입니다.";
+  const evidence: Evidence = {
+    excerpt, highlights: [], keyword_coverage: null, semantic_score: null, warnings: [],
+    source: {
+      document_id: "document-context", asset_version_id: "asset-context", asset_version_number: 2,
+      workspace_id: "workspace", folder_id: null, projection_id: "projection-context",
+      chunk_id: "chunk-context", evidence_unit_id: "evidence-context", element_id: "element-context",
+      title: "합성 발행 기록.txt", media_type: "text/plain", section_path: [],
+      location: { element_id: "element-context", page: null, char_start: 0, char_end: excerpt.length,
+        bbox: null, source_kind: "normalized_text", source_part: null, image_sha256: null, table_cell: null },
+    },
+  };
+  const response: DomainSearchResult = {
+    status: "insufficient_evidence", answer: null, conflict_state: "none", conflicts: [], warnings: [],
+    related_sources: [], grounding_evidence: [evidence], selected_scope: null,
+    configuration_version: { configuration_id: "config", version_id: "config-version", version: 2 },
+    experimental: false, resolved_query: "발행일을 알려 주세요",
+    generation: { status: "answered", text: "발행일은 2026-09-03입니다.",
+      citations: [{ claim_index: 0, evidence_ids: [evidence.source.evidence_unit_id] }],
+      reason_codes: [], turn_id: "context-turn", validation_token: null, execution: null },
+    domain_context: { domain_id: domain.id, connection_version_id: "connection", workspace_ids: ["workspace"], folder_ids: [] },
+  };
+  const stored = { ...summary, turns: [{ ...turn, status: "completed", query: response.resolved_query, response }] };
+  let saved = false;
+  let starts = 0;
+  let restored = 0;
+  const sourcePaths: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(url);
+    if (path.endsWith("/folders") || path.endsWith("/attachments")) return json([]);
+    if (path.endsWith("/start") && init?.method === "POST") { saved = true; starts += 1; return json(stored); }
+    if (path.endsWith("/conversations")) return json(saved ? [summary] : []);
+    if (path.endsWith("/session-1")) { restored += 1; return json(stored); }
+    if (path.includes("/sources/asset-context/normalized-text?projection_id=projection-context")) {
+      sourcePaths.push(path);
+      return json({ ...evidence.source, parser_name: "synthetic", parser_version: "1",
+        elements: [{ id: "element-context", ordinal: 0, kind: "paragraph", text: excerpt,
+          section_path: [], location: evidence.source.location, confidence: 1, evidence_eligible: true, warnings: [] }] });
+    }
+    throw new Error(`Unexpected request: ${path}`);
+  }));
+  const firstMount = render(<ConversationPage domain={domain} initialWorkspaceIds={["workspace"]} />);
+  fireEvent.change(screen.getByRole("textbox", { name: "질문" }), { target: { value: response.resolved_query } });
+  fireEvent.click(screen.getByRole("button", { name: "질문 보내기" }));
+  expect(await screen.findByText(response.generation.text!)).toBeVisible();
+  expect(new URL(window.location.href).searchParams.get("conversation")).toBe(summary.id);
+  firstMount.unmount();
+
+  render(<ConversationPage domain={domain} />);
+  expect(await screen.findByText(response.generation.text!)).toBeVisible();
+  expect(screen.queryByText("답변할 근거가 부족합니다.")).not.toBeInTheDocument();
+  expect(starts).toBe(1);
+  expect(restored).toBeGreaterThan(0);
+  fireEvent.click(screen.getByRole("button", { name: "인용 1: 합성 발행 기록.txt" }));
+  const source = screen.getByRole("dialog", { name: "원문 근거" });
+  expect(await within(source).findByText(excerpt)).toBeVisible();
+  expect(sourcePaths).toHaveLength(1);
+  expect(within(source).getByText("변경할 수 없는 버전 2")).toBeVisible();
 });

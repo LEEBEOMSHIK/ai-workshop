@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 
 
 class ProviderKind(StrEnum):
+    LOCAL_TRANSFORMERS = "local_transformers"
     LOCAL_OPENAI_COMPATIBLE = "local_openai_compatible"
     OPENAI_RESPONSES = "openai_responses"
     DEVELOPMENT_CODEX_EXEC = "development_codex_exec"
@@ -60,6 +61,7 @@ class ModelDeploymentVersion:
     created_by: UUID
     created_at: datetime
     runner_ref: str | None = None
+    local_model_ref: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.provider, ProviderKind):
@@ -111,6 +113,12 @@ class ModelDeploymentVersion:
             self.provider_model_id, "Provider model ID"
         )
         clean_runner_ref = None
+        clean_local_model_ref = None
+        if (
+            self.provider is not ProviderKind.LOCAL_TRANSFORMERS
+            and self.local_model_ref is not None
+        ):
+            raise DeploymentValidationError("Only local inference accepts a local model reference.")
         if self.provider is ProviderKind.DEVELOPMENT_CODEX_EXEC:
             clean_endpoint_ref = None
             clean_runner_ref = _clean_required_reference(self.runner_ref, "runner reference")
@@ -130,6 +138,25 @@ class ModelDeploymentVersion:
                 or self.healthcheck_enabled
             ):
                 raise DeploymentValidationError("Invalid development Codex runner contract.")
+        elif self.provider is ProviderKind.LOCAL_TRANSFORMERS:
+            clean_endpoint_ref = None
+            clean_local_model_ref = _clean_required_reference(
+                self.local_model_ref, "local model reference"
+            )
+            if (
+                len(clean_local_model_ref) > 120
+                or fullmatch(r"[a-z][a-z0-9]*-[a-z0-9]+(?:-[a-z0-9]+)*", clean_local_model_ref)
+                is None
+                or clean_local_model_ref.startswith(("sk-", "sess-", "key-", "token-", "secret-"))
+                or self.endpoint_ref is not None
+                or self.runner_ref is not None
+                or self.secret_ref is not None
+                or self.external_transfer
+                or self.location not in {ExecutionLocation.LOCAL, ExecutionLocation.ON_PREMISE}
+                or self.max_retries != 0
+                or self.retry_backoff_seconds != 0
+            ):
+                raise DeploymentValidationError("Invalid local Transformers execution contract.")
         else:
             clean_endpoint_ref = _clean_required_reference(
                 self.endpoint_ref, "deployment endpoint reference"
@@ -193,6 +220,7 @@ class ModelDeploymentVersion:
         object.__setattr__(self, "provider_model_id", clean_model_id)
         object.__setattr__(self, "endpoint_ref", clean_endpoint_ref)
         object.__setattr__(self, "runner_ref", clean_runner_ref)
+        object.__setattr__(self, "local_model_ref", clean_local_model_ref)
         object.__setattr__(self, "secret_ref", clean_secret_ref)
         object.__setattr__(self, "capabilities", capabilities)
         object.__setattr__(self, "transmitted_data_categories", categories)
@@ -224,6 +252,7 @@ class ModelDeploymentVersion:
         development_only: bool,
         created_by: UUID,
         runner_ref: str | None = None,
+        local_model_ref: str | None = None,
     ) -> "ModelDeploymentVersion":
         return cls(
             id=uuid4(),
@@ -238,6 +267,7 @@ class ModelDeploymentVersion:
             provider_model_id=provider_model_id,
             endpoint_ref=endpoint_ref,
             runner_ref=runner_ref,
+            local_model_ref=local_model_ref,
             secret_ref=secret_ref,
             capabilities=frozenset(capabilities),
             external_transfer=external_transfer,

@@ -22,6 +22,7 @@ from ai_workshop.labs.rag.generation.codex_admin_api import router as rag_codex_
 from ai_workshop.labs.rag.generation.evidence_approval_request_api import (
     router as rag_evidence_request_router,
 )
+from ai_workshop.labs.rag.generation.local_model_host import LocalModelHost
 from ai_workshop.labs.rag.generation.numeric_validation_models import (
     NumericValidationRecord as NumericValidationRecord,
 )
@@ -52,7 +53,10 @@ def create_app(*, startup_admission: Callable[[], Awaitable[None]] | None = None
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         if startup_admission is not None:
             await startup_admission()
-        yield
+        try:
+            yield
+        finally:
+            await _app.state.local_model_host.aclose()
 
     application = FastAPI(
         title="AI Workshop API",
@@ -62,6 +66,7 @@ def create_app(*, startup_admission: Callable[[], Awaitable[None]] | None = None
         responses=COMMON_ERROR_RESPONSES,
         lifespan=lifespan,
     )
+    application.state.local_model_host = LocalModelHost()
     application.add_middleware(
         CORSMiddleware,
         allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],

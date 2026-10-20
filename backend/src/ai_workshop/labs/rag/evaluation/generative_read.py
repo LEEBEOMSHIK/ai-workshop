@@ -224,4 +224,7 @@ async def run_detail(session: AsyncSession, actor_id: UUID, run_id: UUID) -> Gen
         created_at=run.created_at,
         repetition_count=run.repetition_count,
         attempts=views,
+        cancelled_by=run.cancelled_by,
+        cancelled_at=run.cancelled_at,
+        cancellation_reason=run.cancellation_reason,
     )

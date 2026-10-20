@@ -1,16 +1,28 @@
 """Real conversation/observer ownership with offline cancellation barriers."""
 
 import asyncio
+import json
 from contextlib import asynccontextmanager
+from dataclasses import replace
+from uuid import uuid4
 
+import httpx
 import pytest
 from starlette.requests import Request
 
 from ai_workshop.labs.rag.executions import observer
 from ai_workshop.labs.rag.generation.codex_http_lifecycle import run_until_disconnect
+from ai_workshop.labs.rag.generation.domain import ContextualizationRequest, GenerationRequest
+from ai_workshop.labs.rag.generation.execution import GenerationProviderError
+from ai_workshop.labs.rag.generation.openai_compatible import LocalOpenAICompatibleRuntime
 from ai_workshop.shared.errors import AppError
 from tests.unit.labs.rag.conversations.test_service import response, seed_conversation, setup
 from tests.unit.labs.rag.executions.test_observer import Recorder
+from tests.unit.labs.rag.generation.test_openai_compatible import (
+    evidence,
+    local_deployment,
+    profile,
+)
 
 
 class BarrierRecorder(Recorder):
@@ -288,3 +300,224 @@ async def test_observation_failure_does_not_replace_original_model_error_during_
     finally:
         release.set()
         await asyncio.gather(pending, return_exceptions=True)
+
+
+def local_http_fixture(handler, *, retries=0):
+    selected = replace(local_deployment(), max_retries=retries)
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler), trust_env=False)
+    runtime = LocalOpenAICompatibleRuntime(
+        deployment=selected, endpoint="http://127.0.0.1:9999", client=client
+    )
+    request = GenerationRequest(
+        question="Synthetic question", resolved_query="Synthetic question", history=(),
+        evidence=(evidence(),), profile=replace(profile(), deployment=selected),
+        correlation_id="synthetic-http-termination",
+    )
+    return client, runtime, request
+
+
+def local_http_answer():
+    return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {
+        "role": "assistant", "content": json.dumps({"schema_version": 1, "claims": [{
+            "text": evidence().text, "evidence_ids": [str(evidence().evidence_id)],
+        }]}),
+    }}]})
+
+
+@pytest.mark.parametrize(
+    "mode", ["cancel", "timeout", "transport", "retry_success", "context_timeout"],
+)
+async def test_local_http_unconfirmed_execution_is_persisted_and_blocks_next_question(mode):
+    service, repo, _, executor, actor, incoming = setup.__wrapped__()
+    created = await seed_conversation(service, "domain", actor)
+    entered = asyncio.Event()
+    calls = 0
+
+    async def handler(request):
+        nonlocal calls
+        calls += 1
+        entered.set()
+        if mode == "cancel":
+            await asyncio.Event().wait()
+        if mode == "transport":
+            raise httpx.ReadError("synthetic private failure", request=request)
+        if mode == "retry_success" and calls > 1:
+            return local_http_answer()
+        raise httpx.ReadTimeout("synthetic timeout", request=request)
+
+    client, runtime, request = local_http_fixture(handler, retries=int(mode == "retry_success"))
+    async with client:
+        async def execute(**kwargs):
+            try:
+                if mode == "context_timeout":
+                    await runtime.contextualize(ContextualizationRequest(
+                        question=request.question, history=(), profile=request.profile,
+                    ))
+                else:
+                    await runtime.generate(request)
+            except GenerationProviderError as exc:
+                raise AppError(exc.code, "Synthetic safe provider error", 502) from None
+            return response()
+
+        executor.execute.side_effect = execute
+        pending = asyncio.create_task(service.submit("domain", actor, created.id, incoming))
+        try:
+            await asyncio.wait_for(entered.wait(), 2)
+            if mode == "cancel":
+                pending.cancel()
+            result = await asyncio.wait_for(pending, 2)
+            saved = repo.items[created.id].turns[0]
+            assert saved.execution_terminated is False
+            assert saved.error_code == "provider_termination_unconfirmed"
+            assert saved.status == ("cancelled" if mode == "cancel" else "failed")
+            assert saved.response is None
+            assert result.turns[0].execution_terminated is False
+            replay = await service.submit("domain", actor, created.id, incoming)
+            assert replay.turns[0].error_code == saved.error_code
+            with pytest.raises(AppError) as error:
+                await service.submit("domain", actor, created.id, incoming.model_copy(update={
+                    "request_id": uuid4(), "expected_revision": result.revision,
+                }))
+            assert error.value.code == "conversation_busy"
+            assert executor.execute.await_count == 1
+            assert calls == (2 if mode == "retry_success" else 1)
+        finally:
+            if not pending.done():
+                pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+
+
+async def test_deleted_conversation_does_not_certify_unconfirmed_http_termination():
+    service, repo, _, executor, actor, incoming = setup.__wrapped__()
+    created = await seed_conversation(service, "domain", actor)
+    entered = asyncio.Event()
+
+    async def handler(request):
+        entered.set()
+        await asyncio.Event().wait()
+
+    client, runtime, request = local_http_fixture(handler)
+    async with client:
+        async def execute(**kwargs):
+            await runtime.generate(request)
+            return response()
+
+        executor.execute.side_effect = execute
+        pending = asyncio.create_task(service.submit("domain", actor, created.id, incoming))
+        try:
+            await asyncio.wait_for(entered.wait(), 2)
+            current = await service.detail("domain", actor, created.id)
+            await service.delete("domain", actor, created.id, current.revision)
+            pending.cancel()
+            with pytest.raises(AppError):
+                await asyncio.wait_for(pending, 2)
+            saved = repo.items[created.id]
+            assert saved.deleted_at and saved.turns[0].query == ""
+            assert saved.turns[0].execution_terminated is False
+        finally:
+            if not pending.done():
+                pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+
+
+async def test_http_termination_scope_isolated_between_concurrent_conversations():
+    bad_service, bad_repo, _, bad_executor, actor, bad_incoming = setup.__wrapped__()
+    good_service, good_repo, _, good_executor, _, good_incoming = setup.__wrapped__()
+    bad = await seed_conversation(bad_service, "domain", actor)
+    good = await seed_conversation(good_service, "domain", actor)
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def bad_handler(request):
+        entered.set()
+        await release.wait()
+        raise httpx.ReadTimeout("synthetic timeout", request=request)
+
+    bad_client, bad_runtime, bad_request = local_http_fixture(bad_handler)
+    good_client, good_runtime, good_request = local_http_fixture(lambda _: local_http_answer())
+    async with bad_client, good_client:
+        async def execute_bad(**kwargs):
+            try:
+                await bad_runtime.generate(bad_request)
+            except GenerationProviderError as exc:
+                raise AppError(exc.code, "Synthetic safe error", 502) from None
+            return response()
+
+        async def execute_good(**kwargs):
+            await good_runtime.generate(good_request)
+            return response()
+
+        bad_executor.execute.side_effect = execute_bad
+        good_executor.execute.side_effect = execute_good
+        pending = asyncio.create_task(bad_service.submit("domain", actor, bad.id, bad_incoming))
+        try:
+            await asyncio.wait_for(entered.wait(), 2)
+            success = await good_service.submit("domain", actor, good.id, good_incoming)
+            assert success.turns[0].status == "completed"
+            assert good_repo.items[good.id].turns[0].execution_terminated
+            release.set()
+            await asyncio.wait_for(pending, 2)
+            assert not bad_repo.items[bad.id].turns[0].execution_terminated
+            # A later call in this task also has a fresh scope.
+            again = await good_service.submit("domain", actor, good.id, good_incoming.model_copy(
+                update={"request_id": uuid4(), "expected_revision": success.revision},
+            ))
+            assert again.turns[-1].execution_terminated
+        finally:
+            release.set()
+            if not pending.done():
+                pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+
+
+@pytest.mark.parametrize("cancel_after_response", [False, True])
+async def test_context_http_completion_does_not_prove_later_generation_termination(
+    cancel_after_response,
+):
+    service, repo, _, executor, actor, incoming = setup.__wrapped__()
+    created = await seed_conversation(service, "domain", actor)
+    reached = asyncio.Event()
+    calls = 0
+
+    async def handler(request):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {
+                "role": "assistant", "content": '{"resolved_query":"Synthetic question"}',
+            }}]})
+        if cancel_after_response:
+            return local_http_answer()
+        raise httpx.ReadTimeout("synthetic timeout", request=request)
+
+    client, runtime, request = local_http_fixture(handler)
+    async with client:
+        async def execute(**kwargs):
+            try:
+                await runtime.contextualize(ContextualizationRequest(
+                    question=request.question, history=(), profile=request.profile,
+                ))
+                await runtime.generate(request)
+                reached.set()
+                await asyncio.Event().wait()
+            except GenerationProviderError as exc:
+                raise AppError(exc.code, "Synthetic safe error", 502) from None
+            return response()
+
+        executor.execute.side_effect = execute
+        pending = asyncio.create_task(service.submit("domain", actor, created.id, incoming))
+        try:
+            if cancel_after_response:
+                await asyncio.wait_for(reached.wait(), 2)
+                pending.cancel()
+            await asyncio.wait_for(pending, 2)
+            saved = repo.items[created.id].turns[0]
+            assert saved.execution_terminated is cancel_after_response
+            assert saved.error_code == (
+                "conversation_cancelled" if cancel_after_response
+                else "provider_termination_unconfirmed"
+            )
+            assert calls == 2
+        finally:
+            if not pending.done():
+                pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)

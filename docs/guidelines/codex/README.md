@@ -32,6 +32,7 @@
 | 전체 아키텍처 | `docs/architecture/system-design.md` |
 | 저장소와 모듈 경계 | `docs/architecture/repository-structure.md` |
 | 공통 개발·보안·테스트 | `docs/guidelines/development-guidelines.md` |
+| 프론트엔드 스타일·토큰·접근성 | `docs/guidelines/ui-style-guide.md` |
 | RAG 설계와 검색 규칙 | `docs/labs/rag/design.md` |
 | 기술 결정과 근거 | `docs/decisions/` |
 | 캐시·worktree·Docker 정리 정책 | `CACHE_POLICY.md` |

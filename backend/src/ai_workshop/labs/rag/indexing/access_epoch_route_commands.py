@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, cast
 from uuid import UUID, uuid4
 
+from ai_workshop.infrastructure.local.python_runtime import PythonRuntimeError, approved_python
 from ai_workshop.labs.rag.indexing.access_epoch_control_native import NativeControlContext, _freeze
 from ai_workshop.labs.rag.indexing.access_epoch_deployment import (
     PROJECT_ROOT,
@@ -184,13 +185,10 @@ def _load(raw: bytes) -> dict[str, Any]:
 
 
 def _python_sha() -> str:
-    path = PROJECT_ROOT / "backend/.venv/Scripts/python.exe"
-    if path.is_symlink() or not path.is_file():
-        raise _unsupported()
-    data = path.read_bytes()
-    if not 0 < len(data) <= 32 * 1024 * 1024:
-        raise _unsupported()
-    return hashlib.sha256(data).hexdigest()
+    try:
+        return approved_python(PROJECT_ROOT).sha256
+    except PythonRuntimeError:
+        raise _unsupported() from None
 
 
 class RouteProbeKind(StrEnum):
@@ -681,7 +679,7 @@ class NativeRouteCommands:
                         "wrong_ca": verb == "host_wrong_ca",
                     }
                     argv = (
-                        str(PROJECT_ROOT / "backend/.venv/Scripts/python.exe"),
+                        str(approved_python(PROJECT_ROOT).executable),
                         "-I",
                         "-c",
                         _HOST_SOURCE,

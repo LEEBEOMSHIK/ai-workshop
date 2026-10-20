@@ -595,3 +595,31 @@ async def test_runtime_uses_once_validated_locals_and_refuses_late_collector_swi
         assert first_calls == dict.fromkeys(names, 1)
     finally:
         fixture.close()
+
+
+def test_route_python_digest_uses_revalidated_approved_conda(monkeypatch):
+    from pathlib import Path
+
+    m = module()
+    calls = []
+
+    def approved(root):
+        calls.append(root)
+        return SimpleNamespace(executable=Path("C:/synthetic-conda/python.exe"), sha256="b" * 64)
+
+    monkeypatch.setattr(m, "approved_python", approved, raising=False)
+    assert m._python_sha() == "b" * 64
+    assert calls == [m.PROJECT_ROOT]
+
+
+def test_route_runtime_identity_failure_maps_to_existing_unsupported_code(monkeypatch):
+    from ai_workshop.infrastructure.local.python_runtime import PythonRuntimeError
+
+    m = module()
+
+    def denied(root):
+        raise PythonRuntimeError()
+
+    monkeypatch.setattr(m, "approved_python", denied, raising=False)
+    with pytest.raises(ValueError, match="^native_route_unsupported$"):
+        m._python_sha()

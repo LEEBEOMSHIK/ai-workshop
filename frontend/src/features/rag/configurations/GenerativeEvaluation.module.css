@@ -1,4 +1,4 @@
-.page { --evaluation-gap: 1rem; --evaluation-radius: .8rem; display: grid; gap: .75rem; min-width: 0; max-width: 92rem; margin-inline: auto; padding: .5rem clamp(.75rem, 2vw, 1.5rem); overflow-wrap: anywhere; }
+.page { --evaluation-gap: var(--space-4); --evaluation-radius: var(--radius-panel); display: grid; gap: .75rem; min-width: 0; max-width: 92rem; margin-inline: auto; padding: var(--space-2) clamp(var(--space-3), 2vw, var(--space-6)); overflow-wrap: anywhere; }
 .page :is(h2, h3, p) { margin: 0; }
 .page > h2 { font-size: 1rem; line-height: 1.4; }
 .page :is(p, label, summary, a) { line-height: 1.65; }
@@ -8,14 +8,14 @@
 .page label { display: grid; gap: .5rem; }
 .page label:has(input[type="checkbox"]) { display: flex; align-items: flex-start; gap: .6rem; }
 .page input[type="checkbox"] { flex: 0 0 auto; margin-top: .45rem; accent-color: var(--color-accent-text); }
-.page :is(input:not([type="checkbox"]), select, textarea) { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; min-height: 2.75rem; padding: .65rem; border: 1px solid var(--color-border-subtle); border-radius: .45rem; background: transparent; color: inherit; color-scheme: dark; font: inherit; }
+.page :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; min-height: var(--control-min-height); padding: .65rem; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-control); background: transparent; color: inherit; color-scheme: dark; font: inherit; }
 .page textarea { min-height: 6rem; resize: vertical; }
-.page button { box-sizing: border-box; width: fit-content; max-width: 100%; min-height: 2.75rem; margin: .25rem; padding: .6rem .85rem; border: 1px solid var(--color-border-subtle); border-radius: .45rem; background: transparent; color: inherit; font: inherit; white-space: normal; overflow-wrap: anywhere; cursor: pointer; }
+.page button { box-sizing: border-box; width: fit-content; max-width: 100%; min-height: var(--control-min-height); margin: .25rem; padding: .6rem .85rem; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-control); background: transparent; color: inherit; font: inherit; white-space: normal; overflow-wrap: anywhere; cursor: pointer; }
 .page button:disabled { opacity: .5; cursor: not-allowed; }
 .page button:hover:not(:disabled) { background: color-mix(in srgb, var(--color-accent-text) 8%, transparent); }
 .page :is(a, a:visited, summary) { color: var(--color-accent-text); }
 .page a { text-underline-offset: .2em; }
-.page :is(input, select, textarea, button, a, summary):focus-visible { outline: 2px solid var(--color-accent-text); outline-offset: .2rem; }
+.page :is(input, select, textarea, button, a, summary):focus-visible { outline: var(--focus-width) solid var(--focus-color); outline-offset: var(--focus-offset); }
 .page summary { padding-block: .5rem; cursor: pointer; font-weight: 600; }
 .page details[open] > summary { margin-bottom: .75rem; }
 .card { padding: 1.2rem; border: 1px solid var(--color-border-subtle); border-radius: var(--evaluation-radius); background: color-mix(in srgb, currentColor 3%, transparent); }
@@ -47,7 +47,7 @@ article.card { display: grid; gap: var(--evaluation-gap); }
 .page .compactSelect { display: flex; align-items: center; gap: .6rem; font-size: .85rem; white-space: nowrap; }
 .page .compactSelect select { width: auto; flex: 1; padding: .45rem .65rem; }
 .pagination { display: flex; align-items: center; justify-content: space-between; gap: .2rem; }
-.page .pagination button { min-width: 2.75rem; margin: 0; padding: .4rem .5rem; border: 0; font-size: .8rem; }
+.page .pagination button { min-width: var(--control-min-height); margin: 0; padding: .4rem .5rem; border: 0; font-size: .8rem; }
 .pagination span { font-size: .8rem; }
 .questionDetail { display: grid; gap: .6rem; min-width: 0; }
 .selectedQuestion { font-size: 1.2rem; font-weight: 700; }
@@ -61,7 +61,7 @@ article.card { display: grid; gap: var(--evaluation-gap); }
 .runToolbar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; align-items: start; }
 .runToolbar > details.card { padding: .25rem .75rem; border-color: transparent; background: transparent; }
 .runToolbar > details.card[open] { grid-column: 1 / -1; border-color: var(--color-border-subtle); }
-.runToolbar summary { box-sizing: border-box; min-height: 2.75rem; padding-block: .45rem; }
+.runToolbar summary { box-sizing: border-box; min-height: var(--control-min-height); padding-block: .45rem; }
 .detailToolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .4rem; }
 .contentTabs { display: flex; gap: .4rem; min-width: 0; border-bottom: 1px solid var(--color-border-subtle); }
 .page .contentTabs button { margin: 0; padding: .5rem .65rem; border: 0; border-bottom: 2px solid transparent; border-radius: 0; font-size: .85rem; }

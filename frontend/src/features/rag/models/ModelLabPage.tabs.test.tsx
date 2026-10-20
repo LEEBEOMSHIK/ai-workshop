@@ -70,11 +70,11 @@ it("shows actual document-processing data before indexing, retrieval and generat
   await user.click(screen.getByRole("tab", { name: labels[2] }));
   const panel = screen.getByRole("tabpanel", { name: labels[2] });
   expect(within(panel).getByText("synthetic-processing")).toBeVisible();
-  expect(within(panel).getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual(["문서 처리 프로파일", "색인 프로파일", "검색 프로파일", "생성 프로파일"]);
+  expect(within(panel).getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual(["문서 처리 프로파일", "색인 프로파일", "검색 프로파일", "생성 프로파일", "HTTP 생성 프로파일"]);
   expect(screen.getByRole("textbox", { name: "프로파일 YAML" })).not.toBeVisible();
 });
 
-it("shares one explicit runner catalog and retains provider and generation drafts across tabs", async () => {
+it("keeps historical Codex metadata visible without setup, consent or runner entry points", async () => {
   const fetcher = metadata();
   const original = fetcher.getMockImplementation()!;
   fetcher.mockImplementation(async (input) => {
@@ -92,19 +92,25 @@ it("shares one explicit runner catalog and retains provider and generation draft
   });
   const user = userEvent.setup();
   render(<ModelLabPage />);
+  expect(await within(screen.getByRole("tabpanel", { name: labels[0] })).findByText("Synthetic Codex")).toBeVisible();
+  for (const label of labels.slice(1)) {
+    await user.click(screen.getByRole("tab", { name: label }));
+    expect(screen.queryByRole("option", { name: "개발용 Codex CLI" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /서버 Codex|문서.*승인/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Codex 답변을 구성하려면|Codex 연결 검사는 실행/)).not.toBeInTheDocument();
+  }
+  expect(fetcher.mock.calls.map(([url]) => url).filter((url) => String(url).includes("codex"))).toEqual([]);
+});
+
+
+it("offers HTTP registration and generation without loading Codex or mutating on tab navigation", async () => {
+  const fetcher = metadata();
+  const user = userEvent.setup();
+  render(<ModelLabPage />);
   await user.click(screen.getByRole("tab", { name: labels[1] }));
-  await user.selectOptions(screen.getByRole("combobox", { name: "설정할 실행 환경" }), "development_codex_exec");
-  await user.click(screen.getByRole("button", { name: "서버 Codex 설정 불러오기" }));
-  await screen.findByRole("combobox", { name: "서버 runner" });
-  await user.type(screen.getByRole("textbox", { name: "배포 이름" }), "draft-deployment");
+  expect(await screen.findByRole("heading", { name: "HTTP/Ollama 배포 등록" })).toBeVisible();
+  expect(screen.queryByText(/HTTP 배포 신규 등록 폼은 제공하지 않습니다/)).not.toBeInTheDocument();
   await user.click(screen.getByRole("tab", { name: labels[2] }));
-  expect(screen.getByText("Synthetic control")).toBeVisible();
-  await user.type(screen.getByRole("textbox", { name: "생성 프로파일 이름" }), "draft-profile");
-  await user.click(screen.getByRole("tab", { name: labels[1] }));
-  expect(screen.getByRole("combobox", { name: "설정할 실행 환경" })).toHaveValue("development_codex_exec");
-  expect(screen.getByRole("textbox", { name: "배포 이름" })).toHaveValue("draft-deployment");
-  await user.click(screen.getByRole("tab", { name: labels[2] }));
-  expect(screen.getByRole("textbox", { name: "생성 프로파일 이름" })).toHaveValue("draft-profile");
-  expect(fetcher.mock.calls.map(([url]) => url).filter((url) => String(url).includes("codex"))).toEqual(["/api/v1/admin/rag/codex-runners"]);
-  expect(fetcher).toHaveBeenCalledTimes(4);
+  expect(screen.getByRole("heading", { name: "HTTP 생성 프로파일" })).toBeVisible();
+  expect(fetcher).toHaveBeenCalledTimes(3);
 });

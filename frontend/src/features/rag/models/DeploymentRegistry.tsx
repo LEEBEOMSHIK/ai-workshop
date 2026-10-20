@@ -4,9 +4,10 @@ import { useId, useState } from "react";
 
 import { checkDeploymentHealth, type DeploymentHealth, type DeploymentSummary } from "./api";
 
-const supportedProviders = new Set(["local_openai_compatible", "openai_responses", "development_codex_exec"]);
+const supportedProviders = new Set(["local_transformers", "local_openai_compatible", "openai_responses", "development_codex_exec"]);
 
 const providerLabels: Record<string, string> = {
+  local_transformers: "로컬 Transformers",
   local_openai_compatible: "로컬 OpenAI 호환",
   openai_responses: "OpenAI Responses API",
   development_codex_exec: "개발용 Codex CLI (외부 처리)",
@@ -38,6 +39,8 @@ const readinessLabels: Record<string, string> = {
   provider_authentication_failed: "공급자 인증 확인 필요",
   provider_rate_limited: "공급자 요청 한도 초과",
   provider_timeout: "공급자 응답 시간 초과",
+  provider_busy: "로컬 모델이 다른 요청을 처리 중입니다. 잠시 후 다시 시도해 주세요.",
+  provider_input_too_large: "로컬 모델의 입력 한도를 초과했습니다. 질문이나 검색 근거 범위를 줄여 주세요.",
   provider_invalid_response: "공급자 응답 확인 필요",
 };
 
@@ -112,7 +115,7 @@ export function DeploymentRegistry({ deployments, readOnly = false }: { deployme
                 </div>
                 <div>
                   <dt>인증정보</dt>
-                  <dd>{deployment.provider === "development_codex_exec" ? "공식 CLI 인증 사용" : deployment.secret_configured ? "인증정보 구성됨" : "인증정보 확인 필요"}</dd>
+                  <dd>{deployment.provider === "local_transformers" ? "인증정보 불필요" : deployment.provider === "development_codex_exec" ? "공식 CLI 인증 사용" : deployment.secret_configured ? "인증정보 구성됨" : "인증정보 확인 필요"}</dd>
                 </div>
                 <div>
                   <dt>준비 상태</dt>
@@ -125,7 +128,7 @@ export function DeploymentRegistry({ deployments, readOnly = false }: { deployme
                 </p>
               ) : null}
               <HealthStatus health={checkedHealth ?? deployment.latest_health} />
-              {readOnly ? null : deployment.provider === "development_codex_exec" ? <p>등록 완료 · 실행 준비는 <a href="/admin/rag/configurations">저장 구성별 연결 검사</a>에서 확인하세요.</p> : <button
+              {readOnly ? null : deployment.provider === "development_codex_exec" ? <p>Codex CLI 지원 종료 · 기존 배포 기록</p> : <button
                 type="button"
                 aria-label={checkingVersionId === deployment.version_id
                   ? "상태 확인 중…"

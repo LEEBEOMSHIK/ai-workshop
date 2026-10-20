@@ -15,7 +15,7 @@ afterEach(() => {
 });
 
 describe("SearchPage", () => {
-  it.each(["success", "error"])("starts a clean Codex conversation and ignores a late follow-up %s", async (outcome) => {
+  it.each(["success", "error"])("starts a clean HTTP conversation and ignores a late follow-up %s", async (outcome) => {
     const pending = deferred<Response>();
     const calls: RequestInit[] = [];
     const result = (text: string) => ({
@@ -29,7 +29,7 @@ describe("SearchPage", () => {
       calls.push(init!);
       return calls.length === 2 ? pending.promise : jsonResponse(result(calls.length === 1 ? "First answer" : "New answer"));
     }));
-    const current = savedConfiguration({ generation_execution_preview: safeExecutionPreview({ provider: "development_codex_exec", disclosure_version: "codex-external-generation-v1" }) });
+    const current = savedConfiguration({ generation_execution_preview: safeExecutionPreview({ provider: "local_openai_compatible", external_transfer: false }) });
     render(<SearchPage initialOptions={{ configurations: [current], workspaces: [{ id: "company-1", name: "Synthetic workspace", kind: "company", expires_at: null }] }} />);
     const user = userEvent.setup();
     await user.click(screen.getByRole("checkbox", { name: /Synthetic workspace/ }));
@@ -37,11 +37,9 @@ describe("SearchPage", () => {
     const input = screen.getByRole("searchbox");
     async function approveAndSend(question: string) {
       // This regression exercises request cancellation, not per-key typing.
-      // Paste keeps the real input/consent events without dozens of DOM scans.
+      // Paste keeps the real input events without dozens of DOM scans.
       await user.click(input);
       await user.paste(question);
-      await user.selectOptions(screen.getByLabelText("이번 질문과 전송 이력의 분류"), "synthetic");
-      await user.click(screen.getByRole("checkbox", { name: "이번 질문의 외부 처리를 확인했습니다" }));
       await user.click(screen.getByRole("button", { name: "질문 보내기" }));
     }
     await approveAndSend("First question");
@@ -55,8 +53,6 @@ describe("SearchPage", () => {
     expect(input).toHaveValue("");
     expect(screen.queryByRole("region", { name: "현재 대화" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("submitted-search-result")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("이번 질문과 전송 이력의 분류")).toHaveValue("");
-    expect(screen.getByRole("checkbox", { name: "이번 질문의 외부 처리를 확인했습니다" })).not.toBeChecked();
     await act(async () => {
       pending.resolve(outcome === "success" ? jsonResponse(result("Late answer")) : jsonResponse({ error: { code: "provider_timeout", correlation_id: "late-error", message: "Late failure" } }, 503));
     });
@@ -64,38 +60,25 @@ describe("SearchPage", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     await user.click(input);
     await user.paste("Fresh question");
-    expect(screen.getByRole("button", { name: "질문 보내기" })).toBeDisabled();
-    await user.selectOptions(screen.getByLabelText("이번 질문과 전송 이력의 분류"), "synthetic");
-    expect(screen.getByRole("button", { name: "질문 보내기" })).toBeDisabled();
-    await user.click(screen.getByRole("checkbox", { name: "이번 질문의 외부 처리를 확인했습니다" }));
     await user.click(screen.getByRole("button", { name: "질문 보내기" }));
     await screen.findByText("New answer", { selector: ".generated-answer p" });
     expect(calls).toHaveLength(3);
     expect(JSON.parse(String(calls[2].body)).history).toEqual([]);
   });
-  it("requires fresh Codex question/history approval and preserves a failed question", async () => {
-    const current = savedConfiguration({ generation_execution_preview: safeExecutionPreview({ provider: "development_codex_exec", disclosure_version: "codex-external-generation-v1", requested_provider_model_id: "selected-model", observed_provider_model_id: null, model_identity_status: "unknown" }) });
-    const calls: RequestInit[] = [];
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (String(input).includes("/folders")) return jsonResponse([]);
-      calls.push(init!);
-      return jsonResponse({ error: { code: "codex_capacity_busy", message: "safe", correlation_id: "safe-correlation" } }, 503);
-    }));
-    const user = userEvent.setup();
+  it("blocks retired Codex configurations without offering execution consent", async () => {
+    const current = savedConfiguration({ generation_execution_preview: safeExecutionPreview({ provider: "development_codex_exec", disclosure_version: "codex-external-generation-v1" }) });
+    const fetcher = vi.fn(async () => jsonResponse([]));
+    vi.stubGlobal("fetch", fetcher);
     render(<SearchPage initialOptions={{ configurations: [current], workspaces: [{ id: "company-1", name: "Synthetic workspace", kind: "company", expires_at: null }] }} />);
-    await user.click(screen.getByRole("checkbox", { name: /Synthetic workspace/ }));
-    await user.selectOptions(screen.getByLabelText("저장된 RAG 구성"), current.id);
-    await user.type(screen.getByRole("searchbox"), "Synthetic question");
+    expect(screen.getByRole("option", { name: /Codex CLI 지원 종료/ })).toBeDisabled();
+    await act(async () => { fireEvent.click(screen.getByRole("checkbox", { name: /Synthetic workspace/ })); });
+    fireEvent.change(screen.getByLabelText("저장된 RAG 구성"), { target: { value: current.id } });
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Synthetic question" } });
     expect(screen.getByRole("button", { name: "질문 보내기" })).toBeDisabled();
-    await user.selectOptions(screen.getByLabelText("이번 질문과 전송 이력의 분류"), "synthetic");
-    await user.click(screen.getByRole("checkbox", { name: "이번 질문의 외부 처리를 확인했습니다" }));
-    await user.click(screen.getByRole("button", { name: "질문 보내기" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("codex_capacity_busy · 참조: safe-correlation");
-    expect(calls).toHaveLength(1);
-    expect(JSON.parse(String(calls[0].body)).codex_input_approval).toEqual({ classification: "synthetic", consented: true, disclosure_version: "codex-external-generation-v1" });
-    expect(screen.getByRole("searchbox")).toHaveValue("Synthetic question");
-    expect(screen.getByRole("checkbox", { name: "이번 질문의 외부 처리를 확인했습니다" })).not.toBeChecked();
-    expect(screen.getByRole("button", { name: "질문 보내기" })).toBeDisabled();
+    expect(screen.queryByLabelText("이번 질문과 전송 이력의 분류")).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "이번 질문의 외부 처리를 확인했습니다" })).not.toBeInTheDocument();
+    fireEvent.submit(screen.getByRole("searchbox").closest("form")!);
+    expect(fetcher.mock.calls.some((call: unknown[]) => (call[1] as RequestInit | undefined)?.method === "POST")).toBe(false);
   });
   it("keeps a ready extractive search usable when optional generation metadata fails", async () => {
     const extractive = savedConfiguration({
@@ -873,6 +856,8 @@ describe("SearchPage", () => {
     [409, "internal_source_detail", "선택한 검색 구성을 지금 사용할 수 없습니다."],
     [503, "internal_source_detail", "검색 서비스가 일시적으로 준비되지 않았습니다. 잠시 후 다시 시도해 주세요."],
     [504, "provider_timeout", "생성 서비스 응답 시간이 초과되었습니다."],
+    [503, "provider_busy", "로컬 모델이 다른 요청을 처리 중입니다. 잠시 후 다시 시도해 주세요."],
+    [422, "provider_input_too_large", "로컬 모델의 입력 한도를 초과했습니다. 질문이나 검색 근거 범위를 줄여 주세요."],
   ])("renders a truthful %i search failure without exposing server detail", async (status, code, message) => {
     vi.stubGlobal(
       "fetch",

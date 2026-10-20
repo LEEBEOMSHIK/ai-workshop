@@ -1,0 +1,224 @@
+{
+  "provenance": {
+    "classification": "public_synthetic",
+    "source_run": "rag-v3-two-calls-20261016",
+    "input_sha256": "90d989fe70815849763cc1c8bd169500cbf8ecdf440a00c961777adb1bf5d3ae",
+    "result_sha256": "be115f3c30ce6b8e1c7a100b1a4d581657afb553ad896fb80fcd20b1639276ea",
+    "note": "Only public synthetic text/IDs and answer; no account/runtime metadata."
+  },
+  "evidence": [
+    {
+      "evidence_id": "6fccf8be-11ba-440f-97a2-5e3dd81fa6bb",
+      "text": "가상새결자산운용  /  SYNTHETIC RESEARCH SERIES"
+    },
+    {
+      "evidence_id": "6b8c99a7-f33b-44ad-86c0-281ac2208e98",
+      "text": "상품 설명서"
+    },
+    {
+      "evidence_id": "0986d09b-a944-4c57-aea1-d6c3b29eb834",
+      "text": "자료번호 SYN-P01 | 제1.0판 | 시행일 2026-09-01 | 비교 상품 2종"
+    },
+    {
+      "evidence_id": "71b809d2-0b56-4bb4-b640-45e434a58183",
+      "text": "02  환매 신청과 대금 지급"
+    },
+    {
+      "evidence_id": "9e94bc92-69dc-481e-a234-643011077895",
+      "text": "영업일은 이 평가 자료의 가상 영업일 달력상 업무일이다. T는 접수일이며, T+N은 접수일 다음 영업일부터"
+    },
+    {
+      "evidence_id": "3b58b30f-ff87-4b0e-8426-086e5005c5cf",
+      "text": "N일을 센다."
+    },
+    {
+      "evidence_id": "2f0ff7d1-d82f-480e-86ea-ec9ef9d9a7c0",
+      "text": "항목"
+    },
+    {
+      "evidence_id": "372a9b26-4271-4638-b631-1879f4d0c957",
+      "text": "AM-SYN-101"
+    },
+    {
+      "evidence_id": "76a81c9a-182b-4017-8409-bd29d0f0be86",
+      "text": "신청 마감"
+    },
+    {
+      "evidence_id": "ccee25b8-275e-4bbf-a3ea-cde929e77926",
+      "text": "영업일 15:00까지"
+    },
+    {
+      "evidence_id": "13a46e24-8b5d-4a54-9e77-3137486bcd12",
+      "text": "마감 후 신청"
+    },
+    {
+      "evidence_id": "c4a65716-7957-45c4-84d3-ad9fed2e3624",
+      "text": "다음 영업일 접수"
+    },
+    {
+      "evidence_id": "7adfa765-3830-4766-82c3-56be7bf15e82",
+      "text": "적용 기준가격"
+    },
+    {
+      "evidence_id": "0196ebc1-1b0f-44af-bf2a-edd611e2f559",
+      "text": "접수일 T+2 기준가격"
+    },
+    {
+      "evidence_id": "838d9465-0510-4cfc-a8af-b33174fc564a",
+      "text": "대금 지급일"
+    },
+    {
+      "evidence_id": "25b7b690-dd81-440e-9bd8-1e1020823e65",
+      "text": "접수일 T+4 영업일"
+    },
+    {
+      "evidence_id": "0a58a3e8-865c-4a01-9a7f-6ea68b8a99de",
+      "text": "지급 시점의 예외"
+    },
+    {
+      "evidence_id": "9fe96899-a26d-4a0e-ac2f-eee903de3037",
+      "text": "AM-SYN-202는 주요 해외 결제시장이 휴장하여 결제가 지연되면 실제 결제 완료 다음 영업일에 지급한다."
+    },
+    {
+      "evidence_id": "6047693c-8f86-4efb-8021-bcc23d7f66b9",
+      "text": "운용지원팀은 사유와 변경 예정일을 신청 고객에게 통지한다. 시장 휴장 예외는 AM-SYN-101에는 적용하지"
+    },
+    {
+      "evidence_id": "f107dc34-2dd2-4103-acd2-2183484b42e1",
+      "text": "않는다."
+    },
+    {
+      "evidence_id": "f8d01af1-3890-4f2e-957f-a98b9bb9df33",
+      "text": "계산 예시"
+    },
+    {
+      "evidence_id": "2e8480e3-ee08-41f3-801c-5683e1310b06",
+      "text": "AM-SYN-101을 2026-09-07 월요일 15:10에 신청하면 09-08 화요일이 접수일이다. 예시 기간에 휴일이 없으"
+    },
+    {
+      "evidence_id": "af9d7189-d6f4-4d4c-a6e6-56a6ad39c71e",
+      "text": "므로 기준가격 적용일은 09-10, 대금 지급일은 09-14이다. 마감 후 신청일 자체를 T로 세지 않는다."
+    },
+    {
+      "evidence_id": "b2abe4dd-04ba-4c7f-ab18-960b1d81624b",
+      "text": "정보가 없는 경우"
+    },
+    {
+      "evidence_id": "e25a5b55-9b07-4702-a22e-69338f8636cc",
+      "text": "실제 결제 완료일이나 가상 영업일 달력이 주어지지 않은 경우 정확한 달력 날짜를 추정하지 않는다. 확인 가"
+    },
+    {
+      "evidence_id": "a74a0a7a-5a03-46d2-a271-47aded35f8d9",
+      "text": "능한 상대 영업일 규칙과 필요한 추가 정보를 안내한다."
+    },
+    {
+      "evidence_id": "e56ebb28-4a38-4bca-ad8e-8a248d5bc350",
+      "text": "전면 합성 자료 | 실제 회사·상품·투자 권유·법규가 아님"
+    },
+    {
+      "evidence_id": "f00b684e-90a5-43ef-85e6-ef0b44ee1d3a",
+      "text": "02 / 03"
+    }
+  ],
+  "observed_answer": {
+    "status": "answered",
+    "answer": "AM-SYN-101을 2026-09-07 월요일 15:10에 신청하면 09-08 화요일이 접수일이다. 이 경우 기준가격 적용일은 09-10, 대금 지급일은 09-14이다.",
+    "citation_validation": "passed",
+    "claims": [
+      {
+        "text": "AM-SYN-101을 2026-09-07 월요일 15:10에 신청하면 09-08 화요일이 접수일이다.",
+        "evidence_ids": [
+          "2e8480e3-ee08-41f3-801c-5683e1310b06"
+        ]
+      },
+      {
+        "text": "이 경우 기준가격 적용일은 09-10, 대금 지급일은 09-14이다.",
+        "evidence_ids": [
+          "af9d7189-d6f4-4d4c-a6e6-56a6ad39c71e"
+        ]
+      }
+    ]
+  },
+  "rubric": {
+    "version": 1,
+    "rules": [
+      {
+        "key": "payment_rule",
+        "terms": [
+          [
+            "AM-SYN-101"
+          ],
+          [
+            "접수일"
+          ],
+          [
+            "T+4 영업일",
+            "4영업일 후",
+            "4 영업일 후",
+            "네 영업일 뒤"
+          ],
+          [
+            "지급",
+            "받을"
+          ]
+        ],
+        "support": [
+          {
+            "evidence_id": "9e94bc92-69dc-481e-a234-643011077895",
+            "text": "영업일은 이 평가 자료의 가상 영업일 달력상 업무일이다. T는 접수일이며, T+N은 접수일 다음 영업일부터"
+          },
+          {
+            "evidence_id": "3b58b30f-ff87-4b0e-8426-086e5005c5cf",
+            "text": "N일을 센다."
+          },
+          {
+            "evidence_id": "372a9b26-4271-4638-b631-1879f4d0c957",
+            "text": "AM-SYN-101"
+          },
+          {
+            "evidence_id": "838d9465-0510-4cfc-a8af-b33174fc564a",
+            "text": "대금 지급일"
+          },
+          {
+            "evidence_id": "25b7b690-dd81-440e-9bd8-1e1020823e65",
+            "text": "접수일 T+4 영업일"
+          }
+        ]
+      }
+    ],
+    "examples": [
+      {
+        "key": "payment_example",
+        "trigger_terms": [
+          [
+            "09-14",
+            "9월 14일"
+          ],
+          [
+            "지급",
+            "받을"
+          ]
+        ],
+        "trigger_evidence_ids": [
+          "af9d7189-d6f4-4d4c-a6e6-56a6ad39c71e"
+        ],
+        "condition_terms": [
+          [
+            "휴일이 없",
+            "공휴일이 없"
+          ]
+        ],
+        "support": [
+          {
+            "evidence_id": "2e8480e3-ee08-41f3-801c-5683e1310b06",
+            "text": "AM-SYN-101을 2026-09-07 월요일 15:10에 신청하면 09-08 화요일이 접수일이다. 예시 기간에 휴일이 없으"
+          },
+          {
+            "evidence_id": "af9d7189-d6f4-4d4c-a6e6-56a6ad39c71e",
+            "text": "므로 기준가격 적용일은 09-10, 대금 지급일은 09-14이다. 마감 후 신청일 자체를 T로 세지 않는다."
+          }
+        ]
+      }
+    ]
+  }
+}

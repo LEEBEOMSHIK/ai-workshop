@@ -5,7 +5,13 @@ from ai_workshop.labs.rag.generation.domain import ContextPolicy, GenerationProf
 from ai_workshop.labs.rag.models.context_evidence import (
     resolve_evidence_budget as resolve_evidence_budget,
 )
-from ai_workshop.labs.rag.models.domain import ModelDefinition, ModelKind, Profile, ProfileKind
+from ai_workshop.labs.rag.models.domain import (
+    ModelDefinition,
+    ModelKind,
+    Profile,
+    ProfileKind,
+    resolve_answer_reasoning_effort,
+)
 from ai_workshop.labs.rag.models.numeric_proof_policy import resolve_numeric_proof_policy
 
 
@@ -64,6 +70,7 @@ def resolve_generation_profile(
         deployment=deployment,
         evidence_budget=resolve_evidence_budget(profile.config),
         numeric_proof_policy=resolve_numeric_proof_policy(profile.config),
+        answer_reasoning_effort=resolve_answer_reasoning_effort(generation),
     )
 
 

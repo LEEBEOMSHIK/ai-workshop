@@ -120,7 +120,9 @@ function DomainAdminCard({
   const [configurationVersionId, setConfigurationVersionId] = useState("");
   const [workspaceIds, setWorkspaceIds] = useState<string[]>([]);
   const [pending, setPending] = useState(false);
-  const selectedConfiguration = configurations.find(
+  const selectableConfigurations = configurations.filter(configuration => configuration.generation_execution_preview?.provider !== "development_codex_exec");
+  const isRetiredVersion = (versionId: string) => configurations.some(configuration => configuration.version_id === versionId && configuration.generation_execution_preview?.provider === "development_codex_exec");
+  const selectedConfiguration = selectableConfigurations.find(
     (configuration) => configuration.version_id === configurationVersionId,
   );
   const workspaceNames = useMemo(
@@ -176,7 +178,7 @@ function DomainAdminCard({
             setWorkspaceIds([]);
           }}>
             <option value="">구성을 선택하세요</option>
-            {configurations.map((configuration) => (
+            {selectableConfigurations.map((configuration) => (
               <option key={configuration.version_id} value={configuration.version_id}>
                 {configuration.name} · 버전 {configuration.version}
               </option>
@@ -235,7 +237,7 @@ function DomainAdminCard({
             </header>
             <p>{connection.configuration_name} · 구성 버전 {connection.configuration_version}</p>
             <p>지식 공간: {connection.workspace_ids.map((id) => workspaceNames.get(id) ?? "현재 확인할 수 없음").join(", ")}</p>
-            {domain.activeConnectionVersionId !== connection.id ? (
+            {domain.activeConnectionVersionId !== connection.id && !isRetiredVersion(connection.configuration_version_id) ? (
               <button type="button" disabled={pending} onClick={() => void perform(async () => {
                 onDomainChange(adminMutationDomainView(await activateDomainConnection(domain.id, connection.id)));
                 onNotice(`연결 버전 ${connection.version}을 활성화했습니다.`);

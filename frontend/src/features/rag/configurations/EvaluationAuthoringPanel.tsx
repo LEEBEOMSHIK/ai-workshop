@@ -7,7 +7,8 @@ import styles from "./EvaluationAuthoring.module.css";
 import { freezeAuthoredSnapshot } from "./api";
 import type { AuthoringSnapshot } from "./generative-api";
 
-export function EvaluationAuthoringPanel({ configurations, workspaces, onRun, onInvalidate, beginOperation, isCurrentOperation, onSnapshot }: {
+export function EvaluationAuthoringPanel({ configurations, workspaces, onRun, onInvalidate, beginOperation, isCurrentOperation, onSnapshot, active = true }: {
+  active?: boolean;
   configurations: SavedConfiguration[]; workspaces: Workspace[];
   onRun: (run: EvaluationRun) => void; onInvalidate: () => void;
   beginOperation: () => number; isCurrentOperation: (intent: number) => boolean;
@@ -24,8 +25,12 @@ export function EvaluationAuthoringPanel({ configurations, workspaces, onRun, on
   const [policy, setPolicy] = useState<EvaluationPolicy | null>(null);
   const [busy, setBusy] = useState(false);
   const [sourceLoading, setSourceLoading] = useState(false);
-  const sourcePending = useRef(false);
-  const working = busy || sourceLoading;
+  const sourcePending = useRef<number | null>(null);
+  const [sourceIntent, setSourceIntent] = useState<number | null>(null);
+  const [operationIntent, setOperationIntent] = useState<number | null>(null);
+  const requestIntent = useRef<number | null>(null);
+  const operationVisible = active && (operationIntent === null || isCurrentOperation(operationIntent));
+  const working = !active || (busy && operationVisible) || (sourceLoading && sourceIntent !== null && isCurrentOperation(sourceIntent));
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const request = useRef<AbortController | null>(null);
@@ -39,7 +44,10 @@ export function EvaluationAuthoringPanel({ configurations, workspaces, onRun, on
     invalidateDataset(); setPreview(value); setRetention(false); setCases(value ? [freshCase()] : []);
   }
   async function execute(operation: "initial" | "policy-run" | "policy", policyRequest?: EvaluationPolicyCreate) {
-    if (request.current || sourcePending.current || !preview) return;
+    if (!active || !preview || (request.current && requestIntent.current !== null && isCurrentOperation(requestIntent.current)) || (sourcePending.current !== null && isCurrentOperation(sourcePending.current))) return;
+    request.current?.abort(); request.current = null;
+    setBusy(false); setError(""); setMessage("");
+    const intent = beginOperation(); setOperationIntent(intent);
     if (operation === "initial" && (!name.trim() || Array.from(name.trim()).length > 180 || !retention || !cases.length || cases.some((item) => !item.query.trim() || (item.expected_answer_status === "supported" && (!item.expected_evidence_ids.length || !item.expected_highlight))))) {
       setError("평가 이름, 질문, 수동 정답 근거·하이라이트와 자료 보관 동의를 확인해 주세요."); return;
     }
@@ -47,7 +55,7 @@ export function EvaluationAuthoringPanel({ configurations, workspaces, onRun, on
     if (operation === "policy-run" && (!snapshotId || !policy)) return;
     if (operation === "policy" && !policyRequest) return;
     const controller = new AbortController(); request.current = controller; setBusy(true); setError(""); setMessage("");
-    const intent = beginOperation();
+    requestIntent.current = intent;
     const isCurrent = () => !controller.signal.aborted && isCurrentOperation(intent);
     try {
       if (operation === "initial" && onSnapshot) {
@@ -70,12 +78,12 @@ export function EvaluationAuthoringPanel({ configurations, workspaces, onRun, on
     } catch {
       if (isCurrent()) setError("요청을 완료하지 못했습니다. 입력과 성공한 단계는 유지했습니다. 범위가 변경되었다면 근거를 다시 조회하고, 같은 이름의 다른 자료 충돌은 새 평가 이름으로 작성하세요.");
     } finally {
-      if (!controller.signal.aborted) { request.current = null; setBusy(false); }
+      if (request.current === controller) { request.current = null; setBusy(false); }
     }
   }
   return <section className={styles.authoring}><h2>새 평가 만들기</h2>
     <p>검색 평가 통과, 전체 기본값, 대화 서비스 사용 준비는 서로 다릅니다. 기존 실행은 아래 고급 비교에서 이어갈 수 있습니다.</p>
-    <EvaluationSourceSelector configurations={configurations} workspaces={workspaces} disabled={busy} onPreview={receivePreview} beginOperation={beginOperation} isCurrentOperation={isCurrentOperation} onLoading={(loading) => { sourcePending.current = loading; setSourceLoading(loading); }} />
+    <EvaluationSourceSelector active={active} configurations={configurations} workspaces={workspaces} disabled={busy && operationVisible} onPreview={receivePreview} beginOperation={beginOperation} isCurrentOperation={isCurrentOperation} onLoading={(loading, operation) => { sourcePending.current = loading ? operation ?? null : null; setSourceIntent(loading ? operation ?? null : null); setSourceLoading(loading); }} />
     {preview ? <>
       <h3>2. 전체 근거 확인과 수동 사례 작성</h3>
       <p>선택 문서 {preview.document_count}개 · 전체 근거 {preview.evidence_count}개를 완전히 조회했습니다.</p>
@@ -101,6 +109,6 @@ export function EvaluationAuthoringPanel({ configurations, workspaces, onRun, on
       </> : null}
       {snapshotId ? <details><summary>저장된 평가 기술 식별자</summary><p>자료 {snapshotId}</p><p>정책 {policy?.id ?? "미저장"}</p></details> : null}
     </> : null}
-    {busy ? <p role="status">명시 요청 처리 중…</p> : null}{message ? <p role="status">{message}</p> : null}{error ? <p role="alert">{error}</p> : null}
+    {busy && operationVisible ? <p role="status">명시 요청 처리 중…</p> : null}{message && operationVisible ? <p role="status">{message}</p> : null}{error && operationVisible ? <p role="alert">{error}</p> : null}
   </section>;
 }

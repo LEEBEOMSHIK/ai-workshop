@@ -33,6 +33,7 @@ class DeploymentVersionCreate(BaseModel):
     provider_model_id: str = Field(min_length=1, max_length=180)
     endpoint_ref: str | None = Field(min_length=1, max_length=120)
     runner_ref: str | None = Field(default=None, min_length=1, max_length=120)
+    local_model_ref: str | None = Field(default=None, min_length=1, max_length=120)
     secret_ref: str | None = Field(default=None, min_length=1, max_length=120)
     capabilities: set[DeploymentCapability] = Field(min_length=1)
     external_transfer: bool
@@ -112,6 +113,7 @@ class DeploymentAdminResponse(BaseModel):
     readiness: DeploymentReadinessResponse
     latest_health: DeploymentLatestHealthResponse | None
     runner_ref: str | None = None
+    local_model_ref: str | None = None
 
     @classmethod
     def from_entry(cls, entry: DeploymentCatalogEntry, *, secret_configured: bool) -> Self:
@@ -133,6 +135,7 @@ class DeploymentAdminResponse(BaseModel):
             secret_configured=secret_configured,
             readiness=_readiness(entry),
             latest_health=_latest_health(entry),
+            local_model_ref=deployment.local_model_ref,
             runner_ref=(
                 deployment.runner_ref
                 if deployment.provider is ProviderKind.DEVELOPMENT_CODEX_EXEC
@@ -155,6 +158,7 @@ class DeploymentOptionResponse(BaseModel):
     readiness: DeploymentReadinessResponse
     approval: DeploymentApprovalResponse | DeploymentNoApprovalResponse
     runner_ref: str | None = None
+    local_model_ref: str | None = None
 
     @classmethod
     def from_entry(cls, entry: DeploymentCatalogEntry) -> Self:
@@ -191,6 +195,7 @@ class DeploymentOptionResponse(BaseModel):
             capabilities=sorted(deployment.capabilities, key=lambda item: item.value),
             readiness=_readiness(entry),
             approval=approval,
+            local_model_ref=deployment.local_model_ref,
             runner_ref=(
                 deployment.runner_ref
                 if deployment.provider is ProviderKind.DEVELOPMENT_CODEX_EXEC

@@ -9,6 +9,21 @@ import { DomainAdminPage } from "./DomainAdminPage";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("DomainAdminPage", () => {
+  it("retains Codex connection history without offering new connection or reactivation", () => {
+    const legacy = configuration();
+    legacy.generation_execution_preview = {
+      deployment_name: "Legacy Codex", model_name: "Historical model", model_version: 1,
+      provider: "development_codex_exec", location: "external", external_transfer: true,
+      disclosure_version: "codex-external-generation-v1", disclosure: "Historical notice",
+    };
+    const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
+    render(<DomainAdminPage initialData={{ domains: [listedDomain({ active: false })], configurations: [legacy], workspaces: [], histories: { "domain-1": [connection()] } }} />);
+    expect(screen.getByRole("article", { name: "연결 버전 1" })).toHaveTextContent("승인된 금융 RAG");
+    expect(screen.queryByRole("option", { name: /승인된 금융 RAG/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "이 버전 활성화" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "새 연결 버전 만들기" })).toBeDisabled();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
   it("registers and edits a domain while keeping its slug immutable", async () => {
     const requests: Array<{ path: string; body: Record<string, unknown> }> = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

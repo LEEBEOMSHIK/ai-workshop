@@ -19,6 +19,7 @@ destructive_approval: required
 - 알 수 없는 미추적 파일, 사용자 환경 파일과 다른 프로젝트 소유 산출물은 정리하지 않는다.
 - 정리 직전에 Git 상태, 프로세스 사용, Docker 참조와 mount를 다시 검사한다.
 - 승인된 대상만 정리하고 범위가 달라지면 새 조사와 승인을 받는다.
+- 정책 밖 대상은 정책 수정, 새 조사, 새 승인을 모두 거친다. 정책에 분류를 추가한 사실이나 이전 승인은 이 절차를 대신하지 않는다.
 
 ## 파일시스템 분류
 
@@ -32,11 +33,13 @@ destructive_approval: required
 | 실행 모델 자산 | `.local-data/models/ocr/<model-kind>/<artifact-sha256>` | 매니페스트로 검증·설치된 불변 OCR 실행 의존성이므로 캐시라는 이름만으로 제거하지 않는다. 참조 프로파일, 실행 중 worker와 재프로비저닝 가능성을 모두 확인해야 한다. |
 | 모델 준비 산출물 | `.local-data/models/p/<runtime-role>`, `.local-data/models/ocr/staging/<exact-id>` | 최종 불변 경로의 전 파일 크기·SHA-256 검증과 실제 smoke가 끝난 뒤에만 정확한 경로별 정리 후보로 보고한다. |
 | 기타 모델 캐시 | `.local-data/models`의 위 분류 외 경로 | 재다운로드 가능성, 사용 중 프로세스와 승인된 모델 출처를 확인한 경우에만 후보로 보고한다. |
+| 구 Windows Python 환경 | `backend/.venv` | 아래 [구 Windows Python 환경](#구-windows-python-환경)의 전환·미사용 확인과 새 조사·승인 조건을 충족해야 후보가 된다. 현재는 보존하며 자동 이동·삭제하지 않는다. |
 | 프론트 의존성 | `frontend/node_modules` | `frontend/pnpm-lock.yaml`로 복원 가능하고 개발 프로세스가 사용하지 않을 때만 후보로 보고한다. 루트 `node_modules`는 만들지 않는다. |
 | 프론트 패키지 캐시 | `frontend/.pnpm-store` | junction 경계와 복원 가능성을 확인한 경우에만 후보로 보고한다. |
 | 레거시 루트 의존성 | `node_modules` | 프론트 독립 구조 전환이 검증된 뒤에만 일회성 제거 후보로 보고한다. |
 | 레거시 루트 패키지 캐시 | `.pnpm-store` | 모든 junction 대상과 프론트 설치 검증을 확인한 뒤에만 일회성 제거 후보로 보고한다. |
 | 정적 분석 캐시 | `.mypy_cache`, `.ruff_cache`, `backend/.mypy_cache`, `backend/.ruff_cache` | 생성 도구가 실행 중이 아니면 재생성 가능한 후보로 보고한다. |
+| 종료된 개발 로그 | `.local-data/dev-logs/`의 정확히 식별한 개별 로그 | 원문은 임의 폐기하지 않는다. 종료된 프로세스의 로그이며 현재 경로 참조·열린 쓰기 핸들·증가가 없음을 확인한 뒤, 원문 경로·바이트를 유지하는 가역적 NTFS 압축을 적용하고 전후 SHA-256·실제 할당량을 검증할 수 있다. gzip 보관본으로 대체하려면 원문/복원 SHA-256·크기 일치와 최종 진단 기록 보존을 확인하고 정확한 원문 목록·예상 회수량을 보고해 승인받은 뒤 원문만 제거한다. 현재 로그·DB·요청 예산·모델 결과는 포함하지 않는다. |
 | 테스트 임시물 | `.local-data/pytest-tmp`, `backend/.pytest-tmp`, `backend/.pytest-<task-id>`와 루트의 명시적으로 식별된 pytest 임시 디렉터리 | 실제 테스트 데이터가 아닌지 확인한 뒤 후보로 보고한다. 작업별 경로는 고정 문자열로 확인하며 와일드카드로 삭제하지 않는다. |
 | 프로젝트 에이전트 임시 기록 | `.local-data/project-agent-work/<task-id>/` | 미해결 작업은 보존한다. `verified` 작업만 정확한 task 경로 정리 후보이며, reparse point 또는 임시 루트 밖 경로는 차단한다. |
 | 빌드 산출물 | `frontend/.next`, `frontend/tsconfig.tsbuildinfo`, `backend/build` | 해당 빌드가 재현 가능하고 배포 입력으로 사용 중이지 않을 때 후보로 보고한다. `.next`가 실행 중인 Next.js 프로세스에 사용되는지 먼저 확인한다. |
@@ -44,6 +47,20 @@ destructive_approval: required
 | 도구 산출물 | `.superpowers` | 목업, 최종 검증 보고서와 선별 실패 기록을 먼저 보존하고 중간 상태와 재생성 가능한 diff만 후보로 보고한다. |
 
 프로젝트 에이전트 임시 기록의 상태 전이와 정리 게이트는 [temporary work lifecycle](docs/project-agents/governance/temporary-work-lifecycle.md)를 정본으로 사용한다.
+
+### 구 Windows Python 환경
+
+- 조사 대상은 `C:/projects/ai-workshop/backend/.venv` 한 곳으로 한정한다. 현재 Conda prefix,
+  Miniconda base, Docker `/app/.venv`와 `ai-workshop_backend-venv` 볼륨은 이 분류에서 제외한다.
+- 이 분류는 이동·삭제 승인이 아니다. 정책 반영 후 정확한 경로·소유권·reparse 부재·용량,
+  실행 중 프로세스와 IDE 참조, 해당 업무의 Conda 전환 검증을 새로 조사해 보고한다.
+  경로 조회 거부·빈 값이나 미완료 검증은 미사용 증거가 아니며, 불명확하면 보존한다.
+- 복구 가능한 이동을 제안할 때도 정확한 원본·보관 경로와 영향에 대해 새 승인을 받는다.
+  같은 부모 디렉터리 안의 보관 경로가 존재하지 않는지와 경계 이탈이 없는지 직전에 재검증한다.
+  오류가 생기면 승인된 원래 경로로 복구할 수 있도록 보관본을 유지한다. 이름 변경의 회수량은0이다.
+- 보관본 최종 삭제는 이동과 별개다. 전환 후 사용·검증 결과와 정확한 보관 경로·예상 회수량을
+  다시 보고하고 명시적 삭제 승인을 받은 뒤, 정책·경로·미사용 상태를 직전에 재검증한다.
+  실패 증거, 요청예산, 모델·원문·DB·검색색인과 다른 환경은 정리하지 않는다.
 
 ### 저장소 밖 pytest 산출물
 

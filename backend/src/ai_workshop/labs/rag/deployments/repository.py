@@ -295,6 +295,7 @@ def _version_record(deployment: ModelDeploymentVersion) -> ModelDeploymentVersio
         provider_model_id=deployment.provider_model_id,
         endpoint_ref=deployment.endpoint_ref,
         runner_ref=deployment.runner_ref,
+        local_model_ref=deployment.local_model_ref,
         secret_ref_namespace=(
             PROVIDER_SECRET_NAMESPACE if deployment.secret_ref is not None else None
         ),
@@ -330,6 +331,7 @@ def _version_domain(record: ModelDeploymentVersionRecord) -> ModelDeploymentVers
         provider_model_id=record.provider_model_id,
         endpoint_ref=record.endpoint_ref,
         runner_ref=record.runner_ref,
+        local_model_ref=record.local_model_ref,
         secret_ref=record.secret_ref,
         capabilities=frozenset(
             DeploymentCapability(item) for item in record.capabilities

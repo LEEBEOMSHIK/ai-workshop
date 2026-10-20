@@ -123,3 +123,49 @@ def test_legacy_generation_profile_is_not_resolved_for_execution() -> None:
 
     with pytest.raises(ValueError, match="Deployment"):
         resolve_generation_profile(legacy, deployment(), llm_model())
+
+
+@pytest.mark.parametrize("opt_in", [False, True])
+def test_answer_reasoning_profile_resolution_preserves_selection(opt_in):
+    exact = replace(deployment(), provider=ProviderKind.LOCAL_OPENAI_COMPATIBLE,
+                    location=ExecutionLocation.LOCAL, external_transfer=False,
+                    transmitted_data_categories=(), data_processing_notice_ref=None,
+                    secret_ref=None, timeout_seconds=360, max_retries=0)
+    config = dict(generation_profile().config)
+    config["generation"] = dict(config["generation"], response_schema_version=2,
+                                timeout_seconds=360)
+    if opt_in:
+        config["generation"]["answer_reasoning_effort"] = "none"
+    selected = Profile.create(kind=ProfileKind.GENERATION, name="synthetic-selected", version=3,
+                              config=config, bindings=(), deployment_version_id=exact.id)
+    resolved = resolve_generation_profile(selected, exact, llm_model())
+    assert resolved.answer_reasoning_effort == ("none" if opt_in else None)
+    assert resolved.timeout_seconds == 360
+    assert resolved.max_output_tokens == 512
+    assert resolved.deployment == exact
+    assert resolved.profile_id == selected.id
+
+
+@pytest.mark.parametrize("provider,location", [
+    (ProviderKind.OPENAI_RESPONSES, ExecutionLocation.EXTERNAL),
+    (ProviderKind.LOCAL_OPENAI_COMPATIBLE, ExecutionLocation.ON_PREMISE),
+    (ProviderKind.LOCAL_TRANSFORMERS, ExecutionLocation.LOCAL),
+])
+def test_answer_reasoning_profile_rejects_unsupported_deployment(provider, location):
+    # Deployment variants remain synthetic; no provider is contacted.
+    exact = deployment()
+    if provider == ProviderKind.LOCAL_OPENAI_COMPATIBLE:
+        exact = replace(exact, provider=provider, location=location, external_transfer=False,
+                        transmitted_data_categories=(), data_processing_notice_ref=None)
+    elif provider == ProviderKind.LOCAL_TRANSFORMERS:
+        exact = replace(exact, provider=provider, location=location, external_transfer=False,
+                        transmitted_data_categories=(), data_processing_notice_ref=None,
+                        endpoint_ref=None, secret_ref=None, local_model_ref="synthetic-local",
+                        max_retries=0, retry_backoff_seconds=0)
+    config = dict(generation_profile().config)
+    config["generation"] = dict(config["generation"], response_schema_version=2,
+                                answer_reasoning_effort="none")
+    selected = Profile.create(kind=ProfileKind.GENERATION, name="synthetic-unsupported", version=3,
+                              config=config, bindings=(), deployment_version_id=exact.id)
+    with pytest.raises(ValueError, match="answer reasoning"):
+        resolve_generation_profile(selected, exact, llm_model())

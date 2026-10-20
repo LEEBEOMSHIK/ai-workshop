@@ -2,14 +2,10 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import process from "node:process";
+import { resolveLocalPython } from "./local-python-runtime.mjs";
 
 const frontendRoot = path.dirname(fileURLToPath(import.meta.url));
 const backendRoot = path.resolve(frontendRoot, "../backend");
-const python = path.join(
-  backendRoot,
-  ".venv",
-  process.platform === "win32" ? "Scripts/python.exe" : "bin/python",
-);
 const openapiTypescript = path.join(
   frontendRoot,
   "node_modules",
@@ -30,6 +26,7 @@ function run(command, args) {
 }
 
 export function generate({ check = false } = {}) {
+  const python = resolveLocalPython();
   run(python, [path.join(backendRoot, "tools/export_openapi.py")]);
   run(process.execPath, [
     openapiTypescript,

@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { approveCodexEvidence, loadModelLab, revokeCodexEvidence } from "./api";
+import { approveCodexEvidence, loadModelLab, revokeCodexEvidence, registerGenerationProfile } from "./api";
 
 afterEach(() => vi.unstubAllGlobals());
 it("loads document processing profiles in workflow order without mutation", async () => {
@@ -39,4 +39,18 @@ it("sends approval and revocation CAS bodies as JSON", async () => {
       request_id: "22222222-2222-4222-8222-222222222222",
     }],
   ]);
+});
+
+
+it("registers an HTTP generation profile through the owner API without execution", async () => {
+  const request = { evaluation_state: "draft" as const, name: "synthetic-http-profile", version: 1, deployment_version_id: "deployment-v1", bindings: [], config: { prompt_ref: "answer-ref" } };
+  const fetcher = vi.fn<typeof fetch>(async () => Response.json({ id: "new-profile", ...request }));
+  vi.stubGlobal("fetch", fetcher);
+  await registerGenerationProfile(request);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  const [path, init] = fetcher.mock.calls[0];
+  expect(path).toBe("/api/v1/admin/rag/profiles/generation");
+  expect(init?.method).toBe("POST");
+  expect(init?.credentials).toBe("include");
+  expect(JSON.parse(String(init?.body))).toEqual(request);
 });

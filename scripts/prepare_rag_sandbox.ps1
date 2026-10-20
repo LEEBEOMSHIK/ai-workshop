@@ -5,6 +5,8 @@ param(
     [switch]$WithoutFrontend
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'local_python_runtime.ps1')
+$python = Resolve-ApprovedLocalPython
 # Tool hosts may inherit two differently cased PATH entries. Normalize this
 # launcher process only before Start-Process constructs its child environment.
 $sandboxSearchPath = [Environment]::GetEnvironmentVariable('Path', 'Process')
@@ -12,9 +14,9 @@ $sandboxSearchPath = [Environment]::GetEnvironmentVariable('Path', 'Process')
 [Environment]::SetEnvironmentVariable('Path', $sandboxSearchPath, 'Process')
 $repository = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $sandboxRoot = Join-Path $repository '.local-data/rag-sandbox'
-$python = Join-Path $repository 'backend/.venv/Scripts/python.exe'
 $script = Join-Path $PSScriptRoot 'prepare_rag_sandbox.py'
 if ($Phase -ne 'Runtime') {
+    $python = Resolve-ApprovedLocalPython
     & $python $script $Phase.ToLowerInvariant()
     if ($LASTEXITCODE -ne 0) { throw "Sandbox phase failed: $Phase" }
     exit 0
@@ -32,6 +34,7 @@ $phases = @('api', 'worker', 'beat')
 if (-not $WithoutFrontend) { $phases += 'frontend' }
 $started = @()
 foreach ($runtimePhase in $phases) {
+    $python = Resolve-ApprovedLocalPython
     $process = Start-Process -FilePath $python -ArgumentList @('"' + $script + '"', $runtimePhase) `
         -WorkingDirectory $repository -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $sandboxRoot "logs/$runtimePhase.out.log") `

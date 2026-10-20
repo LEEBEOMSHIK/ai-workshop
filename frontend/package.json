@@ -15,6 +15,7 @@
     "api:generate": "node openapi-ts.config.mjs",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest",
+    "test:runtime": "node --experimental-test-module-mocks --test tests/local-python-runtime.test.mjs tests/openapi-runtime-selection.test.mjs",
     "test:office": "playwright test --config playwright.office.config.ts",
     "typecheck": "tsc --noEmit --pretty false"
   },

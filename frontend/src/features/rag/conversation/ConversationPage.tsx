@@ -25,13 +25,13 @@ import { ConversationAnswer } from "./ConversationAnswer";
 import { executionPath } from "../../../shared/routing/routes";
 import { EvidencePanel } from "./EvidencePanel";
 import { ProcessingDisclosure } from "./ProcessingDisclosure";
-import { CodexQuestionConsent } from "./CodexQuestionConsent";
 import { DocumentSelectionPanel } from "./DocumentSelectionPanel";
 import { buildScopeSnapshot, ScopeSelector } from "./ScopeSelector";
 import { selectionFromDocuments, type ScopeMode, type ScopeSnapshot, type Selection, type TranscriptItem } from "./types";
 
 import { abandonAttachmentDraft, createAttachmentDraft, getAttachmentDraft, restoreConversationDraft, startConversation, cancelConversationTurn, deleteConversation, getConversation, listConversations, listAttachments, renameConversation, sendConversationTurn, type ConversationDetail, type ConversationSummary, type TurnRequest, type StartRequest, type AttachmentDraft } from "./sessions-api";
 import { PendingStart } from "./pending-start";
+import { mergeGenerationInput } from "./merge-generation-input";
 import { ConversationAttachments } from "./ConversationAttachments";
 const authenticationExpiredMessage = "로그인이 만료되었습니다. 다시 로그인한 뒤 질문을 보내 주세요.";
 
@@ -95,7 +95,6 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
   const [requiresScopeRevision, setRequiresScopeRevision] = useState(false);
   const [requiresContextReset, setRequiresContextReset] = useState(false);
   const [externalConfirmed, setExternalConfirmed] = useState(false);
-  const [classification, setClassification] = useState<"" | "public" | "synthetic">("");
   const [selectedEvidence, setSelectedEvidence] = useState<Evidence | null>(null);
   const [folderError, setFolderError] = useState(false);
   const [selectionPanelOpen, setSelectionPanelOpen] = useState(false);
@@ -214,14 +213,13 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
     && !requiresContextReset
     && !selectionPanelOpen
     && (!externalProcessing || externalConfirmed)
-    && (!codexProcessing || (classification !== "" && !!domain.generation_execution_preview?.disclosure_version));
+    && !codexProcessing;
 
   function markScopeChange(): boolean {
     if (submitting.current || searching || (pendingStart.current && !pendingStart.current.settled)) return false;
     pendingRequest.current = null;
     pendingStart.current = null;
     setExternalConfirmed(false);
-    setClassification("");
     setError("");
     setRetryQuery("");
     setRequiresScopeRevision(false);
@@ -315,7 +313,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
     pendingRequest.current = null; pendingStart.current = null;
     setQuery(""); setError(""); setRetryQuery(""); setSessionError(""); setSessionLoading(true);
     setLegacyId(null); setDraftRestoreUnavailable(false);
-    setExternalConfirmed(false); setClassification(""); setSelectedEvidence(null); setSelectedOriginal(null);
+    setExternalConfirmed(false); setSelectedEvidence(null); setSelectedOriginal(null);
     setRequiresContextReset(false); setRequiresScopeRevision(false); setRequiresDomainReentry(false);
     setEditingTitle(null); setConfirmDelete(false); setUploadOpen(false); setPendingFiles([]); setDraggingFiles(false); dragDepth.current = 0; setAttachmentMenuOpen(false);
     updateUrl(id);
@@ -409,12 +407,11 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
       || (scopeMode === "folder" && folderError)
       || (scopeMode === "documents" && (scope.documentIds === null || scope.documentIds.length === 0))
       || (externalProcessing && !externalConfirmed)
-      || (codexProcessing && (!classification || !domain.generation_execution_preview.disclosure_version))
+      || codexProcessing
     ) return;
 
     submitting.current = true;
     if (externalProcessing) setExternalConfirmed(false);
-    setClassification("");
     requestController.current?.abort();
     const controller = new AbortController();
     requestController.current = controller;
@@ -432,7 +429,6 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
         workspace_ids: scope.workspaceIds, folder_ids: scope.folderIds,
         ...(scope.documentIds !== null ? {document_ids: scope.documentIds} : {}),
         top_k: 10, include_diagnostics: true, request_id: crypto.randomUUID(),
-        ...(codexProcessing && classification ? {codex_input_approval: {classification, consented: true, disclosure_version: domain.generation_execution_preview.disclosure_version}} : {}),
       };
       if (active) {
         const request: TurnRequest = pendingRequest.current?.sessionId === active.id && pendingRequest.current.request.query === normalized
@@ -467,6 +463,15 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
           const posted = startConversation(domain.slug, job.request, controller.signal);
           void job.recover();
           const detail = await posted; await job.accept(detail);
+          // Recovery may already have accepted the same completed turn and cleared
+          // pendingStart. Keep only this POST's ephemeral input, never its UI state.
+          if (mounted.current && screenGeneration.current === owner
+            && requestGeneration.current === generation && requestController.current === controller
+            && !controller.signal.aborted && !job.cancelIntent) {
+            const current = sessionRef.current;
+            const enriched = mergeGenerationInput(current, detail, job.request.request_id);
+            if (enriched && enriched !== current) saveSession(enriched);
+          }
         }
         catch (caught) { job.reject(caught); throw caught; }
       }
@@ -496,7 +501,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
   }
 
   function cancelCurrent({ restoreQuery = true }: { restoreQuery?: boolean } = {}) {
-    setExternalConfirmed(false); setClassification("");
+    setExternalConfirmed(false);
     requestGeneration.current += 1;
     requestController.current?.abort(); requestController.current = null;
     if (restoreQuery && pendingQuery) setQuery(pendingQuery);
@@ -577,7 +582,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
     pendingRequest.current = null; pendingStart.current = null; sessionRef.current = null; creatingDraft.current = null; updateDraft(null); updateAttachmentBusy(false); submitting.current = false;
     setSession(null); setLegacyId(null); setDraftRestoreUnavailable(false); setSessionLoading(false); updateUrl(null);
     setTranscript([]); setQuery(""); setPendingQuery(""); setSearching(false); setError(""); setSessionError("");
-    setRetryQuery(""); setExternalConfirmed(false); setClassification(""); setSelectedEvidence(null); setSelectedOriginal(null);
+    setRetryQuery(""); setExternalConfirmed(false); setSelectedEvidence(null); setSelectedOriginal(null);
     setRequiresContextReset(false); setRequiresScopeRevision(false); setRequiresDomainReentry(false);
     setEditingTitle(null); setConfirmDelete(false); setUploadOpen(false); setPendingFiles([]); setDraggingFiles(false); dragDepth.current = 0; setAttachmentMenuOpen(false);
     updateSelection(initialSelection); setWorkspaceIds(initialSelection ? unique(initialSelection.documents.map(document => document.workspace_id)) : initialWorkspaceIds); setFolderIds([]);
@@ -772,17 +777,17 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
             ) : requiresDomainReentry ? (
               <Link href={routes.workshopRagSearch}>도메인 선택으로 돌아가기</Link>
             ) : requiresContextReset ? (
-              <button type="button" onClick={() => { setExternalConfirmed(false); setClassification(""); markScopeChange(); }}>변경된 범위로 새 문맥 시작</button>
+              <button type="button" onClick={() => { setExternalConfirmed(false); markScopeChange(); }}>변경된 범위로 새 문맥 시작</button>
             ) : retryQuery ? (
               <button
                 type="button"
-                disabled={(externalProcessing && !externalConfirmed) || (codexProcessing && !classification)}
+                disabled={codexProcessing || (externalProcessing && !externalConfirmed)}
                 onClick={() => void sendQuestion(retryQuery)}
               >같은 질문 다시 시도</button>
             ) : null}
           </div>
         ) : null}
-        {codexProcessing ? <CodexQuestionConsent classification={classification} consented={externalConfirmed} disabled={searching || requiresDomainReentry} onClassification={setClassification} onConsent={setExternalConfirmed} /> : null}
+        {codexProcessing ? <p role="status">Codex CLI 실행 지원이 종료되었습니다. 기존 대화 기록은 계속 확인할 수 있습니다.</p> : null}
         {externalProcessing && !codexProcessing ? (
           <label className="external-question-confirmation">
             <input
@@ -803,8 +808,8 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
               ref={questionRef}
               rows={1}
               value={query}
-              disabled={searching || !domain.ready || requiresDomainReentry}
-              onChange={(event) => { setQuery(event.target.value); if (codexProcessing) setExternalConfirmed(false); }}
+              disabled={searching || !domain.ready || requiresDomainReentry || codexProcessing}
+              onChange={(event) => setQuery(event.target.value)}
               onKeyDown={handleQuestionKeyDown}
               onCompositionStart={() => { composing.current = true; }}
               onCompositionEnd={() => { composing.current = false; }}
@@ -830,7 +835,6 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
         setRequiresScopeRevision(true);
         updateSelection(null);
         setExternalConfirmed(false);
-        setClassification("");
         setRetryQuery("");
         setError("선택 문서의 위치, 권한 또는 활성 버전이 변경되었습니다. 문서를 다시 선택하거나 범위를 다시 설정해 주세요.");
       }} /> : null}
@@ -871,6 +875,8 @@ function conversationFailure(caught: unknown): ConversationFailure {
       deployment_not_ready: "선택한 생성 실행이 준비되지 않았습니다.",
       provider_authentication_failed: "생성 서비스 인증 상태를 확인할 수 없습니다.",
       provider_rate_limited: "생성 서비스 요청 한도에 도달했습니다.",
+      provider_busy: "로컬 모델이 다른 요청을 처리 중입니다. 잠시 후 다시 시도해 주세요.",
+      provider_input_too_large: "모델 입력 한도를 초과했습니다. 질문과 근거 범위를 줄여 주세요.",
       provider_timeout: "생성 서비스 응답 시간이 초과되었습니다.",
       provider_invalid_response: "생성 서비스가 유효한 응답을 반환하지 않았습니다.",
       structured_output_invalid: "생성 서비스의 구조화 응답을 검증할 수 없습니다.",

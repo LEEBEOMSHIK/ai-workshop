@@ -3,6 +3,7 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 from re import fullmatch
 from types import MappingProxyType
+from typing import Literal
 from uuid import UUID, uuid4
 
 type JsonScalar = str | int | float | bool | None
@@ -348,6 +349,17 @@ def _validate_document_processing_profile(
         )
 
 
+def resolve_answer_reasoning_effort(generation: Mapping[str, object]) -> Literal["none"] | None:
+    if "answer_reasoning_effort" not in generation:
+        return None
+    value = generation["answer_reasoning_effort"]
+    if type(value) is not str or value != "none":
+        raise ProfileValidationError("The answer reasoning effort must be none or omitted.")
+    if generation.get("response_schema_version") != 2:
+        raise ProfileValidationError("The answer reasoning effort requires schema2.")
+    return "none"
+
+
 def _validate_generation_profile(
     config: Mapping[str, JsonValue],
     bindings: tuple[ProfileModelBinding, ...],
@@ -356,6 +368,9 @@ def _validate_generation_profile(
     from ai_workshop.labs.rag.models.context_evidence import resolve_evidence_budget
     from ai_workshop.labs.rag.models.numeric_proof_policy import resolve_numeric_proof_policy
 
+    generation_settings = config.get("generation")
+    if isinstance(generation_settings, Mapping):
+        resolve_answer_reasoning_effort(generation_settings)
     try:
         resolve_evidence_budget(config)
         resolve_numeric_proof_policy(config)

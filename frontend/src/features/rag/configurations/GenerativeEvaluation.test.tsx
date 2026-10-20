@@ -3,6 +3,7 @@ import { vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { GenerativeEvaluationPanel } from "./GenerativeEvaluationPanel";
 import * as api from "./generative-api";
+import type { SavedConfiguration } from "./api";
 
 vi.mock("./generative-api", () => ({
   listGenerativeRuns: vi.fn(), loadGenerativeRun: vi.fn(), listGenerativePolicies: vi.fn(),
@@ -60,7 +61,7 @@ it("loads saved cases and resets stale rule input without creating data or runni
   fireEvent.change(screen.getByLabelText("저장된 평가 자료 ID"), { target: { value: "saved-snapshot" } });
   fireEvent.click(screen.getByRole("button", { name: "평가 자료 불러오기" }));
   expect(await screen.findByText("saved synthetic question")).toBeVisible();
-  expect(api.loadAuthoringSnapshot).toHaveBeenCalledWith("saved-snapshot");
+  expect(api.loadAuthoringSnapshot).toHaveBeenCalledWith("saved-snapshot", expect.any(AbortSignal));
   const user = userEvent.setup();
   await user.type(screen.getByLabelText("반드시 포함할 내용 (한 줄에 하나)"), "first{Enter}second");
   expect(screen.getByLabelText("반드시 포함할 내용 (한 줄에 하나)")).toHaveValue("first\nsecond");
@@ -87,6 +88,7 @@ it("ignores an old snapshot response after editing the authoring draft", async (
   fireEvent.click(screen.getByText("새 생성형 평가 준비"));
   fireEvent.change(screen.getByLabelText("저장된 평가 자료 ID"), { target: { value: "old-snapshot" } });
   fireEvent.click(screen.getByRole("button", { name: "평가 자료 불러오기" }));
+  fireEvent.click(screen.getByRole("radio", { name: "새 자료 작성" }));
   fireEvent.click(screen.getByRole("button", { name: "Edit draft" }));
   await act(async () => resolve({ id: "old-snapshot", cases: [{ id: "case-old", query: "obsolete saved question", expected_answer_status: "insufficient_evidence", expected_evidence_ids: [] }] }));
   expect(screen.queryByText("obsolete saved question")).not.toBeInTheDocument();
@@ -361,4 +363,55 @@ it("groups each claim's sources by exact version, projection and page with evide
   expect(within(second).getAllByRole("link")).toHaveLength(1);
   expect(within(second).getByRole("link", { name: "합성 PDF · 2쪽 인용 원문 · 근거 2건" })).toHaveAttribute("href", "/workshop/rag/sources/asset-1?projectionId=projection-1&page=2");
   expect(screen.queryByText("일부 인용 원문은 현재 조회할 수 없습니다.")).not.toBeInTheDocument();
+});
+
+const retiredConfiguration = {
+  id: "legacy", version_id: "config", version: 1, name: "과거 Codex 구성", generation_profile_id: "legacy-profile", is_system: false,
+  generation_execution_preview: { provider: "development_codex_exec", external_transfer: true },
+} as SavedConfiguration;
+
+it("excludes retired Codex configurations from new evaluations while showing stored answers", async () => {
+  render(<GenerativeEvaluationPanel configurations={[retiredConfiguration]} workspaces={[]} initialRunId="run-1" />);
+  expect(await screen.findByText("합성 답변")).toBeVisible();
+  fireEvent.click(screen.getByText("새 생성형 평가 준비"));
+  expect(screen.queryByRole("checkbox", { name: /과거 Codex 구성/ })).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("질문 자료 분류")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "생성형 평가 실행" })).toBeDisabled();
+  fireEvent.click(screen.getByText("DB 검증 후 구성에 생성형 통과 반영"));
+  expect(screen.queryByRole("button", { name: /통과 검증·반영/ })).not.toBeInTheDocument();
+  expect(api.startGenerativeRun).not.toHaveBeenCalled();
+  expect(api.acceptGenerativeRun).not.toHaveBeenCalled();
+});
+
+it("keeps retired historical failed runs readable without retrying", async () => {
+  vi.mocked(api.loadGenerativeRun).mockResolvedValue({ ...run, status: "failed" });
+  render(<GenerativeEvaluationPanel configurations={[retiredConfiguration]} workspaces={[]} initialRunId="run-1" />);
+  expect(await screen.findByText("합성 답변")).toBeVisible();
+  expect(screen.queryByRole("button", { name: "실패한 사례 재시도" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "결과 새로고침" }));
+  await waitFor(() => expect(api.loadGenerativeRun).toHaveBeenCalledTimes(2));
+  expect(api.retryGenerativeRun).not.toHaveBeenCalled();
+});
+
+it("retains retries and result promotion for known HTTP configurations", async () => {
+  const configuration = { ...retiredConfiguration, name: "HTTP 구성", generation_execution_preview: { ...retiredConfiguration.generation_execution_preview!, provider: "local_openai_compatible", external_transfer: false } } as SavedConfiguration;
+  vi.mocked(api.loadGenerativeRun).mockResolvedValue({ ...run, status: "failed" });
+  vi.mocked(api.retryGenerativeRun).mockResolvedValue(run);
+  vi.mocked(api.acceptGenerativeRun).mockResolvedValue({} as Awaited<ReturnType<typeof api.acceptGenerativeRun>>);
+  render(<GenerativeEvaluationPanel configurations={[configuration]} workspaces={[]} initialRunId="run-1" />);
+  fireEvent.click(await screen.findByRole("button", { name: "실패한 사례 재시도" }));
+  await waitFor(() => expect(api.retryGenerativeRun).toHaveBeenCalledWith("run-1"));
+  fireEvent.click(await screen.findByText("DB 검증 후 구성에 생성형 통과 반영"));
+  fireEvent.click(screen.getByRole("button", { name: "HTTP 구성 통과 검증·반영" }));
+  await waitFor(() => expect(api.acceptGenerativeRun).toHaveBeenCalledWith("run-1", "config"));
+});
+
+it("preserves existing retries for historical versions absent from the latest configuration list", async () => {
+  vi.mocked(api.loadGenerativeRun).mockResolvedValue({ ...run, status: "failed" });
+  vi.mocked(api.retryGenerativeRun).mockResolvedValue(run);
+  render(<GenerativeEvaluationPanel configurations={[]} workspaces={[]} initialRunId="run-1" />);
+  fireEvent.click(await screen.findByRole("button", { name: "실패한 사례 재시도" }));
+  await waitFor(() => expect(api.retryGenerativeRun).toHaveBeenCalledWith("run-1"));
+  fireEvent.click(await screen.findByText("DB 검증 후 구성에 생성형 통과 반영"));
+  expect(screen.getByRole("button", { name: "구성 통과 검증·반영" })).toBeVisible();
 });

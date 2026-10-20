@@ -4,7 +4,8 @@ Requires PyMuPDF and Pillow already supplied by the backend environment.
 PDFs are inputs; answer-key files are evaluation-only and MUST NOT be ingested.
 
 Repository-root command (defaults use Windows Malgun fonts):
-    backend/.venv/Scripts/python.exe scripts/build_asset_management_corpus.py
+    & $workshopPython scripts/build_asset_management_corpus.py
+    # $workshopPython: verified Conda path from docs/runbooks/local-development.md
 Portable invocation with installed Korean TrueType fonts:
     python scripts/build_asset_management_corpus.py --font /fonts/regular.ttf \
         --bold-font /fonts/bold.ttf --output output/pdf --qa-dir tmp/pdf-qa

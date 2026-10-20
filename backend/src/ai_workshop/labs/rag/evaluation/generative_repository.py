@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ai_workshop.labs.rag.evaluation.domain import EvaluationDataset
@@ -18,6 +18,8 @@ from ai_workshop.labs.rag.evaluation.generative_models import (
     GenerativeRunRecord,
 )
 from ai_workshop.labs.rag.evaluation.repository import SqlAlchemyEvaluationApplicationRepository
+from ai_workshop.labs.rag.executions.models import ExecutionRecord
+from ai_workshop.labs.rag.generation.audit_models import GenerationExecutionAuditRecord
 from ai_workshop.shared.errors import AppError
 
 
@@ -32,6 +34,72 @@ def unavailable() -> AppError:
 class GenerativeRepository:
     def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
         self.sessions = sessions
+
+    @staticmethod
+    async def cancel_pending(
+        session: AsyncSession, actor_id: UUID, run_id: UUID, reason: str = "user_requested"
+    ) -> None:
+        """Fence only untouched work using the same parent lock as worker claim."""
+        if reason != "user_requested":
+            raise AppError("invalid_cancellation_reason", "Invalid cancellation reason.", 422)
+        run = await session.scalar(
+            select(GenerativeRunRecord)
+            .where(GenerativeRunRecord.id == run_id, GenerativeRunRecord.owner_id == actor_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if run is None:
+            raise unavailable()
+        if run.status == "cancelled":
+            return
+        conflict = AppError(
+            "evaluation_cancel_unavailable", "Only an unstarted evaluation can be cancelled.", 409
+        )
+        if (
+            run.status != "pending" or run.claim_token is not None or run.claimed_at is not None
+            or run.finished_at is not None or run.runtime_environment is not None
+        ):
+            raise conflict
+        attempts = (
+            await session.scalars(
+                select(GenerativeAttemptRecord)
+                .where(GenerativeAttemptRecord.run_id == run_id)
+                .order_by(GenerativeAttemptRecord.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).all()
+        if not attempts or any(
+            a.status != "pending" or a.claim_token is not None or a.result is not None
+            or a.result_bytes is not None or a.result_digest is not None
+            or a.finished_at is not None or a.error_code is not None
+            for a in attempts
+        ):
+            raise conflict
+        execution_ids = [a.execution_id for a in attempts]
+        execution = await session.scalar(
+            select(ExecutionRecord.id).where(or_(
+                ExecutionRecord.evaluation_attempt_id.in_([a.id for a in attempts]),
+                ExecutionRecord.id.in_(execution_ids),
+            )).limit(1)
+        )
+        if execution is not None:
+            raise conflict
+        audit = await session.scalar(
+            select(GenerationExecutionAuditRecord.id)
+            .where(GenerationExecutionAuditRecord.execution_id.in_(execution_ids)).limit(1)
+        )
+        if audit is not None:
+            raise conflict
+        now = datetime.now(UTC)
+        run.status, run.finished_at = "cancelled", now
+        run.cancelled_by, run.cancelled_at, run.cancellation_reason = actor_id, now, reason
+        # The database permits child cancellation only under this cancelled parent.
+        # A deferred constraint requires every child to be cancelled before commit.
+        await session.flush()
+        for attempt in attempts:
+            attempt.status, attempt.finished_at = "cancelled", now
+        await session.flush()
 
     @staticmethod
     async def retry_failed(session: AsyncSession, actor_id: UUID, run_id: UUID) -> None:

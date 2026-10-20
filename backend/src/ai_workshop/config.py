@@ -11,6 +11,7 @@ from pydantic import (
     ConfigDict,
     Field,
     SecretStr,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -20,6 +21,7 @@ from ai_workshop.labs.rag.generation.codex_runner_registry import (
     CodexRunnerSettings,
     is_safe_codex_runner_reference,
 )
+from ai_workshop.labs.rag.generation.local_model_host import LocalModelSpec
 from ai_workshop.platform.publishing.package import PublicPersona
 
 DEFAULT_ATTACHMENT_DRAFT_RECONCILE_SECONDS = 60
@@ -133,6 +135,20 @@ class Settings(BaseSettings):
         return value
 
     provider_endpoint_refs: dict[str, str] = Field(default_factory=dict)
+    provider_endpoint_dialects: dict[str, Literal["openai", "ollama"]] = Field(
+        default_factory=dict
+    )
+    local_model_refs: dict[str, LocalModelSpec] = Field(default_factory=dict, repr=False)
+
+    @field_validator("local_model_refs")
+    @classmethod
+    def validate_local_model_refs(
+        cls, value: dict[str, LocalModelSpec]
+    ) -> dict[str, LocalModelSpec]:
+        if any(fullmatch(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)+", name) is None for name in value):
+            raise ValueError("Local model references must be named machine identifiers.")
+        return value
+
     provider_secret_refs: dict[str, SecretStr] = Field(default_factory=dict)
     codex_runner_refs: dict[str, CodexRunnerSettings] = Field(default_factory=dict, repr=False)
     codex_allowed_admin_origins: tuple[str, ...] = (
@@ -335,6 +351,17 @@ class Settings(BaseSettings):
                 raise ValueError("Provider endpoint references require non-empty string values.")
             cleaned[key] = item.strip()
         return cleaned
+
+    @field_validator("provider_endpoint_dialects", mode="before")
+    @classmethod
+    def validate_provider_endpoint_dialects(
+        cls, value: object, info: ValidationInfo
+    ) -> object:
+        entries = _validate_provider_reference_map(value)
+        endpoints = info.data.get("provider_endpoint_refs", {})
+        if any(key not in endpoints for key in entries):
+            raise ValueError("Provider dialects require configured endpoint references.")
+        return entries
 
     @field_validator("provider_secret_refs", mode="before")
     @classmethod

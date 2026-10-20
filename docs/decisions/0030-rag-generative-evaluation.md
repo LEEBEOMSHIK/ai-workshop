@@ -27,3 +27,12 @@
 정답 규칙 필드는 누락/NULL을 허용하지 않고 DB가 claim별 인용 구조까지 확인한다.
 worker 종료가 불명확한 시도는 중단으로 남기고 명시적 재시도만 새 실행을 만든다.
 [구현·검증 근거](../worklogs/2026-09-28-rag-generative-evaluation-verification.md).
+
+
+## 2026-10-18 미시작 평가 취소 (승인)
+
+기존 owner 세션과 실행 소유권을 확인하는 `POST /api/v1/rag/generative-evaluations/{run_id}/cancel`을 추가한다. 사유는 고정 코드 `user_requested`이며 취소자·시각·사유를 실행에 보존한다. run 행 다음 attempt 행을 잠그고 pending/unclaimed 실행의 모든 시도가 pending/unclaimed이며 결과·실행·생성 감사가 없을 때만 한 트랜잭션에서 cancelled로 종결한다. 이미 running/종결된 실행은 409, 같은 취소의 반복은 최초 감사 정보를 유지하는 멱등 성공이다.
+
+취소는 입력·규칙·해시·원래 시도 ID를 수정하거나 삭제하지 않는다. DB 상태 제약과 불변 trigger는 정확한 pending→cancelled 전이만 허용하고 취소된 기록의 변경·재시도·승격을 금지한다. dispatcher와 worker는 pending만 claim하므로 취소 이후 늦게 전달된 메시지도 모델을 호출하지 않는다. claim과 취소가 같은 run 잠금을 사용하여 작업자가 먼저면 취소를 거절하고 취소가 먼저면 claim을 거절한다. 실행 중 취소·규칙 수정·자동 재제출은 범위 밖이다.
+
+기존 데이터는 보존하며 migration은 추가 상태/감사 계약만 반영한다. 취소된 증거가 생긴 뒤 파괴적인 downgrade를 수행하지 않는다. 적용 전 transaction rollback trial·백업, PostgreSQL 경합 양방향, 권한·입력 불변·늦은 메시지 검증 후 승인된 기존 서버에 반영한다. 실제 사용자 실행 취소는 정상 인증 UI에서 별도로 수행한다.

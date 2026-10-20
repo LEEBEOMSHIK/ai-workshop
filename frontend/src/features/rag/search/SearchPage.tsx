@@ -18,7 +18,6 @@ import {
 import { EvidenceAnswer } from "./EvidenceAnswer";
 import { RelatedSources } from "./RelatedSources";
 import { CodexModelIdentity } from "../conversation/CodexModelIdentity";
-import { CodexQuestionConsent, type CodexClassification } from "../conversation/CodexQuestionConsent";
 
 const workspaceKindLabels: Record<WorkspaceOption["kind"], string> = {
   company: "전사",
@@ -34,6 +33,7 @@ type GenerationExecutionPreview = NonNullable<
 >;
 
 const providerLabels: Record<GenerationExecutionPreview["provider"], string> = {
+  local_transformers: "로컬 Transformers",
   local_openai_compatible: "로컬 OpenAI 호환",
   openai_responses: "OpenAI Responses API",
   development_codex_exec: "개발용 Codex CLI (외부 처리)",
@@ -55,8 +55,6 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
   const [folderIds, setFolderIds] = useState<string[]>([]);
   const [configurationId, setConfigurationId] = useState("");
   const [experimentalConsent, setExperimentalConsent] = useState(false);
-  const [codexClassification, setCodexClassification] = useState<CodexClassification>("");
-  const [codexConsent, setCodexConsent] = useState(false);
   const [query, setQuery] = useState("");
   const [completedSearches, setCompletedSearches] = useState<Array<{
     result: SearchResult;
@@ -115,7 +113,6 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
   const generationRequested = selectedConfiguration?.answer_policy.mode === "generative";
   const preview = selectedConfiguration?.generation_execution_preview;
   const codexProcessing = generationRequested && preview?.provider === "development_codex_exec";
-  const codexApproved = !codexProcessing || (!!codexClassification && codexConsent && !!preview?.disclosure_version);
   const selectedProcessingKnown =
     !generationRequested || selectedConfiguration?.generation_execution_preview != null;
   const requiresExperimentalConsent = selectedConfiguration?.experimental === true;
@@ -126,7 +123,6 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
   const conversationLocked = completedSearches.length > 0;
 
   async function toggleWorkspace(workspaceId: string, selected: boolean) {
-    resetCodexConsent();
     if (selected) {
       setWorkspaceIds((current) => [...current, workspaceId]);
       try {
@@ -150,7 +146,7 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
       query.trim().length < 2 ||
       !selectedConfigurationReady ||
       !selectedProcessingKnown ||
-      !codexApproved ||
+      codexProcessing ||
       (requiresExperimentalConsent && !experimentalConsent)
     ) {
       return;
@@ -212,7 +208,6 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
     requestGeneration.current = generation;
     setError("");
     setSearching(true);
-    resetCodexConsent();
     try {
       const result = await searchEvidence(
         {
@@ -223,7 +218,6 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
           top_k: 10,
           experimental,
           history,
-          ...(codexProcessing && codexClassification && preview ? { codex_input_approval: { classification: codexClassification, consented: true, disclosure_version: preview.disclosure_version } } : {}),
         },
         controller.signal,
       );
@@ -233,7 +227,7 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
       }
     } catch (caught) {
       if (requestGeneration.current === generation && !controller.signal.aborted) {
-        setError(`${searchErrorMessage(caught)}${codexProcessing && caught instanceof ApiError ? ` (${caught.code}${caught.correlationId ? ` · 참조: ${caught.correlationId}` : ""})` : ""}`);
+        setError(searchErrorMessage(caught));
       }
     } finally {
       if (requestGeneration.current === generation) {
@@ -244,7 +238,6 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
   }
 
   function cancelSearch() {
-    resetCodexConsent();
     requestGeneration.current += 1;
     searchController.current?.abort();
     searchController.current = null;
@@ -257,8 +250,6 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
     setQuery("");
     setError("");
   }
-
-  function resetCodexConsent() { setCodexConsent(false); setCodexClassification(""); }
 
   return (
     <main className="search-shell">
@@ -303,7 +294,6 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
                       type="checkbox"
                       checked={folderIds.includes(folder.id)}
                       onChange={(event) => {
-                        resetCodexConsent();
                         setFolderIds((current) =>
                           event.target.checked
                             ? [...current, folder.id]
@@ -325,7 +315,6 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
               value={configurationId}
               onChange={(event) => {
                 setConfigurationId(event.target.value);
-                resetCodexConsent();
                 setExperimentalConsent(false);
                 setProcessingDetailsOpen(false);
               }}
@@ -369,14 +358,14 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
               </label>
             </aside>
           ) : null}
-          {codexProcessing ? <CodexQuestionConsent classification={codexClassification} consented={codexConsent} disabled={searching} onClassification={setCodexClassification} onConsent={setCodexConsent} /> : null}
+          {codexProcessing ? <p role="status">Codex CLI 실행 지원이 종료되었습니다. HTTP/Ollama 구성을 선택해 주세요.</p> : null}
           <label>
             검색 질문
             <input
               type="search"
               disabled={searching}
               value={query}
-              onChange={(event) => { setQuery(event.target.value); setCodexConsent(false); }}
+              onChange={(event) => setQuery(event.target.value)}
             />
           </label>
           <button
@@ -387,7 +376,7 @@ export function SearchPage({ initialOptions }: { initialOptions?: SearchOptions 
               !configurationId ||
               !selectedConfigurationReady ||
               !selectedProcessingKnown ||
-              !codexApproved ||
+              codexProcessing ||
               query.trim().length < 2 ||
               (requiresExperimentalConsent && !experimentalConsent)
             }
@@ -498,6 +487,8 @@ function safeProcessingUnavailableMessage(reasonCodes: string[]): string {
     provider_authentication_failed: "생성 서비스 인증 상태를 확인해 주세요.",
     provider_rate_limited: "생성 서비스 요청 한도를 확인해 주세요.",
     provider_timeout: "생성 서비스 응답 시간이 초과되었습니다.",
+    provider_busy: "로컬 모델이 다른 요청을 처리 중입니다. 잠시 후 다시 시도해 주세요.",
+    provider_input_too_large: "로컬 모델의 입력 한도를 초과했습니다. 질문이나 검색 근거 범위를 줄여 주세요.",
     provider_invalid_response: "생성 서비스 응답 상태를 확인해 주세요.",
   };
   const known = reasonCodes.map((code) => messages[code]).find(Boolean);
@@ -506,9 +497,11 @@ function safeProcessingUnavailableMessage(reasonCodes: string[]): string {
 }
 
 function ConfigurationOption({ configuration }: { configuration: SavedConfiguration }) {
+  const retired = configuration.generation_execution_preview?.provider === "development_codex_exec";
   return (
-    <option value={configuration.id}>
+    <option value={configuration.id} disabled={retired}>
       {configuration.name} v{configuration.version}
+      {retired ? " · Codex CLI 지원 종료" : ""}
       {configuration.experimental ? " · 실험" : ""}
       {!configuration.search_ready ? " · 색인 준비 전" : ""}
       {configuration.search_ready && !configuration.answer_ready ? " · LLM 준비 전" : ""}
@@ -526,6 +519,8 @@ function searchErrorMessage(error: unknown): string {
     provider_authentication_failed: "생성 서비스 인증 상태를 확인해 주세요.",
     provider_rate_limited: "생성 서비스 요청 한도에 도달했습니다.",
     provider_timeout: "생성 서비스 응답 시간이 초과되었습니다.",
+    provider_busy: "로컬 모델이 다른 요청을 처리 중입니다. 잠시 후 다시 시도해 주세요.",
+    provider_input_too_large: "로컬 모델의 입력 한도를 초과했습니다. 질문이나 검색 근거 범위를 줄여 주세요.",
     provider_invalid_response: "생성 서비스가 유효한 응답을 반환하지 않았습니다.",
     structured_output_invalid: "생성 서비스의 구조화 응답을 확인할 수 없습니다.",
     citation_validation_failed: "생성 답변의 근거 인용을 확인할 수 없습니다.",

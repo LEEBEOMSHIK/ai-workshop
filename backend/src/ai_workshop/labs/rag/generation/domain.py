@@ -151,6 +151,7 @@ class GenerationProfile:
     deployment: ModelDeploymentVersion | None = None
     evidence_budget: EvidenceBudget | None = None
     numeric_proof_policy: NumericProofPolicy | None = None
+    answer_reasoning_effort: Literal["none"] | None = None
 
     def __post_init__(self) -> None:
         string_fields = (
@@ -173,6 +174,21 @@ class GenerationProfile:
             raise ValueError("Generation temperature must be between zero and two.")
         if self.response_schema_version < 1:
             raise ValueError("Generation response schema version must be positive.")
+        if self.prompt_ref == "rag-answer-v5" and (
+            self.deployment is None
+            or self.deployment.provider is not ProviderKind.LOCAL_OPENAI_COMPATIBLE
+            or self.deployment.location is not ExecutionLocation.LOCAL
+        ):
+            raise ValueError("The compact answer prompt requires a local HTTP deployment.")
+        if self.answer_reasoning_effort is not None and (
+            type(self.answer_reasoning_effort) is not str
+            or self.answer_reasoning_effort != "none"
+            or self.response_schema_version != 2
+            or self.deployment is None
+            or self.deployment.provider is not ProviderKind.LOCAL_OPENAI_COMPATIBLE
+            or self.deployment.location is not ExecutionLocation.LOCAL
+        ):
+            raise ValueError("The answer reasoning effort requires local HTTP schema2.")
         if self.deployment is not None and (
             self.deployment.model_definition_id != self.model_id
             or self.deployment.provider_model_id != self.runtime_model

@@ -1,6 +1,7 @@
 import type { DomainSearchResult } from "./api";
 import { buildSourceHref } from "../search/source-route-query";
 import { BudgetTrace } from "./BudgetTrace";
+import { GenerationInputInspection } from "./GenerationInputInspection";
 
 const reasons: Record<string, string> = {
   selected: "선택", context_member: "문맥으로 포함", below_threshold: "임계값 미달",
@@ -25,12 +26,13 @@ export function SearchDiagnostics({ diagnostics, query }: {
   return <details className="conversation-evidence">
     <summary>검색 근거·유사도 · {new Set(diagnostics.candidates.map(item => item.source.asset_version_id)).size}개 문서</summary>
     <p>실제 검색 질문: <span>{query}</span></p>
+    <GenerationInputInspection input={diagnostics.generation_input} />
     {diagnostics.warning ? <p role="status">일부 진단 점수를 계산하지 못했습니다. 미계산 값은 선택 점수로 사용하지 않았습니다.</p> : null}
     <p>반환된 검색 후보만 표시합니다. 점수는 정답 확률이 아닙니다. BM25·벡터 원점수·RRF·코사인 유사도는 서로 다른 척도입니다.</p>
     <p>의미 임계값: {score(diagnostics.min_semantic_score)} · 키워드 포함률 임계값: {score(diagnostics.min_keyword_coverage)}</p>
     <div style={{ overflowX: "auto" }}>
       <table aria-label="검색 후보와 근거 점수">
-        <thead><tr><th>원문 / 단위</th><th>BM25 원점수 / 순위</th><th>벡터 원점수 / 순위</th><th>RRF / 순위</th><th>문장 코사인 유사도</th><th>문맥 코사인 유사도</th><th>키워드 포함률</th><th>자격 / 전달</th><th>사유</th></tr></thead>
+        <thead><tr><th>원문 / 단위</th><th>BM25 원점수 / 순위</th><th>벡터 원점수 / 순위</th><th>RRF / 순위</th><th>문장 코사인 유사도</th><th>문맥 코사인 유사도</th><th>키워드 포함률</th><th>자격 / 선택</th><th>사유</th></tr></thead>
         <tbody>{diagnostics.candidates.map((item) => <tr key={`${item.source.chunk_id}:${item.evidence_unit_id ?? "context"}`}>
           <td><a href={buildSourceHref(item.source.asset_version_id, item.source.projection_id)} target="_blank" rel="noopener noreferrer">{item.source.title}</a><br />{item.source.section_path.join(" / ")}<br />{item.evidence_unit_id ? "문장" : "문맥"} <small>{item.evidence_unit_id ?? item.source.chunk_id}</small></td>
           <td>{score(item.sparse_score)} / {item.sparse_rank ?? "미계산"}</td>
@@ -39,7 +41,7 @@ export function SearchDiagnostics({ diagnostics, query }: {
           <td>{score(item.evidence_unit_id ? item.semantic_score : null)}</td>
           <td>{score(contexts.get(item.source.chunk_id))}</td>
           <td>{score(item.keyword_coverage)}</td>
-          <td>{item.eligible ? "통과" : "미달"} / {item.selected ? "전달" : "제외"}</td>
+          <td>{item.eligible ? "통과" : "미달"} / {item.selected ? "선택" : "제외"}</td>
           <td>{reasons[item.reason] ?? item.reason}{item.evidence_unit_id === null
             ? <BudgetTrace trace={item.budget_trace} reason={item.reason} /> : null}</td>
         </tr>)}</tbody>

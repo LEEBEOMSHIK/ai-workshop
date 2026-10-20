@@ -1,11 +1,9 @@
+@import "../shared/ui/tokens.css";
+
 :root {
-  --color-accent-text: #8ee6dc;
-  --color-border-subtle: #26313b;
-  color: #e9edf3;
-  background: #0a0e13;
-  font-family:
-    Inter, Pretendard, "Noto Sans KR", system-ui, -apple-system, BlinkMacSystemFont,
-    "Segoe UI", sans-serif;
+  color: var(--color-text);
+  background: var(--color-background);
+  font-family: var(--font-family-ui);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }

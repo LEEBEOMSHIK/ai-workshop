@@ -1,6 +1,5 @@
 import type { ModelDefinition, Profile, SavedConfiguration } from "./api";
 import { profileIdentity, summarizeRagPackage } from "./packageSummary";
-import { CodexVerificationPanel } from "./CodexVerificationPanel";
 
 const evaluationLabels: Record<SavedConfiguration["evaluation_state"], string> = {
   draft: "초안",
@@ -73,7 +72,7 @@ export function SavedConfigurationList({
                 <div><dt>LLM</dt><dd>{summary.llm}</dd></div>
                 <div><dt>검색 준비</dt><dd>{configuration.search_ready ? "완료" : "준비 필요"}</dd></div>
                 <div><dt>답변 준비</dt><dd>{configuration.answer_ready ? "완료" : "준비 필요"}</dd></div>
-                <div><dt>서비스 상태</dt><dd>{configuration.service_ready ? "사용 가능" : "사용 불가"}</dd></div>
+                <div><dt>서비스 상태</dt><dd>{configuration.generation_execution_preview?.provider === "development_codex_exec" ? "Codex CLI 지원 종료 · 기록 조회" : configuration.service_ready ? "사용 가능" : "사용 불가"}</dd></div>
               </dl>
               {!configuration.service_ready ? (
                 <p className="configuration-readiness" role="status">
@@ -93,11 +92,7 @@ export function SavedConfigurationList({
                   <div><dt>지식 공간 ID</dt><dd>{configuration.workspace_ids.join(", ") || "없음"}</dd></div>
                 </dl>
               </details>
-              {configuration.generation_execution_preview?.provider === "development_codex_exec" ? <CodexVerificationPanel
-                key={configuration.version_id} versionId={configuration.version_id}
-                disclosure={configuration.generation_execution_preview.disclosure}
-                disclosureVersion={configuration.generation_execution_preview.disclosure_version}
-                requestedModel={configuration.generation_execution_preview.requested_provider_model_id} /> : null}
+              {configuration.generation_execution_preview?.provider === "development_codex_exec" ? <p role="status">Codex CLI 지원이 종료된 구성입니다. 기존 기록만 조회할 수 있습니다.</p> : null}
             </article>
           );
         })}
@@ -126,6 +121,8 @@ function readinessReasonLabel(reason: string): string {
     deployment_not_ready: "실행 배포 준비 확인 필요",
     provider_authentication_failed: "공급자 인증 확인 필요",
     provider_rate_limited: "공급자 요청 한도 초과",
+    provider_busy: "로컬 모델이 다른 요청을 처리 중입니다. 잠시 후 다시 시도해 주세요.",
+    provider_input_too_large: "모델 입력 한도를 초과했습니다. 질문과 근거 범위를 줄여 주세요.",
     provider_timeout: "공급자 응답 시간 초과",
     provider_invalid_response: "공급자 응답 확인 필요",
   };

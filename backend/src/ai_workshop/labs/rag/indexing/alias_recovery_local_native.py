@@ -24,6 +24,7 @@ import httpx
 from dotenv import dotenv_values
 
 from ai_workshop.config import Settings
+from ai_workshop.infrastructure.local.python_runtime import PythonRuntimeError, approved_python
 from ai_workshop.labs.rag.indexing.alias_recovery_local import (
     LocalRecoveryRefusal,
     ServerIdentity,
@@ -644,8 +645,11 @@ def _verify_powershell(executable: str) -> None:
 
 def controller_payload(root: Path, argv: tuple[str, ...]) -> str:
     """The sole supported compound controller, with exact current CLI argv."""
-    executable = root / "backend/.venv/Scripts/python.exe"
-    if _path(argv[0]) != _path(str(executable)) or argv[1:3] != ("-m", MODULE):
+    try:
+        executable = approved_python(root).executable
+    except PythonRuntimeError:
+        raise LocalRecoveryRefusal("collector_interpreter_unverified") from None
+    if not argv or _path(argv[0]) != _path(str(executable)) or argv[1:3] != ("-m", MODULE):
         raise LocalRecoveryRefusal("collector_controller_unverified")
     if any(re.fullmatch(r"[A-Za-z0-9_.-]+", arg) is None for arg in argv[1:]):
         raise LocalRecoveryRefusal("collector_controller_unverified")
@@ -1073,19 +1077,19 @@ class OriginalWindowsBackend:
 
         if not cli_process(own):
             raise LocalRecoveryRefusal("collector_process_unverified")
-        interpreters = {
-            _path(str(self.root / "backend/.venv/Scripts/python.exe")),
-            _path(str(Path(_str(getattr(sys, "_base_executable", sys.executable))).resolve())),
-        }
-        if own.executable not in interpreters:
+        try:
+            interpreter = _path(str(approved_python(self.root).executable))
+        except PythonRuntimeError:
+            raise LocalRecoveryRefusal("collector_interpreter_unverified") from None
+        if own.executable != interpreter:
             raise LocalRecoveryRefusal("collector_interpreter_unverified")
         allowed = [own]
         parent_raw = by_pid.get(own.parent_pid)
         if parent_raw is not None:
             parent = ProcessLifetime.from_observation(parent_raw)
             if cli_process(parent):
-                # Exact venv launcher only; no arbitrary descendants or other Python.
-                if parent.executable != _path(str(self.root / "backend/.venv/Scripts/python.exe")):
+                # Exact approved interpreter only; no arbitrary descendants or other Python.
+                if parent.executable != interpreter:
                     raise LocalRecoveryRefusal("collector_launcher_unverified")
                 allowed.append(parent)
                 parent_raw = by_pid.get(parent.parent_pid)

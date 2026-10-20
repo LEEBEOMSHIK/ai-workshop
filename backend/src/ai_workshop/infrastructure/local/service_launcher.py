@@ -7,6 +7,7 @@ from typing import Protocol
 from uuid import UUID, uuid4
 
 from ai_workshop.infrastructure.local.credential_store_windows import WindowsCredentialStore
+from ai_workshop.infrastructure.local.python_runtime import approved_python
 from ai_workshop.infrastructure.search.access_credentials import (
     AccessCredentialError,
     ChildLifetime,
@@ -85,13 +86,13 @@ class ServiceLauncher:
         if credential:
             child_env["AI_WORKSHOP_ELASTICSEARCH_API_KEY"] = credential.secret.get_secret_value()
             child_env["AI_WORKSHOP_ELASTICSEARCH_ROLE"] = credential.role
-        argv = (
-            str(self.root / "backend/.venv/Scripts/python.exe"),
-            "-m",
-            "ai_workshop.infrastructure.local.service_entrypoint",
-            service,
-        )
         try:
+            argv = (
+                str(approved_python(self.root).executable),
+                "-m",
+                "ai_workshop.infrastructure.local.service_entrypoint",
+                service,
+            )
             child = self.runtime.start(argv, child_env, self.root, epoch, role)
             if (
                 child.epoch_id != epoch.epoch_id

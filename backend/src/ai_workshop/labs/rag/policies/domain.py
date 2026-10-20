@@ -181,7 +181,7 @@ def resolve_external_transfer_policy(
     version_ids = tuple(policy.id for policy in workspace_policies)
     snapshots = tuple((policy.workspace_id, policy.id) for policy in workspace_policies)
 
-    if provider is ProviderKind.LOCAL_OPENAI_COMPATIBLE:
+    if provider in {ProviderKind.LOCAL_OPENAI_COMPATIBLE, ProviderKind.LOCAL_TRANSFORMERS}:
         return PolicyDecision(True, None, installation.id, version_ids, snapshots)
     if installation.mode is OutboundMode.DENY:
         return PolicyDecision(

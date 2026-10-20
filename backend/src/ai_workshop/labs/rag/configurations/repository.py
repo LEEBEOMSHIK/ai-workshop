@@ -1,4 +1,5 @@
 from collections.abc import Callable, Mapping
+from functools import partial
 from typing import Literal, cast
 from uuid import UUID, uuid4
 
@@ -925,6 +926,7 @@ class SqlAlchemySearchConfigurationResolver:
         self.session = session
         self.settings = settings
         self.repository = SqlAlchemyRagConfigurationRepository(session)
+        self._owns_default_embedding_factory = embedding_factory is None
         self.embedding_factory = embedding_factory or (
             lambda config: SentenceTransformerEmbedding(
                 config,
@@ -1170,6 +1172,15 @@ class SqlAlchemySearchConfigurationResolver:
             answer_policy=configuration.answer_policy_version.to_answer_policy(),
             active_index_alias=target,
             embedding=self.embedding_factory(embedding_config),
+            request_owned_embedding_factory=(
+                partial(
+                    SentenceTransformerEmbedding,
+                    embedding_config,
+                    cache_folder=self.settings.model_cache_root,
+                )
+                if self._owns_default_embedding_factory and embedding_config.device == "cpu"
+                else None
+            ),
             query_max_tokens=embedding_config.max_tokens,
             workspace_ids=workspace_ids,
             experimental=configuration.experimental,

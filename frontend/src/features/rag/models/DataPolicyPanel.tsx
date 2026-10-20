@@ -9,9 +9,9 @@ import type {
 import { createInstallationPolicy, createWorkspacePolicy } from "./api";
 
 type Provider = InstallationDataPolicy["approved_providers"][number];
-const providerLabels: Record<Provider, string> = { local_openai_compatible: "로컬 OpenAI 호환", openai_responses: "OpenAI Responses API", development_codex_exec: "개발용 Codex CLI" };
+const providerLabels: Record<Provider, string> = { local_transformers: "로컬 Transformers", local_openai_compatible: "로컬 OpenAI 호환", openai_responses: "OpenAI Responses API", development_codex_exec: "Codex CLI (지원 종료·기존 기록)" };
 function ProviderChoices({ selected, onChange, allowed }: { selected: Provider[]; onChange: (next: Provider[]) => void; allowed?: Provider[] }) {
-  return <>{(Object.keys(providerLabels) as Provider[]).map((provider) => <label className="inline-check" key={provider}><input type="checkbox" checked={selected.includes(provider)} disabled={allowed !== undefined && !allowed.includes(provider) && !selected.includes(provider)} onChange={(event) => onChange(event.target.checked ? [...selected, provider] : selected.filter((item) => item !== provider))} />{providerLabels[provider]}</label>)}</>;
+  return <>{(Object.keys(providerLabels) as Provider[]).map((provider) => <label className="inline-check" key={provider}><input type="checkbox" checked={selected.includes(provider)} disabled={provider === "development_codex_exec" || allowed !== undefined && !allowed.includes(provider) && !selected.includes(provider)} onChange={(event) => onChange(event.target.checked ? [...selected, provider] : selected.filter((item) => item !== provider))} />{providerLabels[provider]}</label>)}</>;
 }
 
 export function DataPolicyPanel({

@@ -264,3 +264,32 @@ def test_selected_document_limit_rejects_out_of_range_environment_values(monkeyp
 
     with pytest.raises(ValidationError):
         Settings(secret_key="synthetic-test-secret-at-least-32-chars", _env_file=None)
+
+
+def test_endpoint_dialects_default_empty(monkeypatch):
+    monkeypatch.delenv("AI_WORKSHOP_PROVIDER_ENDPOINT_DIALECTS", raising=False)
+    settings = Settings(secret_key="x" * 32, _env_file=None)
+    assert settings.provider_endpoint_dialects == {}
+
+
+def test_endpoint_dialects_parse_explicit_environment_map(monkeypatch):
+    endpoints = {"local-runtime": "http://127.0.0.1:9999", "other-runtime": "http://localhost:11434"}
+    dialects = {"local-runtime": "ollama", "other-runtime": "openai"}
+    monkeypatch.setenv("AI_WORKSHOP_PROVIDER_ENDPOINT_REFS", json.dumps(endpoints))
+    monkeypatch.setenv("AI_WORKSHOP_PROVIDER_ENDPOINT_DIALECTS", json.dumps(dialects))
+    settings = Settings(secret_key="x" * 32, _env_file=None)
+    assert settings.provider_endpoint_dialects == dialects
+    assert settings.provider_endpoint_refs == endpoints
+
+
+@pytest.mark.parametrize("dialects", [
+    {"local-runtime": "auto"}, {"local-runtime": "OLLAMA"},
+    {"local-runtime": " ollama "}, {"local-runtime": None},
+    {"local-runtime": True}, {"missing-runtime": "ollama"},
+    {"sk-private": "ollama"}, {"http://localhost:11434": "ollama"}, [],
+])
+def test_endpoint_dialects_reject_invalid_values_or_unbound_references(dialects):
+    with pytest.raises(ValidationError):
+        Settings(secret_key="x" * 32, _env_file=None,
+                 provider_endpoint_refs={"local-runtime": "http://127.0.0.1:11434"},
+                 provider_endpoint_dialects=dialects)

@@ -1937,6 +1937,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/rag/generative-evaluations/{run_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel */
+        post: operations["cancel_api_v1_rag_generative_evaluations__run_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/rag/generative-evaluations/{run_id}/retry": {
         parameters: {
             query?: never;
@@ -3473,6 +3490,8 @@ export interface components {
             /** External Transfer */
             external_transfer: boolean;
             latest_health: components["schemas"]["DeploymentLatestHealthResponse"] | null;
+            /** Local Model Ref */
+            local_model_ref?: string | null;
             location: components["schemas"]["ExecutionLocation"];
             /** Model Name */
             model_name: string;
@@ -3582,6 +3601,8 @@ export interface components {
             display_name: string;
             /** External Transfer */
             external_transfer: boolean;
+            /** Local Model Ref */
+            local_model_ref?: string | null;
             location: components["schemas"]["ExecutionLocation"];
             /** Model Name */
             model_name: string;
@@ -3624,6 +3645,8 @@ export interface components {
             external_transfer: boolean;
             /** Healthcheck Enabled */
             healthcheck_enabled: boolean;
+            /** Local Model Ref */
+            local_model_ref?: string | null;
             location: components["schemas"]["ExecutionLocation"];
             /** Max Retries */
             max_retries: number;
@@ -4516,6 +4539,15 @@ export interface components {
              */
             status: "pending" | "approved" | "rejected";
         };
+        /** EvidenceBudget */
+        EvidenceBudget: {
+            /** Max Characters */
+            max_characters: number;
+            /** Max Groups */
+            max_groups: number;
+            /** Max Units */
+            max_units: number;
+        };
         /** ExecutionDetailResponse */
         ExecutionDetailResponse: {
             /** Answer Status */
@@ -4898,6 +4930,50 @@ export interface components {
             /** Requested Provider Model Id */
             requested_provider_model_id?: string | null;
         };
+        /** GenerationInputInspection */
+        GenerationInputInspection: {
+            /** Body Bytes */
+            body_bytes: number;
+            /** Body Characters */
+            body_characters: number;
+            /** Capture Limit Characters */
+            capture_limit_characters: number;
+            /**
+             * Content Status
+             * @enum {string}
+             */
+            content_status: "complete" | "omitted_size_limit";
+            /** Dialect */
+            dialect: string;
+            evidence_budget: components["schemas"]["EvidenceBudget"] | null;
+            /** Max Output Tokens */
+            max_output_tokens: number;
+            /** Model */
+            model: string;
+            /** Model Version */
+            model_version: number;
+            /** Profile Version */
+            profile_version: number;
+            /** Prompt Ref */
+            prompt_ref: string;
+            /** Provider */
+            provider: string;
+            /**
+             * Provider Truncation
+             * @default unknown
+             * @constant
+             */
+            provider_truncation: "unknown";
+            /** Request Json */
+            request_json: string | null;
+            /** Sha256 */
+            sha256: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "prepared" | "response_received";
+        };
         /** GenerationResponse */
         GenerationResponse: {
             /** Citations */
@@ -5007,6 +5083,14 @@ export interface components {
             sources: components["schemas"]["GenerativeSourceView"][];
             /** Status */
             status: string;
+        };
+        /** GenerativeCancelRequest */
+        GenerativeCancelRequest: {
+            /**
+             * Reason
+             * @constant
+             */
+            reason: "user_requested";
         };
         /** GenerativeMetrics */
         GenerativeMetrics: {
@@ -5151,6 +5235,12 @@ export interface components {
         GenerativeRunView: {
             /** Attempts */
             attempts: components["schemas"]["GenerativeAttemptView"][];
+            /** Cancellation Reason */
+            cancellation_reason?: string | null;
+            /** Cancelled At */
+            cancelled_at?: string | null;
+            /** Cancelled By */
+            cancelled_by?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -6134,7 +6224,7 @@ export interface components {
          * ProviderKind
          * @enum {string}
          */
-        ProviderKind: "local_openai_compatible" | "openai_responses" | "development_codex_exec";
+        ProviderKind: "local_transformers" | "local_openai_compatible" | "openai_responses" | "development_codex_exec";
         /**
          * PublicationAction
          * @enum {string}
@@ -6419,6 +6509,7 @@ export interface components {
             candidate_scope: "returned_hits";
             /** Candidates */
             candidates: components["schemas"]["CandidateDiagnosticResponse"][];
+            generation_input?: components["schemas"]["GenerationInputInspection"] | null;
             /** Min Keyword Coverage */
             min_keyword_coverage: number;
             /** Min Semantic Score */
@@ -16253,6 +16344,77 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["GenerativeReviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenerativeRunView"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    cancel_api_v1_rag_generative_evaluations__run_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GenerativeCancelRequest"];
             };
         };
         responses: {

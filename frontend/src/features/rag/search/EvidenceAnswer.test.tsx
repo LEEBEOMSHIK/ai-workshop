@@ -22,6 +22,49 @@ const submissionContext: SearchSubmissionContext = {
 };
 
 describe("EvidenceAnswer", () => {
+  it("keeps a context-grounded answer distinct from extractive insufficiency and links its PDF citation", () => {
+    const contextEvidence = evidence({ highlights: [{
+      ...highlight("semantic", "합성 근거", 12, 17), kind: "context", page: 3,
+      bbox: [10, 20, 80, 40], score: null,
+    }], source: {
+      ...evidence().source, title: "합성 보고서.pdf", media_type: "application/pdf",
+      location: { ...evidence().source.location, page: 3, source_kind: "pdf_page" },
+    } });
+    renderAnswer(searchResult({
+      status: "insufficient_evidence", answer: null, grounding_evidence: [contextEvidence],
+      generation: { execution: null, status: "answered", text: "문맥에 근거한 답변입니다.",
+        citations: [{ claim_index: 0, evidence_ids: ["evidence-1"] }], reason_codes: [],
+        turn_id: "context-turn", validation_token: null },
+    }));
+    const generated = screen.getByRole("region", { name: "AI 답변" });
+    expect(within(generated).getByText("문맥에 근거한 답변입니다.")).toBeVisible();
+    const link = within(generated).getByRole("link", { name: "합성 보고서.pdf · 3페이지" });
+    expect(link.getAttribute("href")).toContain("/sources/asset-version-1?projectionId=projection-1");
+    expect(link.getAttribute("href")).toContain("page=3");
+    const query = new URL(link.getAttribute("href")!, "http://localhost").searchParams;
+    expect(JSON.parse(query.get("context")!)).toEqual({
+      evidenceUnitId: "evidence-1", charStart: 12, charEnd: 17, page: 3,
+      bbox: [10, 20, 80, 40], score: null,
+    });
+    expect(query.has("semantic")).toBe(false);
+    expect(link.getAttribute("href")).not.toContain(encodeURIComponent("합성 근거"));
+    expect(screen.getByRole("status")).toHaveTextContent("직접 발췌 기준을 충족한 근거는 없습니다");
+    expect(screen.getByRole("status")).toHaveTextContent("AI 답변은 인용된 문맥 근거를 바탕으로 생성되었습니다.");
+    expect(screen.queryByText("직접 답할 근거가 부족합니다")).not.toBeInTheDocument();
+  });
+
+  it("does not present an unmapped generated citation as confirmed evidence", () => {
+    renderAnswer(searchResult({
+      status: "insufficient_evidence", answer: null, grounding_evidence: [],
+      generation: { execution: null, status: "answered", text: "표시하면 안 되는 답변",
+        citations: [{ claim_index: 0, evidence_ids: ["unknown-evidence"] }], reason_codes: [],
+        turn_id: "context-turn", validation_token: null },
+    }));
+    expect(screen.queryByText("표시하면 안 되는 답변")).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("답변 인용에 연결할 원문 근거가 누락");
+    expect(screen.queryByText("확인된 근거")).not.toBeInTheDocument();
+  });
+
   it("renders a validated LLM answer with citations mapped to current evidence", () => {
     const execution = {
       deployment_name: "OpenAI 금융 답변",
@@ -50,7 +93,7 @@ describe("EvidenceAnswer", () => {
 
     const generated = screen.getByRole("region", { name: "AI 답변" });
     expect(within(generated).getByText("환매 요청은 영업일 기준 3일 전에 접수해야 합니다.")).toBeVisible();
-    expect(within(generated).getByText("주장 1 · 환매 규정.txt")).toBeVisible();
+    expect(within(generated).getByRole("list", { name: "답변 인용" })).toHaveTextContent("주장 1 · 환매 규정.txt");
     const executionDetails = within(generated).getByLabelText("실제 생성 실행");
     expect(executionDetails).toHaveTextContent("OpenAI GPT-5 mini v2");
     expect(executionDetails).toHaveTextContent("OpenAI Responses API");

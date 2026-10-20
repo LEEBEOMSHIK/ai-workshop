@@ -20,6 +20,20 @@ synthetic_windows = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(autouse=True)
+def approved_runtime(monkeypatch):
+    from types import SimpleNamespace
+
+    from ai_workshop.labs.rag.indexing import alias_recovery_local_native as native
+
+    monkeypatch.setattr(
+        native,
+        "approved_python",
+        lambda root: SimpleNamespace(executable=root / "conda/python.exe", sha256="a" * 64),
+        raising=False,
+    )
+
+
 HOST_FAILURE_CASES = (
     "host_ancestor_reparse",
     "host_binary_reparse",
@@ -1232,7 +1246,7 @@ async def test_fixed_host_collector_pins_own_cli_helper_and_positive_wsl_lifetim
     rows, state = boundary()
     own_pid = 100
     own_argv = [
-        str(backend.root / "backend/.venv/Scripts/python.exe"),
+        str(backend.root / "conda/python.exe"),
         "-m",
         native.MODULE,
         "recover",
@@ -1299,7 +1313,7 @@ def test_only_fixed_env_clear_controller_or_exact_direct_cli_payload_is_supporte
     root = Path("C:/synthetic-workspace")
     synthetic_powershell_binary(monkeypatch)
     argv = (
-        str(root / "backend/.venv/Scripts/python.exe"),
+        str(root / "conda/python.exe"),
         "-m",
         MODULE,
         "recover",
@@ -1325,7 +1339,7 @@ def test_only_fixed_env_clear_controller_or_exact_direct_cli_payload_is_supporte
         assert not _controller_matches(changed, POWERSHELL_EXE, {payload})
 
 
-def test_exact_thin_launcher_base_interpreter_controller_and_pnpm_frontend(monkeypatch):
+def test_exact_conda_parent_interpreter_controller_and_pnpm_frontend(monkeypatch):
     import os
     import subprocess
     import sys
@@ -1335,7 +1349,7 @@ def test_exact_thin_launcher_base_interpreter_controller_and_pnpm_frontend(monke
     backend, _, _ = native_backend(monkeypatch)
     synthetic_powershell_binary(monkeypatch)
     own_argv = [
-        str(backend.root / "backend/.venv/Scripts/python.exe"),
+        str(backend.root / "conda/python.exe"),
         "-m",
         native.MODULE,
         "recover",
@@ -1344,7 +1358,7 @@ def test_exact_thin_launcher_base_interpreter_controller_and_pnpm_frontend(monke
     ]
     monkeypatch.setattr(sys, "orig_argv", own_argv)
     monkeypatch.setattr(os, "getpid", lambda: 100)
-    base = str(Path(sys._base_executable).resolve())
+    base = own_argv[0]
 
     def process(pid, parent, name, executable, command, created="2026-10-01T00:00:00Z"):
         return {
@@ -1440,3 +1454,55 @@ def test_exact_thin_launcher_base_interpreter_controller_and_pnpm_frontend(monke
         backend._initial_allowed(host_data)
     with pytest.raises(native.LocalRecoveryRefusal):
         native.validate_host(host_data, allowed)
+
+
+def test_controller_rejects_old_venv_and_wrong_runtime(monkeypatch):
+    from ai_workshop.infrastructure.local.python_runtime import PythonRuntimeError
+    from ai_workshop.labs.rag.indexing import alias_recovery_local_native as native
+
+    root = Path("C:/synthetic-workspace")
+    with pytest.raises(native.LocalRecoveryRefusal) as caught:
+        native.controller_payload(
+            root, (str(root / "backend/.venv/Scripts/python.exe"), "-m", native.MODULE)
+        )
+    assert caught.value.diagnostic == "collector_controller_unverified"
+
+    def denied(root):
+        raise PythonRuntimeError()
+
+    monkeypatch.setattr(native, "approved_python", denied)
+    with pytest.raises(native.LocalRecoveryRefusal) as caught:
+        native.controller_payload(root, (str(root / "conda/python.exe"), "-m", native.MODULE))
+    assert caught.value.diagnostic == "collector_interpreter_unverified"
+
+
+@pytest.mark.parametrize("changed", ["base", "old_venv", "parent"])
+def test_process_allowlist_never_admits_old_or_base_python(monkeypatch, changed):
+    import os
+
+    from ai_workshop.labs.rag.indexing import alias_recovery_local_native as native
+
+    backend, _, _ = native_backend(monkeypatch)
+    executable = str(backend.root / "conda/python.exe")
+    argv = [executable, "-m", native.MODULE, "recover"]
+    monkeypatch.setattr(sys, "orig_argv", argv)
+    monkeypatch.setattr(os, "getpid", lambda: 100)
+    other = str(backend.root / "backend/.venv/Scripts/python.exe")
+    if changed == "base":
+        other = str(Path(sys._base_executable).resolve())
+    own = {
+        "pid": 100,
+        "parent_pid": 101,
+        "created_at": "2026-10-01T00:00:00Z",
+        "name": "python.exe",
+        "command": subprocess.list2cmdline(argv),
+        "executable": executable if changed == "parent" else other,
+    }
+    parent = dict(own, pid=101, parent_pid=0, executable=other)
+    with pytest.raises(native.LocalRecoveryRefusal) as caught:
+        backend._initial_allowed({"processes": [own, parent]})
+    assert caught.value.diagnostic == (
+        "collector_launcher_unverified"
+        if changed == "parent"
+        else "collector_interpreter_unverified"
+    )

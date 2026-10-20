@@ -80,3 +80,18 @@ def test_cancel_requested_still_blocks_new_call_until_execution_joined():
     turn.execution_terminated = True
     _, created = reserve_turn(item, request(expected_revision=2), "scope", datetime.now(UTC))
     assert created
+
+
+@pytest.mark.parametrize("status", ["failed", "interrupted", "completed"])
+def test_only_explicit_remote_unconfirmed_marker_adds_a_new_admission_block(status):
+    item = conversation()
+    turn, _ = reserve_turn(item, request(), "scope", datetime.now(UTC))
+    turn.status = status
+    turn.error_code = "provider_termination_unconfirmed"
+    with pytest.raises(AppError) as error:
+        reserve_turn(item, request(expected_revision=2), "scope", datetime.now(UTC))
+    assert error.value.code == "conversation_busy"
+    # Historical/default false on ordinary outcomes keeps its existing semantics.
+    turn.error_code = "historical_failure" if status != "completed" else None
+    _, created = reserve_turn(item, request(expected_revision=2), "scope", datetime.now(UTC))
+    assert created

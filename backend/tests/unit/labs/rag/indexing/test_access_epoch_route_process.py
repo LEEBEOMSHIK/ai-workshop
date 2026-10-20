@@ -250,8 +250,11 @@ async def test_recorded_partial_attempt_never_resubmits_or_issues_routes(
     """
     import asyncio
     import json
+    from pathlib import Path
 
     from ai_workshop.infrastructure.local.control_process_windows import WindowsControlProcess
+    from ai_workshop.infrastructure.local.python_runtime import ApprovedPython
+    from ai_workshop.labs.rag.indexing import access_epoch_route_commands as route_commands
     from tests.unit.labs.rag.indexing.test_access_epoch_final_auth_process import (
         Kernel as BaseKernel,
     )
@@ -260,6 +263,15 @@ async def test_recorded_partial_attempt_never_resubmits_or_issues_routes(
     context = c.runner.context
     context._epoch = c.ports.epoch
     context._journal = c.ports.journal
+
+    # This recorder/kernel scenario never starts a real interpreter. Supply the
+    # external runtime identity at its boundary, like the synthetic SQL/TLS ports;
+    # host Conda activation is covered separately by runtime verification tests.
+    def approved_runtime(root):
+        assert root == route_commands.PROJECT_ROOT
+        return ApprovedPython(Path("C:/synthetic-conda/python.exe"), "b" * 64)
+
+    monkeypatch.setattr(route_commands, "approved_python", approved_runtime)
 
     class Files:
         def assert_issued(self, value):

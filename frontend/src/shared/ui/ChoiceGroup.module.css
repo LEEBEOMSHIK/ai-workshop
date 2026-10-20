@@ -1,0 +1,161 @@
+/* Own the fieldset layout even inside a feature's descendant fieldset rules. */
+.group.group {
+  display: block;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  margin: var(--space-4) 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  color: var(--color-text);
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-ui);
+  line-height: var(--line-height-ui);
+}
+
+.group .legend {
+  max-inline-size: 100%;
+  padding-inline: var(--space-1);
+  font-size: var(--font-size-ui);
+  font-weight: 600;
+  line-height: var(--line-height-heading);
+  overflow-wrap: anywhere;
+}
+
+.group .description {
+  margin: 0 0 var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-ui);
+  overflow-wrap: anywhere;
+}
+
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-inline-size: 0;
+}
+
+.group .choice {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  min-block-size: var(--control-min-height);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  line-height: var(--line-height-ui);
+  cursor: pointer;
+}
+
+.choice > span {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.group .radio {
+  flex: 0 0 var(--control-choice-size);
+  inline-size: var(--control-choice-size);
+  min-inline-size: var(--control-choice-size);
+  max-inline-size: var(--control-choice-size);
+  block-size: var(--control-choice-size);
+  min-block-size: var(--control-choice-size);
+  margin: 0;
+  padding: 0;
+  accent-color: var(--color-accent);
+  color-scheme: dark;
+  cursor: inherit;
+}
+
+.choice:has(.radio:checked) {
+  border-color: var(--color-accent);
+}
+
+.choice:has(.radio:disabled) {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.group .radio:focus-visible {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--focus-offset);
+}
+
+/* Connected segments retain the same native radio group and keyboard behavior. */
+.segmented .choices {
+  flex-wrap: nowrap;
+  gap: 0;
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+}
+
+.segmented .choice {
+  position: relative;
+  flex: 1 1 0;
+  justify-content: center;
+  gap: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: center;
+}
+
+.segmented .choice > span { word-break: keep-all; }
+
+.segmented .choice:first-child {
+  border-start-start-radius: var(--radius-control);
+  border-end-start-radius: var(--radius-control);
+}
+
+.segmented .choice:last-child {
+  border-start-end-radius: var(--radius-control);
+  border-end-end-radius: var(--radius-control);
+}
+
+.segmented .choice + .choice {
+  border-inline-start: 1px solid var(--color-border-control);
+}
+
+/* Visually hidden only: radios remain focusable and exposed to assistive tools. */
+.segmented .radio {
+  position: absolute;
+  inline-size: 1px;
+  min-inline-size: 1px;
+  max-inline-size: 1px;
+  block-size: 1px;
+  min-block-size: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.segmented .choice:has(.radio:checked) {
+  background: var(--color-accent);
+  color: var(--color-background);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: var(--space-1);
+}
+
+.segmented .choice:not(:has(.radio:disabled)):hover {
+  background: color-mix(in srgb, var(--color-accent) 18%, var(--color-surface));
+}
+
+.segmented .choice:has(.radio:checked):not(:has(.radio:disabled)):hover {
+  background: color-mix(in srgb, var(--color-accent) 90%, var(--color-surface));
+}
+
+.segmented .choice:has(.radio:focus-visible) {
+  z-index: 1;
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--focus-offset);
+}

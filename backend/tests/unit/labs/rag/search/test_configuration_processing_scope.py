@@ -10,6 +10,7 @@ from ai_workshop.labs.rag.embeddings.contracts import EmbeddingModelConfig
 from ai_workshop.labs.rag.models.domain import ProfileKind
 from ai_workshop.labs.rag.retrieval.domain import FrozenIndexIdentity, FrozenIndexTarget
 from ai_workshop.labs.rag.search.schemas import SearchRequest
+from tests.unit.labs.rag.embeddings.test_sentence_transformer_adapter import config as model_config
 from tests.unit.labs.rag.search.test_selected_scope_history import (
     ACTOR_ID,
     CONFIGURATION_ID,
@@ -94,8 +95,9 @@ async def test_existing_configuration_stub_can_use_processing_named_alias():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("frozen", [False, True])
+@pytest.mark.parametrize("factory_kind", ["injected", "cpu", "cuda"])
 async def test_production_resolver_retains_saved_semantic_profile_for_legacy_names(
-    monkeypatch, frozen
+    monkeypatch, frozen, factory_kind, tmp_path
 ):
     base = _configuration()
     target = replace(base.active_index_alias, document_processing_profile_id=None)
@@ -141,8 +143,8 @@ async def test_production_resolver_retains_saved_semantic_profile_for_legacy_nam
     )
     resolver = SqlAlchemySearchConfigurationResolver(
         session,
-        SimpleNamespace(elasticsearch_index_prefix=target.index_prefix),
-        lambda _: StubEmbedding(),
+        SimpleNamespace(elasticsearch_index_prefix=target.index_prefix, model_cache_root=tmp_path),
+        (lambda _: StubEmbedding()) if factory_kind == "injected" else None,
     )
     resolver.repository = SimpleNamespace(find_profile=AsyncMock(side_effect=[indexing, retrieval]))
     monkeypatch.setattr(
@@ -151,7 +153,9 @@ async def test_production_resolver_retains_saved_semantic_profile_for_legacy_nam
     monkeypatch.setattr(
         EmbeddingModelConfig,
         "from_definition",
-        lambda *args, **kwargs: SimpleNamespace(dimension=2, max_tokens=512),
+        lambda *args, **kwargs: replace(
+            model_config(dimension=2), device="cuda" if factory_kind == "cuda" else "cpu"
+        ),
     )
     saved = SimpleNamespace(
         id=base.configuration_id,
@@ -174,3 +178,17 @@ async def test_production_resolver_retains_saved_semantic_profile_for_legacy_nam
         assert resolved.active_index_alias is frozen_target
     else:
         assert resolved.active_index_alias.name == target.name
+
+    factory = resolved.request_owned_embedding_factory
+    if factory_kind != "cpu":
+        assert factory is None
+    else:
+        first, second = factory(), factory()
+        assert first is not second and first is not resolved.embedding
+        first.close()
+        from ai_workshop.labs.rag.embeddings.contracts import EmbeddingRuntimeUnavailableError
+        with pytest.raises(EmbeddingRuntimeUnavailableError, match="closed"):
+            first.count_tokens("synthetic")
+        # Construction/closing is lazy and never imports an actual model.
+        assert second._model is None and not second._closed
+        assert resolved.embedding._model is None and not resolved.embedding._closed

@@ -362,3 +362,30 @@ def test_model_kinds_cover_the_complete_enabled_pp_structure_v3_graph() -> None:
     }
 
     assert {ModelKind(value).value for value in expected_roles} == expected_roles
+
+
+@pytest.mark.parametrize("value", [None, True, False, 0, 1, 0.0, "", "NONE", "low", [], {}])
+def test_answer_reasoning_rejects_invalid_config_values(value):
+    config = generation_config()
+    config["generation"].update(response_schema_version=2, answer_reasoning_effort=value)
+    with pytest.raises(ProfileValidationError, match="answer reasoning"):
+        Profile.create(kind=ProfileKind.GENERATION, name="synthetic-opt-in", version=1,
+                       config=config, bindings=(), deployment_version_id=uuid4())
+
+
+def test_answer_reasoning_config_roundtrip_preserves_explicit_opt_in():
+    config = generation_config()
+    config["generation"].update(response_schema_version=2, answer_reasoning_effort="none")
+    selected = Profile.create(kind=ProfileKind.GENERATION, name="synthetic-opt-in", version=1,
+                              config=config, bindings=(), deployment_version_id=uuid4())
+    assert selected.config["generation"]["answer_reasoning_effort"] == "none"
+    assert selected.is_default is False
+
+
+@pytest.mark.parametrize("schema", [1, 3])
+def test_answer_reasoning_config_requires_schema2(schema):
+    config = generation_config()
+    config["generation"].update(response_schema_version=schema, answer_reasoning_effort="none")
+    with pytest.raises(ProfileValidationError, match="answer reasoning"):
+        Profile.create(kind=ProfileKind.GENERATION, name="synthetic-opt-in", version=1,
+                       config=config, bindings=(), deployment_version_id=uuid4())

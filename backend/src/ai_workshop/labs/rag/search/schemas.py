@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from ai_workshop.labs.rag.deployments.domain import ExecutionLocation, ProviderKind
 from ai_workshop.labs.rag.documents.domain import SourceKind, SourceLocation
 from ai_workshop.labs.rag.generation.codex_admin_api import CodexInputApprovalRequest
+from ai_workshop.labs.rag.generation.input_inspection import GenerationInputInspection
 from ai_workshop.labs.rag.generation.numeric_proof_schemas import (
     NumericValidationBindingView,
     VerifiedCalculationView,
@@ -278,6 +279,9 @@ class CandidateDiagnosticResponse(BaseModel):
 
 
 class SearchDiagnosticsResponse(BaseModel):
+    generation_input: GenerationInputInspection | None = Field(
+        default=None, exclude_if=lambda value: value is None,
+    )
     candidate_scope: Literal["returned_hits"] = "returned_hits"
     candidates: list[CandidateDiagnosticResponse]
     stages_ms: dict[str, float | None]
@@ -315,6 +319,7 @@ class SearchDiagnosticsResponse(BaseModel):
             min_keyword_coverage=diagnostic.min_keyword_coverage,
             min_semantic_score=diagnostic.min_semantic_score,
             warning=diagnostic.warning,
+            generation_input=diagnostic.generation_input,
         )
 
 

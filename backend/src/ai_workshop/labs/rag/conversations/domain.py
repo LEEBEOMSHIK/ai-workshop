@@ -5,6 +5,7 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 from ai_workshop.labs.rag.conversations.schemas import ConversationTurnCreate
+from ai_workshop.labs.rag.generation.execution import PROVIDER_TERMINATION_UNCONFIRMED
 from ai_workshop.shared.errors import AppError
 
 TurnStatus = Literal["running", "completed", "failed", "cancelled", "interrupted"]
@@ -92,7 +93,11 @@ def reserve_turn(
             return turn, False
     conversation.require_revision(request.expected_revision)
     if any(
-        turn.status == "running" or (turn.status == "cancelled" and not turn.execution_terminated)
+        turn.status == "running" or (
+            not turn.execution_terminated and (
+                turn.status == "cancelled" or turn.error_code == PROVIDER_TERMINATION_UNCONFIRMED
+            )
+        )
         for turn in conversation.turns
     ):
         raise AppError("conversation_busy", "A conversation request is already running.", 409)

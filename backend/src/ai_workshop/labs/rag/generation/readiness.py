@@ -7,7 +7,11 @@ from ai_workshop.config import Settings
 from ai_workshop.labs.rag.configurations.repository import (
     SqlAlchemyRagConfigurationRepository,
 )
-from ai_workshop.labs.rag.deployments.domain import DeploymentEnvironment, ProviderKind
+from ai_workshop.labs.rag.deployments.domain import (
+    DeploymentEnvironment,
+    ExecutionLocation,
+    ProviderKind,
+)
 from ai_workshop.labs.rag.deployments.repository import (
     SqlAlchemyDeploymentRepository,
 )
@@ -39,6 +43,11 @@ class SqlAlchemyGenerationReadiness:
             return False
         deployment = await self.deployments.get_version(profile.deployment_version_id)
         if deployment is None:
+            return False
+        if profile.config.get("prompt_ref") == "rag-answer-v5" and (
+            deployment.provider is not ProviderKind.LOCAL_OPENAI_COMPATIBLE
+            or deployment.location is not ExecutionLocation.LOCAL
+        ):
             return False
         generation = profile.config.get("generation")
         if (

@@ -36,6 +36,12 @@ class SentenceTransformerEmbedding:
         self._loader = loader or _load_sentence_transformer
         self._local_files_only = local_files_only
         self._model: _SentenceTransformerModel | None = None
+        self._closed = False
+
+    def close(self) -> None:
+        """End exclusive ownership; reference release does not guarantee RSS return."""
+        self._closed = True
+        self._model = None
 
     def count_tokens(self, text: str) -> int:
         return self._count_tokens(self._document_input(text))
@@ -48,7 +54,7 @@ class SentenceTransformerEmbedding:
             return self._count_input(model_input)
         except EmbeddingRuntimeUnavailableError:
             raise
-        except (OSError, RuntimeError) as exc:
+        except (ImportError, OSError, RuntimeError) as exc:
             raise EmbeddingRuntimeUnavailableError(
                 "The local embedding tokenizer runtime is unavailable."
             ) from exc
@@ -70,7 +76,7 @@ class SentenceTransformerEmbedding:
             return self._encode(model_inputs)
         except EmbeddingRuntimeUnavailableError:
             raise
-        except (OSError, RuntimeError) as exc:
+        except (ImportError, OSError, RuntimeError) as exc:
             raise EmbeddingRuntimeUnavailableError(
                 "The local embedding model runtime is unavailable."
             ) from exc
@@ -80,7 +86,7 @@ class SentenceTransformerEmbedding:
             vectors = self._encode([self._query_input(text)])
         except EmbeddingRuntimeUnavailableError:
             raise
-        except (OSError, RuntimeError) as exc:
+        except (ImportError, OSError, RuntimeError) as exc:
             raise EmbeddingRuntimeUnavailableError(
                 "The local embedding model runtime is unavailable."
             ) from exc
@@ -93,6 +99,8 @@ class SentenceTransformerEmbedding:
         return f"{self.config.query_prefix}{text}"
 
     def _load(self) -> _SentenceTransformerModel:
+        if self._closed:
+            raise EmbeddingRuntimeUnavailableError("The embedding runtime is closed.")
         if self._model is None:
             model = self._loader(
                 self.config.repo_id,

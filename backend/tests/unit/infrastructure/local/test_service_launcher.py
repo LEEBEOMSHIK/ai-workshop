@@ -1,6 +1,8 @@
 """Only new fixed children receive current role keys; parent state is unchanged."""
 
 import os
+from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -14,6 +16,20 @@ from ai_workshop.infrastructure.search.access_credentials import (
     CredentialEnvelope,
     SecuredStoreIdentity,
 )
+
+
+@pytest.fixture(autouse=True)
+def approved_runtime(monkeypatch):
+    from ai_workshop.infrastructure.local import service_launcher as module
+
+    monkeypatch.setattr(
+        module,
+        "approved_python",
+        lambda root: SimpleNamespace(
+            executable=Path("C:/synthetic-conda/python.exe"), sha256="a" * 64
+        ),
+        raising=False,
+    )
 
 
 class ProtectedMemory:
@@ -96,6 +112,7 @@ async def test_only_fixed_new_worker_gets_one_current_key_without_parent_mutatio
     assert dict(os.environ) == before
     assert child.role == "writer" and child.environment_epoch == 1
     assert runtime.started[0][1]["AI_WORKSHOP_ELASTICSEARCH_API_KEY"] == secret
+    assert runtime.started[0][0][0] == str(Path("C:/synthetic-conda/python.exe"))
     assert runtime.started[0][0][1:3] == (
         "-m",
         "ai_workshop.infrastructure.local.service_entrypoint",
@@ -158,3 +175,24 @@ async def test_collector_requires_exact_bound_claim_before_starting():
     assert runtime.started == []
     await launcher.launch_registered("collector", epoch, bound_ids=(uuid4(), uuid4(), uuid4()))
     assert runtime.started[0][0][-1] == "collector"
+
+
+async def test_wrong_interpreter_never_starts_and_runtime_error_is_sanitized(monkeypatch):
+    from ai_workshop.infrastructure.local import service_launcher as module
+    from ai_workshop.infrastructure.local.python_runtime import PythonRuntimeError
+
+    protected, runtime = ProtectedMemory(), Runtime()
+    store = WindowsCredentialStore("C:/synthetic-workshop", protected, protected)
+    epoch = identity()
+    store.advance_floor_anchor(epoch)
+
+    def denied(root):
+        raise PythonRuntimeError()
+
+    async def admitted(_identity):
+        monkeypatch.setattr(module, "approved_python", denied)
+
+    launcher = ServiceLauncher("C:/synthetic-workshop", store, runtime, admitted)
+    with pytest.raises(AccessCredentialError, match="^credential_launch_denied$"):
+        await launcher.launch_registered("beat", epoch)
+    assert runtime.started == []

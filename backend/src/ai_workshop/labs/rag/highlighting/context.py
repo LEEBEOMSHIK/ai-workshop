@@ -1,6 +1,7 @@
 """Bounded, source-preserving context selection for grounded generation."""
 
 from dataclasses import dataclass, replace
+from typing import Literal
 from uuid import UUID
 
 from ai_workshop.labs.rag.documents.domain import EvidenceUnit
@@ -18,6 +19,8 @@ from ai_workshop.labs.rag.highlighting.service import (
     _provenance_warnings,
     find_keyword_highlights,
 )
+from ai_workshop.labs.rag.highlighting.structural_context import inspect_grid_candidate
+from ai_workshop.labs.rag.highlighting.table_context import payment_table_units
 from ai_workshop.labs.rag.models.budget_trace import BudgetConstraint, BudgetTrace
 from ai_workshop.labs.rag.models.context_evidence import EvidenceBudget as EvidenceBudget
 
@@ -40,6 +43,7 @@ class CandidateDiagnostic:
     selected: bool
     reason: str
     budget_trace: BudgetTrace | None = None
+    structure_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,11 +59,15 @@ def select_context(
     *, query: str, sources: tuple[EvidenceSource, ...], extractive: EvidenceSelection,
     policy: AnswerPolicy, budget: EvidenceBudget, embedding: EmbeddingPort,
     include_diagnostics: bool,
+    table_strategy: Literal["payment-v1", "structure-v1"] = "payment-v1",
 ) -> ContextSelection:
+    if table_strategy not in {"payment-v1", "structure-v1"}:
+        raise ValueError("Unknown context table strategy.")
     groups: list[ContextGroup] = []
     seen: dict[UUID, tuple[UUID, UUID, EvidenceUnit]] = {}
     seen_chunks: dict[UUID, EvidenceSource] = {}
     diagnostics: list[CandidateDiagnostic] = []
+    diagnostic_warnings: list[str] = []
     for source in sources:
         previous = seen_chunks.get(source.chunk.chunk_id)
         if previous is not None:
@@ -87,8 +95,13 @@ def select_context(
                 evidence_unit_id=valid[0].id,
             ).coverage
             groups.append(ContextGroup(source, tuple(valid), coverage, None))
+        elif table_strategy == "structure-v1":
+            warning = "structural_context_incomplete_source"
+            if warning not in diagnostic_warnings:
+                # No malformed evidence IDs/text, including when all groups vanish.
+                diagnostic_warnings.append(warning)
     if not groups:
-        return ContextSelection((), ())
+        return ContextSelection((), (), diagnostic_warning=",".join(diagnostic_warnings) or None)
     query_vector = embedding.encode_query(query)
     texts = [_context_text(group) for group in groups]
     vectors = embedding.encode_documents(texts)
@@ -99,12 +112,33 @@ def select_context(
     anchors = (*((extractive.answer,) if extractive.answer else ()), *extractive.conflicts)
     anchor_ids = {answer.evidence.id for answer in anchors}
     qualified_ids = anchor_ids | {answer.evidence.id for answer in extractive.candidates}
-    eligible = [group for group in groups if (
-        any(unit.id in qualified_ids for unit in group.units)
-        or group.keyword_coverage >= policy.min_keyword_coverage
-        and group.keyword_coverage > 0
-        or group.semantic_score is not None and group.semantic_score >= policy.min_semantic_score
-    )]
+    eligible: list[ContextGroup] = []
+    structured_ids: set[UUID] = set()
+    grid_ids: set[UUID] = set()
+    structure_reasons: dict[UUID, str] = {}
+    for group in groups:
+        if table_strategy == "structure-v1":
+            candidate = inspect_grid_candidate(query, group.source, group.units)
+            structure_reasons[group.source.chunk.chunk_id] = candidate.reason
+            if candidate.eligible:
+                eligible.append(group)
+                grid_ids.add(group.source.chunk.chunk_id)
+                continue
+        projected = (payment_table_units(query, group.source, group.units)
+                     if table_strategy == "payment-v1" else None)
+        if projected is not None:
+            removed_ids = {u.id for u in group.units} - {u.id for u in projected}
+            # Never discard already-qualified evidence, including conflict anchors.
+            if not removed_ids & qualified_ids:
+                eligible.append(replace(group, units=projected))
+                structured_ids.add(group.source.chunk.chunk_id)
+                continue
+        if (any(unit.id in qualified_ids for unit in group.units)
+                or group.keyword_coverage >= policy.min_keyword_coverage
+                and group.keyword_coverage > 0
+                or group.semantic_score is not None
+                and group.semantic_score >= policy.min_semantic_score):
+            eligible.append(group)
     eligible.sort(key=lambda group: (
         0 if group.keyword_coverage >= policy.min_keyword_coverage else 1,
         -(group.keyword_coverage if group.keyword_coverage >= policy.min_keyword_coverage
@@ -138,15 +172,28 @@ def select_context(
     blocked = None
     if extractive.conflicts and not anchor_ids <= chosen_ids:
         chosen = []
+        chosen_ids = set()
         blocked = "conflict_context_budget_exceeded"
+    eligible_chunks = {group.source.chunk.chunk_id for group in eligible}
+    chosen_chunks = {group.source.chunk.chunk_id for group in chosen}
+
+    def group_reason(group: ContextGroup) -> str:
+        chunk_id = group.source.chunk.chunk_id
+        if blocked:
+            return blocked
+        if chunk_id in chosen_chunks:
+            if chunk_id in grid_ids:
+                return "structural_grid_selected"
+            return "structured_table_selected" if chunk_id in structured_ids else "selected"
+        return "budget_exceeded" if chunk_id in eligible_chunks else "below_threshold"
+
     observations = tuple(CandidateDiagnostic(
         group.source.chunk.chunk_id, None, group.keyword_coverage, group.semantic_score,
-        group in eligible, group in chosen,
-        blocked or ("selected" if group in chosen else
-                    "budget_exceeded" if group in eligible else "below_threshold"),
+        group.source.chunk.chunk_id in eligible_chunks,
+        group.source.chunk.chunk_id in chosen_chunks, group_reason(group),
         budget_traces.get(group.source.chunk.chunk_id),
+        structure_reason=structure_reasons.get(group.source.chunk.chunk_id),
     ) for group in groups)
-    diagnostic_warning = None
     if include_diagnostics:
         unit_pairs = [(group, unit) for group in groups for unit in group.units]
         unit_scores: list[float | None]
@@ -156,17 +203,17 @@ def select_context(
                 raise ValueError("Diagnostic embedding count must match units.")
             unit_scores = [_cosine_similarity(query_vector, vector) for vector in unit_vectors]
         except (EmbeddingRuntimeUnavailableError, ValueError):
-            diagnostic_warning = "diagnostic_embedding_unavailable"
+            diagnostic_warnings.append("diagnostic_embedding_unavailable")
             unit_scores = [None] * len(unit_pairs)
         for group in groups:
-            selected = group in chosen
-            qualifies = group in eligible
-            reason = blocked or ("selected" if selected else
-                                 "budget_exceeded" if qualifies else "below_threshold")
+            selected = group.source.chunk.chunk_id in chosen_chunks
+            qualifies = group.source.chunk.chunk_id in eligible_chunks
+            reason = group_reason(group)
             diagnostics.append(CandidateDiagnostic(
                 group.source.chunk.chunk_id, None, group.keyword_coverage,
                 group.semantic_score, qualifies, selected, reason,
                 budget_traces.get(group.source.chunk.chunk_id),
+                structure_reason=structure_reasons.get(group.source.chunk.chunk_id),
             ))
         for (group, unit), score in zip(unit_pairs, unit_scores, strict=True):
             coverage = find_keyword_highlights(query=query, text=unit.text,
@@ -175,14 +222,15 @@ def select_context(
                 coverage > 0 and coverage >= policy.min_keyword_coverage
             )
             qualifies = qualifies or (score is not None and score >= policy.min_semantic_score)
-            selected = group in chosen
+            selected = unit.id in chosen_ids
             diagnostics.append(CandidateDiagnostic(
                 group.source.chunk.chunk_id, unit.id, coverage, score,
                 qualifies, selected, "context_member" if selected and not qualifies else
                 "selected" if selected else "not_transmitted",
             ))
     return ContextSelection(
-        tuple(chosen), tuple(diagnostics), blocked, diagnostic_warning, observations,
+        tuple(chosen), tuple(diagnostics), blocked,
+        ",".join(diagnostic_warnings) or None, observations,
     )
 
 

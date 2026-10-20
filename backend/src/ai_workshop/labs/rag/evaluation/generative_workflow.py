@@ -1,7 +1,7 @@
 """Durable per-attempt claims; provider delivery is never automatically replayed."""
 
 import asyncio
-from contextlib import suppress
+from contextlib import aclosing, asynccontextmanager, suppress
 from time import perf_counter
 from typing import cast
 from uuid import UUID
@@ -35,6 +35,7 @@ from ai_workshop.labs.rag.executions.observer import ExecutionObserver
 from ai_workshop.labs.rag.executions.repository import SqlAlchemyExecutionRecorder
 from ai_workshop.labs.rag.generation.codex_admin_api import CodexInputApprovalRequest
 from ai_workshop.labs.rag.generation.codex_composition import codex_services
+from ai_workshop.labs.rag.generation.local_model_host import LocalModelHost
 from ai_workshop.labs.rag.generation.numeric_proof_schemas import (
     NumericValidationBindingView,
     calculation_views,
@@ -140,7 +141,12 @@ class GenerativeWorkflow:
                 candidate = candidate_input(run, attempt.configuration_version_id)
                 frozen = ProductionEvaluationSearch(self.settings)
                 try:
-                    async with self.sessions() as session, codex_services(self.settings) as codex:
+                    # Workers have no FastAPI lifespan; each attempt owns its model host.
+                    async with (
+                        self.sessions() as session,
+                        codex_services(self.settings) as codex,
+                        aclosing(LocalModelHost()) as local_model_host,
+                    ):
                         resolver = get_search_configuration_resolver(session, self.settings)
                         adapter = FrozenGenerativeAdapter(
                             frozen,
@@ -153,9 +159,9 @@ class GenerativeWorkflow:
                             else None,
                         )
                         prepared = await adapter.prepare(run.owner_id, candidate, case)
-                        async for pipeline in get_search_service(
-                            session, self.settings, resolver, codex
-                        ):
+                        async with asynccontextmanager(get_search_service)(
+                            session, self.settings, resolver, codex, local_model_host
+                        ) as pipeline:
                             output = await pipeline.execute(prepared, observer=observer)
                         cited = tuple(
                             dict.fromkeys(

@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "platform": "win-amd64",
+  "packages": {
+    "python": {"version": "3.13.16", "build": "h2e1fde4_102_cp313", "sha256": "21d7dfdbf1140634ac764e3f735a91f5bfc15b2fed0cbca24915c97e14ce3d06"},
+    "numpy": {"version": "2.3.5", "build": "py313h5f0191a_1", "sha256": "7cf1227c3be20af390adc063bdf294f233a9c09e266c7dbdc4fd9a61f9424847"},
+    "numpy-base": {"version": "2.3.5", "build": "py313had128fd_1", "sha256": "8beb15bab391dd5519a5536997e04b455cfc79b9517b3974d84e00c6d05fd854"},
+    "scipy": {"version": "1.18.1", "build": "py313hcca3590_0", "sha256": "6305ebbf3d716798e753b08e7a55fd7eb99e7fc30ba6de1f2cea7145859c7e2b"},
+    "libopenblas": {"version": "0.3.31", "build": "h9d64744_6", "sha256": "0bb555d19f8307b236bae4b38b22f3adf19f189e371ef679f4b5faf0fbe11122"},
+    "blas": {"version": "1.0", "build": "openblas", "sha256": "129a39b841a67da24e5d48ad965979838709f1a6b47eb2be2effbd55230673d3"}
+  }
+}

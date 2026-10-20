@@ -310,37 +310,21 @@ describe("ConversationPage", () => {
     await screen.findByText("답변 1");
     expect(bodies[0]).toMatchObject({ workspace_ids: ["workspace-1"], folder_ids: [], document_ids: ["document-1"] });
   });
-  it("requires Codex classification and fresh consent for each question and scope", async () => {
-    const calls: RequestInit[] = [];
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (String(input).includes("/folders") || String(input).endsWith("/attachments")) return jsonResponse([]);
-      calls.push(init!); return jsonResponse(searchResult(calls.length));
-    }));
+  it("blocks retired Codex questions without offering classification or consent", async () => {
+    const fetcher = vi.fn(async () => jsonResponse([]));
+    vi.stubGlobal("fetch", fetcher);
     const current = externalDomain();
-    current.generation_execution_preview = { ...current.generation_execution_preview!, provider: "development_codex_exec", disclosure_version: "codex-external-generation-v1", requested_provider_model_id: "selected-model", observed_provider_model_id: null, model_identity_status: "unknown" };
-    const user = userEvent.setup();
-    const { rerender } = render(<ConversationPage domain={current} />);
-    await user.type(screen.getByRole("textbox", { name: "질문" }), "합성 질문");
-    await user.click(screen.getByRole("checkbox", { name: "이번 질문의 외부 처리를 확인했습니다" }));
+    current.generation_execution_preview = { ...current.generation_execution_preview!, provider: "development_codex_exec", disclosure_version: "codex-external-generation-v1" };
+    await act(async () => { render(<ConversationPage domain={current} />); });
+    const input = screen.getByRole("textbox", { name: "질문" });
+    expect(input).toBeDisabled();
     expect(screen.getByRole("button", { name: "질문 보내기" })).toBeDisabled();
-    await user.selectOptions(screen.getByLabelText("이번 질문과 전송 이력의 분류"), "synthetic");
-    await user.click(screen.getByRole("checkbox", { name: "이번 질문의 외부 처리를 확인했습니다" }));
-    await user.click(screen.getByRole("button", { name: "질문 보내기" }));
-    await screen.findByText("답변 1");
-    expect(calls[0].headers).toMatchObject({ "x-codex-request": "1", "content-type": "application/json" });
-    expect(JSON.parse(String(calls[0].body)).codex_input_approval).toEqual({ classification: "synthetic", consented: true, disclosure_version: "codex-external-generation-v1" });
-    expect(screen.getByLabelText("이번 질문과 전송 이력의 분류")).toHaveValue("");
-    expect(screen.getByRole("checkbox", { name: "이번 질문의 외부 처리를 확인했습니다" })).not.toBeChecked();
-    await user.selectOptions(screen.getByLabelText("이번 질문과 전송 이력의 분류"), "public");
-    await user.click(screen.getByRole("checkbox", { name: "이번 질문의 외부 처리를 확인했습니다" }));
-    await user.click(screen.getByRole("button", { name: "검색 범위 열기" }));
-    await user.click(screen.getByRole("checkbox", { name: /회사 규정/ }));
-    expect(screen.getByRole("checkbox", { name: "이번 질문의 외부 처리를 확인했습니다" })).toBeChecked();
-    await user.click(screen.getByRole("button", { name: "범위 적용" }));
-    expect(screen.getByRole("checkbox", { name: "이번 질문의 외부 처리를 확인했습니다" })).not.toBeChecked();
-    await act(async () => { rerender(<ConversationPage domain={{ ...current, connection_version: { id: "new-connection", version: 3 } }} />); });
-    expect(screen.getByLabelText("이번 질문과 전송 이력의 분류")).toHaveValue("");
-    expect(calls).toHaveLength(1);
+    expect(screen.getByText(/Codex CLI 실행 지원이 종료/)).toBeVisible();
+    expect(screen.queryByLabelText("이번 질문과 전송 이력의 분류")).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "이번 질문의 외부 처리를 확인했습니다" })).not.toBeInTheDocument();
+    fireEvent.change(input, { target: { value: "합성 질문" } });
+    fireEvent.submit(input.closest("form")!);
+    expect(fetcher.mock.calls.some((call: unknown[]) => (call[1] as RequestInit | undefined)?.method === "POST")).toBe(false);
   });
   it("sends no client-owned history across questions", async () => {
     const bodies: Array<Record<string, unknown>> = [];

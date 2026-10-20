@@ -1,5 +1,9 @@
 # 자산운용 문서 RAG AI 검색 설계
 
+로컬 Python 생성 provider `local_transformers`의 배포 참조·모델 재사용·취소 종료 계약은
+[ADR-0037](../../decisions/0037-local-transformers-generation.md)을 따른다. schema2 기존
+인용 검증을 유지하며 모델 다운로드·실추론·배포 등록과 migration 적용은 별도 운영 단계다.
+
 - 본래 생성·세션 후속 검증(2026-10-07): 같은 runner의 제한/일반 Python 부모 TLS 권한 차이를 모델 호출 없이 확인했다. 정상 Chrome의 기존세션 합성 Markdown 후속1개에서 답변·claim1/원문근거2·원문 일치·새로고침 복원과8단계 완료를 확인했다. 활성32와pending128을 유지한다. 과거8평가 실패의 정확한 process failure는 미기록이므로 원인확정·PDF128 품질 통과로 확대하지 않는다. 권한취소·실제첨부/모바일·실패/timeout·별칭/DLL·Git 인계 등 기능 마감은 남는다. [검증 기록](../../worklogs/2026-10-07-rag-generation-execution-path-verification.md).
 
 - 후속 비교 구현·제한 평가 실행(2026-10-07): [승인 설계](../../superpowers/specs/2026-10-07-rag-context-budget-isolation-design.md)와 [4단계 계획](../../superpowers/plans/2026-10-07-rag-context-budget-isolation.md)에 따라 같은 입력32/128 비교, 6사례 공통 기준선·POST 직전 독립 해시 검증, 자동 규칙·독립 판정 분리를 구현했다. helper47·기존11회귀·타입/린트 통과 및 Q02·Q03 필요 근거 복구를 확인한 뒤 정상 pending 후보1과6문항×2회 평가를 실행했다. 연결 검증2회는 성공했지만 평가 생성8회는 provider_request_failed, completed4는 양성 유보 계약failed여서 통과·answered0이다. 활성32·전체 원문·옛 이력을 유지하고 승격하지 않았다. 실제 생성 실행 경로 원인을 먼저 확인하며 기능 마감은 미완료다. [실행 보고서](../../worklogs/2026-10-07-rag-context-budget-isolation-execution.md).
@@ -240,6 +244,8 @@ Saved RAG Configuration은 불변 Document Processing Profile Version을 직접 
 또는 OCR 구성이 달라지면 새 파싱·재청킹·재색인 수명주기를 시작하며 기존 색인 결과와 섞지
 않는다. 첫 OCR 조합과 관리자 표시·오류·평가 계약은
 `docs/superpowers/specs/2026-09-06-rag-document-processing-ocr-profile-design.md`를 따른다.
+
+로컬 ARM64 OCR 실행 경계의 [설계 초안](../../superpowers/specs/2026-10-12-local-arm64-ocr-design.md)은 2026-10-12 사용자 요청으로 취소된 조사 이력이다. AMD64와 기존 OCR 의미 프로파일·권한·부분 실패 동작을 유지하며 컨테이너·IPC 어댑터 구현은 진행하지 않는다.
 
 ### 색인 프로파일
 
@@ -536,7 +542,7 @@ Generation Profile과 Deployment·Model 연결, 현재 환경과 최신 health�
 
 문맥 근거와 테스트 진단의 상세 계약은
 [문맥 근거 설계](../../superpowers/specs/2026-09-21-contextual-rag-evidence-design.md)를 따른다.
-`rag-codex-answer-v4`와 `rag-answer-v2`는 명시적 `context_evidence` 예산을 요구한다.
+`rag-codex-answer-v4`와 `rag-answer-v2`·`rag-answer-v3`·`rag-answer-v4`·`rag-answer-v5`는 명시적 `context_evidence` 예산을 요구한다.
 적격 문장 또는 적격 문맥이 있는 검색 청크의 원문 단위를 그룹 단위로 전달하고, 문서·버전·projection·위치와 표 좌표를 보존한다.
 기존 추출 답변과 생성 근거 목록 `grounding_evidence`를 구분한다. 모든 생성 인용은 후자의 원문 위치로 연결한다.
 `context` 하이라이트는 생성에 함께 전달된 문맥이며, `keyword`/`semantic` 일치와 구분한다.
@@ -544,6 +550,15 @@ Generation Profile과 Deployment·Model 연결, 현재 환경과 최신 health�
 진단만을 위한 계산 실패는 경고와 미계산으로 표시하고 생성 근거 선택을 바꾸지 않는다.
 실제 예산 검사 시점의 수치와 초과 종류는 [입력 예산 진단 설계](../../superpowers/specs/2026-10-06-rag-budget-diagnostics-design.md)에 따라 적격 그룹에만 `budget_trace`로 전달·기록한다. 실행 모니터링에는 진단 표시 여부와 무관하게 같은 관측을 저장한다. 관련성 미달은 검사 전 제외로, 충돌에 따른 최종 전달 취소는 앞선 예산 판정과 구분한다. 옛 기록은 수치를 추정하지 않는다.
 기존 프로파일은 그대로 유지하며, 새 프로파일의 실제 양성·음성 생성 평가 전에 기본 구성으로 승격하지 않는다.
+
+`rag-answer-v3`는 일반 규칙을 묻는 질문에 근거의 규칙·조건을 먼저 설명하고 날짜 예시와 구분하는 선택형 프롬프트다. 원문에 없는 사용자 상황이나 날짜를 추정하지 않는다. 등록만으로 기존 프로파일을 바꾸거나 실제 품질 검증을 완료하지 않는다.
+문맥형 로컬 HTTP 입력은 기존 v2를 포함해 반복되는 동일 그룹 메타데이터를 `evidence_groups`에 한 번 기록하고 각 근거의 `group_ref`로 연결한다. 그룹 안에서 값이 다른 필드는 개별 근거에 남긴다. 근거의 텍스트·UUID·순서·좌표와 서버 인용 검증은 유지하며 그룹 번호를 인용 ID로 사용하지 않는다. 비문맥 입력과 다른 provider의 공통 evidence 표현은 그대로다. 직렬화 크기 감소와 실제 토큰·지연·품질 개선은 별도로 검증한다.
+
+선택형 `rag-answer-v5`의 HTTP 입력은 `evidence_sources`의 출처 문맥과 `evidence_blocks`의 원문 조각으로 구성한다. 문서·버전·projection·청크 등 비인용 식별자는 서버의 `GroundingEvidence`에 보존하고 wire에서 생략한다. 문서·버전·projection·청크·페이지·source kind/part·표 셀·section 경계를 구별하며, 기존 파서 위치 검사에서 연속인 입력 조각만 같은 블록에 배치한다. 원문·인용 UUID·입력 순서·bbox·문자 범위·ordinal은 보존하고 누락·역순·출처 변경을 정렬이나 병합으로 보정하지 않는다. 요청 안의 숫자 `source_ref`는 출처 문맥 참조이며 인용할 수 없다. 블록의 인접성은 의미 관계나 규칙·조건의 역할을 뜻하지 않는다.
+
+v5는 로컬 HTTP 입력 후보이며 기존 v1~v4 직렬화와 활성 구성을 변경하지 않는다. `LOCAL_OPENAI_COMPATIBLE`·`LOCAL` Deployment만 허용하고, 다른 조합은 생성 프로파일 검증과 준비 상태 계산에서 거절한다. 다른 provider의 serializer를 확장하지 않으며 모델 정답·조건 보존·P95 개선을 오프라인 계약 검사만으로 주장하지 않는다. 동일 원문을 재구성한 입력 비교는 과거 실행의 실제 전송 원문과 구분한다. [승인 범위와 검증 기록](../../worklogs/2026-10-19-rag-input-quality-diagnosis.md)을 따른다.
+
+2026-10-19 A/B/C 후속의 오프라인 D 후보는 같은 v5 입력에 원문 좌표로 관측한 행·열 ID 배열만 추가한다. 기존 원문·인용·선택·지침을 보존하고, 부분 격자가 완전한 표라거나 첫 행이 헤더라는 의미 역할은 부여하지 않는다. 이 후보 준비 경로는 운영 프로파일/serializer의 기본값과 분리한다. 짧은 수치 표기의 인용 지원 검사 확대는 [ADR-0035](../../decisions/0035-rag-exact-value-canonicalization.md#2026-10-19-짧은-수치-표기의-지원-검사-확대), 범위·검증·미완료는 [후속 기록](../../worklogs/2026-10-19-rag-relation-improvement.md)을 따른다.
 
 - 모든 정상 검색 결과가 권한이 허용된 원문 위치로 이동한다.
 - 전사, 개인, 임시 첨부의 검색 범위를 정확히 분리한다.
@@ -587,3 +602,21 @@ RAG conversations 모듈이 소유자·도메인별 세션과 서버 turn을 저
 이 상태는 검색 준비 중이나 답변 사용 가능 상태가 아니며 자동 선택하지 않는다.
 검색·생성 범위와 외부 전송 정책/원문 승인은 기존 검증을 그대로 통과해야 한다.
 삭제 시 원본 참조·writer 종료가 불명확하면 정리 대기 이유를 보존한다. 대화 삭제가 기존 선택 원본이나 audit의 삭제 권한이 되지 않는다.
+
+- 로컬 HTTP schema2 및 취소·timeout의 원격 종료 미확인 상태는
+  [ADR-0009 보완](../../decisions/0009-model-deployments-and-data-policy.md#2026-10-12-로컬-http-schema2종료-상태-보완)을 따른다.
+  Ollama 연결은 기존 provider를 사용하며, 코드·모의 검증을 실제 서버 수용으로 확대하지 않는다.
+
+### 프로파일별 answer reasoning opt-in (2026-10-14)
+
+Generation Profile은 `generation.answer_reasoning_effort`를 생략하거나 문자열 `none`으로 지정할 수 있다. 미설정은 provider 기본 동작을 유지한다. 명시 none은 로컬 HTTP·schema2·Ollama dialect answer에만 매핑하고 다른 조합은 거부한다. rewrite와 출력/입력/재시도·엄격한 인용 검증은 변경하지 않는다. 기존 JSON 저장 계약을 사용하며 자동 기본 승격·실제 구성 변경은 없다. 결정과 실행 경계는 [ADR-0009](../../decisions/0009-model-deployments-and-data-policy.md#2026-10-14-프로파일별-answer-reasoning-opt-in)를 따른다.
+
+
+## 요청 내 생성 입력 확인
+
+기존 검색 진단의 최종 입력 확인은 [ADR-0038](../../decisions/0038-request-local-generation-input-inspection.md)을 따른다. 현재 요청의 권한 검증 뒤에만 제한된 어댑터 입력을 노출하며 대화 저장·로그에는 추가 원문을 남기지 않는다.
+
+
+### 미시작 생성형 평가 취소
+
+승인된 pending 전용 취소와 불변 증거·동시 실행 경계는 [ADR-0030 보완](../../decisions/0030-rag-generative-evaluation.md#2026-10-18-미시작-평가-취소-승인)을 따른다. 취소 완료는 평가 통과나 재제출을 뜻하지 않는다.

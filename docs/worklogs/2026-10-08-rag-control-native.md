@@ -339,4 +339,4 @@ Within the unchanged five top-level groups and three alias/attachment subpackage
 
 2026-10-06 Chrome 후속 독립 최종 확인: 보호55테이블 중54테이블의 기존행 SHA를 보존했고, 승인된 기존 대화1행의 revision/updated_at 갱신을 정확한 예외로 구분했다. 다른4대화·과거5turn·먼저 추가된 실패2turn/실행·새75평가/64판정·활성v4·별칭gate·환경·동결4보고서 및 새보고서exactv1을 보존했다. 신규세션0·추가turn3(실패2/정상근거부족1)·진행0, HTTP4곳200·지정로그5개 검출신호0이다. 상세 대화 불변필드 baseline은 첫 제출 시작 후이며 둘째 실패의 상세 검색 분포는 DB 복구 불가다. 긍정 답변·성공한 멀티턴 완료로 해석하지 않는다.
 
-5. 접근 전환 generic 제어 소유권 보완(2026-10-08): UUID-only 결함을 RED로 재현하고 기존DB generation·typed execution/port 결합·await 경계 검사·pending 비재발행·완료 경합 반환을 구현했다. indexing465·Ruff/Mypy2·독립26 및 설계/보안/코드 리뷰 통과. 보고서 exactDBv1·ISSUE13openr18 연결, native 제어/과거 종료/실제 전환·색인·품질만 남은 상태는 미완료. [기록](docs/worklogs/2026-10-08-rag-access-epoch-ownership.md).
+5. 접근 전환 generic 제어 소유권 보완(2026-10-08): UUID-only 결함을 RED로 재현하고 기존DB generation·typed execution/port 결합·await 경계 검사·pending 비재발행·완료 경합 반환을 구현했다. indexing465·Ruff/Mypy2·독립26 및 설계/보안/코드 리뷰 통과. 보고서 exactDBv1·ISSUE13openr18 연결, native 제어/과거 종료/실제 전환·색인·품질만 남은 상태는 미완료. [기록](2026-10-08-rag-access-epoch-ownership.md).

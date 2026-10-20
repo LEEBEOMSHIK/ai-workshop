@@ -34,10 +34,45 @@ from ai_workshop.labs.rag.executions.domain import (
 )
 from ai_workshop.labs.rag.executions.observer import ExecutionObserver, observed_call
 from ai_workshop.labs.rag.generation.domain import CODEX_GENERATION_DISCLOSURE_VERSION
+from ai_workshop.labs.rag.generation.execution import (
+    PROVIDER_TERMINATION_UNCONFIRMED,
+    GenerationTermination,
+    tracked_generation_call,
+)
 from ai_workshop.labs.rag.search.schemas import ConversationTurnRequest
 from ai_workshop.shared.errors import AppError
 
 logger = logging.getLogger(__name__)
+
+
+def _stored_response(result: DomainSearchResponse) -> dict[str, object]:
+    """Keep transport input inspection request-local, outside conversation history."""
+    return result.model_dump(
+        mode="json", exclude={"diagnostics": {"generation_input"}},
+    )
+
+
+def _with_request_input(
+    detail: ConversationDetail, turn_id: UUID, result: DomainSearchResponse | None,
+) -> ConversationDetail:
+    """Attach only to the fresh, currently authorized completed turn response."""
+    if result is None or result.diagnostics is None:
+        return detail
+    inspection = result.diagnostics.generation_input
+    if inspection is None:
+        return detail
+    turns = []
+    for turn in detail.turns:
+        if (turn.id == turn_id and turn.status == "completed" and not turn.redacted
+                and turn.response is not None and turn.response.diagnostics is not None):
+            diagnostics = turn.response.diagnostics.model_copy(
+                update={"generation_input": inspection}, deep=True,
+            )
+            turn = turn.model_copy(update={
+                "response": turn.response.model_copy(update={"diagnostics": diagnostics}),
+            })
+        turns.append(turn)
+    return detail.model_copy(update={"turns": turns})
 
 
 class ExecutionPhase(StrEnum):
@@ -341,6 +376,7 @@ class ConversationService:
         result: DomainSearchResponse | None = None
         error: str | None = None
         cancelled = False
+        termination = GenerationTermination()
         phase = ExecutionPhase.HISTORY
         try:
             if observer:
@@ -366,13 +402,16 @@ class ConversationService:
                 await observer.begin("request")
             phase = ExecutionPhase.EXECUTE
             task = asyncio.create_task(
-                observed_call(
-                    self.executor.execute(
-                        slug=slug,
-                        actor_id=actor_id,
-                        request=execution_request,
+                tracked_generation_call(
+                    observed_call(
+                        self.executor.execute(
+                            slug=slug,
+                            actor_id=actor_id,
+                            request=execution_request,
+                        ),
+                        observer,
                     ),
-                    observer,
+                    termination,
                 )
             )
             while not task.done():
@@ -405,11 +444,14 @@ class ConversationService:
                 if not task.done() and not task.cancelling():
                     task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
+            if not termination.confirmed:
+                # Even a successful retry cannot prove an earlier HTTP attempt stopped.
+                error, result = PROVIDER_TERMINATION_UNCONFIRMED, None
             authority_error = None
             try:
                 await self.final_authority(slug, actor_id)
                 if result is not None and not cancelled and error is None:
-                    candidate = replace(turn, response=result.model_dump(mode="json"))
+                    candidate = replace(turn, response=_stored_response(result))
                     if not await self.access.visible(actor_id, candidate):
                         raise AppError(
                             "conversation_source_unavailable",
@@ -429,20 +471,24 @@ class ConversationService:
             try:
                 async with self.repository.locked(actor_id, domain_id, id) as current:
                     target = next(value for value in current.turns if value.id == turn.id)
-                    target.execution_terminated = True
+                    target.execution_terminated = termination.confirmed
                     if target.status == "running":
                         target.status = (
                             "cancelled" if cancelled else "failed" if error else "completed"
                         )
                         target.error_code = "conversation_cancelled" if cancelled else error
                         target.response = (
-                            result.model_dump(mode="json") if result is not None else None
+                            _stored_response(result) if result is not None else None
                         )
+                    if not termination.confirmed:
+                        target.error_code = PROVIDER_TERMINATION_UNCONFIRMED
+                        target.response = None
                     target.updated_at = datetime.now(UTC)
                     current.touch(target.updated_at)
             except AppError as exc:
                 if exc.status_code == 404:
-                    await self.repository.record_termination(actor_id, domain_id, id, turn.id)
+                    if termination.confirmed:
+                        await self.repository.record_termination(actor_id, domain_id, id, turn.id)
                     if observer:
                         await observer.fail("conversation_deleted")
                         await observer.finish(
@@ -463,7 +509,7 @@ class ConversationService:
                 target.observation_complete = observer.complete
             if authority_error is not None:
                 raise authority_error
-            return await self._view(current)
+            return _with_request_input(await self._view(current), turn.id, result)
 
         cleanup = asyncio.create_task(finalize())
         while not cleanup.done():

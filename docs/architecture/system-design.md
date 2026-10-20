@@ -1,5 +1,9 @@
 # AI Workshop 전체 시스템 설계
 
+로컬 생성 런타임 확장: [ADR-0037](../decisions/0037-local-transformers-generation.md)은
+RAG 어댑터 안에서 Transformers/PyTorch 모델과 단일 추론 수명주기를 소유한다. Platform은
+이 모델 구현에 의존하지 않으며 생성 모델 변경만으로 검색 색인을 재구축하지 않는다.
+
 - 상태: 승인됨
 - 기준일: 2026-09-03
 
@@ -200,7 +204,7 @@ service·target·dependency·volume·profile drift는 자동 계약 테스트로
 - Elasticsearch: BM25 색인, dense vector, 권한 및 메타데이터 필터, RRF 검색 결과와 검색용 하이라이트
 - 객체 저장소: 원본 파일, 파서 산출물, 페이지 이미지와 변환된 뷰어 자산
 - 작업 큐: 파싱, OCR, 청킹, 임베딩, 재색인 작업
-- 로컬 모델 런타임: 임베딩과 향후 추가할 리랭커 및 LLM 실행
+- 로컬 모델 런타임: 임베딩, 선택적 리랭커와 LLM 실행 포트. 개별 모델의 설치·활성화·운영 검증은 별도다.
 
 ## 6. 배포와 데이터 경계
 
@@ -216,6 +220,8 @@ Compose backend는 ML·개발 도구가 없는 `runtime-core`, CPU-only PyTorch 
 
 외부 모델 API는 공개 또는 비식별 데이터가 명시된 프로파일에서만 사용할 수 있다.
 
+로컬 ARM64 OCR의 [설계 초안](../superpowers/specs/2026-10-12-local-arm64-ocr-design.md)은 2026-10-12 사용자 요청으로 취소된 조사 이력이다. AMD64를 유지하며 ARM64 전환·OCR 분리는 진행하지 않는다. 위 `linux/amd64` 배포·호스트 실행·데이터 보호 계약은 유지한다.
+
 ## 7. 에이전트 실행 원칙
 
 에이전트는 데이터베이스나 Elasticsearch를 직접 호출하지 않는다. `문서 등록`, `권한 범위 검색`, `실험 실행`과 같은 애플리케이션 도구만 사용한다. 이 도구에는 사용자와 에이전트 모두에게 동일한 권한 및 감사 규칙이 적용된다.
@@ -230,9 +236,11 @@ Compose backend는 ML·개발 도구가 없는 `runtime-core`, CPU-only PyTorch 
 
 ## 8. 단계별 구현 범위
 
-작업소 기반과 첫 RAG AI 검색 수직 슬라이스는 구현됐다. 현재 검색 범위는 Markdown, TXT와
-텍스트 PDF, 구조 청킹, BM25+dense+RRF, 근거·하이라이트·원문 뷰어, 저장 구성과 평가
-비교다. DOCX와 스캔 PDF OCR을 포함한 형식 확장은 별도 후속 설계로 진행한다.
+작업소 기반과 RAG 검색·대화 코드가 구현됐다. Markdown·TXT·PDF·DOCX 처리, 스캔/혼합
+PDF·DOCX 이미지 OCR, 구조 청킹, BM25+dense+RRF, 원문 근거·뷰어, 근거 제한 답변·인용
+검증과 평가 비교를 포함한다. 별칭 복구·첨부 색인 및 실제 모델 실패·취소 등 본래 환경의
+기능 마감은 진행 중이며, 최신 검증 범위와 다음 순서는 [WORKBOARD](../../WORKBOARD.md)를 따른다.
+로컬 Gemma용 `local_transformers`의 코드·mock 검증과 모델 활성화·실추론 완료도 구분한다.
 
 공개 서비스 확장은 승인된 `공개 AI Lab과 다중 도메인 RAG 서비스 설계`의 단계 경계를
 따른다.
@@ -253,10 +261,10 @@ RAG 방과 관리자 캐릭터의 구체적인 공간·대화 계약은
 RAG 상세 안의 총괄·기술 담당 작업 장면과 입구의 Lab 직접 진입 계약은
 `docs/superpowers/specs/2026-09-04-rag-lab-agent-workroom-design.md`를 따른다.
 
-### RAG 완료 게이트: 대화형 생성 RAG — 다음 상세 설계
+### RAG 완료 게이트: 대화형 생성 RAG — 구현 후 운영 검증 진행 중
 
-비공개 작업소에서 Hybrid 검색, 선택적 리랭커, 근거 제한 LLM 답변과 인용 검증을 먼저
-완성한다. 리랭커 미설정은 정상 상태이며, 생성 profile과 LLM runtime이 준비되지 않은
+비공개 작업소의 Hybrid 검색, 선택적 리랭커, 근거 제한 LLM 답변과 인용 검증은
+코드 구현과 본래 환경의 기능 마감을 구분한다. 리랭커 미설정은 정상 상태이며, 생성 profile과 LLM runtime이 준비되지 않은
 구성은 완성된 RAG 서비스로 표시하지 않는다. 상세 계약은
 `docs/superpowers/specs/2026-09-04-conversational-generative-rag-v2-design.md`를 따른다.
 

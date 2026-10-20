@@ -33,7 +33,7 @@ describe("DataPolicyPanel", () => {
     expect(await form.findByText(/저장되었습니다/)).toBeVisible();
     expect(select).toHaveValue("approved_providers");
     expect(form.getByRole("checkbox", { name: "OpenAI Responses API" })).toBeChecked();
-    expect(form.getByRole("checkbox", { name: "개발용 Codex CLI" })).not.toBeChecked();
+    expect(form.getByRole("checkbox", { name: /Codex CLI/ })).not.toBeChecked();
     expect(form.getByRole("button")).toBeDisabled();
   });
   it.each(["company", "workspace"])("keeps %s edits unsaved until explicit successful save and clears stale feedback", async (kind) => {
@@ -76,16 +76,19 @@ describe("DataPolicyPanel", () => {
     expect(form.queryByRole("alert")).not.toBeInTheDocument();
     expect(requests).toHaveLength(2);
   });
-  it("adds Codex without silently replacing existing provider approvals", async () => {
+  it("preserves historical Codex approval when editing active providers but cannot select it anew", async () => {
     let body: unknown;
     vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       body = JSON.parse(String(init?.body)); return jsonResponse(installationPolicy());
     }));
     const user = userEvent.setup();
-    render(<DataPolicyPanel installationPolicy={installationPolicy({ mode: "approved_providers", approved_providers: ["openai_responses", "local_openai_compatible"] })} workspaces={[]} workspacePolicies={{}} />);
-    await user.click(screen.getByRole("checkbox", { name: "개발용 Codex CLI" }));
+    render(<DataPolicyPanel installationPolicy={installationPolicy({ mode: "approved_providers", approved_providers: ["development_codex_exec"] })} workspaces={[]} workspacePolicies={{}} />);
+    const legacy = screen.getByRole("checkbox", { name: /Codex CLI/ });
+    expect(legacy).toBeChecked();
+    expect(legacy).toBeDisabled();
+    await user.click(screen.getByRole("checkbox", { name: "로컬 OpenAI 호환" }));
     await user.click(screen.getByRole("button", { name: "회사 기본 정책 저장" }));
-    expect(body).toEqual({ mode: "approved_providers", approved_providers: ["openai_responses", "local_openai_compatible", "development_codex_exec"] });
+    expect(body).toEqual({ mode: "approved_providers", approved_providers: ["development_codex_exec", "local_openai_compatible"] });
   });
   it("allows the first Workspace policy version when no current version exists", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(workspacePolicy({ version: 1 }), 201)));

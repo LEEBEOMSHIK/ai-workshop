@@ -164,13 +164,14 @@ export function ConfigurationStudioPage({ initialData, initialTab, initialRunId,
         aria-labelledby="studio-tab-models"
         hidden={activeTab !== "models"}
       >
-        {activeTab === "models" ? (
+        {activeTab === "models" ? <>
+          <p><Link href="/admin/rag/models">모델·배포·생성 프로파일 등록하기</Link></p>
           <ModelLabPage
             embedded
             initialModels={initialData.models}
             initialProfiles={initialData.profiles}
           />
-        ) : null}
+        </> : null}
       </section>
     </main>
   );

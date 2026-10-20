@@ -20,6 +20,7 @@ frontend/.next/
 frontend/dist/
 frontend/tsconfig.tsbuildinfo
 backend/.venv/
+backend/.conda/
 backend/build/
 __pycache__/
 *.py[cod]

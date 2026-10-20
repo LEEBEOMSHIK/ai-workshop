@@ -1,6 +1,6 @@
 import { fileURLToPath, URL } from "node:url";
 
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   oxc: {
@@ -15,6 +15,12 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
+    // These node:test suites require Node's module-mock support; run test:runtime.
+    exclude: [
+      ...configDefaults.exclude,
+      "tests/local-python-runtime.test.mjs",
+      "tests/openapi-runtime-selection.test.mjs",
+    ],
     fileParallelism: false,
     globals: true,
     setupFiles: "./src/test/setup.ts",

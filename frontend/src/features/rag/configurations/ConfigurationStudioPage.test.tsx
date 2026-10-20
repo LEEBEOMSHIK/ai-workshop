@@ -612,6 +612,7 @@ describe("ConfigurationStudioPage", () => {
     expect(screen.getByRole("tab", { name: "모델 레지스트리" })).toBeVisible();
     await user.click(screen.getByRole("tab", { name: "모델 레지스트리" }));
     expect(screen.getByText("multilingual-e5-base")).toBeVisible();
+    expect(screen.getByRole("link", { name: "모델·배포·생성 프로파일 등록하기" })).toHaveAttribute("href", "/admin/rag/models");
     expect(screen.queryByRole("button", { name: "모델 버전 등록" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "YAML 프로파일 등록" })).not.toBeInTheDocument();
   });
@@ -907,25 +908,22 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-it("allows unverified Codex draft save only with matching server runner preflight", async () => {
+it("excludes retired Codex generation from new configurations without fetching runners", async () => {
   const data = studioData();
   data.profiles.push(generationProfile("codex-profile", "codex-version", "Codex draft"));
-  let saved: unknown;
-  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    if (input === "/api/v1/rag/deployments/options") return jsonResponse([deploymentOption({ deployment_version_id: "codex-version", provider: "development_codex_exec", runner_ref: "runner-one", readiness: { ready: false, reason_codes: ["deployment_not_ready"] }, approval: { required: true, disclosure_version: "codex-external-generation-v1", disclosure: "Codex external notice", transmitted_data_categories: ["question"] } })]);
-    if (input === "/api/v1/admin/rag/codex-runners") return jsonResponse([{ runner_ref: "runner-one", local_preflight_passed: true, prompt_options: [] }]);
-    saved = JSON.parse(String(init?.body)); return jsonResponse(savedConfiguration());
-  }));
+  const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+    if (input === "/api/v1/rag/deployments/options") return jsonResponse([deploymentOption({ deployment_version_id: "codex-version", provider: "development_codex_exec", readiness: { ready: true, reason_codes: [] } })]);
+    throw new Error("Unexpected request");
+  });
+  vi.stubGlobal("fetch", fetcher);
   render(<ConfigurationStudioPage initialData={data} />);
   const user = userEvent.setup();
   await user.selectOptions(screen.getByLabelText("답변 방식"), "generative");
-  const select = await screen.findByLabelText("생성 구성");
-  await waitFor(() => expect(within(select).getByRole("option", { name: /Codex draft/ })).toBeEnabled());
-  await user.type(screen.getByLabelText("구성 이름"), "Codex draft package");
+  await waitFor(() => expect(screen.queryByRole("option", { name: /Codex draft/ })).not.toBeInTheDocument());
+  await user.type(screen.getByLabelText("구성 이름"), "Retired configuration");
   await user.click(screen.getByRole("checkbox", { name: "전사 지식" }));
-  await user.click(screen.getByRole("checkbox", { name: /개발용 Codex CLI에/ }));
-  await user.click(screen.getByRole("button", { name: "저장" }));
-  expect(saved).toMatchObject({ generation_profile_id: "codex-profile", external_transfer_approval: { disclosure_version: "codex-external-generation-v1", confirmed: true } });
+  expect(screen.getByRole("button", { name: "저장" })).toBeDisabled();
+  expect(fetcher.mock.calls.map(([url]) => url)).toEqual(["/api/v1/rag/deployments/options"]);
 });
 
 it("keeps HTTP generation selectable if the optional Codex catalog is unavailable", async () => {
@@ -995,3 +993,22 @@ function localApproval() {
     transmitted_data_categories: [],
   };
 }
+
+it("shows retired configuration history without connection tests or default promotion", async () => {
+  const legacy = savedConfiguration({ service_ready: true, generation_execution_preview: {
+    deployment_name: "Legacy Codex", model_name: "Historical model", model_version: 1,
+    provider: "development_codex_exec", location: "external", external_transfer: true,
+    disclosure_version: "codex-external-generation-v1", disclosure: "Historical notice",
+  } });
+  const data = studioData(); data.configurations = [legacy]; data.runs = [versionRun(legacy.version_id)];
+  const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
+  const user = userEvent.setup();
+  render(<ConfigurationStudioPage initialData={data} />);
+  expect(screen.getByText(/Codex CLI 지원이 종료된 구성/)).toBeVisible();
+  expect(screen.queryByRole("button", { name: /합성 입력으로 연결 검사/ })).not.toBeInTheDocument();
+  expect(screen.queryByText("사용 가능")).not.toBeInTheDocument();
+  await user.click(screen.getByRole("tab", { name: "비교 실험" }));
+  expect(screen.getByRole("button", { name: "전체 기본값으로 지정" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "이 버전의 평가 통과 반영" })).toBeDisabled();
+  expect(fetcher).not.toHaveBeenCalled();
+});

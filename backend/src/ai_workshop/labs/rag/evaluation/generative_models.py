@@ -56,6 +56,11 @@ class GenerativeRunRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     runtime_environment: Mapped[dict[str, object] | None] = mapped_column(JSON)
+    cancelled_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancellation_reason: Mapped[str | None] = mapped_column(String(80))
 
 
 class GenerativeAttemptRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):

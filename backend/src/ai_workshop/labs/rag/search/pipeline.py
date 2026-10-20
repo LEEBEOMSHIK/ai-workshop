@@ -51,6 +51,10 @@ from ai_workshop.labs.rag.generation.execution import (
     ProviderExecutionMetadata,
     ResolvedGenerationRuntime,
 )
+from ai_workshop.labs.rag.generation.input_inspection import (
+    capture_generation_input,
+    current_input_inspection,
+)
 from ai_workshop.labs.rag.generation.integrity import (
     ConversationScopeBinding,
     ConversationTurnSigner,
@@ -229,18 +233,39 @@ class RagExecutionPipeline:
         *,
         observer: trace.ExecutionObserver | None = None,
     ) -> SearchResult:
-        operation = self._search(
-            actor_id=request.actor_id,
-            request=request.request,
-            configuration=request.configuration,
-            conversation_scope=request.conversation_scope,
-            frozen_scope=request.resolved_scope,
-            source_resolver=request.source_resolver,
-            frozen_access=request.frozen_access,
-        )
-        if observer is not None:
-            return await trace.observed_call(operation, observer)
-        return await operation
+        factory = request.configuration.request_owned_embedding_factory
+        owned_embedding = factory() if factory is not None else None
+        try:
+            configuration = (
+                replace(
+                    request.configuration,
+                    embedding=owned_embedding,
+                    request_owned_embedding_factory=None,
+                )
+                if owned_embedding is not None
+                else request.configuration
+            )
+            operation = self._search(
+                actor_id=request.actor_id,
+                request=request.request,
+                configuration=configuration,
+                conversation_scope=request.conversation_scope,
+                frozen_scope=request.resolved_scope,
+                source_resolver=request.source_resolver,
+                frozen_access=request.frozen_access,
+                release_embedding=owned_embedding.close if owned_embedding is not None else None,
+            )
+            with capture_generation_input(request.request.include_diagnostics):
+                result = (
+                    await trace.observed_call(operation, observer)
+                    if observer is not None
+                    else await operation
+                )
+            # The closed execution clone must not escape as a reusable configuration.
+            return replace(result, configuration=request.configuration)
+        finally:
+            if owned_embedding is not None:
+                owned_embedding.close()
 
     async def _search(
         self,
@@ -253,6 +278,7 @@ class RagExecutionPipeline:
         source_resolver: SearchSourceResolverPort | None = None,
         frozen_access: Callable[[tuple[SelectedDocumentIdentity, ...]], Awaitable[None]]
         | None = None,
+        release_embedding: Callable[[], None] | None = None,
     ) -> SearchResult:
         if configuration.experimental and not request.experimental:
             raise AppError(
@@ -490,6 +516,9 @@ class RagExecutionPipeline:
                     evidence_ids=(),
                     status="failed",
                     safe_error_code=code,
+                    provider_execution=_failed_execution(
+                        exc.execution, generation_profile.deployment,
+                    ),
                 )
                 raise _safe_generation_error(code) from None
             except GenerationRuntimeUnavailableError:
@@ -673,6 +702,9 @@ class RagExecutionPipeline:
                     provider_execution=contextualization_execution,
                 )
             raise
+        # All tokenizer/vector consumers have finished; release before answer generation.
+        if release_embedding is not None:
+            release_embedding()
         if generation_profile is None:
             generation_answers = ()
         if generation_profile is None or not generation_answers:
@@ -736,6 +768,7 @@ class RagExecutionPipeline:
                 policy.min_keyword_coverage,
                 policy.min_semantic_score,
                 context_selection.diagnostic_warning,
+                current_input_inspection(),
             )
         return SearchResult(
             selection=selection,
@@ -1122,7 +1155,9 @@ class RagExecutionPipeline:
                 evidence_ids=tuple(item.evidence_id for item in evidence),
                 status="failed",
                 safe_error_code=code,
-                provider_execution=contextualization_execution,
+                provider_execution=_failed_execution(
+                    exc.execution, profile.deployment, contextualization_execution,
+                ),
                 latency_ms=_elapsed_ms(generation_started),
             )
             raise _safe_generation_error(code) from None
@@ -1380,6 +1415,10 @@ class _ResolvedScopeResolver:
 
 
 _SAFE_GENERATION_ERRORS: dict[str, tuple[str, int]] = {
+    "provider_busy": ("로컬 생성 모델이 다른 요청을 처리 중입니다. 잠시 후 다시 시도하세요.", 503),
+    "provider_input_too_large": (
+        "질문과 근거가 모델 입력 한도를 초과했습니다. 범위를 줄여 주세요.", 422,
+    ),
     "generation_schema_not_supported": ("선택한 생성 서비스가 응답 형식을 지원하지 않습니다.", 409),
     "calculation_limit_exceeded": ("계산 검증의 안전한 처리 한도를 초과했습니다.", 502),
     **{
@@ -1541,10 +1580,41 @@ def _execution_is_exact(
     )
 
 
+def _failed_execution(
+    execution: ProviderExecutionMetadata | None,
+    deployment: ModelDeploymentVersion | None,
+    prior: ProviderExecutionMetadata | None = None,
+) -> ProviderExecutionMetadata | None:
+    # Untrusted failure metadata must never replace the original provider error.
+    if prior is not None:
+        prior = _bounded_failure_usage(prior) if _execution_is_exact(prior, deployment) else None
+    if execution is None or not _execution_is_exact(execution, deployment):
+        return prior
+    return _combine_execution(prior, _bounded_failure_usage(execution))
+
+
+def _bounded_failure_usage(execution: ProviderExecutionMetadata) -> ProviderExecutionMetadata:
+    input_tokens, output_tokens = execution.input_tokens, execution.output_tokens
+    return replace(
+        execution,
+        input_tokens=(
+            input_tokens
+            if type(input_tokens) is int and 0 <= input_tokens <= 2**31 - 1
+            else None
+        ),
+        output_tokens=(
+            output_tokens
+            if type(output_tokens) is int and 0 <= output_tokens <= 2**31 - 1
+            else None
+        ),
+    )
+
+
 def _sum_optional(first: int | None, second: int | None) -> int | None:
     if first is None and second is None:
         return None
-    return (first or 0) + (second or 0)
+    total = (first or 0) + (second or 0)
+    return total if total <= 2**31 - 1 else None
 
 
 def _generation_evidence(

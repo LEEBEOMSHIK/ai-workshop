@@ -1,0 +1,739 @@
+{
+  "classification": "public_synthetic",
+  "source_input_sha256": "90d989fe70815849763cc1c8bd169500cbf8ecdf440a00c961777adb1bf5d3ae",
+  "stored_question": "AM-SYN-101을 현금화하면 돈은 며칠 뒤 받을 수 있어?",
+  "stored_evidence": [
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "6fccf8be-11ba-440f-97a2-5e3dd81fa6bb",
+      "text": "가상새결자산운용  /  SYNTHETIC RESEARCH SERIES",
+      "element_id": "b6b521e1-265f-4def-8500-7ec55a7cbe0e",
+      "char_start": 575,
+      "char_end": 613,
+      "bbox": [
+        42.0,
+        27.20800018310547,
+        259.4129943847656,
+        39.16899871826172
+      ],
+      "ordinal": 0,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "6b8c99a7-f33b-44ad-86c0-281ac2208e98",
+      "text": "상품 설명서",
+      "element_id": "09764509-b996-44d3-8097-cf50977b22c2",
+      "char_start": 613,
+      "char_end": 619,
+      "bbox": [
+        42.0,
+        57.97599792480469,
+        165.072998046875,
+        88.54299926757812
+      ],
+      "ordinal": 1,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "0986d09b-a944-4c57-aea1-d6c3b29eb834",
+      "text": "자료번호 SYN-P01 | 제1.0판 | 시행일 2026-09-01 | 비교 상품 2종",
+      "element_id": "1379d51d-aa03-492d-8c80-d1c729933af8",
+      "char_start": 619,
+      "char_end": 667,
+      "bbox": [
+        42.0,
+        103.20800018310547,
+        305.38494873046875,
+        115.16899871826172
+      ],
+      "ordinal": 2,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "71b809d2-0b56-4bb4-b640-45e434a58183",
+      "text": "02  환매 신청과 대금 지급",
+      "element_id": "550935d9-eb8c-44cc-9391-5bf7954f1678",
+      "char_start": 667,
+      "char_end": 683,
+      "bbox": [
+        42.0,
+        153.50399780273438,
+        244.52099609375,
+        176.0970001220703
+      ],
+      "ordinal": 3,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "9e94bc92-69dc-481e-a234-643011077895",
+      "text": "영업일은 이 평가 자료의 가상 영업일 달력상 업무일이다. T는 접수일이며, T+N은 접수일 다음 영업일부터",
+      "element_id": "70a9d3ea-2663-4725-b7d3-8d59138f15cc",
+      "char_start": 683,
+      "char_end": 742,
+      "bbox": [
+        42.0,
+        194.0760040283203,
+        541.06494140625,
+        208.03050231933594
+      ],
+      "ordinal": 4,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "3b58b30f-ff87-4b0e-8426-086e5005c5cf",
+      "text": "N일을 센다.",
+      "element_id": "4257194b-e3bf-4402-bf6c-78c740df50e8",
+      "char_start": 742,
+      "char_end": 749,
+      "bbox": [
+        42.0,
+        211.40101623535156,
+        98.00700378417969,
+        225.3555145263672
+      ],
+      "ordinal": 5,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "2f0ff7d1-d82f-480e-86ea-ec9ef9d9a7c0",
+      "text": "항목",
+      "element_id": "39c20ec1-4403-4956-9baa-856f2230ac51",
+      "char_start": 749,
+      "char_end": 751,
+      "bbox": [
+        51.0,
+        254.81402587890625,
+        70.0,
+        267.43951416015625
+      ],
+      "ordinal": 6,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "372a9b26-4271-4638-b631-1879f4d0c957",
+      "text": "AM-SYN-101",
+      "element_id": "737203e4-7798-4e1d-a713-15640cf353d4",
+      "char_start": 751,
+      "char_end": 761,
+      "bbox": [
+        162.0,
+        254.81402587890625,
+        220.8810272216797,
+        267.43951416015625
+      ],
+      "ordinal": 7,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "76a81c9a-182b-4017-8409-bd29d0f0be86",
+      "text": "신청 마감",
+      "element_id": "f9feb925-3a12-4090-b269-021d1e5cfb69",
+      "char_start": 771,
+      "char_end": 776,
+      "bbox": [
+        51.0,
+        286.81402587890625,
+        92.33450317382812,
+        299.43951416015625
+      ],
+      "ordinal": 9,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "ccee25b8-275e-4bbf-a3ea-cde929e77926",
+      "text": "영업일 15:00까지",
+      "element_id": "cafd0478-2d44-43d4-9e0a-9c787ef8c6ea",
+      "char_start": 776,
+      "char_end": 787,
+      "bbox": [
+        162.0,
+        286.81402587890625,
+        235.80552673339844,
+        299.43951416015625
+      ],
+      "ordinal": 10,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "13a46e24-8b5d-4a54-9e77-3137486bcd12",
+      "text": "마감 후 신청",
+      "element_id": "db3536a1-e283-469a-a166-dd02c15d7eba",
+      "char_start": 798,
+      "char_end": 805,
+      "bbox": [
+        51.0,
+        318.81402587890625,
+        105.16900634765625,
+        331.43951416015625
+      ],
+      "ordinal": 12,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "c4a65716-7957-45c4-84d3-ad9fed2e3624",
+      "text": "다음 영업일 접수",
+      "element_id": "430feb07-93d6-472b-aea4-475e0237ab9e",
+      "char_start": 805,
+      "char_end": 814,
+      "bbox": [
+        162.0,
+        318.81402587890625,
+        235.16900634765625,
+        331.43951416015625
+      ],
+      "ordinal": 13,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "7adfa765-3830-4766-82c3-56be7bf15e82",
+      "text": "적용 기준가격",
+      "element_id": "eca3d62b-42a3-462b-a155-2a6f4f89faeb",
+      "char_start": 823,
+      "char_end": 830,
+      "bbox": [
+        51.0,
+        350.8139953613281,
+        111.33450317382812,
+        363.4394836425781
+      ],
+      "ordinal": 15,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "0196ebc1-1b0f-44af-bf2a-edd611e2f559",
+      "text": "접수일 T+2 기준가격",
+      "element_id": "98de7858-7da3-45cf-bc41-e730d268649a",
+      "char_start": 830,
+      "char_end": 842,
+      "bbox": [
+        162.0,
+        350.8139953613281,
+        252.10751342773438,
+        363.4394836425781
+      ],
+      "ordinal": 16,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "838d9465-0510-4cfc-a8af-b33174fc564a",
+      "text": "대금 지급일",
+      "element_id": "3fa05b26-af5d-4b1b-b719-22dd09757edc",
+      "char_start": 854,
+      "char_end": 860,
+      "bbox": [
+        51.0,
+        382.8139953613281,
+        101.83450317382812,
+        395.4394836425781
+      ],
+      "ordinal": 18,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "25b7b690-dd81-440e-9bd8-1e1020823e65",
+      "text": "접수일 T+4 영업일",
+      "element_id": "5bb75ca0-1a57-4b0c-9bbf-285374e589c7",
+      "char_start": 860,
+      "char_end": 871,
+      "bbox": [
+        162.0,
+        382.8139953613281,
+        242.60751342773438,
+        395.4394836425781
+      ],
+      "ordinal": 19,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "0a58a3e8-865c-4a01-9a7f-6ea68b8a99de",
+      "text": "지급 시점의 예외",
+      "element_id": "0b5eb77f-c55d-40fc-b503-7d568b02f769",
+      "char_start": 882,
+      "char_end": 891,
+      "bbox": [
+        42.0,
+        426.593994140625,
+        134.4239959716797,
+        442.5419921875
+      ],
+      "ordinal": 21,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "9fe96899-a26d-4a0e-ac2f-eee903de3037",
+      "text": "AM-SYN-202는 주요 해외 결제시장이 휴장하여 결제가 지연되면 실제 결제 완료 다음 영업일에 지급한다.",
+      "element_id": "b4027378-32d2-40db-ae01-98e1726e1000",
+      "char_start": 891,
+      "char_end": 951,
+      "bbox": [
+        42.0,
+        454.5260009765625,
+        539.1118774414062,
+        468.4804992675781
+      ],
+      "ordinal": 22,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "6047693c-8f86-4efb-8021-bcc23d7f66b9",
+      "text": "운용지원팀은 사유와 변경 예정일을 신청 고객에게 통지한다. 시장 휴장 예외는 AM-SYN-101에는 적용하지",
+      "element_id": "4e55560b-673d-4460-ac5d-fd753f1831a8",
+      "char_start": 951,
+      "char_end": 1011,
+      "bbox": [
+        42.0,
+        471.8509826660156,
+        545.9263916015625,
+        485.80548095703125
+      ],
+      "ordinal": 23,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "f107dc34-2dd2-4103-acd2-2183484b42e1",
+      "text": "않는다.",
+      "element_id": "0bbc89dd-2192-48b3-a5e5-f99d19d836c9",
+      "char_start": 1011,
+      "char_end": 1015,
+      "bbox": [
+        42.0,
+        489.1759948730469,
+        75.78900146484375,
+        503.1304931640625
+      ],
+      "ordinal": 24,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "f8d01af1-3890-4f2e-957f-a98b9bb9df33",
+      "text": "계산 예시",
+      "element_id": "d298429d-d326-4d9e-95e8-9fda92501c41",
+      "char_start": 1015,
+      "char_end": 1020,
+      "bbox": [
+        42.0,
+        526.3689575195312,
+        94.21199798583984,
+        542.3170166015625
+      ],
+      "ordinal": 25,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "2e8480e3-ee08-41f3-801c-5683e1310b06",
+      "text": "AM-SYN-101을 2026-09-07 월요일 15:10에 신청하면 09-08 화요일이 접수일이다. 예시 기간에 휴일이 없으",
+      "element_id": "c8342dfa-5adb-4674-ab24-70153a63a489",
+      "char_start": 1020,
+      "char_end": 1090,
+      "bbox": [
+        42.0,
+        554.3009643554688,
+        548.5303344726562,
+        568.2554931640625
+      ],
+      "ordinal": 26,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "af9d7189-d6f4-4d4c-a6e6-56a6ad39c71e",
+      "text": "므로 기준가격 적용일은 09-10, 대금 지급일은 09-14이다. 마감 후 신청일 자체를 T로 세지 않는다.",
+      "element_id": "a3c6a408-2e03-4d3a-8d4b-a812663f5adc",
+      "char_start": 1090,
+      "char_end": 1150,
+      "bbox": [
+        42.0,
+        571.6259765625,
+        503.6848449707031,
+        585.5805053710938
+      ],
+      "ordinal": 27,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "b2abe4dd-04ba-4c7f-ab18-960b1d81624b",
+      "text": "정보가 없는 경우",
+      "element_id": "44d80a08-7ba5-49e1-9e01-6166c374fd3e",
+      "char_start": 1150,
+      "char_end": 1159,
+      "bbox": [
+        42.0,
+        608.8189697265625,
+        134.4239959716797,
+        624.7670288085938
+      ],
+      "ordinal": 28,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "e25a5b55-9b07-4702-a22e-69338f8636cc",
+      "text": "실제 결제 완료일이나 가상 영업일 달력이 주어지지 않은 경우 정확한 달력 날짜를 추정하지 않는다. 확인 가",
+      "element_id": "34b9fb33-44f7-4a7f-bc3a-cb87600c2bd3",
+      "char_start": 1159,
+      "char_end": 1218,
+      "bbox": [
+        42.0,
+        636.7509765625,
+        551.0713500976562,
+        650.7055053710938
+      ],
+      "ordinal": 29,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "a74a0a7a-5a03-46d2-a271-47aded35f8d9",
+      "text": "능한 상대 영업일 규칙과 필요한 추가 정보를 안내한다.",
+      "element_id": "dc59f8d5-95d1-4e2f-82e9-1b5bd6ed02a4",
+      "char_start": 1218,
+      "char_end": 1248,
+      "bbox": [
+        42.0,
+        654.0759887695312,
+        301.0874938964844,
+        668.030517578125
+      ],
+      "ordinal": 30,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "e56ebb28-4a38-4bca-ad8e-8a248d5bc350",
+      "text": "전면 합성 자료 | 실제 회사·상품·투자 권유·법규가 아님",
+      "element_id": "7e101722-3b38-401d-ab21-95a050ff5dce",
+      "char_start": 1248,
+      "char_end": 1280,
+      "bbox": [
+        42.0,
+        800.2960205078125,
+        236.8000030517578,
+        810.927978515625
+      ],
+      "ordinal": 31,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    },
+    {
+      "page": 2,
+      "source_kind": "pdf_page",
+      "source_part": null,
+      "table_cell": null,
+      "section_path": [],
+      "evidence_id": "f00b684e-90a5-43ef-85e6-ef0b44ee1d3a",
+      "text": "02 / 03",
+      "element_id": "cfc1e9ff-1e45-4a0b-ad3e-e9ea7fbe2644",
+      "char_start": 1280,
+      "char_end": 1287,
+      "bbox": [
+        502.0,
+        800.2960205078125,
+        528.3759765625,
+        810.927978515625
+      ],
+      "ordinal": 32,
+      "document_id": "aa69ddec-f57f-40dd-bc04-c290d0646cf4",
+      "asset_version_id": "9e7c269b-0717-4946-8ac8-765f190ca8d0",
+      "projection_id": "4d5bd2e6-4b22-48cc-a516-b26e512012d2",
+      "chunk_id": "d5f55bda-d34e-4dba-9ce7-04d96083e71d"
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "printer_rule_condition",
+      "question": "합성 프린터의 필터 교체 기준은?",
+      "texts": [
+        "필터는 누적 가동 200시간마다 교체한다.",
+        "먼지가 많은 환경에서는 점검 후 더 일찍 교체할 수 있다."
+      ],
+      "mock_claim": "필터는 누적 가동 200시간마다 교체하며, 먼지가 많은 환경에서는 점검 후 더 일찍 교체할 수 있다."
+    },
+    {
+      "name": "library_rule_condition",
+      "question": "합성 도서관 대출 기간은?",
+      "texts": [
+        "일반 대출 기간은 14일이다.",
+        "예약자가 없을 때만 한 번 연장할 수 있다."
+      ],
+      "mock_claim": "일반 대출 기간은 14일이며, 예약자가 없을 때만 한 번 연장할 수 있다."
+    },
+    {
+      "name": "changed_values_dates",
+      "question": "시험용 로그는 언제 지워지나?",
+      "texts": [
+        "시험 로그는 생성 후 37일 동안 보관한다.",
+        "예시: 2027-02-03에 생성한 로그의 처리 기록이다."
+      ],
+      "mock_claim": "시험 로그는 생성 후 37일 동안 보관한다."
+    },
+    {
+      "name": "example_only",
+      "question": "모든 작업의 처리 기한은?",
+      "texts": [
+        "예시 작업은 2027-08-12에 접수되어 2027-08-17에 끝났다.",
+        "이 자료는 해당 작업 한 건의 관찰 기록이다."
+      ],
+      "mock_claim": null
+    },
+    {
+      "name": "no_rule",
+      "question": "검토 소요 시간의 일반 기준은?",
+      "texts": [
+        "이 문서는 시험 보고서의 제목이다.",
+        "담당자의 연락처는 별도 안내문에서 확인한다."
+      ],
+      "mock_claim": null
+    },
+    {
+      "name": "negated_rule_marker",
+      "question": "대출 기간이 정해져 있나?",
+      "texts": [
+        "일반 규칙이라는 문구만 있을 뿐 대출 기간은 정의하지 않는다.",
+        "예시도 실제 대출 기간을 정하는 근거가 아니다."
+      ],
+      "mock_claim": null
+    }
+  ],
+  "legacy_payload_sha256": [
+    {
+      "prompt_ref": "rag-answer-v1",
+      "schema": 1,
+      "sha256": "5d5599246382f77cdc7f2a12ee7b667cce62ba69f4b77b95683c56c53372ea99"
+    },
+    {
+      "prompt_ref": "rag-answer-v1",
+      "schema": 2,
+      "sha256": "0941087b435b28ddb363659b28646dd4cd244bf0e5efa56fa41e9340de690c18"
+    },
+    {
+      "prompt_ref": "rag-answer-v2",
+      "schema": 1,
+      "sha256": "1bbe709efce107eaf751a8c75e201f4154f76ec66274d4ca30a0b7552c457ee1"
+    },
+    {
+      "prompt_ref": "rag-answer-v2",
+      "schema": 2,
+      "sha256": "7f46c91e69eefffefe2b072667f548d4637f90d6a4c8de1ec193149c30f0ac93"
+    },
+    {
+      "prompt_ref": "rag-answer-v3",
+      "schema": 1,
+      "sha256": "1bbe709efce107eaf751a8c75e201f4154f76ec66274d4ca30a0b7552c457ee1"
+    },
+    {
+      "prompt_ref": "rag-answer-v3",
+      "schema": 2,
+      "sha256": "7f46c91e69eefffefe2b072667f548d4637f90d6a4c8de1ec193149c30f0ac93"
+    }
+  ]
+}

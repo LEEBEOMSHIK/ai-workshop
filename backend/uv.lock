@@ -40,6 +40,11 @@ embedding-cpu = [
     { name = "torch", version = "2.13.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
     { name = "torch", version = "2.13.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
 ]
+generation-cpu = [
+    { name = "transformers" },
+    { name = "torch", version = "2.13.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
+    { name = "torch", version = "2.13.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
+]
 ocr-cpu = [
     { name = "paddleocr" },
     { name = "paddlepaddle" },
@@ -79,9 +84,11 @@ requires-dist = [
     { name = "sentence-transformers", marker = "extra == 'embedding-cpu'", specifier = ">=6.0,<7.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0,<3.0" },
     { name = "torch", marker = "extra == 'embedding-cpu'", specifier = "==2.13.0", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "ai-workshop-backend", extra = "embedding-cpu" } },
+    { name = "torch", marker = "extra == 'generation-cpu'", specifier = "==2.13.0", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "ai-workshop-backend", extra = "generation-cpu" } },
+    { name = "transformers", marker = "extra == 'generation-cpu'", specifier = "==5.16.1" },
     { name = "uvicorn", specifier = ">=0.35,<1.0" },
 ]
-provides-extras = ["embedding-cpu", "ocr-cpu"]
+provides-extras = ["embedding-cpu", "generation-cpu", "ocr-cpu"]
 
 [package.metadata.requires-dev]
 dev = [

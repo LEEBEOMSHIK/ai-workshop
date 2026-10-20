@@ -31,7 +31,7 @@ class InstallationDataPolicyVersionRecord(UUIDPrimaryKeyMixin, TimestampMixin, B
         CheckConstraint(
             "approved_providers::jsonb <@ "
             "'[\"local_openai_compatible\", \"openai_responses\", "
-            "\"development_codex_exec\"]'::jsonb",
+            "\"development_codex_exec\", \"local_transformers\"]'::jsonb",
             name="ck_rag_installation_policy_versions_providers",
         ),
         CheckConstraint(
@@ -78,7 +78,7 @@ class WorkspaceDataPolicyVersionRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base
         CheckConstraint(
             "approved_providers::jsonb <@ "
             "'[\"local_openai_compatible\", \"openai_responses\", "
-            "\"development_codex_exec\"]'::jsonb",
+            "\"development_codex_exec\", \"local_transformers\"]'::jsonb",
             name="ck_rag_workspace_policy_versions_providers",
         ),
         CheckConstraint(

@@ -116,3 +116,61 @@ def test_larger_pdf_budget_rejects_conflicting_source_identity():
     changed = replace(source, document_id=UUID(int=909))
     with pytest.raises(ValueError, match="identity"):
         choose((source, changed), EvidenceBudget(8, 128, 12000))
+
+
+@pytest.mark.parametrize("diagnostics", [True, False])
+def test_two_oversized_eligible_pdf_groups_are_rejected_without_consuming_budget(diagnostics):
+    sources = (pdf_page(1, count=33), pdf_page(2, count=36))
+    result = choose(sources, EvidenceBudget(8, 32, 12000), diagnostics=diagnostics)
+
+    assert result.groups == ()
+    assert result.blocked_reason is None
+    for source, observation in zip(sources, result.observations, strict=True):
+        units = source.chunk.evidence_units
+        assert len({unit.id for unit in units}) == len(units)
+        assert observation.eligible and not observation.selected
+        assert observation.reason == "budget_exceeded"
+        trace = observation.budget_trace
+        assert trace is not None
+        assert trace.incoming_units == len(units)
+        assert trace.incoming_characters == sum(len(unit.text) for unit in units)
+        assert trace.incoming_characters < trace.character_limit
+        assert trace.unit_limit == 32
+        assert (trace.before_groups, trace.before_units, trace.before_characters) == (0, 0, 0)
+        assert trace.violated == ("units",)
+    assert not any(item.selected for item in result.diagnostics)
+
+
+def test_repeated_pdf_unit_and_chunk_do_not_overcount_the_32_unit_boundary():
+    source = pdf_page(count=32)
+    units = source.chunk.evidence_units
+    repeated = replace(source, chunk=replace(
+        source.chunk, evidence_units=(*units, units[0]),
+    ))
+    result = choose((repeated, repeated), EvidenceBudget(8, 32, 12000))
+
+    assert len(result.groups) == 1
+    assert result.groups[0].units == units
+    assert len(result.observations) == 1
+    trace = result.observations[0].budget_trace
+    assert trace is not None
+    assert trace.incoming_units == 32
+    assert trace.incoming_characters == sum(len(unit.text) for unit in units)
+    assert trace.violated == ()
+
+
+def test_oversized_pdf_groups_do_not_prevent_a_later_fitting_group():
+    sources = tuple(replace(pdf_page(index, count=count), fused_score=1.0 / index)
+                    for index, count in enumerate((33, 36, 32), start=1))
+    result = choose(sources, EvidenceBudget(8, 32, 12000))
+
+    assert len(result.groups) == 1
+    assert result.groups[0].source == sources[2]
+    assert result.groups[0].units == sources[2].chunk.evidence_units
+    assert [item.reason for item in result.observations] == [
+        "budget_exceeded", "budget_exceeded", "selected",
+    ]
+    for observation in result.observations:
+        trace = observation.budget_trace
+        assert trace is not None
+        assert (trace.before_groups, trace.before_units, trace.before_characters) == (0, 0, 0)

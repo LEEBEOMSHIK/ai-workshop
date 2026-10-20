@@ -35,6 +35,8 @@ from ai_workshop.labs.rag.generation.execution import (
     GenerationProviderError,
     ResolvedGenerationRuntime,
 )
+from ai_workshop.labs.rag.generation.local_model_host import LocalModelHost, LocalModelSpec
+from ai_workshop.labs.rag.generation.local_runtime_dependency import get_local_model_host
 from ai_workshop.labs.rag.generation.runtime_resolver import (
     GenerationRuntimeResolver,
     builtin_generation_runtime_factories,
@@ -238,11 +240,13 @@ class DeploymentRegistryService:
         secret_refs: Mapping[str, SecretStr],
         codex_registry: CodexRunnerRegistry | None = None,
         environment: str = "production",
+        local_model_refs: Mapping[str, LocalModelSpec] | None = None,
     ) -> None:
         self._repository = repository
         self._endpoint_resolver = EndpointReferenceResolver(endpoint_refs)
         self._secret_resolver = SecretReferenceResolver(secret_refs)
         self._codex_registry, self._environment = codex_registry, environment
+        self._local_model_refs = dict(local_model_refs or {})
 
     async def create_identity(
         self, request: DeploymentVersionCreate, *, actor_id: UUID
@@ -315,6 +319,11 @@ class DeploymentRegistryService:
         return True
 
     def _validate_references(self, request: DeploymentVersionCreate) -> None:
+        if request.provider is ProviderKind.LOCAL_TRANSFORMERS:
+            spec = self._local_model_refs.get(request.local_model_ref or "")
+            if spec is None or spec.model_id != request.provider_model_id:
+                raise AppError("deployment_not_ready", "The deployment is not ready.", 422)
+            return
         if request.provider is ProviderKind.DEVELOPMENT_CODEX_EXEC:
             try:
                 if (
@@ -395,6 +404,7 @@ class DeploymentRegistryService:
                 provider_model_id=request.provider_model_id,
                 endpoint_ref=request.endpoint_ref,
                 runner_ref=request.runner_ref,
+                local_model_ref=request.local_model_ref,
                 secret_ref=request.secret_ref,
                 capabilities=request.capabilities,
                 external_transfer=request.external_transfer,
@@ -421,19 +431,25 @@ def get_deployment_registry_service(
         secret_refs=settings.provider_secret_refs,
         codex_registry=configured_codex_registry(settings),
         environment=settings.environment,
+        local_model_refs=settings.local_model_refs,
     )
 
 
 def get_deployment_health_service(
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings)],
+    local_model_host: Annotated[LocalModelHost, Depends(get_local_model_host)],
 ) -> DeploymentHealthService:
     repository = SqlAlchemyDeploymentRepository(session)
     runtime_resolver = GenerationRuntimeResolver(
         environment=settings.environment,
         endpoint_refs=settings.provider_endpoint_refs,
         secret_refs=settings.provider_secret_refs,
-        factories=builtin_generation_runtime_factories(),
+        factories=builtin_generation_runtime_factories(
+            provider_endpoint_dialects=settings.provider_endpoint_dialects,
+        ),
+        local_model_refs=settings.local_model_refs,
+        local_model_host=local_model_host,
     )
     return DeploymentHealthService(
         repository,

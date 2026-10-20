@@ -577,6 +577,7 @@ function hasAuthoritativePromotionEvidence(
   candidate: EvaluationCandidate | undefined,
 ): boolean {
   return Boolean(
+    configuration.generation_execution_preview?.provider !== "development_codex_exec" &&
     !configuration.is_system &&
     run?.status === "completed" &&
     run.evaluation_policy_version_id &&

@@ -24,6 +24,7 @@ from ai_workshop.labs.rag.evaluation.generative_read import run_detail
 from ai_workshop.labs.rag.evaluation.generative_repository import GenerativeRepository, unavailable
 from ai_workshop.labs.rag.evaluation.generative_schemas import (
     GenerativeAcceptanceView,
+    GenerativeCancelRequest,
     GenerativePolicyCreate,
     GenerativePolicyView,
     GenerativeReviewRequest,
@@ -178,6 +179,17 @@ async def list_runs(actor: Actor, session: Session) -> list[GenerativeRunView]:
 @router.get("/{run_id}", response_model=GenerativeRunView)
 async def detail(run_id: UUID, actor: Actor, session: Session) -> GenerativeRunView:
     return await run_detail(session, actor.id, run_id)
+
+
+@router.post("/{run_id}/cancel", response_model=GenerativeRunView)
+async def cancel(
+    run_id: UUID, body: GenerativeCancelRequest, actor: Actor, session: Session
+) -> GenerativeRunView:
+    await GenerativeRepository.cancel_pending(session, actor.id, run_id, body.reason)
+    await session.flush()
+    result = await run_detail(session, actor.id, run_id)
+    await session.commit()
+    return result
 
 
 @router.post("/{run_id}/retry", response_model=GenerativeRunView, status_code=202)

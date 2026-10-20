@@ -26,6 +26,8 @@ Redis, Elasticsearch만 두고 API, worker, beat와 frontend는 호스트에서 
 
 ## 최초 준비
 
+실행이 별도 승인된 경우에만 [표준 Conda 활성화](local-development.md#windows-도구용-표준-활성화)를
+먼저 수행한다. 실행기는 승인 prefix·Python SHA를 검사하고 자동으로 다른 환경을 선택하지 않는다.
 저장소 루트에서 실행한다. `Prepare`는 root가 이미 있으면 인수하지 않고 거절한다.
 세 Docker image (`postgres:17-alpine`, `redis:8-alpine`, Elasticsearch `9.5.2`)가 이미 있어야 한다.
 이미지를 pull하거나 build하지 않는다.
@@ -78,7 +80,7 @@ UUID로 생성한다. marker에는 `schema_version=1`, `store_id`, `binding_id`�
 업로드한다. 이후 실행은 `smoke-state.json`의 같은 문서를 재사용한다.
 
 ```powershell
-backend\.venv\Scripts\python.exe scripts\smoke_rag_sandbox.py
+& $workshopPython scripts\smoke_rag_sandbox.py
 ```
 
 명령은 BM25와 `Sandbox E5 hybrid` 실험 구성을 각각 `document_ids`로 제한하여 검색하고,

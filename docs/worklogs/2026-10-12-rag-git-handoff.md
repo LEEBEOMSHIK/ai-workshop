@@ -31,4 +31,4 @@
 
 ## 최근 완료 목록에서 이동한 기록
 
-5. Windows 제어 잠금 primitive(2026-10-08): thread-affine 보유·재귀/동시 최초 획득 차단·abandoned 거부·중단 cleanup을 구현했다. local/indexing522·타입/린트·독립32·실제 합성kernel5 통과, exactDBv1/ISSUE13openr22 기록. 본래 제어/과거 종료/실제 복구·색인은 미완료. [기록](docs/worklogs/2026-10-08-rag-windows-control-lock.md).
+5. Windows 제어 잠금 primitive(2026-10-08): thread-affine 보유·재귀/동시 최초 획득 차단·abandoned 거부·중단 cleanup을 구현했다. local/indexing522·타입/린트·독립32·실제 합성kernel5 통과, exactDBv1/ISSUE13openr22 기록. 본래 제어/과거 종료/실제 복구·색인은 미완료. [기록](2026-10-08-rag-windows-control-lock.md).

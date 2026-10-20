@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import stat
 from collections.abc import AsyncIterator
@@ -24,6 +25,7 @@ _MARKER = ".ai-workshop-original-store.json"
 _REPARSE = 0x400
 _Identity = tuple[int, int]
 _Fingerprint = tuple[int, int, int, int, int]
+_LOGGER = logging.getLogger(__name__)
 
 
 class TrackedOriginalStore:
@@ -433,7 +435,18 @@ class TrackedOriginalStore:
             )
         handle = create(filename, access, sharing, None, 3, flags, None)  # OPEN_EXISTING
         if handle == ctypes.c_void_p(-1).value:
-            raise OSError("Cannot acquire exact original file handle")
+            # Capture immediately, before logging can change the thread-local code.
+            # Never include paths, document identifiers, OS text or traceback.
+            code = ctypes.get_last_error()
+            kind = "volume_root" if directory and path.parent == path else (
+                "directory" if directory else "file"
+            )
+            _LOGGER.warning(
+                "object_store_handle_open_failed stage=CreateFileW "
+                "target_kind=%s delete=%s winerror=%d",
+                kind, delete, code,
+            )
+            raise OSError(0, "Cannot acquire exact original file handle", None, code)
         try:
             return msvcrt.open_osfhandle(int(handle), os.O_RDONLY | os.O_BINARY)
         except BaseException:

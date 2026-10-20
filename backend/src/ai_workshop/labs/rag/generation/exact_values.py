@@ -20,6 +20,22 @@ _UNIT_ALIASES = {
     "%포인트": "%p",
     "%P": "%p",
 }
+# Keep _VALUE unchanged: schema3 uses its established numeric catalogue and
+# calculation proof contract. These extra lexical checks belong to exact support.
+_SHORT_VALUE = re.compile(
+    r"(?<![A-Za-z0-9_.,/+\-−])[0-9]+-[0-9]+"
+    r"(?![A-Za-z0-9_/+\-−]|[.,][0-9])"
+)
+_RELATIVE_OFFSET = re.compile(
+    r"(?<![A-Za-z0-9_.,/+\-−])(?P<base>[A-Za-z])\s*"
+    r"(?P<sign>[+\-])\s*(?P<offset>[0-9]+)"
+    r"(?![A-Za-z0-9_/+\-−]|[.,][0-9])"
+    r"(?:\s*(?P<business_days>영업일)(?![A-Za-z0-9_]))?"
+)
+_BUSINESS_DAYS = re.compile(
+    r"(?<![A-Za-z0-9_.,/+\-−])(?P<number>(?:[+\-−]\s*)?[0-9]+)"
+    r"\s*영업일(?![A-Za-z0-9_])"
+)
 _ExactValue = tuple[str, date | Decimal | str]
 
 
@@ -42,4 +58,21 @@ def exact_values(text: str) -> set[_ExactValue]:
             values.add(("literal-number:" + unit, number))
             continue
         values.add((unit, Decimal(number.replace(",", ""))))
+    # A two-part number may be a date or a range. Preserve its spelling without
+    # assigning calendar meaning or treating it as part of a longer identifier.
+    values.update(("literal-short-value", match.group()) for match in _SHORT_VALUE.finditer(text))
+    for match in _RELATIVE_OFFSET.finditer(text):
+        sign = match.group("sign")
+        values.add(
+            ("relative-offset:" + match.group("base") + sign, Decimal(match.group("offset")))
+        )
+        if match.group("business_days") is not None:
+            values.add(("영업일", Decimal(sign + match.group("offset"))))
+    for match in _BUSINESS_DAYS.finditer(text):
+        # Do not salvage the final integer from malformed spaced signs, such
+        # as '-- 5 영업일'. A complete signed occurrence was already consumed.
+        if text[: match.start()].rstrip(" \t").endswith(("+", "-", "−")):
+            continue
+        number = re.sub(r"\s+", "", match.group("number")).replace("−", "-")
+        values.add(("영업일", Decimal(number)))
     return values

@@ -1,6 +1,7 @@
 """Owner-only Codex metadata and explicit, consented connection verification."""
 
 from collections.abc import AsyncIterator, Awaitable
+from contextlib import AsyncExitStack
 from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
@@ -128,16 +129,18 @@ def require_codex_mutation(
 async def get_codex_services(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> AsyncIterator[CodexServices]:
-    try:
-        async with codex_services(settings) as services:
-            yield services
-    except AppError:
-        raise
-    except Exception:
-        pass
-    else:
-        return
-    raise AppError("codex_verification_unavailable", "Codex verification is unavailable.", 503)
+    async with AsyncExitStack() as stack:
+        try:
+            services = await stack.enter_async_context(codex_services(settings))
+        except AppError:
+            raise
+        except Exception:
+            raise AppError(
+                "codex_verification_unavailable", "Codex verification is unavailable.", 503
+            ) from None
+        # FastAPI throws downstream request errors back through this yield. Only
+        # service initialization failures belong to the Codex error boundary.
+        yield services
 
 
 async def _verification_response(

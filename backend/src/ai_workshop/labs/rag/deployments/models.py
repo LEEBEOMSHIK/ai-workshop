@@ -52,15 +52,34 @@ class ModelDeploymentVersionRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         UniqueConstraint("deployment_id", "version"),
         CheckConstraint("version > 0", name="ck_rag_deployment_versions_positive"),
         CheckConstraint(
-            "provider IN ('local_openai_compatible', 'openai_responses', 'development_codex_exec')",
+            "provider IN ('local_openai_compatible', 'local_transformers', "
+            "'openai_responses', 'development_codex_exec')",
             name="ck_rag_deployment_versions_provider",
         ),
         CheckConstraint(
             "(provider = 'development_codex_exec' AND endpoint_ref IS NULL "
-            "AND runner_ref IS NOT NULL AND btrim(runner_ref) <> '') OR "
-            "(provider <> 'development_codex_exec' AND endpoint_ref IS NOT NULL "
-            "AND btrim(endpoint_ref) <> '' AND runner_ref IS NULL)",
+            "AND runner_ref IS NOT NULL AND btrim(runner_ref) <> '' "
+            "AND local_model_ref IS NULL) OR "
+            "(provider = 'local_transformers' AND endpoint_ref IS NULL "
+            "AND runner_ref IS NULL AND local_model_ref IS NOT NULL) OR "
+            "(provider IN ('local_openai_compatible', 'openai_responses') "
+            "AND endpoint_ref IS NOT NULL AND btrim(endpoint_ref) <> '' "
+            "AND runner_ref IS NULL AND local_model_ref IS NULL)",
             name="ck_rag_deployment_versions_execution_reference",
+        ),
+        CheckConstraint(
+            "local_model_ref IS NULL OR ("
+            "local_model_ref ~ '^[a-z][a-z0-9]*-[a-z0-9]+(-[a-z0-9]+)*$' "
+            "AND local_model_ref !~ '^(sk|sess|key|token|secret)-')",
+            name="ck_rag_deployment_versions_local_model_safe_name",
+        ),
+        CheckConstraint(
+            "provider <> 'local_transformers' OR (NOT external_transfer "
+            "AND location IN ('local', 'on_premise') AND secret_ref IS NULL "
+            "AND max_retries = 0 AND retry_backoff_seconds = 0 "
+            "AND transmitted_data_categories::jsonb = '[]'::jsonb "
+            "AND data_processing_notice_ref IS NULL)",
+            name="ck_rag_deployment_versions_local_transformers_contract",
         ),
         CheckConstraint(
             "runner_ref IS NULL OR ("
@@ -116,6 +135,7 @@ class ModelDeploymentVersionRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     provider_model_id: Mapped[str] = mapped_column(String(180), nullable=False)
     endpoint_ref: Mapped[str | None] = mapped_column(String(120))
     runner_ref: Mapped[str | None] = mapped_column(String(120))
+    local_model_ref: Mapped[str | None] = mapped_column(String(120))
     secret_ref_namespace: Mapped[str | None] = mapped_column(String(32))
     secret_ref: Mapped[str | None] = mapped_column(String(120))
     capabilities: Mapped[list[str]] = mapped_column(JSON, nullable=False)

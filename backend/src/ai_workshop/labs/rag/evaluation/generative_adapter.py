@@ -88,6 +88,8 @@ class FrozenGenerativeAdapter:
             configuration,
             active_index_alias=target,
             embedding=frozen.embedding,
+            # Frozen evaluation owns its runtime; the search pipeline only borrows it.
+            request_owned_embedding_factory=None,
             retrieval_profile=frozen.retrieval_profile,
             answer_policy=frozen.answer_policy,
             query_max_tokens=frozen.query_max_tokens,

@@ -21,6 +21,7 @@
 - 전체 경계와 단계: `docs/architecture/system-design.md`
 - 목표 파일 구조: `docs/architecture/repository-structure.md`
 - 공통 개발 규칙: `docs/guidelines/development-guidelines.md`
+- 프론트엔드 스타일·접근성 변경: `docs/guidelines/ui-style-guide.md`
 - 로컬 실행과 검증: `docs/runbooks/local-development.md`
 - Codex 참고 문서 구조: `docs/guidelines/codex/README.md`
 - 캐시·Docker 산출물 정책: `CACHE_POLICY.md`
@@ -34,10 +35,11 @@
 
 ## 현재 프로젝트 단계
 
-- 1단계 작업소 기반과 첫 RAG AI 검색 수직 슬라이스가 구현됐다.
-- 현재 RAG 범위는 Markdown, TXT와 텍스트 PDF ingestion, 구조 청킹, BM25+dense+RRF 검색, 근거·하이라이트·원문 뷰어, 저장 구성과 평가 비교다.
+- 작업소 기반과 RAG 검색·대화 코드가 구현됐으며, 본래 환경의 기능 마감은 진행 중이다.
+- 구현 범위는 Markdown·TXT·PDF·DOCX 처리, 스캔/혼합 PDF·DOCX 이미지 OCR, 구조 청킹, BM25+dense+RRF, 원문 근거·뷰어, 근거 제한 답변·인용 검증과 평가 비교다.
 - 로컬 실행, migration, owner bootstrap과 smoke 절차는 `docs/runbooks/local-development.md`만 정본으로 사용한다.
-- 다음 RAG 경계는 근거 제한 LLM 답변과 인용 검증이며, 그 다음은 DOCX 파서·뷰어와 스캔 PDF OCR이다.
+- 현재 미완료와 착수 순서는 `WORKBOARD.md`를 따른다. 코드·mock 검증과 실제 모델 활성화·운영 검증을 구분한다.
+- AMD64를 유지하며 ARM64 전환 조사는 취소됐다. Gemma 로컬 생성 코드의 존재를 모델 활성화 완료로 취급하지 않는다.
 - 미래 기능의 빈 폴더·예제 구현은 만들지 않는다. 명시 승인된 맵 준비 공간의 표시 기준은 [ADR-0018](docs/decisions/0018-game-office-entrance.md)을 따른다.
 
 ## 아키텍처 경계

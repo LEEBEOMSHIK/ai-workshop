@@ -39,6 +39,11 @@ class GenerativeRunCreate(BaseModel):
     input_approval: CodexInputApprovalRequest | None = None
 
 
+class GenerativeCancelRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: Literal["user_requested"]
+
+
 class GenerativeSourceView(BaseModel):
     evidence_id: UUID
     document_id: UUID
@@ -81,6 +86,9 @@ class GenerativeRunView(BaseModel):
     created_at: datetime
     repetition_count: int
     attempts: list[GenerativeAttemptView]
+    cancelled_by: UUID | None = None
+    cancelled_at: datetime | None = None
+    cancellation_reason: str | None = None
 
 
 class GenerativeReviewRequest(BaseModel):

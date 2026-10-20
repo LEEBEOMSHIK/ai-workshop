@@ -1,5 +1,36 @@
 # 로컬 개발 실행서
 
+Windows 호스트 CLI 예시의 `$workshopPython`은 [표준 활성화](#windows-도구용-표준-활성화)에서
+승인된 Conda 환경을 검증한 뒤 얻는다. Docker 명령에는 적용하지 않는다.
+
+## 로컬 Transformers 생성 (코드 제공, 활성화 미실행)
+
+[ADR-0037](../decisions/0037-local-transformers-generation.md)의 `local_transformers`는
+Codex CLI나 Ollama 없이 Python에서 실행한다. 현재 변경으로 기존 설정이나 DB가 바뀌지는 않는다.
+운영 활성화 전 하드웨어·native package 호환성, 모델 라이선스/고정 revision/다운로드 범위,
+백업과 migration 적용 범위를 각각 확인·승인한다. `generation-cpu` 선택 의존성은 기존 잠금의
+Transformers/PyTorch 버전을 참조하며 설치를 자동 수행하지 않는다.
+
+서버의 `AI_WORKSHOP_LOCAL_MODEL_REFS`는 참조 이름에서 `model_id`, 40자리 `revision`,
+절대 `snapshot_path`, `device=cpu`, 명시적 `dtype=float32`(기본) 또는 `bfloat16`, 양의 `max_input_tokens` 설정으로 매핑한다.
+`snapshot_path`는 해당 모델의 HF cache `models--<org>--<model>/snapshots/<revision>` 디렉터리다.
+이름·경로·revision은 승인한 모델에서 결정하며 예제값을 운영 기본값으로 복사하지 않는다.
+dtype 실패 시 다른 정밀도로 자동 전환하지 않는다. BF16 설정 허용은 하드웨어 호환이나 메모리 적합성 검증을 뜻하지 않는다.
+서버는 local-files-only 및 remote-code 금지로 로드한다. HF cache 경로 결합은 모델 선택 계약이며
+가중치 내용의 암호학적 검증을 대신하지 않는다.
+
+등록할 Deployment는 `local_model_ref`와 같은 `provider_model_id`를 사용한다. HTTP endpoint,
+Codex runner, secret, 외부 전송과 자동 재시도를 선언하지 않는다. schema2 생성 프로파일과
+기존 저장 구성에 연결하며, 모델만 바꾸는 경우 임베딩·검색 색인을 새로 만들지 않는다.
+호스트 하나의 동시 추론은 1개다. 다중 API 프로세스는 모델 메모리를 각각 사용하므로 최초
+승인 실행은 API worker 1개로 제한한다. 연결 확인(health)은 실제 모델 로드를 수행할 수 있다.
+명시 승인 전 health 호출도 하지 않는다.
+
+취소/timeout은 협력적 중단 후 worker 종료를 기다린다. 네이티브 연산이 반환하지 않으면
+응답·shutdown도 지연될 수 있으며 Python 스레드를 강제 종료했다고 보고하지 않는다.
+실제 활성화 후 합성 자료로 업로드→READY→검색→인용 답변→저장/복원→취소 후 다음 질문을
+검증한다. 별칭 frozen 및 과거 미종료 취소 문제는 이 provider 설치로 해결되지 않는다.
+
 - 상태: 현재 구현 기준
 - 기준일: 2026-09-20
 
@@ -142,7 +173,7 @@ cd ..
 명시해 실행한다.
 
 ```powershell
-backend\.venv\Scripts\python.exe -c "import asyncio; asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()); from alembic.config import main; main(argv=['-c','backend/alembic.ini','upgrade','0030_technology_permissions'])"
+& $workshopPython -c "import asyncio; asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()); from alembic.config import main; main(argv=['-c','backend/alembic.ini','upgrade','0030_technology_permissions'])"
 ```
 
 migration 또는 새 애플리케이션 시작이 실패하면 그 지점에서 중단한다. 검토되지 않은 downgrade,
@@ -171,8 +202,8 @@ Get-Content .env | ForEach-Object {
 Windows에서는 psycopg async 연결에 Selector 이벤트 루프를 사용해 migration과 초기화 명령을 실행한다.
 
 ```powershell
-backend\.venv\Scripts\python.exe -c "import asyncio; asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()); from alembic.config import main; main(argv=['-c','backend/alembic.ini','upgrade','head'])"
-backend\.venv\Scripts\python.exe -c "import asyncio; asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()); from ai_workshop.cli import main; main(['register-rag-models'])"
+& $workshopPython -c "import asyncio; asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()); from alembic.config import main; main(argv=['-c','backend/alembic.ini','upgrade','head'])"
+& $workshopPython -c "import asyncio; asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()); from ai_workshop.cli import main; main(['register-rag-models'])"
 ```
 
 Elasticsearch가 yellow 이상인지 확인한다. single-node 환경의 yellow는 replica가 배치되지 않은 정상 로컬 상태다.
@@ -204,7 +235,7 @@ Document Processing Profile의 정확한
 staging 디렉터리를 검증·설치한다.
 
 ```powershell
-backend\.venv\Scripts\python.exe scripts\provision_rag_ocr_models.py --manifest model-profiles\rag\ocr\pp-structure-v3-v1.json --source-root .local-data\models\p --cache-root .local-data\models
+& $workshopPython scripts\provision_rag_ocr_models.py --manifest model-profiles\rag\ocr\pp-structure-v3-v1.json --source-root .local-data\models\p --cache-root .local-data\models
 ```
 
 프로비저너는 전체 source를 먼저 검증하고 다음 불변 경로에 필요한 runtime 파일만 설치한다.
@@ -246,7 +277,7 @@ OCR 최상위 방향 모듈을 구분한 비기본 `pp-structure-v3-docx v2`다.
 
 ```powershell
 $env:AI_WORKSHOP_OCR_ACTUAL_SMOKE = "1"
-backend\.venv\Scripts\python.exe -m pytest backend\tests\integration\labs\rag\ocr\test_paddle_structure_smoke.py -q -m integration
+& $workshopPython -m pytest backend\tests\integration\labs\rag\ocr\test_paddle_structure_smoke.py -q -m integration
 ```
 
 Linux CPU 배포 검증은 PaddlePaddle 공식 지원 아키텍처에 맞춘 `linux/amd64` OCR image를
@@ -272,22 +303,113 @@ x86_64에서 text·table·bbox 실제 추론과 처리 시간을 통과해야 �
 
 ## 3. 호스트 애플리케이션 실행
 
-각각 별도 터미널에서 위 `.env` 로드 블록을 먼저 실행한다. Windows Celery worker는 `--pool=solo`를 사용하며 애플리케이션 진입 시 psycopg와 호환되는 Selector 정책을 설정한다.
+### Windows Conda 실행 (2026-10-15)
+
+현재 `C:\projects\ai-workshop\backend\.conda`를 사용한다. 외부 원본 `C:\projects\ai-workshop-scipy-test`는 복구용으로 보존한다. 새 환경을 만들거나
+Conda prefix에 `uv sync`를 실행하지 않는다. 수치 계층은
+`backend/conda-numeric-lock.json`의 공식 Conda Python/NumPy/SciPy/OpenBLAS build로
+고정하고, 나머지는 `backend/uv.lock`의 공식 wheel URL과 SHA를 사용한다.
+
+`scripts/conda_backend_dependencies.py prepare`는 대상 Python에서 실행하며
+`--prefix`, 해시 포함 uv export인 `--export`, export·uv.lock·pyproject SHA를 담은
+`--attestation`, 새 증거 디렉터리인 `--output`을 받는다. NumPy/SciPy를 제외한
+`uv export --frozen --offline --all-extras --all-groups --no-emit-project
+--no-emit-package numpy --no-emit-package scipy` 결과를 사용한다.
+준비는 패키지를 설치하지 않으며, 대상 interpreter와 Conda package record를 검사하고
+수치 계층 소유 파일의 SHA를 `plan.json`에 남긴다.
+
+2026-10-15 사용자가 아래 명령으로 설치를 완료했고 버전149개·보호 파일6121개·pip check를
+재확인했다. 현재 환경에 설치를 반복하지 않는다. 아래 명령은 실행 이력으로 보존한다.
+에이전트 검증의 health GET은 WinError10013으로 차단됐다. 이후 사용자는 Conda 실행기 재기동과
+health status ok를 보고했다. 이후 사용자 실행에서 저장 E5 벡터 호환과 실제 단일 RAG의
+SEARCH_END answered·PowerShell 복귀를 확인했다. 답변의 일반 T+4 규칙 누락은 별도 품질 과제다.
+권한 상승·ACL 변경으로 재시도하지 않는다. [후속 수동 확인 준비](../worklogs/2026-10-11-rag-http-cancellation-regression.md#2026-10-15-conda-수동-벡터범위단일요청-준비)를 따른다.
+
+```powershell
+& 'C:\projects\ai-workshop-scipy-test\python.exe' -I -B 'C:\projects\ai-workshop\scripts\conda_backend_dependencies.py' install --plan 'C:\projects\ai-workshop\.local-data\project-agent-work\conda-project-transition-20261015\install-plan\plan.json'
+```
+
+설치 도구는 원본 SHA와 보호 파일을 재확인하고 pip dry-run 보고서의 URL·버전·SHA를
+검사한 뒤 같은 wheel 목록만 설치한다. 의존성 자동 해석·추가 index·자동 재시도는 없고,
+설치 뒤 보호 파일·설치 버전·`pip check`를 검사한다. 실패 시 중단하며 자동 복구하지 않는다.
+이 명령은 서버·DB·모델을 실행하지 않는다. 성공해도 앱 전환 완료를 뜻하지 않는다.
+
+다음 명령의 `-CheckOnly`는 표준 Conda 활성화 뒤 실제 앱과 같은 Python 조건으로
+executable/prefix를 확인하고 종료한다. 이 인자를 생략하면 본래 포트18000의 API를 시작하므로
+기존 프로세스 확인과 실행 검증 단계에서만 사용한다.
+
+```powershell
+.\scripts\run_backend_conda.ps1 -CheckOnly
+```
+
+아래 Windows 명령은 승인된 기존 Conda를 사용한다. 구 `.venv`는 사용 프로세스·IDE와
+변경된 실행 경로의 미완료 검증을 확인하기 전까지 보존한다. 이동·삭제는
+[캐시 정책](../../CACHE_POLICY.md#구-windows-python-환경)의 새 조사·승인·직전 재검증을 따른다.
+Miniconda base, 현재 Conda 환경, 모델 cache와 Docker `/app/.venv`는 정리 대상이 아니다.
+
+백엔드 시작은 저장소 루트에서 `./scripts/run_backend_conda.ps1` 한 줄로 실행한다.
+기본값은 현재 사용자의 `miniconda3/python.exe`와 저장소의 `backend/.conda`이며, 런처가 해당 프로세스의 Conda를 자동 활성화한다. 종료 시 호출자의 환경을 복원한다.
+
+### Windows 도구용 표준 활성화
+
+새 일반 PowerShell 창에서 다음 블록을 먼저 실행한다. `-CheckOnly` 실행기는 종료할 때
+환경을 복원하므로 이후 CLI를 사용할 창의 활성화를 대신하지 않는다.
+아래 블록은 현재 창만 활성화하며 설치·서버 시작·DB 변경·모델 요청을 하지 않는다.
+
+```powershell
+Set-Location 'C:/projects/ai-workshop'
+$ErrorActionPreference = 'Stop'
+$activation = & 'C:/Users/bumci/miniconda3/python.exe' -I -B -m conda shell.powershell activate 'C:/projects/ai-workshop/backend/.conda'
+if ($LASTEXITCODE -ne 0 -or -not $activation) { throw 'Conda activation generation failed' }
+Invoke-Expression ($activation -join [Environment]::NewLine)
+if ($LASTEXITCODE -ne 0) { throw 'Conda activation failed' }
+. ./scripts/local_python_runtime.ps1
+$workshopPython = Resolve-ApprovedLocalPython
+$workshopPython
+$env:PYTHONPATH = 'C:/projects/ai-workshop/backend/src'
+$env:PYTHONUTF8 = '1'
+```
+
+출력은 `C:\projects\ai-workshop\backend\.conda\python.exe`여야 한다. 검증 함수는 고정된
+설정 원문·Python SHA, 활성 prefix, PYTHONHOME 부재와 경로를 검사한다. 실패하면 중단하며
+다른 Python으로 대체하지 않는다. 활성화는 후속 마이그레이션·서버·모델 실행 승인이 아니다.
+이미 위 Conda 환경이 활성화된 PowerShell에서는 재활성화 없이 다음만 실행한다.
+OpenAPI 실행기는 같은 고정 prefix와 해시를 다시 검사한다.
+
+```powershell
+Set-Location 'C:/projects/ai-workshop'
+$env:PYTHONPATH = 'C:/projects/ai-workshop/backend/src'
+$env:PYTHONUTF8 = '1'
+pnpm --dir frontend api:check
+$LASTEXITCODE
+```
+
+서버 재시작·DB·모델 요청은 없지만 `backend/build/openapi.json`은 갱신된다.
+마지막 종료코드0인지 확인하고, 실패하면 오류를 보존한 채 중단한다.
+
+### 호스트 실행 경로
+
+프론트와 API는 각각 새 PowerShell 터미널에서 실행한다. 두 앱은 저장소 루트 `.env`를 직접 읽으므로 위의 단순 `.env` 로드 블록을 실행하지 않는다. 해당 블록은 JSON 값을 감싼 따옴표까지 환경변수에 넣어 API 설정 파싱 오류를 일으킬 수 있다. 이미 `AI_WORKSHOP_*` 변수를 주입한 터미널은 그 값이 `.env`보다 우선하므로 새 터미널을 사용한다. Windows Celery worker는 `--pool=solo`를 사용하며 애플리케이션 진입 시 psycopg와 호환되는 Selector 정책을 설정한다.
 
 아래 명령은 **저장소 루트 `C:\projects\ai-workshop`에서** 실행하고 숨김 시작 스크립트도 같은 작업 디렉터리를 유지한다. `.env`를 루트에서 읽은 뒤 `backend`로 이동하면 상대 경로인 `.local-data/models`를 다른 위치에서 찾아 `query_tokenizer_unavailable`이 발생할 수 있다. health와 생성 연결 검사 성공만으로 검색 모델 캐시 적재 성공을 판정하지 않는다.
 
 Windows API는 아래 명시적 loop factory를 사용한다. Uvicorn의 `--loop asyncio`는 reload 없는 Windows 실행에서 정책과 무관하게 Proactor 루프를 선택하므로, Selector 정책 설정만으로는 psycopg async 호환성이 보장되지 않는다. 같은 factory를 유지하면 `--reload`를 생략한 실행도 Selector 루프를 사용한다.
 
 ```powershell
-backend\.venv\Scripts\python.exe -m uvicorn ai_workshop.main:app --loop ai_workshop.shared.asyncio_policy:create_selector_event_loop --reload --host 127.0.0.1 --port $env:API_PORT
+Set-Location C:\projects\ai-workshop
+$env:PYTHONPATH = 'C:\projects\ai-workshop\backend\src'
+$env:PYTHONUTF8 = '1'
+& $workshopPython -m uvicorn ai_workshop.main:app --loop ai_workshop.shared.asyncio_policy:create_selector_event_loop --host 127.0.0.1 --port 18000
+```
+
+위 명령은 본래 API 포트18000과 명시적 Selector loop factory를 사용한다. 포트를 바꿔야 하면 `.env`의 `API_PORT`와 명령의 `--port`를 함께 맞춘다. 수동 종료는 실행 창에서 `Ctrl+C`, 재시작은 같은 명령을 다시 실행한다. 위 예시는 자동 reload를 사용하지 않으므로 코드 변경 후에는 재시작한다.
+
+```powershell
+& $workshopPython -m celery -A ai_workshop.worker:celery_app worker --pool=solo --loglevel=INFO
 ```
 
 ```powershell
-backend\.venv\Scripts\python.exe -m celery -A ai_workshop.worker:celery_app worker --pool=solo --loglevel=INFO
-```
-
-```powershell
-backend\.venv\Scripts\python.exe -m celery -A ai_workshop.worker:celery_app beat --loglevel=INFO --schedule .local-data/celerybeat-schedule
+& $workshopPython -m celery -A ai_workshop.worker:celery_app beat --loglevel=INFO --schedule .local-data/celerybeat-schedule
 ```
 
 ```powershell
@@ -333,51 +455,17 @@ CLI `bootstrap-owner`는 설정 UI를 실행할 수 없는 복구 상황에서�
 따르며 비밀번호는 명령행이나 로그가 아닌 대화형 입력으로 받는다.
 
 ```powershell
-backend\.venv\Scripts\python.exe -c "import asyncio; asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()); from ai_workshop.cli import main; main(['bootstrap-owner','--name','Recovery Owner','--email','owner@example.com'])"
+& $workshopPython -c "import asyncio; asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()); from ai_workshop.cli import main; main(['bootstrap-owner','--name','Recovery Owner','--email','owner@example.com'])"
 ```
 
 종료할 때 호스트 애플리케이션 프로세스를 먼저 중지한다. 인프라도 중지할 경우 `docker compose -f infrastructure/compose/compose.yaml stop postgres redis elasticsearch`를 사용해 데이터 볼륨을 유지한다.
 
 ### 개인 개발용 Codex 연결
 
-이 흐름은 소유자·개발 환경 전용이다. 설치된 CLI와 서버의
-`AI_WORKSHOP_CODEX_RUNNER_REFS` 사전 설정이 필요하며, CLI 인증 파일을 앱에 복사하거나
-관리자 화면에 비밀번호·API 키·실행 파일 경로를 입력하지 않는다.
-Codex는 로컬에서 실행해도 질문·포함된 대화·승인 근거를 OpenAI로 보내고 계정 사용량을 쓴다.
-운영 HTTP API 모델의 준비 상태·모델 식별 검증 기준은 이 예외로 완화하지 않는다.
-
-1. 정상 소유자 로그인 후 `/admin/rag/models`에서 LLM 모델 식별자를 등록한다.
-   요청 모델명은 관리 데이터이며 업무 코드에 고정하지 않는다.
-2. **서버 Codex 설정 불러오기**로 사전 검사된 실행기를 확인하고 배포·생성 프로파일을 저장한다.
-   제어·답변·문맥 프롬프트는 읽기 전용이다. 온도는 CLI에 전달하지 않으며,
-   출력 수락 한도는 제공자 과금 상한을 보장하지 않는다.
-3. 현재 설치·지식 공간의 외부 전송 정책을 확인하고 `/admin/rag/configurations`에서
-   호환되는 색인·검색·생성 조합과 대상 공간, 정확한 고지 동의를 저장한다.
-   사전 검사를 통과한 Codex 초안은 연결 검사 전에도 저장할 수 있지만 사용 준비 완료는 아니다.
-4. 저장된 정확한 구성 카드에서 동의 후 **합성 입력으로 연결 검사**를 실행한다.
-   상태 조회는 모델을 호출하지 않는다. 구성 목록을 다시 불러와 서버의 준비 상태를 확인한다.
-   연결 성공은 빈 근거의 형식·통신 검사이며 검색 평가나 실제 답변 품질의 통과가 아니다.
-5. 사용할 공개·합성 자료만 관리자 모델 화면에서 정확한 문서 버전·SHA-256을 확인해 승인한다.
-   비공개 사용자 문서는 자동 승인하지 않는다. 승인 복구 변경(ADR-0024)을 적용한 환경에서는
-   같은 문서 버전을 다시 승인할 수 있고 취소 이력은 보존된다. 변경 전 환경은 여전히 재승인 불가다.
-6. 실제 색인·근거 기반 평가를 통과한 정확한 구성만 기존 도메인에 연결한다.
-   `/workshop/rag/search`에서 도메인을 선택하고 질문과 포함된 이력의 분류·전송에 매번 동의한다.
-   요청 모델과 실제 관측 모델은 별도이며, 관측되지 않았다면 `미확인`으로 유지한다.
-
-검증 자료도 평가 스냅샷·승인 이력에 남는다. 현재 완전 삭제 UI가 없으므로 임시 업로드 후
-완전 삭제를 약속하지 말고 보관 범위를 먼저 승인받는다. 실제 검증 현황과 남은 게이트는
-[연결 진행 기록](../worklogs/2026-09-09-codex-rag-activation.md)을 따른다.
-
-모델 호출을 포함한 수동 평가를 시작하기 전에 **평가를 실행할 프로세스의 외부 연결 권한**을
-확인한다. 백엔드의 연결 검사 성공을 다른 실행 프로세스의 연결 성공으로 간주하지 않는다.
-작업 도구의 제한된 실행 환경에서는 같은 CLI·설정으로 버전 확인이 성공해도 외부 TLS 연결이
-Windows 오류 `10013`으로 거절될 수 있다. 먼저 모델 요청·인증 정보 전송 없는 연결 점검으로
-실행 권한 차이를 확인하고, 모델 평가는 승인된 원래 서버·worker 실행 경로에서 수행한다.
-수동 실행이 필요한 경우에도 해당 실행 권한과 호출 상한을 별도로 확인한다.
-runner의 보안 설정이나 전송 승인, 모델을 바꾸어 연결 차이를 숨기지 않는다.
-실패한 평가를 덮어쓰거나 자동 재전송하지 않으며, 웹 사용 검증은 정상 브라우저 요청으로
-답변·인용·저장·새로고침 복원까지 확인한다. 과거 실행이 상세 process failure를 기록하지
-않았다면 새 연결 점검만으로 그 실행의 정확한 실패 사유를 확정하지 않는다.
+**2026-10-14 지원 종료:** RAG의 Codex CLI 신규 설정·문서 전송 동의·연결 검사·질문 실행 UI를 제공하지 않는다.
+HTTP/Ollama 설정은 아래 Deployment Registry 안내를 따른다. 과거 Codex 배포·프로파일·구성·답변·감사 기록의 조회 호환성과 기존 데이터는 보존한다.
+이 결정은 저장소 개발에 사용하는 Codex 도구, AGENTS.md 및 프로젝트 개발 에이전트 절차에는 적용하지 않는다.
+과거 설정·검증 경위는 [연결 진행 기록](../worklogs/2026-09-09-codex-rag-activation.md)에 보존하며 현재 실행 절차로 사용하지 않는다.
 
 ### 문서 전송 승인 복구 적용
 
@@ -713,7 +801,7 @@ Learning 1단계는 `0024_learning_records`에서 사용자별 현재 기록과 
 Windows에서는 저장소 루트에서 기존 `.env`를 사용해 현재 버전을 먼저 확인한다.
 
 ```powershell
-backend/.venv/Scripts/python.exe -c "import asyncio; asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()); from alembic.config import main; main(argv=['-c','backend/alembic.ini','current'])"
+& $workshopPython -c "import asyncio; asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()); from alembic.config import main; main(argv=['-c','backend/alembic.ini','current'])"
 ```
 
 개발 DB 반영이 승인되고 현재 버전이 `0023_rag_domains`인지 확인된 경우에만 같은 루트에서
@@ -721,15 +809,15 @@ backend/.venv/Scripts/python.exe -c "import asyncio; asyncio.set_event_loop_poli
 복구 수단으로 실행하지 않는다. 적용 뒤 current와 기존 서비스 응답을 다시 확인한다.
 
 ```powershell
-backend/.venv/Scripts/python.exe -c "import asyncio; asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()); from alembic.config import main; main(argv=['-c','backend/alembic.ini','upgrade','0024_learning_records'])"
+& $workshopPython -c "import asyncio; asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()); from alembic.config import main; main(argv=['-c','backend/alembic.ini','upgrade','0024_learning_records'])"
 ```
 
 단위·계약 검사는 외부 모델 없이 실행한다. DB 검사는 `learning_support.py`가 생성하고 정확한
 이름을 검증한 `ai_workshop_learning_<UUID>` 전용 DB만 사용한다. 개발 DB를 truncate/reset하지 않는다.
 
 ```powershell
-backend/.venv/Scripts/python.exe -m pytest -c backend/pyproject.toml backend/tests/unit/platform/learning backend/tests/contract/test_learning_api.py -q
-backend/.venv/Scripts/python.exe -m pytest -c backend/pyproject.toml backend/tests/integration/test_learning_persistence.py backend/tests/integration/test_migration_0024_learning_records.py backend/tests/integration/test_learning_lifecycle.py -q -m integration
+& $workshopPython -m pytest -c backend/pyproject.toml backend/tests/unit/platform/learning backend/tests/contract/test_learning_api.py -q
+& $workshopPython -m pytest -c backend/pyproject.toml backend/tests/integration/test_learning_persistence.py backend/tests/integration/test_migration_0024_learning_records.py backend/tests/integration/test_learning_lifecycle.py -q -m integration
 pnpm --dir frontend test --run src/features/learning 'src/app/(workspace)/workshop/learning' src/features/navigation src/shared/routing/routes.test.ts --pool=threads --maxWorkers=1 --reporter=verbose
 ```
 
@@ -749,9 +837,9 @@ DB lifecycle은 실제 API·서비스·SQL 저장과 RAG 참조 권한을 검증
 관리자 UI·게시 API·공개 저장소는 아직 연결하지 않았다. `backend`에서 다음을 실행한다.
 
 ```powershell
-.venv/Scripts/python.exe -m pytest tests/unit/platform/publishing -q
-.venv/Scripts/python.exe -m ruff check src/ai_workshop/platform/publishing tests/unit/platform/publishing
-.venv/Scripts/python.exe -m mypy src/ai_workshop/platform/publishing
+& $workshopPython -m pytest tests/unit/platform/publishing -q
+& $workshopPython -m ruff check src/ai_workshop/platform/publishing tests/unit/platform/publishing
+& $workshopPython -m mypy src/ai_workshop/platform/publishing
 ```
 
 이 검사는 DB·모델·실제 인증 키가 필요 없다. 전체 unit/contract 검사는 기존 인증 Settings를
@@ -776,11 +864,16 @@ uv run alembic check
 
 cd ..\frontend
 pnpm test --run
+pnpm test:runtime
 pnpm typecheck
 pnpm lint
 pnpm build
 pnpm api:check
 ```
+
+`test:runtime`은 Windows 로컬 Python 선택과 OpenAPI 실행 경계의 Node 전용
+`node:test` 두 파일을 module mock으로 검증한다. 이 두 파일은 Vitest 수집에서 분리하며,
+UI 단위 테스트와 함께 별도로 실행한다. 실제 Python 서비스·모델을 시작하지 않는다.
 
 백엔드 이미지를 변경했으면 build check와 실제 image footprint 회귀 검사를 함께 실행한다.
 Core는 512 MiB, embedding API는 2 GiB, OCR worker는 4 GiB 이하를 요구한다. 세 운영 target은
@@ -940,7 +1033,7 @@ $env:AI_WORKSHOP_PDF_OCR_ACTUAL_SMOKE='1'
 $env:HF_HUB_OFFLINE='1'
 $env:TRANSFORMERS_OFFLINE='1'
 $env:PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK='True'
-.\.venv\Scripts\python.exe -m pytest tests/integration/labs/rag/ocr/test_scanned_pdf_smoke.py -q
+& $workshopPython -m pytest tests/integration/labs/rag/ocr/test_scanned_pdf_smoke.py -q
 ```
 
 `pdf_processing_limit_exceeded`는 입력 분할 또는 제한 프로파일 재평가가 필요하다.
@@ -954,7 +1047,7 @@ $env:PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK='True'
 
 ```powershell
 $env:AI_WORKSHOP_MIXED_PDF_ACTUAL_SMOKE='1'
-backend\.venv\Scripts\python.exe -m pytest -c backend/pyproject.toml backend/tests/e2e/test_rag_mixed_pdf_actual.py -q --tb=short
+& $workshopPython -m pytest -c backend/pyproject.toml backend/tests/e2e/test_rag_mixed_pdf_actual.py -q --tb=short
 ```
 
 기본 모드는 실제 OCR·E5·Elasticsearch와 API를 사용하고 worker workflow를 직접 실행한다.
@@ -1103,12 +1196,12 @@ configure_windows_selector_policy()
 from alembic.config import Config
 from alembic import command
 command.upgrade(Config('backend/alembic.ini'), '0053_issue_numbers')
-'@ | backend/.venv/Scripts/python.exe -
+'@ | & $workshopPython -
 # 기본값은 파일 사전검사만 하는 dry-run이다.
-backend/.venv/Scripts/python.exe backend/tools/import_issue_history.py
+& $workshopPython backend/tools/import_issue_history.py
 # 기존 active owner가 하나면 자동 선택. 여러 명이면 --actor-id UUID를 명시한다.
-backend/.venv/Scripts/python.exe backend/tools/import_issue_history.py --apply
-backend/.venv/Scripts/python.exe backend/tools/import_issue_history.py --verify
+& $workshopPython backend/tools/import_issue_history.py --apply
+& $workshopPython backend/tools/import_issue_history.py --verify
 ```
 
 같은 입력의 재실행은 무변경, 변경된 입력은 충돌이다. `--verify`는 최초 전환 시점의
@@ -1120,7 +1213,7 @@ backend/.venv/Scripts/python.exe backend/tools/import_issue_history.py --verify
 ```powershell
 # 외부 트랜잭션으로 모든 시험 쓰기를 롤백한다. 기존 owner와 migration0053이 필요하다.
 $env:AI_WORKSHOP_VERIFY_ORIGINAL_ISSUES='1'
-backend/.venv/Scripts/python.exe -m pytest -c backend/pyproject.toml backend/tests/integration/platform/issue_history -q
+& $workshopPython -m pytest -c backend/pyproject.toml backend/tests/integration/platform/issue_history -q
 Remove-Item Env:AI_WORKSHOP_VERIFY_ORIGINAL_ISSUES
 ```
 
@@ -1153,7 +1246,7 @@ AI_WORKSHOP_SESSION_LIFETIME_MINUTES는 새 로그인 JWT와 세션 쿠키의 �
 Set-Location C:\projects\ai-workshop\backend
 $env:AI_WORKSHOP_VERIFY_ORIGINAL_NUMERIC_PROOF = '1'
 try {
-    .venv\Scripts\python.exe -m pytest tests/integration/labs/rag/evaluation/test_original_numeric_proof.py -q --assert=plain --tb=short
+    & $workshopPython -m pytest tests/integration/labs/rag/evaluation/test_original_numeric_proof.py -q --assert=plain --tb=short
 }
 finally {
     Remove-Item Env:AI_WORKSHOP_VERIFY_ORIGINAL_NUMERIC_PROOF -ErrorAction SilentlyContinue

@@ -1,11 +1,50 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, vi } from "vitest";
 import { ModelLabPage } from "./ModelLabPage";
 
 afterEach(() => vi.unstubAllGlobals());
 
-const labels = ["현재 구성 확인", "모델·실행 환경 설정", "처리·검색·답변 구성", "데이터 사용 범위·승인", "연결 검사·사용 준비"];
+it("focuses on one registration task while keeping model, deployment and YAML drafts", async () => {
+  const fetcher = metadata(); const user = userEvent.setup();
+  render(<ModelLabPage />);
+  expect(screen.getByRole("link", { name: "저장 구성에서 연결 검사하기" })).toHaveAttribute("href", "/admin/rag/configurations");
+  await user.click(screen.getByRole("tab", { name: "모델 연결" }));
+  await user.click(screen.getByText("고급 모델 정의 JSON 등록"));
+  expect(screen.queryByRole("textbox", { name: "LLM 정의 이름" })).not.toBeInTheDocument();
+  fireEvent.change(screen.getByRole("textbox", { name: "이름" }), { target: { value: "model-draft" } });
+  await user.click(screen.getByRole("radio", { name: "실행 배포 등록" }));
+  expect(screen.queryByRole("textbox", { name: "이름" })).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "HTTP/Ollama 배포 등록" })).toBeVisible();
+  fireEvent.change(screen.getByRole("textbox", { name: "HTTP 배포 이름" }), { target: { value: "deployment-draft" } });
+  await user.click(screen.getByRole("radio", { name: "모델 정의 등록" }));
+  expect(screen.getByRole("textbox", { name: "이름" })).toHaveValue("model-draft");
+  await user.click(screen.getByRole("radio", { name: "실행 배포 등록" }));
+  expect(screen.getByRole("textbox", { name: "HTTP 배포 이름" })).toHaveValue("deployment-draft");
+  await user.click(screen.getByRole("tab", { name: "처리 설정" }));
+  await user.click(screen.getByRole("radio", { name: "YAML로 등록 · 고급" }));
+  await user.click(screen.getByText("고급 프로파일 YAML 등록"));
+  const yaml = screen.getByRole("textbox", { name: "프로파일 YAML" });
+  fireEvent.change(yaml, { target: { value: "name: profile-draft" } });
+  await user.click(screen.getByRole("radio", { name: "답변 생성 설정" }));
+  expect(screen.queryByRole("textbox", { name: "프로파일 YAML" })).not.toBeInTheDocument();
+  await user.click(screen.getByRole("tab", { name: "등록 현황" }));
+  await user.click(screen.getByRole("tab", { name: "처리 설정" }));
+  await user.click(screen.getByRole("radio", { name: "YAML로 등록 · 고급" }));
+  expect(screen.getByRole("textbox", { name: "프로파일 YAML" })).toHaveValue("name: profile-draft");
+  expect(fetcher).toHaveBeenCalledTimes(3);
+}, 15000);
+
+it("opens a task from the overview and moves keyboard focus to its selected tab", async () => {
+  const fetcher = metadata(); const user = userEvent.setup();
+  render(<ModelLabPage />);
+  await user.click(screen.getByRole("button", { name: "처리 설정 작업 열기" }));
+  expect(screen.getByRole("tab", { name: "처리 설정" })).toHaveFocus();
+  expect(screen.getByRole("radio", { name: "등록 프로파일 확인" })).toBeChecked();
+  expect(fetcher).toHaveBeenCalledTimes(3);
+});
+
+const labels = ["등록 현황", "모델 연결", "처리 설정", "데이터 정책"];
 function metadata() {
   const fetcher = vi.fn(async (input: RequestInfo | URL) => {
     if (input === "/api/v1/admin/rag/deployments" || input === "/api/v1/workspaces") return Response.json([]);
@@ -22,6 +61,7 @@ it("starts with read-only registered metadata and follows the ordered keyboard t
   render(<ModelLabPage />);
   expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(labels);
   expect(screen.getByRole("tabpanel", { name: labels[0] })).toBeVisible();
+  expect(screen.getByRole("link", { name: "저장 구성에서 연결 검사하기" })).toHaveAttribute("href", "/admin/rag/configurations");
   expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /등록|정책 저장|상태 확인/ })).not.toBeInTheDocument();
   screen.getByRole("tab", { name: labels[0] }).focus();
@@ -29,10 +69,9 @@ it("starts with read-only registered metadata and follows the ordered keyboard t
   expect(screen.getByRole("tab", { name: labels[1] })).toHaveFocus();
   expect(screen.getByRole("tabpanel", { name: labels[1] })).toBeVisible();
   await user.keyboard("{End}");
-  expect(screen.getByRole("tab", { name: labels[4] })).toHaveFocus();
-  expect(screen.getByRole("link", { name: "저장 구성에서 연결 검사하기" })).toHaveAttribute("href", "/admin/rag/configurations");
+  expect(screen.getByRole("tab", { name: labels[3] })).toHaveFocus();
   await user.keyboard("{Home}{ArrowLeft}");
-  expect(screen.getByRole("tab", { name: labels[4] })).toHaveFocus();
+  expect(screen.getByRole("tab", { name: labels[3] })).toHaveFocus();
   expect(fetcher.mock.calls.map(([url]) => url).every((url) => !String(url).includes("codex"))).toBe(true);
 });
 
@@ -70,8 +109,8 @@ it("shows actual document-processing data before indexing, retrieval and generat
   await user.click(screen.getByRole("tab", { name: labels[2] }));
   const panel = screen.getByRole("tabpanel", { name: labels[2] });
   expect(within(panel).getByText("synthetic-processing")).toBeVisible();
-  expect(within(panel).getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual(["문서 처리 프로파일", "색인 프로파일", "검색 프로파일", "생성 프로파일", "HTTP 생성 프로파일"]);
-  expect(screen.getByRole("textbox", { name: "프로파일 YAML" })).not.toBeVisible();
+  expect(within(panel).getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual(["문서 처리 프로파일", "색인 프로파일", "검색 프로파일", "생성 프로파일"]);
+  expect(screen.queryByRole("textbox", { name: "프로파일 YAML" })).not.toBeInTheDocument();
 });
 
 it("keeps historical Codex metadata visible without setup, consent or runner entry points", async () => {
@@ -92,6 +131,7 @@ it("keeps historical Codex metadata visible without setup, consent or runner ent
   });
   const user = userEvent.setup();
   render(<ModelLabPage />);
+  await user.click(screen.getByText(/실행 배포와 과거 기록/));
   expect(await within(screen.getByRole("tabpanel", { name: labels[0] })).findByText("Synthetic Codex")).toBeVisible();
   for (const label of labels.slice(1)) {
     await user.click(screen.getByRole("tab", { name: label }));
@@ -108,9 +148,11 @@ it("offers HTTP registration and generation without loading Codex or mutating on
   const user = userEvent.setup();
   render(<ModelLabPage />);
   await user.click(screen.getByRole("tab", { name: labels[1] }));
+  await user.click(screen.getByRole("radio", { name: "실행 배포 등록" }));
   expect(await screen.findByRole("heading", { name: "HTTP/Ollama 배포 등록" })).toBeVisible();
   expect(screen.queryByText(/HTTP 배포 신규 등록 폼은 제공하지 않습니다/)).not.toBeInTheDocument();
   await user.click(screen.getByRole("tab", { name: labels[2] }));
+  await user.click(screen.getByRole("radio", { name: "답변 생성 설정" }));
   expect(screen.getByRole("heading", { name: "HTTP 생성 프로파일" })).toBeVisible();
   expect(fetcher).toHaveBeenCalledTimes(3);
 });

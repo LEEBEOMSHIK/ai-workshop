@@ -9,6 +9,12 @@ from datetime import UTC, datetime
 from time import perf_counter
 from uuid import UUID
 
+from ai_workshop.labs.rag.executions.agent_trace import (
+    AgentTrace,
+    AgentTraceRecorder,
+    storage_agent_trace,
+)
+from ai_workshop.labs.rag.executions.contextualization import ContextualizationObservation
 from ai_workshop.labs.rag.executions.domain import (
     STAGES,
     ExecutionIdentity,
@@ -19,6 +25,8 @@ from ai_workshop.labs.rag.executions.domain import (
     StageObservation,
     StageState,
 )
+from ai_workshop.labs.rag.executions.history_selection import HistorySelectionObservation
+from ai_workshop.labs.rag.executions.operation_timings import OperationTimings
 
 logger = logging.getLogger(__name__)
 current_observer: ContextVar[ExecutionObserver | None] = ContextVar("rag_execution", default=None)
@@ -35,6 +43,16 @@ class ExecutionObserver:
         self.selected_evidence_ids: tuple[UUID, ...] = ()
         self.started: dict[StageName, tuple[datetime, float]] = {}
         self.done: set[StageName] = set()
+        self._operations: dict[StageName, OperationTimings] = {}
+        self._finished = False
+        self.history_selection: HistorySelectionObservation | None = None
+        self.contextualization: ContextualizationObservation | None = None
+
+    def operation_timings(self) -> OperationTimings | None:
+        if self._finished or self.active is None:
+            return None
+        collector = self._operations.get(self.active)
+        return collector if collector is not None and not collector.closed else None
 
     async def _write(self, operation: Callable[[], Awaitable[None]]) -> None:
         try:
@@ -52,13 +70,34 @@ class ExecutionObserver:
         if self.complete:
             self.persisted_id = self.identity.execution_id
 
+    async def record_agent_trace(self, value: AgentTrace) -> None:
+        async def write() -> None:
+            if not isinstance(self.recorder, AgentTraceRecorder):
+                raise ValueError("Agent trace recorder unavailable")
+            await self.recorder.record_agent_trace(
+                self.identity.execution_id, storage_agent_trace(value),
+            )
+
+        if not value.observation_complete:
+            self.complete = False
+        await self._write(write)
+
     async def begin(self, stage: StageName) -> None:
+        if self._finished:
+            return
+        previous = self._operations.get(stage)
+        if previous is not None:
+            previous.closed = True
+        self._operations[stage] = OperationTimings()
+        self.done.discard(stage)
         self.active = stage
         self.started[stage] = datetime.now(UTC), perf_counter()
         await self._write(
             lambda: self.recorder.record(
                 self.identity.execution_id,
-                StageObservation(stage=stage, state="running", started_at=self.started[stage][0]),
+                StageObservation(
+                    stage=stage, state="running", started_at=self.started[stage][0], operations=[],
+                ),
             )
         )
 
@@ -71,11 +110,20 @@ class ExecutionObserver:
         selection: SelectionObservation | None = None,
     ) -> None:
         started = self.started.get(stage)
+        collector = self._operations.get(stage)
+        try:
+            operations = collector.close() if collector is not None else []
+        except Exception:
+            self.complete = False
+            operations = None
         observation = StageObservation(
             stage=stage,
             state=state,
             reason=reason,
             selection=selection,
+            operations=operations,
+            history_selection=self.history_selection if stage == "request" else None,
+            contextualization=self.contextualization if stage == "contextualization" else None,
             started_at=started[0] if started else None,
             ended_at=datetime.now(UTC),
             duration_ms=(perf_counter() - started[1]) * 1000 if started else None,
@@ -92,6 +140,9 @@ class ExecutionObserver:
             await self.end(self.active, state="failed", reason=code)
 
     async def finish(self, outcome: ExecutionOutcome) -> None:
+        self._finished = True
+        for collector in self._operations.values():
+            collector.closed = True
         for stage in STAGES:
             if stage not in self.done:
                 await self.end(stage, state="skipped", reason="not_executed")
@@ -150,3 +201,12 @@ async def capture_selection(factory: Callable[[], SelectionObservation]) -> None
         await observer.end("selection", selection=factory())
 
     await observer._write(capture)
+
+
+async def capture_history_selection(factory: Callable[[], HistorySelectionObservation]) -> None:
+    observer = current_observer.get()
+    if observer is not None:
+        async def capture() -> None:
+            observer.history_selection = factory()
+
+        await observer._write(capture)

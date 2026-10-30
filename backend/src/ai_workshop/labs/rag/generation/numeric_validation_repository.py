@@ -3,7 +3,7 @@
 from collections.abc import Mapping
 from uuid import UUID, uuid4
 
-from sqlalchemy import select, text
+from sqlalchemy import Select, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_workshop.labs.rag.documents.models import (
@@ -30,6 +30,34 @@ from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecor
 from ai_workshop.platform.workspaces.models import WorkspaceRecord
 from ai_workshop.platform.workspaces.permissions import workspace_read_allowed
 from ai_workshop.shared.errors import AppError
+
+_SOURCE_BATCH_SIZE = 64
+type _SourcePosition = tuple[UUID, UUID, UUID, int | None, int, int, UUID, UUID, UUID]
+
+
+def _source_query(actor_id: UUID) -> Select[_SourcePosition]:
+    # The source phases use separate fresh queries with the original SQL authority.
+    return (
+        select(
+            EvidenceUnitRecord.id, EvidenceUnitRecord.element_id,
+            EvidenceUnitRecord.retrieval_chunk_id, EvidenceUnitRecord.page,
+            EvidenceUnitRecord.char_start, EvidenceUnitRecord.char_end,
+            RagProjectionRecord.id, AssetVersionRecord.id, DocumentRecord.id,
+        )
+        .select_from(EvidenceUnitRecord)
+        .join(RagProjectionRecord, RagProjectionRecord.id == EvidenceUnitRecord.projection_id)
+        .join(AssetVersionRecord, AssetVersionRecord.id == RagProjectionRecord.asset_version_id)
+        .join(DocumentRecord, DocumentRecord.id == AssetVersionRecord.document_id)
+        .join(WorkspaceRecord, WorkspaceRecord.id == DocumentRecord.workspace_id)
+        .join(RagIndexBuildRecord, RagIndexBuildRecord.projection_id == RagProjectionRecord.id)
+        .where(
+            RagProjectionRecord.status == "ready",
+            AssetVersionRecord.status == "ready",
+            DocumentRecord.lifecycle == "active",
+            RagIndexBuildRecord.status == "ready",
+            workspace_read_allowed(actor_id),
+        )
+    )
 
 
 def invalid() -> AppError:
@@ -229,74 +257,46 @@ class SqlAlchemyNumericValidationRepository:
         for claim in payload.claims:
             if any(identity not in expected.evidence_ids for identity in claim.evidence_ids):
                 raise invalid()
-            for identity in claim.evidence_ids:
-                found = await self.session.scalar(
-                    select(EvidenceUnitRecord.id)
-                    .join(
-                        RagProjectionRecord,
-                        RagProjectionRecord.id == EvidenceUnitRecord.projection_id,
-                    )
-                    .join(
-                        AssetVersionRecord,
-                        AssetVersionRecord.id == RagProjectionRecord.asset_version_id,
-                    )
-                    .join(DocumentRecord, DocumentRecord.id == AssetVersionRecord.document_id)
-                    .join(WorkspaceRecord, WorkspaceRecord.id == DocumentRecord.workspace_id)
-                    .join(
-                        RagIndexBuildRecord,
-                        RagIndexBuildRecord.projection_id == RagProjectionRecord.id,
-                    )
-                    .where(
-                        EvidenceUnitRecord.id == identity,
-                        RagProjectionRecord.status == "ready",
-                        AssetVersionRecord.status == "ready",
-                        DocumentRecord.lifecycle == "active",
-                        RagIndexBuildRecord.status == "ready",
-                        workspace_read_allowed(expected.actor_id),
-                    )
+            identities = list(dict.fromkeys(claim.evidence_ids))
+            for offset in range(0, len(identities), _SOURCE_BATCH_SIZE):
+                selected = set(identities[offset:offset + _SOURCE_BATCH_SIZE])
+                rows = await self.session.execute(
+                    _source_query(expected.actor_id)
+                    .with_only_columns(EvidenceUnitRecord.id)
+                    .where(EvidenceUnitRecord.id.in_(selected))
                 )
-                if found is None:
+                if {row[0] for row in rows.all()} != selected:
                     raise invalid()
             for proof in claim.calculations:
                 if proof.policy_ref != binding.policy_ref:
                     raise invalid()
-                for operand in proof.operands:
-                    if operand.evidence_id not in claim.evidence_ids:
+                for offset in range(0, len(proof.operands), _SOURCE_BATCH_SIZE):
+                    operands = proof.operands[offset:offset + _SOURCE_BATCH_SIZE]
+                    if any(operand.evidence_id not in claim.evidence_ids for operand in operands):
                         raise invalid()
-                    found = await self.session.scalar(
-                        select(EvidenceUnitRecord.id)
-                        .join(
-                            RagProjectionRecord,
-                            RagProjectionRecord.id == EvidenceUnitRecord.projection_id,
-                        )
-                        .join(
-                            AssetVersionRecord,
-                            AssetVersionRecord.id == RagProjectionRecord.asset_version_id,
-                        )
-                        .join(DocumentRecord, DocumentRecord.id == AssetVersionRecord.document_id)
-                        .join(WorkspaceRecord, WorkspaceRecord.id == DocumentRecord.workspace_id)
-                        .join(
-                            RagIndexBuildRecord,
-                            RagIndexBuildRecord.projection_id == RagProjectionRecord.id,
-                        )
-                        .where(
-                            EvidenceUnitRecord.id == operand.evidence_id,
-                            EvidenceUnitRecord.element_id == operand.element_id,
-                            EvidenceUnitRecord.retrieval_chunk_id == operand.chunk_id,
-                            EvidenceUnitRecord.char_start + operand.token_start
-                            == operand.char_start,
-                            EvidenceUnitRecord.char_start + operand.token_end == operand.char_end,
-                            EvidenceUnitRecord.char_end >= operand.char_end,
-                            EvidenceUnitRecord.page.is_not_distinct_from(operand.page),
-                            RagProjectionRecord.id == operand.projection_id,
-                            RagProjectionRecord.status == "ready",
-                            AssetVersionRecord.id == operand.asset_version_id,
-                            AssetVersionRecord.status == "ready",
-                            DocumentRecord.id == operand.document_id,
-                            DocumentRecord.lifecycle == "active",
-                            RagIndexBuildRecord.status == "ready",
-                            workspace_read_allowed(expected.actor_id),
-                        )
+                    selected = {operand.evidence_id for operand in operands}
+                    result = await self.session.execute(
+                        _source_query(expected.actor_id)
+                        .where(EvidenceUnitRecord.id.in_(selected))
                     )
-                    if found is None:
+                    source_rows = {tuple(row) for row in result.all()}
+                    if (
+                        len(source_rows) != len(selected)
+                        or {row[0] for row in source_rows} != selected
+                    ):
                         raise invalid()
+                    sources = {row[0]: row for row in source_rows}
+                    for operand in operands:
+                        row = sources[operand.evidence_id]
+                        if (
+                            row[1] != operand.element_id
+                            or row[2] != operand.chunk_id
+                            or row[3] != operand.page
+                            or row[4] + operand.token_start != operand.char_start
+                            or row[4] + operand.token_end != operand.char_end
+                            or row[5] < operand.char_end
+                            or row[6] != operand.projection_id
+                            or row[7] != operand.asset_version_id
+                            or row[8] != operand.document_id
+                        ):
+                            raise invalid()

@@ -16,10 +16,12 @@
     "lint": "eslint . --max-warnings 0",
     "test": "vitest",
     "test:runtime": "node --experimental-test-module-mocks --test tests/local-python-runtime.test.mjs tests/openapi-runtime-selection.test.mjs",
+    "test:styles": "node --test tests/ui-style/design-tokens.test.mjs",
     "test:office": "playwright test --config playwright.office.config.ts",
     "typecheck": "tsc --noEmit --pretty false"
   },
   "dependencies": {
+    "@mermaid-js/tiny": "12.2.0",
     "@next/env": "16.3.4",
     "next": "16.3.4",
     "phaser": "4.2.1",

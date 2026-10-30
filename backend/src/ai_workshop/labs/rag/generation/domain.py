@@ -18,9 +18,14 @@ from ai_workshop.labs.rag.generation.numeric_proof_types import (
 )
 from ai_workshop.labs.rag.models.context_evidence import EvidenceBudget
 from ai_workshop.labs.rag.models.numeric_proof_policy import NumericProofPolicy
+from ai_workshop.labs.rag.models.orchestration_policy import (
+    OrchestrationPolicy,
+    supports_orchestration_binding,
+)
+from ai_workshop.labs.rag.models.provider_policy import SamplingMode, validate_provider_sampling
 
 type ExternalGenerationDisclosureVersion = Literal[
-    "external-generation-v1", "codex-external-generation-v1"
+    "external-generation-v1", "codex-external-generation-v1", "anthropic-generation-v1"
 ]
 type NonExternalGenerationDisclosureVersion = Literal[
     "local-generation-v1", "on-premise-generation-v1"
@@ -34,6 +39,9 @@ EXTERNAL_GENERATION_DISCLOSURE_VERSION: ExternalGenerationDisclosureVersion = (
 )
 CODEX_GENERATION_DISCLOSURE_VERSION: ExternalGenerationDisclosureVersion = (
     "codex-external-generation-v1"
+)
+ANTHROPIC_GENERATION_DISCLOSURE_VERSION: ExternalGenerationDisclosureVersion = (
+    "anthropic-generation-v1"
 )
 
 _DISCLOSURES: dict[ExecutionLocation, tuple[GenerationDisclosureVersion, str]] = {
@@ -152,6 +160,8 @@ class GenerationProfile:
     evidence_budget: EvidenceBudget | None = None
     numeric_proof_policy: NumericProofPolicy | None = None
     answer_reasoning_effort: Literal["none"] | None = None
+    orchestration: OrchestrationPolicy | None = None
+    sampling_mode: SamplingMode = "explicit"
 
     def __post_init__(self) -> None:
         string_fields = (
@@ -174,12 +184,33 @@ class GenerationProfile:
             raise ValueError("Generation temperature must be between zero and two.")
         if self.response_schema_version < 1:
             raise ValueError("Generation response schema version must be positive.")
-        if self.prompt_ref == "rag-answer-v5" and (
+        validate_provider_sampling(
+            self.deployment, self.sampling_mode, self.temperature, self.response_schema_version,
+        )
+        if (
+            self.deployment is not None
+            and self.deployment.provider is ProviderKind.ANTHROPIC_MESSAGES
+            and (self.prompt_ref != "rag-answer-v1"
+                 or self.context_prompt_ref != "rag-contextualize-v1"
+                 or self.evidence_budget is not None or self.numeric_proof_policy is not None
+                 or self.orchestration is not None or self.answer_reasoning_effort is not None)
+        ):
+            raise ValueError("Unsupported Anthropic generation profile settings.")
+        if self.orchestration is not None and not supports_orchestration_binding(
+            self.deployment, self.response_schema_version,
+        ):
+            raise ValueError("Agent orchestration requires local HTTP schema2 and zero retries.")
+        if self.prompt_ref in {"rag-answer-v5", "rag-answer-v6"} and (
             self.deployment is None
             or self.deployment.provider is not ProviderKind.LOCAL_OPENAI_COMPATIBLE
             or self.deployment.location is not ExecutionLocation.LOCAL
         ):
             raise ValueError("The compact answer prompt requires a local HTTP deployment.")
+        if self.prompt_ref == "rag-answer-v6" and (
+            self.response_schema_version != 2 or self.evidence_budget is None
+            or self.evidence_budget.max_units > 200
+        ):
+            raise ValueError("The reference answer prompt requires schema2 and at most 200 units.")
         if self.answer_reasoning_effort is not None and (
             type(self.answer_reasoning_effort) is not str
             or self.answer_reasoning_effort != "none"
@@ -307,6 +338,15 @@ def generation_execution_snapshot(
 def generation_disclosure(
     deployment: ModelDeploymentVersion,
 ) -> GenerationDisclosure:
+    if deployment.provider is ProviderKind.ANTHROPIC_MESSAGES:
+        return GenerationDisclosure(
+            required=True, version=ANTHROPIC_GENERATION_DISCLOSURE_VERSION,
+            text=(
+                "Anthropic 외부 API로 현재 질문, 제한된 이전 대화와 "
+                "선별된 문서 근거가 전송됩니다."
+            ),
+            transmitted_data_categories=deployment.transmitted_data_categories,
+        )
     if deployment.provider is ProviderKind.DEVELOPMENT_CODEX_EXEC:
         return GenerationDisclosure(
             required=True,

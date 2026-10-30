@@ -53,7 +53,7 @@ class ModelDeploymentVersionRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         CheckConstraint("version > 0", name="ck_rag_deployment_versions_positive"),
         CheckConstraint(
             "provider IN ('local_openai_compatible', 'local_transformers', "
-            "'openai_responses', 'development_codex_exec')",
+            "'openai_responses', 'development_codex_exec', 'anthropic_messages')",
             name="ck_rag_deployment_versions_provider",
         ),
         CheckConstraint(
@@ -62,7 +62,7 @@ class ModelDeploymentVersionRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "AND local_model_ref IS NULL) OR "
             "(provider = 'local_transformers' AND endpoint_ref IS NULL "
             "AND runner_ref IS NULL AND local_model_ref IS NOT NULL) OR "
-            "(provider IN ('local_openai_compatible', 'openai_responses') "
+            "(provider IN ('local_openai_compatible', 'openai_responses', 'anthropic_messages') "
             "AND endpoint_ref IS NOT NULL AND btrim(endpoint_ref) <> '' "
             "AND runner_ref IS NULL AND local_model_ref IS NULL)",
             name="ck_rag_deployment_versions_execution_reference",
@@ -80,6 +80,14 @@ class ModelDeploymentVersionRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "AND transmitted_data_categories::jsonb = '[]'::jsonb "
             "AND data_processing_notice_ref IS NULL)",
             name="ck_rag_deployment_versions_local_transformers_contract",
+        ),
+        CheckConstraint(
+            "provider <> 'anthropic_messages' OR (external_transfer "
+            "AND location = 'external' AND secret_ref IS NOT NULL AND btrim(secret_ref) <> '' "
+            "AND jsonb_array_length(transmitted_data_categories::jsonb) > 0 "
+            "AND data_processing_notice_ref IS NOT NULL "
+            "AND btrim(data_processing_notice_ref) <> '')",
+            name="ck_rag_deployment_versions_anthropic_contract",
         ),
         CheckConstraint(
             "runner_ref IS NULL OR ("

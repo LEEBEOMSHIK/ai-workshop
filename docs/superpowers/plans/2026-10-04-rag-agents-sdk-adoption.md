@@ -11,9 +11,12 @@
 **Spec:** [RAG 설계 — 에이전트 조직](../../labs/rag/design.md#10-rag-에이전트-조직), [시스템 에이전트 실행 원칙](../../architecture/system-design.md#7-에이전트-실행-원칙).
 
 - 등록일: 2026-10-04
-- 상태: 사용자 요청으로 다음 작업에 등록. 도입 준비·방향 정리 완료, 구현·설치·활성화 미착수.
+- 2026-10-23 구현·오프라인 검증 완료: [ADR-0039](../../decisions/0039-rag-agents-sdk-monitoring.md)와 [구현 계획](2026-10-23-rag-agents-monitoring.md)에 따라 선택형 SDK 실행·위임 모니터링·프로파일 선택 폼을 구현했다. SDK 의존성은 공식 해시 고정 delta로 기존 Conda에 설치했으며 수치 보호 파일을 보존했다. 실제 SDK Runner의 합성 HTTP 검증과 실 PostgreSQL rollback 검사는 통과했다. 실제 Gemma SDK 실행·로그인 관리자 흐름·화면 크기별 시각 검증은 남는다. [최종 결과와 한계](../../worklogs/2026-10-23-rag-agents-monitoring.md)를 따르며 아래 10월 22일 상태는 조사 당시 이력이다.
+- 상태: 2026-10-22 호환성 조사와 첫 후보 선정을 완료했다. Python SDK 0.24.0 + 로컬 Ollama/Gemma가 조건부 후보이며 PyJWT·urllib3 상향과 신규 의존성/어댑터 검증이 필요하다. 실제 SDK 실행 호환성은 미검증이다. 실행 계약·ADR, 구현·설치·활성화는 미착수다. [호환성·실익 보고서](../../worklogs/2026-10-22-rag-agents-sdk-compatibility.md).
 - 결정 소유자: 사용자 요구를 기준으로 메인 Codex가 구현 범위와 통합을 관리한다.
 - 이 문서는 도입 방향과 준비 작업의 인계 계획이다. SDK 세부 인터페이스·ADR·실행 가능한 구현 계획은 아래 준비 작업에서 확정한다.
+- 2026-10-22 사용자 범위 확정: Gemma 첫 실제 LLM 연동·RAG 입력/출력 검증은 완료로 마감했다. 추가 복구·품질 보강은 현재 범위에서 제외하며 SDK 준비의 선행 조건으로 요구하지 않는다. 기존 결과·자료·운영 보호 조건은 보존한다. [최신 완료 기준](../../worklogs/2026-10-22-rag-first-llm-milestone.md)이 아래 과거 작업 순서보다 우선한다.
+- 2026-10-21 재확인: RAG 기능 마감 다음의 작업은 **OpenAI Agents SDK 기반 서비스 RAG 조율 계층**이다. 호환성 조사·설계는 복구 작업과 병행할 수 있으나, SDK 설치나 운영 경로 전환을 뜻하지 않는다. 현재 환경·공식 문서·미검증 범위는 [후속 확인 기록](../../worklogs/2026-10-21-rag-agents-sdk-next-step.md)에 남긴다.
 
 ## 도입 목적과 구분
 
@@ -26,7 +29,7 @@
 ## Global Constraints
 
 - 기존 DB·계정·문서·세션·프로파일·활성 연결을 보존한다. 사용자 확인용 별도 환경·DB·계정을 만들지 않는다.
-- Python 환경 기준은 `>=3.13,<3.14`이며 현재 Windows ARM64와 기존 의존성의 호환성을 확인한다.
+- Python 환경 기준은 `>=3.13,<3.14`이며 승인된 `backend/.conda/python.exe`의 Windows AMD64 실행 환경과 기존 의존성의 호환성을 확인한다. 2026-10-21 확인값은 Python 3.13.16·`win-amd64`다. ARM64 전환 조사는 취소된 상태이며 호스트 아키텍처와 Python 실행 아키텍처를 혼동하지 않는다.
 - SDK 타입은 어댑터 내부에 둔다. Platform은 Labs/RAG 구현에 의존하지 않는다.
 - 기존 DB가 대화 이력의 정본이다. 매 요청의 현재 권한·범위·revision·외부 전송 승인에 맞는 이력만 SDK에 전달한다. SDK의 별도 자동 세션 저장소를 정본으로 추가하지 않는다.
 - 모델·endpoint·credential은 기존 Deployment와 Profile 계약을 따른다. Codex 로그인으로 Agents SDK의 API 인증을 대신할 수 있다고 가정하지 않는다.
@@ -61,14 +64,14 @@
 
 ## 준비 작업 1: 공식 SDK·현재 환경·모델 호환성 확인
 
-**Files:** 읽기 대상 `backend/pyproject.toml`, `backend/uv.lock`, `generation/contracts.py`, `generation/runtime_resolver.py`, `generation/openai_responses.py`, `generation/openai_compatible.py`와 `generation/codex_runtime.py`(모두 기존 RAG 경로). 산출물 `docs/worklogs/2026-10-04-rag-agents-sdk-compatibility.md`는 실제 조사를 시작할 때 생성한다.
+**Files:** 읽기 대상 `backend/pyproject.toml`, `backend/uv.lock`, `generation/contracts.py`, `generation/runtime_resolver.py`, `generation/openai_responses.py`, `generation/openai_compatible.py`와 `generation/codex_runtime.py`(모두 기존 RAG 경로). 산출물은 실제 조사일의 [2026-10-22 호환성 보고서](../../worklogs/2026-10-22-rag-agents-sdk-compatibility.md)다.
 
 **Interfaces:** 입력은 현재 의존성·Deployment/Profile 공개 계약·공식 SDK 문서. 출력은 버전 후보, provider별 지원 기능, 안전한 trace 설정, 로컬 실행 가능 여부와 지원하지 못하는 기능을 명시한 호환성 표다.
 
-- [ ] 공식 문서와 패키지 릴리스의 정확한 버전·Python/OS 요구·종속성을 확인하고 출처·확인일을 기록한다.
-- [ ] 현재 Provider마다 SDK 모델 어댑터·구조 출력·도구 호출·취소·usage를 지원하는지 판정한다. 개인 Codex exec 경로의 지원을 추정하지 않는다.
-- [ ] 외부 호출 없는 fake model로 실행 반복·전문 역할 도구 호출·구조 출력·실패·trace 비활성화를 확인할 검증 명령과 계약을 정한다. 본래 환경의 패키지 설치 전에 lock diff와 기존 의존성 보존 방법을 구체화한다.
-- [ ] 호환성 표를 독립 AI·보안 검토에 인계하고 도입 가능한 첫 provider와 남은 제한을 확정한다. 확인되지 않은 기능은 미검증으로 남긴다.
+- [x] 공식 SDK 0.24.0의 Python/OS·기본 의존성 12개를 현재 설치/lock과 대조했다. 5개 충족·2개 상향 필요·5개 미설치. 전체 전이 의존성 해석과 설치/import는 미실시다.
+- [x] 현재 Provider의 SDK 어댑터·구조 출력·도구 호출·취소·usage 접점을 표로 정리했다. 기존 Gemma 도구 capability는 확인했으나 SDK 왕복 성공은 미검증이며 Codex exec 지원을 추정하지 않는다.
+- [x] 외부 호출 없는 fake model 검증안·예정 파일/명령과 설치 전 lock/기존 의존성 보존 절차를 보고서에 정했다. 테스트 구현·실행은 다음 단계다.
+- [x] 독립 AI·데이터 전송 검토를 반영했다. 첫 후보는 명시적 Chat Completions 어댑터를 사용하는 로컬 Ollama/Gemma이며 외부 tracing 비활성·권한/이력/예산 보존이 필요하다.
 
 ## 준비 작업 2: 실행 계약·ADR·구현 작업 분할 확정
 
@@ -97,7 +100,7 @@ SDK 도입 완료와 효율 개선 입증은 별도 판정이다. 비교 항목�
 ## 검증·인계
 
 - 문서 준비 완료 검증: 로컬 상대 링크·정본 연결·차이 공백 검사·WORKBOARD 최근 완료 최대5개 확인.
-- 구현 검증 기본 명령(실행 위치 `backend`): `.venv/Scripts/python.exe -m pytest tests/unit/labs/rag/generation tests/unit/labs/rag/conversations tests/unit/labs/rag/executions -q`, `.venv/Scripts/python.exe -m ruff check src tests`, `.venv/Scripts/python.exe -m mypy src`.
+- 구현 검증 기본 명령: [Windows 도구용 표준 활성화](../../runbooks/local-development.md#windows-도구용-표준-활성화)에서 승인된 `backend/.conda/python.exe`를 `$workshopPython`으로 확인한 뒤, 실행 위치 `backend`에서 `& $workshopPython -m pytest tests/unit/labs/rag/generation tests/unit/labs/rag/conversations tests/unit/labs/rag/executions -q`, `& $workshopPython -m ruff check src tests`, `& $workshopPython -m mypy src`를 사용한다. 이 계획 갱신에서 구현 검증을 실행하거나 SDK 호환성을 통과 처리하지 않았다.
 - SDK 전용 테스트와 실제 DB·브라우저 검증은 준비 작업 2에서 정확한 명령·비파괴 조건을 확정한다. 전체 pytest에 실사용 `.env`를 혼입하지 않는다.
 - 현재 문서 작업은 메인 Codex가 작성하고 설계·ADR 문서 관리자가 독립 검토한다. 구현 시 AI 런타임·Python·RAG·권한·외부 전송·테스트/독립 검증 역할을 실제 범위에 맞춰 배정한다. UI·DB·배포 역할은 해당 변경이 있을 때만 추가한다.
 - 첫 재개 작업은 준비 작업 1이다. ISSUE-00013과 기존 RAG 기능 마감 게이트는 보존하며, 준비·오프라인 검증을 진행해도 frozen 상태의 해제나 기능 완료를 주장하지 않는다.
@@ -110,4 +113,4 @@ SDK 도입 완료와 효율 개선 입증은 별도 판정이다. 비교 항목�
 
 - [OpenAI 공식 Agents SDK 안내](https://developers.openai.com/tracks/building-agents#foundations-of-the-agents-sdk): 실행 반복, 도구 호출, handoff, session, guardrail, tracing의 책임 설명. 공식 문서 확인일 2026-10-04.
 - [개발 에이전트 정본](../../project-agents/README.md), [개발 규칙](../../guidelines/development-guidelines.md), [실행 모니터링 ADR](../../decisions/0029-rag-execution-monitoring.md), [대화 세션 ADR](../../decisions/0023-domain-cabinet-conversation.md).
-- [현재 별칭 종료 경계](../../worklogs/2026-10-02-rag-control-boundary-assessment.md), [작업 순서](../../../WORKBOARD.md#다음-작업).
+- [현재 별칭 종료 경계](../../worklogs/2026-10-02-rag-control-boundary-assessment.md), [작업 순서](../../../WORKBOARD.md#다음-작업-순서).

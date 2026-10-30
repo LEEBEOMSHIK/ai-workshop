@@ -22,6 +22,7 @@ from ai_workshop.labs.rag.generation.runtime_resolver import (
     GenerationRuntimeResolver,
     builtin_generation_runtime_factories,
 )
+from ai_workshop.labs.rag.orchestration.openai_agents import OpenAIAgentsOrchestrator
 from ai_workshop.labs.rag.policies.repository import SqlAlchemyDataPolicyRepository
 from ai_workshop.labs.rag.policies.service import GenerationPolicyResolver
 from ai_workshop.labs.rag.retrieval.elasticsearch import (
@@ -80,6 +81,16 @@ async def get_search_service(
 ) -> AsyncIterator[SearchApplicationService]:
     client = create_elasticsearch(settings)
     try:
+        runtime_resolver = GenerationRuntimeResolver(
+            environment=settings.environment,
+            endpoint_refs=settings.provider_endpoint_refs,
+            secret_refs=settings.provider_secret_refs,
+            factories=builtin_generation_runtime_factories(
+                provider_endpoint_dialects=settings.provider_endpoint_dialects,
+            ),
+            local_model_refs=settings.local_model_refs,
+            local_model_host=local_model_host,
+        )
         yield SearchApplicationService(
             configuration_resolver=configuration_resolver,
             scope_resolver=SearchScopeResolver(
@@ -95,16 +106,8 @@ async def get_search_service(
             generation_policy_resolver=GenerationPolicyResolver(
                 SqlAlchemyDataPolicyRepository(session)
             ),
-            generation_runtime_resolver=GenerationRuntimeResolver(
-                environment=settings.environment,
-                endpoint_refs=settings.provider_endpoint_refs,
-                secret_refs=settings.provider_secret_refs,
-                factories=builtin_generation_runtime_factories(
-                    provider_endpoint_dialects=settings.provider_endpoint_dialects,
-                ),
-                local_model_refs=settings.local_model_refs,
-                local_model_host=local_model_host,
-            ),
+            generation_runtime_resolver=runtime_resolver,
+            generation_orchestrator=OpenAIAgentsOrchestrator(resolver=runtime_resolver),
             generation_audit_repository=SqlAlchemyGenerationAuditRepository(session),
             codex_runtime_factory=codex.runtime_factory,
         )

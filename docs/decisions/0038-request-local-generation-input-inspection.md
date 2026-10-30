@@ -3,6 +3,8 @@
 - 날짜: 2026-10-16
 - 상태: 사용자 요청 범위에서 구현
 
+> SDK 단계 관측의 후속 변경: [ADR-0040](0040-private-agent-step-content.md)은 새 SDK 실행의 단계 본문을 비공개 execution에 보관한다. 이 문서의 비SDK `generation_input` 요청 한정 정책은 유지한다.
+
 ## 결정
 
 기존 비공개 검색 진단에 선택적 `generation_input`을 추가한다. 실제 요청을 만드는

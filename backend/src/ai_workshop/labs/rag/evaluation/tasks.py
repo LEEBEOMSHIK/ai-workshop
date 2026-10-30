@@ -1,5 +1,6 @@
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
+from functools import partial
 from time import perf_counter
 from typing import Literal, cast
 from uuid import UUID
@@ -55,6 +56,7 @@ from ai_workshop.labs.rag.retrieval.elasticsearch import (
     require_concrete_frozen_indices,
 )
 from ai_workshop.labs.rag.retrieval.service import HybridRetrievalService
+from ai_workshop.labs.rag.search.configuration_port import OwnedEmbeddingPort
 from ai_workshop.shared.db import create_engine, create_session_factory
 from ai_workshop.shared.errors import AppError
 
@@ -89,6 +91,7 @@ class _FrozenConfiguration:
     answer_policy: AnswerPolicy
     embedding: EmbeddingPort
     query_max_tokens: int
+    request_owned_embedding_factory: Callable[[], OwnedEmbeddingPort] | None = None
 
 
 class FrozenSourceResolver:
@@ -200,11 +203,11 @@ class ProductionEvaluationSearch(EvaluationSearchPort):
     ) -> None:
         self.settings = settings
         self.elasticsearch = create_elasticsearch(settings)
-        self.embedding_factory = embedding_factory or (
-            lambda config: SentenceTransformerEmbedding(
-                config,
-                cache_folder=self.settings.model_cache_root,
-            )
+        # Injected ports remain borrowed; only our default runtime has the
+        # exclusive, synchronous close contract needed by the search pipeline.
+        self._owns_embedding_runtime = embedding_factory is None
+        self.embedding_factory = embedding_factory or partial(
+            SentenceTransformerEmbedding, cache_folder=self.settings.model_cache_root,
         )
 
     async def close(self) -> None:
@@ -543,6 +546,11 @@ class ProductionEvaluationSearch(EvaluationSearchPort):
             answer_policy=answer_policy,
             embedding=self.embedding_factory(embedding_config),
             query_max_tokens=embedding_config.max_tokens,
+            request_owned_embedding_factory=partial(
+                SentenceTransformerEmbedding,
+                embedding_config,
+                cache_folder=self.settings.model_cache_root,
+            ) if self._owns_embedding_runtime and embedding_config.device == "cpu" else None,
         )
 
 

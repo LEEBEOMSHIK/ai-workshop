@@ -160,3 +160,80 @@ def test_only_exact_docker_vpnkit_guest_launcher_is_supported():
 
     with pytest.raises(LocalRecoveryRefusal):
         classify_infrastructure(rows, state)
+
+
+def posix_bootstrap_boundary():
+    rows, state = boundary()
+    for row in rows[2:4]:
+        row["command"] = row["command"].replace(
+            "C:/Program Files/Docker/Docker/resources/",
+            "/c/Program Files/Docker/Docker/resources/",
+        )
+    return rows, state
+
+
+def test_exact_docker_posix_bootstrap_pair_passes_full_infrastructure_validation():
+    from ai_workshop.labs.rag.indexing.alias_recovery_local_wsl import classify_infrastructure
+
+    rows, state = posix_bootstrap_boundary()
+    result = classify_infrastructure(rows, state)
+    assert result.allowed_pids == frozenset(range(1, 9))
+    assert result.docker_listener_pids == frozenset({1, 2})
+
+
+@pytest.mark.parametrize(
+    ("original", "replacement"),
+    [
+        ("/c/Program Files/", "/d/Program Files/"),
+        ("/c/Program Files/", "/C/Program Files/"),
+        ("/c/Program Files/", "/c/program files/"),
+        ("/c/Program Files/", "\\c\\Program Files\\"),
+        ("/c/Program Files/", "//c/Program Files/"),
+        ("/c/Program Files/", "/c/./Program Files/"),
+        ("/c/Program Files/", "/c/other/../Program Files/"),
+        ("/c/Program Files/", "/mnt/c/Program Files/"),
+        ("/c/Program Files/", "/c/Program%20Files/"),
+        ("docker-desktop.iso", "Docker-Desktop.iso"),
+        ("docker-wsl-cli.iso", "docker-wsl-cli.iso.other"),
+        (
+            "/c/Program Files/Docker/Docker/resources/docker-desktop.iso",
+            "C:/Program Files/Docker/Docker/resources/docker-desktop.iso",
+        ),
+        (
+            "/c/Program Files/Docker/Docker/resources/wsl/docker-wsl-cli.iso",
+            "C:/Program Files/Docker/Docker/resources/wsl/docker-wsl-cli.iso",
+        ),
+    ],
+)
+def test_posix_bootstrap_rejects_mixed_or_nonexact_iso_paths(original, replacement):
+    from ai_workshop.labs.rag.indexing.alias_recovery_local import LocalRecoveryRefusal
+    from ai_workshop.labs.rag.indexing.alias_recovery_local_wsl import classify_infrastructure
+
+    rows, state = posix_bootstrap_boundary()
+    for row in rows[2:4]:
+        row["command"] = row["command"].replace(original, replacement)
+    with pytest.raises(LocalRecoveryRefusal) as raised:
+        classify_infrastructure(rows, state)
+    assert raised.value.diagnostic == "wsl_infrastructure_unverified"
+
+
+@pytest.mark.parametrize(
+    "change", ["parent", "different_parent_arguments", "extra_command", "signature"]
+)
+def test_posix_bootstrap_does_not_bypass_existing_execution_identity_checks(change):
+    from ai_workshop.labs.rag.indexing.alias_recovery_local import LocalRecoveryRefusal
+    from ai_workshop.labs.rag.indexing.alias_recovery_local_wsl import classify_infrastructure
+
+    rows, state = posix_bootstrap_boundary()
+    if change == "parent":
+        rows[2]["parent_pid"] = 1
+    elif change == "different_parent_arguments":
+        rows[2]["command"] = rows[2]["command"].replace("/c/Program Files/", "C:/Program Files/")
+    elif change == "extra_command":
+        for row in rows[2:4]:
+            row["command"] += " --execute synthetic-untrusted-command"
+    else:
+        rows[3]["signature_status"] = "UnknownError"
+    with pytest.raises(LocalRecoveryRefusal) as raised:
+        classify_infrastructure(rows, state)
+    assert raised.value.diagnostic == "wsl_infrastructure_unverified"

@@ -18,6 +18,7 @@ from tests.unit.labs.rag.highlighting.test_evidence_selector import _policy
 from tests.unit.labs.rag.highlighting.test_table_context import LowScores, choose, expected_units
 
 STORED_QUERY = "AM-SYN-101을 현금화하면 돈은 며칠 뒤 받을 수 있어?"
+DEADLINE_QUERY = "AM-SYN-101 신청 접수 마감 시각"
 FIXTURE = Path(__file__).parents[4] / "fixtures/rag/stored_payment_table.json"
 
 
@@ -72,6 +73,115 @@ def test_stored_source_selects_original_payout_and_preserves_every_condition(dia
     assert payout.text == "접수일 T+4 영업일"
     assert payout in selected
     assert result.observations[0].reason == "structured_table_selected"
+
+
+@pytest.mark.parametrize("diagnostics", [False, True])
+def test_stored_deadline_selects_original_relation_and_all_conditions(diagnostics):
+    source = stored_source()
+    result = select_context(query=DEADLINE_QUERY, sources=(source,), extractive=EMPTY,
+        policy=_policy(min_semantic_score=0.8), budget=EvidenceBudget(8, 32, 12000),
+        embedding=LowScores(), include_diagnostics=diagnostics)
+    assert len(result.groups) == 1
+    selected = result.groups[0].units
+    expected = tuple(unit for unit in source.chunk.evidence_units
+                     if unit.ordinal not in {8, 11, 14, 17, 20})
+    assert len(selected) == 28
+    assert all(actual is original for actual, original in zip(selected, expected, strict=True))
+    assert selected[8].text == "신청 마감"
+    assert selected[9].text == "영업일 15:00까지"
+    assert source.chunk.evidence_units[23] in selected
+    assert source.chunk.evidence_units[24].text == "않는다."
+    assert source.chunk.evidence_units[24] in selected
+    assert tuple(unit for unit in selected if unit.ordinal >= 21) == (
+        source.chunk.evidence_units[21:])
+    assert result.observations[0].reason == "structured_table_selected"
+    assert result.observations[0].budget_trace.incoming_units == 28
+    assert result.observations[0].budget_trace.violated == ()
+    if diagnostics:
+        assert {item.evidence_id for item in result.diagnostics if item.evidence_id
+                and item.selected} == {unit.id for unit in expected}
+
+
+@pytest.mark.parametrize("product,attribute,query", [
+    ("별빛 장기형", "최소 보유 기간", "별빛 장기형의 최소 보유 기간은 얼마인가요?"),
+    ("Magnolia Reserve", "annual management fee",
+     "What is Magnolia Reserve's annual management fee?"),
+    ("청록 성장형", "환매 수수료", "청록 성장형의 환매 수수료는 얼마야?"),
+])
+def test_explicit_attribute_selection_uses_source_labels_without_payment_row(
+    product, attribute, query,
+):
+    source = stored_source()
+    units = [replace(unit, text=unit.text.replace("AM-SYN-101", product))
+             for unit in source.chunk.evidence_units]
+    units[18] = replace(units[18], text=attribute)
+    units[19] = replace(units[19], text="공개 합성 대상 값")
+    source = with_units(source, units)
+    result = choose(source, query=query)
+    assert len(result.groups) == 1
+    selected = result.groups[0].units
+    expected = tuple(unit for unit in units if unit.ordinal not in {8, 11, 14, 17, 20})
+    assert selected == expected
+    assert all(actual is original for actual, original in zip(selected, expected, strict=True))
+    assert units[18] in selected and units[19] in selected and units[20] not in selected
+
+
+@pytest.mark.parametrize("query", [
+    "AM-SYN-101 신청 접수 마감 시각이 아닌 조건",
+    "AM-SYN-101의 신청 마감 시각과 다른 상품을 비교해 줘",
+    "AM-SYN-101과 AM-SYN-202의 신청 마감 시각",
+    "AM-SYN-1010의 신청 마감 시각",
+    "신청 접수 마감 시각",
+    "AM-SYN-101 신청 마감액",
+    "AM-SYN-101의 신청 시각",
+    "AM-SYN-101의 신청 마감 시각이 더 빠른가?",
+    "AM-SYN-101의 신청 마감 시각이 가장 늦은가?",
+    "AM-SYN-101의 신청 마감 시각 vs 다른 것",
+])
+def test_deadline_projection_requires_unambiguous_complete_attribute_and_product(query):
+    source = stored_source()
+    assert payment_table_units(query, source, source.chunk.evidence_units) is None
+    assert choose(source, query=query).groups == ()
+
+
+@pytest.mark.parametrize("ordinal,text", [
+    (10, "AM-SYN-202의 마감 시각에 따른다"),
+    (11, "AM-SYN-101은 16:00까지"),
+    (11, "두 상품 모두 16:00까지"),
+    (11, "왼쪽과 동일"),
+    (11, "Both products close at 16:00"),
+    (11, "다른 상품보다 한 시간 빠름"),
+    (23, "신청 마감은 우측 열을 참조한다."),
+])
+@pytest.mark.parametrize("query", [STORED_QUERY, DEADLINE_QUERY])
+def test_cross_column_conditions_in_retained_or_omitted_cells_prevent_projection(
+    ordinal, text, query,
+):
+    source = stored_source()
+    units = list(source.chunk.evidence_units)
+    units[ordinal] = replace(units[ordinal], text=text)
+    source = with_units(source, units)
+    assert payment_table_units(query, source, tuple(units)) is None
+    assert choose(source, query=query).groups == ()
+
+
+@pytest.mark.parametrize("ordinal,text", [(12, "신청 마감"), (12, "")])
+def test_ambiguous_attribute_labels_keep_whole_chunk(ordinal, text):
+    source = stored_source()
+    units = list(source.chunk.evidence_units)
+    units[ordinal] = replace(units[ordinal], text=text)
+    source = with_units(source, units)
+    assert payment_table_units(DEADLINE_QUERY, source, tuple(units)) is None
+    assert choose(source, query=DEADLINE_QUERY).groups == ()
+
+
+def test_product_name_cannot_supply_the_requested_attribute_tokens():
+    source = stored_source()
+    units = list(source.chunk.evidence_units)
+    units[7] = replace(units[7], text="신청 마감")
+    source = with_units(source, units)
+    query = "신청 마감의 운용사를 알려 줘"
+    assert payment_table_units(query, source, tuple(units)) is None
 
 
 @pytest.mark.parametrize("ordinal,text", [

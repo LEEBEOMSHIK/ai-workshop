@@ -8,6 +8,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 import ai_workshop.main  # noqa: F401
 from ai_workshop.config import get_settings
+from ai_workshop.labs.rag.executions.agent_trace import (
+    TRACE_STORAGE_KEY,
+    AgentTraceCollector,
+    capture_agent_trace,
+    current_agent_trace,
+)
 from ai_workshop.labs.rag.executions.domain import ExecutionIdentity, ExecutionOutcome
 from ai_workshop.labs.rag.executions.repository import SqlAlchemyExecutionRecorder
 from ai_workshop.shared.db import create_engine
@@ -67,10 +73,37 @@ async def test_duplicate_turn_has_one_execution_and_terminal_state_cannot_revers
                     )
                     == 1
                 )
+                with capture_agent_trace(True):
+                    collector = AgentTraceCollector()
+                    root = await collector.start_span(
+                        kind="agent", name="manager", input="synthetic retained input marker",
+                    )
+                    first = current_agent_trace()
+                    assert first is not None
+                    await recorder.record_agent_trace(identity.execution_id, first)
+                    await collector.end_span(root, output="synthetic output marker")
+                    last = current_agent_trace()
+                    assert last is not None
+                    await recorder.record_agent_trace(identity.execution_id, last)
+                    await recorder.record_agent_trace(identity.execution_id, first)
+                query = text("SELECT stages FROM rag_executions WHERE id=:id")
+                saved = await connection.scalar(query, {"id": identity.execution_id})
+                assert saved[TRACE_STORAGE_KEY]["revision"] == last.revision
+                assert saved[TRACE_STORAGE_KEY]["content_retention"] == "retained"
+                assert saved[TRACE_STORAGE_KEY]["spans"][0]["input"]["text"] == (
+                    "synthetic retained input marker"
+                )
+                assert saved[TRACE_STORAGE_KEY]["spans"][0]["output"]["text"] == (
+                    "synthetic output marker"
+                )
                 await connection.execute(
                     text("UPDATE rag_conversation_turns SET status='cancelled' WHERE id=:id"),
                     {"id": turn},
                 )
+                await recorder.record_agent_trace(
+                    identity.execution_id, last.model_copy(update={"revision": last.revision + 1}),
+                )
+                assert await connection.scalar(query, {"id": identity.execution_id}) == saved
                 await recorder.finish(identity.execution_id, ExecutionOutcome(state="completed"))
                 assert (
                     await connection.scalar(
@@ -80,5 +113,12 @@ async def test_duplicate_turn_has_one_execution_and_terminal_state_cannot_revers
                 )
             finally:
                 await transaction.rollback()
+            for table, created_id in (
+                ("rag_conversations", conversation), ("rag_conversation_turns", turn),
+                ("rag_executions", identity.execution_id),
+            ):
+                assert await connection.scalar(
+                    text(f"SELECT count(*) FROM {table} WHERE id=:id"), {"id": created_id},
+                ) == 0
     finally:
         await engine.dispose()

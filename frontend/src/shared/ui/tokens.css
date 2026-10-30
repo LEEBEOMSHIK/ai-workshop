@@ -1,18 +1,52 @@
 :root {
-  /* Existing dark teal palette; compatibility aliases remain available below. */
-  --color-background: #0a0e13;
-  --color-surface: #111921;
-  --color-text: #e9edf3;
-  --color-text-muted: #b3bec7;
+  /* Semantic application palette. Feature-specific illustration colors stay local. */
+  color-scheme: dark;
+  --color-background: #0b1016;
+  --color-surface: #111a24;
+  --color-surface-raised: #18232f;
+  --color-surface-hover: #203140;
+  --color-surface-input: #0d151e;
+  --color-surface-selected: #173a3a;
+  --color-text: #e8eff5;
+  --color-text-muted: #adbdca;
+  --color-text-subtle: #94a8b8;
   --color-accent: #8ee6dc;
-  --color-border: #26313b;
-  --color-border-control: #33414e;
+  --color-accent-strong: #57d6c5;
+  --color-on-accent: #062421;
+  --color-border: #2b3b49;
+  --color-border-control: #536879;
+  --color-success: #9be0bb;
+  --color-success-surface: #18352d;
+  --color-success-border: #50806a;
+  --color-warning: #f2cb82;
+  --color-warning-surface: #30291c;
+  --color-warning-border: #806b3d;
+  --color-danger: #ffb4b4;
+  --color-danger-surface: #351f29;
+  --color-danger-border: #98616a;
+  --color-info: #b3d4ff;
+  --color-info-surface: #1c3048;
+  --color-info-border: #607c9c;
+  --color-overlay: rgb(0 0 0 / 64%);
+  --color-backdrop: var(--color-overlay);
+  --color-link-visited: #c8b8ff;
+  --color-paper: #fff;
+  /* Exact-match, context and semantic evidence keep distinct line patterns. */
+  --color-highlight-keyword: #197c73;
+  --color-highlight-context: #7896f0;
+  --color-highlight-context-border: #526ac2;
+  --color-highlight-semantic: #d6a974;
+  --color-highlight-semantic-border: #a8622e;
   --color-accent-text: var(--color-accent);
   --color-border-subtle: var(--color-border);
 
   --font-family-ui: Inter, Pretendard, "Noto Sans KR", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-size-ui: 1rem;
-  --font-size-caption: .85rem;
+  --font-size-control: .9375rem;
+  --font-size-caption: .8125rem;
+  --font-size-small: .75rem;
+  --font-size-title: clamp(1.5rem, 2.6vw, 2.25rem);
+  --font-size-heading: clamp(1.125rem, 2vw, 1.375rem);
   --line-height-ui: 1.65;
   --line-height-heading: 1.4;
 
@@ -20,12 +54,22 @@
   --space-2: .5rem;
   --space-3: .75rem;
   --space-4: 1rem;
+  --space-5: 1.25rem;
   --space-6: 1.5rem;
-  --radius-control: .45rem;
-  --radius-panel: .8rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --radius-small: .375rem;
+  --radius-control: .625rem;
+  --radius-panel: 1rem;
+  --radius-pill: 999px;
   --control-min-height: 2.75rem;
   --control-choice-size: 1rem;
   --focus-width: 2px;
-  --focus-offset: .2rem;
+  --focus-offset: 3px;
   --focus-color: var(--color-accent);
+  --shadow-panel: 0 8px 32px rgb(0 0 0 / 12%);
+  --shadow-overlay: 0 16px 48px rgb(0 0 0 / 40%);
+  --page-padding: clamp(1rem, 3cqi, 2.5rem);
+  --content-max-width: 82rem;
 }

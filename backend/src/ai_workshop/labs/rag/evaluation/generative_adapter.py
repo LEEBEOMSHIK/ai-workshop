@@ -1,10 +1,15 @@
 """Frozen evaluation inputs; current authorization remains in the shared pipeline."""
 
+import hashlib
+import json
+from collections.abc import Mapping
 from dataclasses import replace
+from functools import partial
 from typing import Any, cast
 from uuid import UUID
 
 from ai_workshop.labs.rag.evaluation.domain import EvaluationCase
+from ai_workshop.labs.rag.evaluation.embedding_reuse import FrozenEmbeddingResults
 from ai_workshop.labs.rag.evaluation.generative_access import FrozenEvaluationAccess
 from ai_workshop.labs.rag.evaluation.service import CandidateExecutionInput
 from ai_workshop.labs.rag.evaluation.tasks import FrozenSourceResolver, ProductionEvaluationSearch
@@ -45,11 +50,13 @@ class FrozenGenerativeAdapter:
         access: FrozenEvaluationAccess,
         *,
         input_approval: CodexInputApprovalRequest | None = None,
+        embedding_results: FrozenEmbeddingResults | None = None,
     ) -> None:
         self.frozen, self.configurations = frozen, configurations
         self.access = access
         # Supplied only by the authorized evaluation submission, never a monitoring read.
         self.input_approval = input_approval
+        self.embedding_results = embedding_results
 
     async def prepare(
         self,
@@ -82,14 +89,24 @@ class FrozenGenerativeAdapter:
             or not set(scenario.workspace_ids).issubset(configuration.workspace_ids)
         ):
             raise AppError("evaluation_profile_drift", "The frozen configuration changed.", 409)
+        owned_factory = frozen.request_owned_embedding_factory
+        if self.embedding_results is not None and owned_factory is not None:
+            owned_factory = partial(
+                self.embedding_results.bound,
+                namespace=_embedding_result_namespace(actor_id, candidate, case),
+                factory=owned_factory,
+                dimension=frozen.embedding.dimension,
+            )
         # Immutable profile records are resolved by exact version; only current transfer
         # approval is taken from the resolver. Retrieval never follows the active alias.
         configuration = replace(
             configuration,
             active_index_alias=target,
             embedding=frozen.embedding,
-            # Frozen evaluation owns its runtime; the search pipeline only borrows it.
-            request_owned_embedding_factory=None,
+            # Use the exact frozen model's ownership, never the current resolver's
+            # factory. Production runtimes release before generation; injected
+            # borrowed ports remain borrowed.
+            request_owned_embedding_factory=owned_factory,
             retrieval_profile=frozen.retrieval_profile,
             answer_policy=frozen.answer_policy,
             query_max_tokens=frozen.query_max_tokens,
@@ -151,3 +168,38 @@ class FrozenGenerativeAdapter:
             source_resolver=FrozenGenerativeSources(dict(sources), actor_id),
             frozen_access=revalidate,
         )
+
+
+def _embedding_result_namespace(
+    actor_id: UUID, candidate: CandidateExecutionInput, case: EvaluationCase,
+) -> str:
+    scenario = case.permission_scenario
+    identity = {
+        "actor_id": str(actor_id),
+        "candidate_id": str(candidate.id),
+        "configuration_id": str(candidate.configuration_id),
+        "configuration_version_id": str(candidate.configuration_version_id),
+        "case_id": str(case.id),
+        "component_snapshot": candidate.component_snapshot,
+        "execution_snapshot": candidate.execution_snapshot,
+        "permission_scenario": {
+            "name": scenario.name,
+            "actor": scenario.actor,
+            "workspace_ids": [str(value) for value in scenario.workspace_ids],
+            "folder_ids": [str(value) for value in scenario.folder_ids],
+            "authorized_source_ids": sorted(str(value) for value in scenario.authorized_source_ids),
+            "forbidden_source_ids": sorted(str(value) for value in scenario.forbidden_source_ids),
+            "as_of": scenario.as_of,
+        },
+    }
+    encoded = json.dumps(
+        identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        allow_nan=False, default=_snapshot_mapping,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _snapshot_mapping(value: object) -> dict[str, object]:
+    if isinstance(value, Mapping):
+        return dict(value)
+    raise TypeError("The frozen embedding identity must contain JSON values.")

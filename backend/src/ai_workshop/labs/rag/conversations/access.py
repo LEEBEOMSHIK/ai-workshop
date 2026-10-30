@@ -18,20 +18,26 @@ from ai_workshop.platform.workspaces.permissions import workspace_read_allowed
 
 def source_identities(value: object) -> set[tuple[UUID, UUID, UUID]]:
     result: set[tuple[UUID, UUID, UUID]] = set()
-    if isinstance(value, dict):
-        if all(key in value for key in ("document_id", "asset_version_id", "projection_id")):
-            result.add(
-                (
-                    UUID(str(value["document_id"])),
-                    UUID(str(value["asset_version_id"])),
-                    UUID(str(value["projection_id"])),
+
+    def collect(node: object) -> None:
+        if isinstance(node, dict):
+            if all(key in node for key in ("document_id", "asset_version_id", "projection_id")):
+                result.add(
+                    (
+                        UUID(str(node["document_id"])),
+                        UUID(str(node["asset_version_id"])),
+                        UUID(str(node["projection_id"])),
+                    )
                 )
-            )
-        for child in value.values():
-            result.update(source_identities(child))
-    elif isinstance(value, list):
-        for child in value:
-            result.update(source_identities(child))
+            for child in node.values():
+                if isinstance(child, (dict, list)):
+                    collect(child)
+        elif isinstance(node, list):
+            for child in node:
+                if isinstance(child, (dict, list)):
+                    collect(child)
+
+    collect(value)
     return result
 
 

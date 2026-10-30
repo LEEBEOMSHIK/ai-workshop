@@ -415,3 +415,38 @@ it("preserves existing retries for historical versions absent from the latest co
   fireEvent.click(await screen.findByText("DB 검증 후 구성에 생성형 통과 반영"));
   expect(screen.getByRole("button", { name: "구성 통과 검증·반영" })).toBeVisible();
 });
+
+it("reports only the server acceptance receipt and never treats a failed acceptance as passed", async () => {
+  const onAccepted=vi.fn();
+  const receipt={configuration_version_id:"config",metric_version:"generative-v1",run_id:"run-1"} as Awaited<ReturnType<typeof api.acceptGenerativeRun>>;
+  vi.mocked(api.acceptGenerativeRun).mockRejectedValueOnce(new Error("not accepted")).mockResolvedValueOnce(receipt);
+  render(<GenerativeEvaluationPanel configurations={[]} workspaces={[]} initialRunId="run-1" allowedVersionIds={["config"]} onAccepted={onAccepted}/>);
+  fireEvent.click(await screen.findByText("DB 검증 후 구성에 생성형 통과 반영"));
+  fireEvent.click(screen.getByRole("button",{name:"구성 통과 검증·반영"}));
+  await screen.findByRole("alert");
+  expect(onAccepted).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button",{name:"구성 통과 검증·반영"}));
+  await waitFor(()=>expect(onAccepted).toHaveBeenCalledExactlyOnceWith(receipt));
+  expect(api.startGenerativeRun).not.toHaveBeenCalled();
+});
+
+it("restricts guided acceptance and retry to the selected exact configuration", async () => {
+  render(<GenerativeEvaluationPanel configurations={[]} workspaces={[]} initialRunId="run-1" allowedVersionIds={["another-version"]}/>);
+  fireEvent.click(await screen.findByText("DB 검증 후 구성에 생성형 통과 반영"));
+  expect(screen.queryByRole("button",{name:"구성 통과 검증·반영"})).not.toBeInTheDocument();
+  expect(screen.getByText("실행 이력 · 0건")).toBeInTheDocument();
+  expect(api.acceptGenerativeRun).not.toHaveBeenCalled();
+});
+
+it("preselects a guided candidate and clears external consent when the candidate selection changes", async () => {
+  const configuration={...retiredConfiguration,name:"API 후보",generation_execution_preview:{...retiredConfiguration.generation_execution_preview!,provider:"openai_responses",external_transfer:true}} as SavedConfiguration;
+  await act(async()=>{render(<GenerativeEvaluationPanel configurations={[configuration]} workspaces={[]} initialVersionIds={["config"]}/>);});
+  fireEvent.click(screen.getByText("새 생성형 평가 준비"));
+  const selected=screen.getByRole("checkbox",{name:/API 후보/});
+  expect(selected).toBeChecked();
+  const consent=screen.getByRole("checkbox",{name:/모든 평가 질문/});
+  fireEvent.click(consent);expect(consent).toBeChecked();
+  fireEvent.click(selected);fireEvent.click(selected);
+  expect(screen.getByRole("checkbox",{name:/모든 평가 질문/})).not.toBeChecked();
+  expect(api.startGenerativeRun).not.toHaveBeenCalled();
+});

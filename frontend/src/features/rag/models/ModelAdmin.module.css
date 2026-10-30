@@ -73,21 +73,23 @@
 .admin label {
   display: grid;
   gap: 0.4rem;
-  font-size: 0.82rem;
+  font-size: var(--font-size-caption);
 }
 
-.admin input:not([type="checkbox"]),
+.admin input:not([type="checkbox"]):not([type="radio"]),
 .admin select,
 .admin textarea {
   min-width: 0;
   width: 100%;
   max-width: 100%;
   padding: 0.7rem;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 0.55rem;
+  min-height: var(--control-min-height);
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
   color: inherit;
-  background: #0c1218;
+  background: var(--color-surface-input);
   font: inherit;
+  font-size: var(--font-size-control);
 }
 
 .admin select {
@@ -95,7 +97,9 @@
 }
 
 .admin input[type="checkbox"] {
-  width: auto;
+  width: var(--control-choice-size);
+  height: var(--control-choice-size);
+  flex: 0 0 var(--control-choice-size);
   max-width: 100%;
   padding: 0;
   accent-color: var(--color-accent-text);
@@ -103,7 +107,8 @@
 
 .admin label:has(> input[type="checkbox"]) {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  min-height: var(--control-min-height);
   gap: 0.55rem;
 }
 
@@ -113,12 +118,14 @@
   width: fit-content;
   max-width: 100%;
   height: fit-content;
+  min-height: var(--control-min-height);
   padding: 0.7rem 0.9rem;
   border: 1px solid var(--color-accent-text);
-  border-radius: 0.6rem;
-  color: #07100f;
+  border-radius: var(--radius-control);
+  color: var(--color-on-accent);
   background: var(--color-accent-text);
   font: inherit;
+  font-size: var(--font-size-control);
   font-weight: 750;
   white-space: normal;
   cursor: pointer;
@@ -130,8 +137,8 @@
 }
 
 .admin :is(input, select, textarea, button):focus-visible {
-  outline: 2px solid var(--color-accent-text);
-  outline-offset: 0.2rem;
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--focus-offset);
 }
 
 .admin :global(.registry-panel) > button,
@@ -146,27 +153,50 @@
 }
 
 .admin .tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
   flex: 1 1 10rem;
-  background: #18222e;
-  color: #dbe4ed;
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  border-color: var(--color-border-control);
+  font-weight: 500;
+}
+
+.admin .tabs button::before {
+  content: "";
+  flex: 0 0 auto;
+  inline-size: .375rem;
+  block-size: .625rem;
+  border: solid currentColor;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+  opacity: 0;
 }
 
 .admin .tabs button[aria-selected="true"] {
-  background: #bed3d0;
-  color: #14282a;
+  background: var(--color-surface-selected);
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+  font-weight: 650;
 }
+
+.admin .tabs button[aria-selected="true"]::before { opacity: 1; }
 
 .tabPanel { display: grid; gap: 1.5rem; }
 .admin [hidden] { display: none; }
 
 .admin .actionLink,
 .admin .actionLink:visited {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-min-height);
   padding: 0.7rem 0.9rem;
   border: 1px solid var(--color-accent-text);
-  border-radius: 0.6rem;
+  border-radius: var(--radius-control);
   background: var(--color-accent-text);
-  color: #07100f;
+  color: var(--color-on-accent);
   font-weight: 750;
   text-decoration: none;
 }
@@ -174,9 +204,25 @@
 .admin a:focus-visible,
 .admin summary:focus-visible,
 .tabPanel:focus-visible {
-  outline: 2px solid var(--color-accent-text);
-  outline-offset: 0.2rem;
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--focus-offset);
 }
 
 .tabPanel > div { display: grid; gap: 1rem; min-width: 0; }
-.admin summary { cursor: pointer; padding-block: 0.8rem; color: var(--color-accent-text); }
+.admin summary { min-height: var(--control-min-height); cursor: pointer; padding-block: var(--space-3); color: var(--color-accent); }
+.admin button:hover:not(:disabled), .admin .actionLink:hover { border-color: var(--color-accent-strong); }
+
+.overviewHeading p, .taskCards p { color: var(--color-text-muted); }
+.taskCards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: var(--space-4); }
+.taskCards article, .guidance, .registryDetails {
+  min-width: 0; padding: var(--space-5); border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel); background: var(--color-surface-raised);
+}
+.taskCards article { display: grid; align-content: start; gap: var(--space-3); }
+.taskCards :is(h3, p), .guidance h3 { margin: 0; }
+.admin .taskCards button, .admin .guidance .actionLink {
+  color: var(--color-text); background: var(--color-surface); border-color: var(--color-border-control); font-weight: 650;
+}
+.taskContent { display: grid; gap: var(--space-5); }
+.registryDetails > summary { font-weight: 650; }
+.registryDetails[open] > summary { margin-bottom: var(--space-4); }

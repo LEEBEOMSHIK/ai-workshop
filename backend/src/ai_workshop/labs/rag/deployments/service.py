@@ -15,6 +15,10 @@ from ai_workshop.labs.rag.deployments.domain import (
     ModelDeploymentVersion,
     ProviderKind,
 )
+from ai_workshop.labs.rag.deployments.endpoint_policy import (
+    EndpointDialect,
+    validate_endpoint_dialect,
+)
 from ai_workshop.labs.rag.deployments.repository import (
     DeploymentCatalogEntry,
     DeploymentHealthCheck,
@@ -241,12 +245,14 @@ class DeploymentRegistryService:
         codex_registry: CodexRunnerRegistry | None = None,
         environment: str = "production",
         local_model_refs: Mapping[str, LocalModelSpec] | None = None,
+        endpoint_dialects: Mapping[str, EndpointDialect] | None = None,
     ) -> None:
         self._repository = repository
         self._endpoint_resolver = EndpointReferenceResolver(endpoint_refs)
         self._secret_resolver = SecretReferenceResolver(secret_refs)
         self._codex_registry, self._environment = codex_registry, environment
         self._local_model_refs = dict(local_model_refs or {})
+        self._endpoint_dialects = dict(endpoint_dialects or {})
 
     async def create_identity(
         self, request: DeploymentVersionCreate, *, actor_id: UUID
@@ -348,6 +354,15 @@ class DeploymentRegistryService:
                 "The endpoint reference is not configured.",
                 422,
             ) from exc
+        try:
+            validate_endpoint_dialect(
+                request.provider, request.endpoint_ref, self._endpoint_dialects,
+            )
+        except ValueError:
+            raise AppError(
+                "endpoint_dialect_mismatch",
+                "The endpoint dialect does not match this Provider.", 422,
+            ) from None
         if request.secret_ref is not None:
             try:
                 self._secret_resolver.resolve(request.secret_ref)
@@ -429,6 +444,7 @@ def get_deployment_registry_service(
         SqlAlchemyDeploymentRepository(session),
         endpoint_refs=settings.provider_endpoint_refs,
         secret_refs=settings.provider_secret_refs,
+        endpoint_dialects=settings.provider_endpoint_dialects,
         codex_registry=configured_codex_registry(settings),
         environment=settings.environment,
         local_model_refs=settings.local_model_refs,

@@ -92,3 +92,21 @@ DB·설정·서비스 변경과 추가 실호출은 이번 보완 승인에서 �
 ### 2026-10-14 프로파일별 answer reasoning opt-in
 
 승인된 시험용 최소 계약으로 Generation Profile의 `generation.answer_reasoning_effort`를 선택적으로 추가한다. 키 생략은 기존 동작이며 명시 값은 문자열 `none`만 허용한다(null/기타 값 거부). 로컬 `local_openai_compatible`의 schema2 및 명시적 Ollama dialect에서 answer 요청의 `reasoning_effort="none"`으로 전달한다. 비지원 조합은 명시적으로 거부한다. rewrite의 기존 none, 출력 한도, 입력 직렬화, timeout/retry, 종료·스키마·인용 검증은 유지한다. 모델명/UUID 하드코딩이나 전역 기본값 변경은 없다. 기존 JSON config를 이용하므로 DB migration은 없으며 실제 프로파일/구성 버전 반영·재시작·실추론은 코드/mock 완료와 별개다.
+
+### 2026-10-21 대화 실행 기한 만료와 종료 확인
+
+사용자가 15분 실행 기한 만료 후 기존 실행 정리 전에 새 요청이 시작되는 경합 수정을 승인했다.
+이번에 `running`에서 `interrupted`로 바뀌며 `execution_terminated=false`인 요청에는
+대화 계층의 `conversation_termination_unconfirmed` 오류를 저장한다. 모델 호출 전 단계에서도
+발생할 수 있으므로 HTTP 시도 추적의 `provider_termination_unconfirmed`와 구분한다.
+두 오류 모두 종료 미확인 동안 새 request ID의 예약을 차단하며, 같은 ID의 조회·재전송은
+기존 멱등 계약을 유지한다. 과거 failed/interrupted 기록을 소급 변경하지 않는다.
+
+만료 상태는 예약 거절의 rollback과 분리해 먼저 저장한다. 해당 요청의 finalizer가 executor를
+join하고 종료를 확인한 뒤 행 잠금 안에서만 새 오류를 `conversation_execution_interrupted`로
+바꾼다. 중단 상태는 유지하고 늦게 도착한 답변을 저장·반환하거나 관측 결과를 answered로
+기록하지 않는다. HTTP 종료가 여전히 미확인이면 기존 provider 오류를 저장하고 차단을 유지한다.
+화면은 서버의 두 표식을 동일하게 차단하고, 새로고침만으로 종료 플래그를 해제하지 않는다.
+
+실행 소유 작업이 사라져 finalizer가 종료를 확인할 수 없으면 차단이 유지된다. 이 변경은
+과거 실행 복구 API, 자동 종료 추정, DB migration 또는 실모델 종료 수용을 추가하지 않는다.

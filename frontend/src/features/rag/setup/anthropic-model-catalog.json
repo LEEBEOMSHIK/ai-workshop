@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "catalog_version": "2026-10-31.1",
+  "verified_at": "2026-10-31",
+  "release_source_url": "https://platform.claude.com/docs/en/release-notes/overview",
+  "models": [
+    {
+      "id": "claude-haiku-5-5",
+      "name": "Claude Haiku 5.5",
+      "released_at": "2026-10-07",
+      "documentation_url": "https://platform.claude.com/docs/en/models/haiku-5-5/overview",
+      "parameter_notes": []
+    },
+    {
+      "id": "claude-sonnet-5-5",
+      "name": "Claude Sonnet 5.5",
+      "released_at": "2026-09-28",
+      "documentation_url": "https://platform.claude.com/docs/en/models/sonnet-5-5/overview",
+      "parameter_notes": []
+    },
+    {
+      "id": "claude-opus-5-5",
+      "name": "Claude Opus 5.5",
+      "released_at": "2026-09-22",
+      "documentation_url": "https://platform.claude.com/docs/en/models/opus-5-5/overview",
+      "parameter_notes": []
+    },
+    {
+      "id": "claude-fable-5-1",
+      "name": "Claude Fable 5.1",
+      "released_at": "2026-09-01",
+      "documentation_url": "https://platform.claude.com/docs/en/models/fable-5-1/overview",
+      "parameter_notes": ["공급자 정책상 30일 데이터 보관이 필요하며, 별도 승인 없이 무보관(ZDR)으로 사용할 수 없습니다. 자료의 전송·보관 정책을 확인하세요."]
+    }
+  ]
+}

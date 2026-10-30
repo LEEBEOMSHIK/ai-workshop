@@ -24,8 +24,8 @@
 .experiment,
 .conflict {
   border: 1px solid var(--color-border-subtle);
-  border-radius: 1rem;
-  background: color-mix(in srgb, var(--color-border-subtle) 24%, #0a0e13);
+  border-radius: var(--radius-panel);
+  background: color-mix(in srgb, var(--color-border-subtle) 24%, var(--color-background));
 }
 
 .hero,
@@ -49,7 +49,7 @@
 .eyebrow {
   margin: 0;
   color: var(--color-accent-text);
-  font-size: 0.78rem;
+  font-size: var(--font-size-caption);
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -64,7 +64,7 @@
 .cardMeta {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: var(--space-3);
   align-items: center;
 }
 
@@ -73,7 +73,7 @@
 
 .editor {
   display: grid;
-  gap: 1rem;
+  gap: var(--space-4);
 }
 
 .editor label,
@@ -85,18 +85,20 @@
   font-weight: 650;
 }
 
-.editor input,
+.editor input:not([type="checkbox"]):not([type="radio"]),
 .editor textarea,
 .editor select,
 .filters select,
 .sectionHeading select {
   width: 100%;
   padding: 0.65rem 0.75rem;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 0.55rem;
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
   color: inherit;
-  background: #0a0e13;
+  background: var(--color-surface-input);
   font: inherit;
+  font-size: var(--font-size-control);
+  min-height: var(--control-min-height);
 }
 
 .editor button,
@@ -106,9 +108,9 @@
 .conflict button {
   padding: 0.6rem 0.85rem;
   border: 1px solid color-mix(in srgb, var(--color-accent-text) 58%, var(--color-border-subtle));
-  border-radius: 0.55rem;
+  border-radius: var(--radius-control);
   color: inherit;
-  background: color-mix(in srgb, var(--color-accent-text) 12%, #0a0e13);
+  background: color-mix(in srgb, var(--color-accent-text) 12%, var(--color-background));
   font: inherit;
   cursor: pointer;
 }
@@ -121,10 +123,10 @@
 .cards {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
+  gap: var(--space-4);
 }
 
-.checkGrid { display: flex; flex-wrap: wrap; gap: 1rem; }
+.checkGrid { display: flex; flex-wrap: wrap; gap: var(--space-4); }
 .checkGrid label,
 .inlineToggle { display: flex; flex-direction: row; align-items: center; }
 .checkGrid input,
@@ -132,31 +134,31 @@
 
 .editor fieldset,
 .experiment { margin: 0; padding: 1rem; }
-.experiment { display: grid; gap: 1rem; }
+.experiment { display: grid; gap: var(--space-4); }
 .experiment h2 { margin: 0; }
 .metricRow { align-items: end; margin-block: 0.5rem; }
 .metricRow label { flex: 1 1 9rem; }
 
-.referenceList { display: grid; gap: 0.5rem; padding: 0; list-style: none; }
-.referenceList li { display: flex; justify-content: space-between; gap: 1rem; align-items: center; }
+.referenceList { display: grid; gap: var(--space-2); padding: 0; list-style: none; }
+.referenceList li { display: flex; justify-content: space-between; gap: var(--space-4); align-items: center; }
 .referenceAdd label { flex: 1; }
 
 .filters { margin-block: 1rem; align-items: end; }
 .filters label { flex: 1 1 12rem; }
 .cards { margin-top: 1rem; }
-.card { padding: 1rem; border: 1px solid var(--color-border-subtle); border-radius: 0.75rem; }
+.card { padding: 1rem; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-panel); }
 .card h3 { margin: 0.65rem 0; }
-.cardMeta { justify-content: space-between; color: var(--color-accent-text); font-size: 0.78rem; }
+.cardMeta { justify-content: space-between; color: var(--color-accent-text); font-size: var(--font-size-caption); }
 .pagination { justify-content: flex-end; margin-top: 1rem; }
 .empty { padding: 2rem; text-align: center; }
 
 .detailHeader { display: grid; grid-template-columns: auto 1fr auto; gap: 1.5rem; align-items: center; }
-.warning { color: #f5c86d; }
-.error { color: #ffb4ab; }
-.conflict { width: min(100%, 76rem); margin-inline: auto; border-color: #7b6534; }
+.warning { color: var(--color-warning); }
+.error { color: var(--color-danger); }
+.conflict { width: min(100%, 76rem); margin-inline: auto; border-color: var(--color-warning-border); }
 .latest,
 .history,
-.preview { margin-top: 1rem; padding: 1rem; border: 1px solid var(--color-border-subtle); border-radius: 0.75rem; }
+.preview { margin-top: 1rem; padding: 1rem; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-panel); }
 
 @media (max-width: 720px) {
   .formGrid,
@@ -169,3 +171,34 @@
   .cards { grid-template-columns: 1fr; }
   .detailHeader { grid-template-columns: 1fr; }
 }
+
+/* Shared control geometry; native choice symbols and reader typography stay separate. */
+.shell :where(button, select, textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="file"]):not([type="range"]), summary) {
+  box-sizing: border-box;
+  min-height: var(--control-min-height);
+  max-width: 100%;
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-control);
+}
+.shell :where(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="file"]):not([type="range"]), select, textarea) {
+  background-color: var(--color-surface-input);
+  color: var(--color-text);
+  border-color: var(--color-border-control);
+  border-radius: var(--radius-control);
+}
+.shell :is(input[type="checkbox"], input[type="radio"]) {
+  flex: 0 0 auto;
+  width: var(--control-choice-size);
+  height: var(--control-choice-size);
+  min-height: 0;
+  padding: 0;
+  accent-color: var(--color-accent);
+}
+.shell :is(button, a, input, select, textarea, summary):focus-visible {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--focus-offset);
+}
+.shell button { overflow-wrap: anywhere; }
+.shell button:disabled { cursor: not-allowed; }
+.shell { font-family: var(--font-family-ui); }
+.shell h1 { font-family: var(--font-family-ui); font-size: var(--font-size-title); line-height: 1.25; }

@@ -1,13 +1,18 @@
 "use client";
 
 import Link from "next/link";
+import { routes } from "../../../shared/routing/routes";
+import buttonStyles from "../../../shared/ui/Button.module.css";
+import { ChoiceGroup } from "../../../shared/ui/ChoiceGroup";
 import styles from "./ConfigurationStudioComparison.module.css";
+import adminStyles from "./ConfigurationAdmin.module.css";
 
 import { type KeyboardEvent, useRef, useState } from "react";
 
 import { ModelLabPage } from "../models/ModelLabPage";
 import { ComparisonPanel } from "./ComparisonPanel";
 import { GenerativeEvaluationPanel } from "./GenerativeEvaluationPanel";
+import { ComparisonListPanel } from "../comparisons/ComparisonListPanel";
 import { ConfigurationBuilder } from "./ConfigurationBuilder";
 import { SavedConfigurationList } from "./SavedConfigurationList";
 import type { ConfigurationStudioData, SavedConfiguration } from "./api";
@@ -20,12 +25,25 @@ const tabs: Array<{ id: StudioTab; label: string }> = [
   { id: "models", label: "모델 레지스트리" },
 ];
 
-export function ConfigurationStudioPage({ initialData, initialTab, initialRunId, initialCaseId }: {
-  initialData: ConfigurationStudioData; initialTab?: string; initialRunId?: string; initialCaseId?: string;
+export function ConfigurationStudioPage({ initialData, initialTab, initialRunId, initialCaseId, initialComparisonView }: {
+  initialData: ConfigurationStudioData; initialTab?: string; initialRunId?: string; initialCaseId?: string; initialComparisonView?: string;
 }) {
   const [activeTab, setTab] = useState<StudioTab>(initialTab === "comparison" || initialTab === "models" ? initialTab : "configuration");
-  const [evaluationKind, setEvaluationKind] = useState(initialRunId && !initialData.runs.some(run => run.id === initialRunId) ? "generative" : "extractive");
+  const [configurationTask, setConfigurationTask] = useState("saved");
+  const [builderOpened, setBuilderOpened] = useState(false);
+  function selectConfigurationTask(task: string) {
+    setConfigurationTask(task);
+    if (task === "create") setBuilderOpened(true);
+  }
+  const [evaluationKind, setEvaluationKind] = useState(initialComparisonView === "stored" ? "stored" : initialRunId && !initialData.runs.some(run => run.id === initialRunId) ? "generative" : "extractive");
   const [generativeOpened, setGenerativeOpened] = useState(evaluationKind === "generative");
+  function selectEvaluation(kind: "extractive" | "generative" | "stored") {
+    setEvaluationKind(kind);
+    if (kind === "generative") setGenerativeOpened(true);
+    const url = new URL(window.location.href);
+    if (kind === "stored") url.searchParams.set("view", "stored"); else url.searchParams.delete("view");
+    window.history.replaceState(null, "", url);
+  }
   function setActiveTab(tab: StudioTab) {
     setTab(tab);
     const url = new URL(window.location.href);
@@ -43,6 +61,7 @@ export function ConfigurationStudioPage({ initialData, initialTab, initialRunId,
       );
       return [...withoutSameVersion, configuration];
     });
+    setConfigurationTask("saved");
     if (addToComparison) {
       setCompareVersionIds((current) => [...new Set([...current, configuration.version_id])]);
       setActiveTab("comparison");
@@ -78,11 +97,12 @@ export function ConfigurationStudioPage({ initialData, initialTab, initialRunId,
   }
 
   return (
-    <main className={`configuration-studio-shell ${activeTab === "comparison" ? styles.compactShell : ""}`}>
+    <main className={`configuration-studio-shell ${adminStyles.admin} ${activeTab === "comparison" ? styles.compactShell : ""}`}>
       <header className={`configuration-studio-header ${activeTab === "comparison" ? styles.compactHeader : ""}`}>
         <p className="eyebrow">RAG CONFIGURATION STUDIO</p>
         <h1>RAG 구성 스튜디오</h1>
         <p>서버에 등록된 불변 프로파일을 조합하고, 저장된 정확한 버전만 비교합니다.</p>
+        <Link className={`${buttonStyles.button} ${buttonStyles.secondary}`} href={routes.adminRagSetup}>모델 연결·RAG 간편 설정</Link>
       </header>
 
       <div className="studio-tabs" role="tablist" aria-label="RAG 구성 스튜디오">
@@ -110,13 +130,21 @@ export function ConfigurationStudioPage({ initialData, initialTab, initialRunId,
         aria-labelledby="studio-tab-configuration"
         hidden={activeTab !== "configuration"}
       >
-        {activeTab === "configuration" ? (
-          <div className="configuration-workspace">
+          <div className={adminStyles.workspace}>
+            <div className={adminStyles.taskIntro}>
+              <h2>구성 확인 또는 새 조합 만들기</h2>
+              <p>저장된 버전의 준비 상태를 확인하거나, 등록된 프로파일로 새 구성을 만드세요. 저장 후 비교 실험에서 정확한 버전을 평가할 수 있습니다.</p>
+              <ChoiceGroup legend="구성 작업" variant="segmented" value={configurationTask} onChange={selectConfigurationTask}
+                options={[{ value: "saved", label: "저장 구성 확인" }, { value: "create", label: "새 구성 만들기" }]} />
+            </div>
+            <div hidden={configurationTask !== "saved"}>
             <SavedConfigurationList
               configurations={configurations}
               models={initialData.models}
               profiles={initialData.profiles}
             />
+            </div>
+            {builderOpened ? <div hidden={configurationTask !== "create"}>
             <ConfigurationBuilder
               configurations={configurations}
               models={initialData.models}
@@ -124,8 +152,8 @@ export function ConfigurationStudioPage({ initialData, initialTab, initialRunId,
               workspaces={initialData.workspaces}
               onSaved={handleSaved}
             />
+            </div> : null}
           </div>
-        ) : null}
       </section>
 
       <section
@@ -136,11 +164,13 @@ export function ConfigurationStudioPage({ initialData, initialTab, initialRunId,
       >
         <div className={styles.comparisonToolbar}>
           <div className={styles.kindPicker} role="group" aria-label="평가 종류">
-            <button type="button" aria-pressed={evaluationKind === "extractive"} onClick={() => setEvaluationKind("extractive")}>검색 품질 비교</button>
-            <button type="button" aria-pressed={evaluationKind === "generative"} onClick={() => { setEvaluationKind("generative"); setGenerativeOpened(true); }}>답변 품질 비교</button>
+            <button type="button" aria-pressed={evaluationKind === "extractive"} onClick={() => selectEvaluation("extractive")}>검색 품질 비교</button>
+            <button type="button" aria-pressed={evaluationKind === "generative"} onClick={() => selectEvaluation("generative")}>답변 품질 비교</button>
+            <button type="button" aria-pressed={evaluationKind === "stored"} onClick={() => selectEvaluation("stored")}>저장된 모델 비교</button>
           </div>
           <p className={styles.hint}><Link href="/admin/rag/executions">실제 대화 실행 이력</Link></p>
         </div>
+        {activeTab === "comparison" && evaluationKind === "stored" ? <ComparisonListPanel /> : null}
         <div hidden={evaluationKind !== "extractive"}>
           <ComparisonPanel
             configurations={configurations}

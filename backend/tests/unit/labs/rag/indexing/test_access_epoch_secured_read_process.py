@@ -170,8 +170,9 @@ async def test_native_failure_still_closes_all_owned_handles_without_private_err
 ):
     m, kernel, native, files, external, kwargs = case(tmp_path, monkeypatch)
     kernel.fail = failure
-    with pytest.raises(ValueError, match="^secured_read_process_denied$") as caught:
+    with pytest.raises(ValueError) as caught:
         await m._capture_docker_read(**kwargs)
+    assert str(caught.value) == "secured_read_process_denied"
     assert "private" not in str(caught.value)
     assert kernel.calls[-5:] == ["close103", "close102", "close101", "close104", "close105"]
     assert files.read_read_capture(kwargs["nonce"], 0, "capture") is None
@@ -196,6 +197,9 @@ async def test_repeated_cancellation_waits_for_actual_same_thread_close(
     with pytest.raises(asyncio.CancelledError) as caught:
         await asyncio.wait_for(task, 2)
     assert caught.value.args == ("first",)
+    assert getattr(caught.value, "__notes__", []) == (
+        ["secured_read_cleanup_unverified"] if cleanup_failure else []
+    )
     assert kernel.calls[-5:] == ["close103", "close102", "close101", "close104", "close105"]
     assert len(kernel.threads) == 1 and threading.get_ident() not in kernel.threads
     assert files.read_read_capture(kwargs["nonce"], 0, "capture") is None
@@ -249,14 +253,74 @@ async def test_phase_ack_loss_is_denied_and_cannot_replay_child(tmp_path, monkey
         return ok
 
     files.kernel.MoveFileExW = lost_ack
-    with pytest.raises(ValueError, match="^secured_read_process_denied$"):
+    with pytest.raises(ValueError) as caught:
         await m._capture_docker_read(**kwargs)
+    assert str(caught.value) == "secured_read_process_denied"
+    assert getattr(caught.value, "__notes__", []) == (
+        ["secured_read_capture_unverified"] if phase == "cleanup" else []
+    )
     count = kernel.calls.count("create")
     with pytest.raises(ValueError, match="^secured_read_process_denied$"):
         await m._capture_docker_read(**kwargs)
     assert kernel.calls.count("create") == count
     if count:
         assert kernel.calls[-5:] == ["close103", "close102", "close101", "close104", "close105"]
+
+
+async def test_first_failure_in_native_close_preserves_cleanup_note(tmp_path, monkeypatch):
+    m, kernel, native, files, external, kwargs = case(tmp_path, monkeypatch)
+    kernel.fail = "close"
+    with pytest.raises(ValueError) as caught:
+        await m._capture_docker_read(**kwargs)
+    assert str(caught.value) == "secured_read_process_denied"
+    assert caught.value.__notes__ == ["secured_read_cleanup_unverified"]
+
+
+async def test_failed_launch_cleanup_is_not_reported_as_an_ordinary_refusal(tmp_path, monkeypatch):
+    m, kernel, native, files, external, kwargs = case(tmp_path, monkeypatch)
+    kernel.fail = "close"
+    original = kernel.create
+
+    def invalid_child(argv, env, cwd):
+        child = original(argv, env, cwd)
+        return NativeChild(
+            child.process,
+            child.thread,
+            child.job,
+            child.stdout,
+            child.stderr,
+            0,
+            child.creation_time,
+        )
+
+    kernel.create = invalid_child
+    with pytest.raises(ValueError) as caught:
+        await m._capture_docker_read(**kwargs)
+    assert str(caught.value) == "secured_read_process_denied"
+    assert caught.value.__notes__ == ["secured_read_cleanup_unverified"]
+
+
+async def test_cancel_and_failed_cleanup_ack_preserves_primary_and_capture_note(
+    tmp_path, monkeypatch
+):
+    m, kernel, native, files, external, kwargs = case(tmp_path, monkeypatch)
+    original = files.kernel.MoveFileExW
+
+    def lost_ack(source, target, flags):
+        result = original(source, target, flags)
+        return False if target.endswith("0-cleanup.dpapi") else result
+
+    files.kernel.MoveFileExW = lost_ack
+    kernel.release.clear()
+    task = asyncio.create_task(m._capture_docker_read(**kwargs))
+    await asyncio.wait_for(asyncio.to_thread(kernel.polling.wait), 2)
+    task.cancel("first")
+    await asyncio.sleep(0)
+    kernel.release.set()
+    with pytest.raises(asyncio.CancelledError) as caught:
+        await task
+    assert caught.value.args == ("first",)
+    assert caught.value.__notes__ == ["secured_read_capture_unverified"]
 
 
 async def test_output_overflow_never_publishes_capture(tmp_path, monkeypatch):

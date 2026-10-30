@@ -1,4 +1,4 @@
-﻿import {render,screen,within} from "@testing-library/react";
+import {render,screen,within} from "@testing-library/react";
 import {expect,it,vi} from "vitest";
 import {fireEvent} from "@testing-library/react";
 import {useUnsavedChanges} from "../learning/useUnsavedChanges";
@@ -25,11 +25,23 @@ it("does not render protected content without a user",()=>{
  render(<ApplicationShell area="workspace"><p>Private content</p></ApplicationShell>);expect(screen.queryByText("Private content")).not.toBeInTheDocument();
 });
 function DirtyContent(){useUnsavedChanges(true);return <textarea aria-label="Unsaved draft" defaultValue="Keep this draft"/>;}
+it("identifies the guided model setup as its own administration entry",()=>{
+ route.path="/admin/rag/setup";render(<ApplicationShell area="admin" user={owner}/>);
+ const nav=screen.getByRole("navigation",{name:"관리자 운영"});
+ expect(within(nav).getByRole("link",{name:"모델 연결·RAG 설정"})).toHaveAttribute("aria-current","page");
+ expect(within(nav).getByRole("link",{name:"RAG 모델 · 고급"})).not.toHaveAttribute("aria-current");
+});
+it.each(["/admin/rag/comparisons", "/admin/rag/comparisons/example"])("identifies the saved comparison section at %s",path=>{
+ route.path=path;render(<ApplicationShell area="admin" user={owner}/>);
+ const nav=screen.getByRole("navigation",{name:"관리자 운영"});
+ expect(within(nav).getByRole("link",{name:"모델 비교 결과"})).toHaveAttribute("aria-current","page");
+ expect(within(nav).getAllByRole("link").filter(link=>link.getAttribute("aria-current")==="page")).toHaveLength(1);
+});
 it("preserves the existing unsaved-change guard on shell navigation",()=>{
  route.path="/admin/publishing";
  const confirm=vi.spyOn(window,"confirm").mockReturnValue(false);
  render(<ApplicationShell area="admin" user={owner}><DirtyContent/></ApplicationShell>);
- expect(fireEvent.click(screen.getByRole("link",{name:"RAG 모델"}))).toBe(false);
+ expect(fireEvent.click(screen.getByRole("link",{name:"RAG 모델 · 고급"}))).toBe(false);
  expect(confirm).toHaveBeenCalledTimes(1);
  expect(screen.getByLabelText("Unsaved draft")).toHaveValue("Keep this draft");
  confirm.mockRestore();

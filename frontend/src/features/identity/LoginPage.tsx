@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "../../shared/ui/Button";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
@@ -56,7 +57,9 @@ export function LoginPage({
               <Link className={styles.primaryLink} href={resolvedNextPath}>
                 작업소 열기
               </Link>
-              <Link href={routes.labs}>AI Lab으로 돌아가기</Link>
+              <Link className={styles.secondaryLink} href={routes.labs}>
+                AI Lab으로 돌아가기
+              </Link>
             </section>
           </main>
         </div>
@@ -89,11 +92,13 @@ export function LoginPage({
                 />
               </label>
               {error ? <p className={styles.error} role="alert">{error}</p> : null}
-              <button type="submit" disabled={isSubmitting}>
+              <Button variant="primary" type="submit" disabled={isSubmitting}>
                 {isSubmitting ? "확인 중…" : "작업소 입장"}
-              </button>
+              </Button>
             </form>
-            <Link href={routes.labs}>로그인 없이 AI Lab 둘러보기</Link>
+            <Link className={styles.secondaryLink} href={routes.labs}>
+              로그인 없이 AI Lab 둘러보기
+            </Link>
           </section>
         </main>
       </div>

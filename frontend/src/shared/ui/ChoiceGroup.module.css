@@ -1,6 +1,7 @@
 /* Own the fieldset layout even inside a feature's descendant fieldset rules. */
 .group.group {
   display: block;
+  container: choice-group / inline-size;
   min-inline-size: 0;
   max-inline-size: 100%;
   margin: var(--space-4) 0;
@@ -99,7 +100,7 @@
   position: relative;
   flex: 1 1 0;
   justify-content: center;
-  gap: 0;
+  gap: var(--space-2);
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -107,6 +108,18 @@
 }
 
 .segmented .choice > span { word-break: keep-all; }
+
+/* Empty CSS geometry adds a non-color selection cue without changing the label. */
+.segmented .choice::before {
+  content: "";
+  flex: 0 0 auto;
+  inline-size: .375rem;
+  block-size: .625rem;
+  border: solid currentColor;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+  opacity: 0;
+}
 
 .segmented .choice:first-child {
   border-start-start-radius: var(--radius-control);
@@ -139,23 +152,45 @@
 }
 
 .segmented .choice:has(.radio:checked) {
-  background: var(--color-accent);
-  color: var(--color-background);
+  background: var(--color-surface-selected);
+  color: var(--color-accent);
   font-weight: 600;
-  text-decoration: underline;
-  text-underline-offset: var(--space-1);
+  box-shadow: inset 0 0 0 1px var(--color-accent);
 }
+
+.segmented .choice:has(.radio:checked)::before { opacity: 1; }
 
 .segmented .choice:not(:has(.radio:disabled)):hover {
   background: color-mix(in srgb, var(--color-accent) 18%, var(--color-surface));
 }
 
 .segmented .choice:has(.radio:checked):not(:has(.radio:disabled)):hover {
-  background: color-mix(in srgb, var(--color-accent) 90%, var(--color-surface));
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface-selected));
 }
 
 .segmented .choice:has(.radio:focus-visible) {
   z-index: 1;
   outline: var(--focus-width) solid var(--focus-color);
   outline-offset: var(--focus-offset);
+}
+
+/* Measure this group, not the viewport: narrow cards also need readable labels.
+   24rem gives two/three modes room before switching to full-width rows. */
+@container choice-group (max-width: 24rem) {
+  .segmented .choices { flex-direction: column; }
+  .segmented .choice { flex: 0 0 auto; }
+  .segmented .choice:first-child,
+  .segmented .choice:last-child { border-radius: 0; }
+  .segmented .choice:first-child {
+    border-start-start-radius: var(--radius-control);
+    border-start-end-radius: var(--radius-control);
+  }
+  .segmented .choice:last-child {
+    border-end-start-radius: var(--radius-control);
+    border-end-end-radius: var(--radius-control);
+  }
+  .segmented .choice + .choice {
+    border-inline-start: 0;
+    border-block-start: 1px solid var(--color-border-control);
+  }
 }

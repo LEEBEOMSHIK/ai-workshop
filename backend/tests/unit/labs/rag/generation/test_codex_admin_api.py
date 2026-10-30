@@ -199,6 +199,7 @@ async def test_generation_readiness_requires_actual_actor_and_exact_saved_profil
     class Profiles:
         async def find_profile(self, identifier):
             return SimpleNamespace(
+                id=identifier,
                 bindings=(),
                 deployment_version_id=deployment.id,
                 config={"generation": {"response_schema_version": 2}},

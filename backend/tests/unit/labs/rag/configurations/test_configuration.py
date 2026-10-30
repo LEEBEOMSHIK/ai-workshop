@@ -362,6 +362,19 @@ class MemoryConfigurationRepository:
     async def find_profile(self, profile_id: UUID) -> Profile | None:
         return self.profiles.get(profile_id)
 
+    async def find_profiles(self, profile_ids: tuple[UUID, ...]) -> dict[UUID, Profile]:
+        return {key: value for key, value in self.profiles.items() if key in profile_ids}
+
+    async def get_deployment_versions(
+        self, version_ids: tuple[UUID, ...]
+    ) -> dict[UUID, ModelDeploymentVersion]:
+        return {key: value for key, value in self.deployments.items() if key in version_ids}
+
+    async def get_model_definitions(
+        self, model_ids: tuple[UUID, ...]
+    ) -> dict[UUID, ModelDefinition]:
+        return {key: value for key, value in self.models.items() if key in model_ids}
+
     async def authorized_workspace_ids(
         self, owner_id: UUID, workspace_ids: tuple[UUID, ...]
     ) -> tuple[UUID, ...]:
@@ -471,6 +484,13 @@ class GenerationReadiness:
     async def is_ready(self, profile_id: UUID, *, configuration_version_id: UUID) -> bool:
         self.checked_profile_ids.append(profile_id)
         return profile_id in self.ready_profile_ids
+
+    async def is_ready_for(
+        self, profile: Profile, deployment: ModelDeploymentVersion, *,
+        configuration_version_id: UUID,
+    ) -> bool:
+        assert profile.deployment_version_id == deployment.id
+        return await self.is_ready(profile.id, configuration_version_id=configuration_version_id)
 
 
 @pytest.mark.asyncio

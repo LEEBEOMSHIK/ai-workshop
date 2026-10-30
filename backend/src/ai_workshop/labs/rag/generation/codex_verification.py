@@ -16,6 +16,7 @@ from ai_workshop.shared.errors import AppError
 
 from .codex_authorization import CodexCallOperation, CodexCallStage, EvidenceClassification
 from .codex_events import CodexEventResult, CodexTokenUsage
+from .codex_integrity_offload import inspect_codex_runner
 from .codex_prompt import CodexPromptEnvelope, build_codex_prompt
 from .codex_request import CodexRequestContext
 from .codex_runner_registry import CodexRunnerRegistry, ResolvedCodexRunner
@@ -636,11 +637,14 @@ class CodexVerificationService:
             raise AppError("not_found", "The requested resource was not found.", 404)
         return configuration
 
-    def _binding(self, configuration: CodexVerificationConfiguration) -> CodexVerificationBinding:
+    async def _binding(
+        self, configuration: CodexVerificationConfiguration
+    ) -> CodexVerificationBinding:
         deployment = configuration.profile.deployment
         if deployment is None or deployment.runner_ref is None:
             raise ValueError("codex_verification_configuration_invalid")
-        return verification_binding(configuration, self._registry.resolve(deployment.runner_ref))
+        runner = await inspect_codex_runner(self._registry, deployment.runner_ref)
+        return verification_binding(configuration, runner)
 
     async def status(
         self, *, actor_id: UUID, configuration_version_id: UUID
@@ -649,7 +653,7 @@ class CodexVerificationService:
         attempt = await self._proofs.latest_attempt(configuration_version_id)
         binding = None
         with suppress(Exception):
-            binding = self._binding(configuration)
+            binding = await self._binding(configuration)
         ready = bool(
             binding is not None
             and attempt is not None
@@ -749,7 +753,7 @@ class CodexVerificationService:
         usage_present = False
         cancelled = False
         try:
-            binding = self._binding(configuration)
+            binding = await self._binding(configuration)
             if self._executor is None:
                 raise ValueError("codex_verification_executor_unavailable")
             history = (
@@ -804,7 +808,7 @@ class CodexVerificationService:
                 raise ValueError("codex_verification_model_mismatch")
             observed = generated.observed_model
             usage_present = True
-            if self._binding(configuration) != binding:
+            if await self._binding(configuration) != binding:
                 raise ValueError("codex_verification_stale")
             code = None
         except asyncio.CancelledError:

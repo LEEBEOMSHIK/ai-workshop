@@ -6,6 +6,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from ai_workshop.config import get_settings
+from ai_workshop.labs.rag.comparisons import models as rag_comparison_models  # noqa: F401
 from ai_workshop.labs.rag.configurations import models as rag_configuration_models  # noqa: F401
 from ai_workshop.labs.rag.conversations import (
     attachment_models as rag_attachment_models,  # noqa: F401

@@ -1,13 +1,14 @@
-.authoring { min-width: 0; overflow-wrap: anywhere; margin-block: 1.5rem; padding: 1.2rem; border: 1px solid var(--color-border-subtle); border-radius: 0.8rem; }
+.authoring { min-width: 0; overflow-wrap: anywhere; margin-block: var(--space-6); padding: var(--space-5); border: 1px solid var(--color-border); border-radius: var(--radius-panel); background: var(--color-surface); }
 .authoring :is(section, form, fieldset, article, label) { min-width: 0; max-width: 100%; }
 .authoring fieldset { display: grid; gap: 0.8rem; margin-block: 1rem; border: 1px solid var(--color-border-subtle); }
 .authoring label { display: grid; gap: 0.35rem; }
-.authoring label:has(input[type="checkbox"]) { display: flex; align-items: center; gap: 0.5rem; }
-.authoring :is(input:not([type="checkbox"]), textarea, select) { box-sizing: border-box; min-width: 0; width: 100%; padding: 0.65rem; border: 1px solid var(--color-border-subtle); border-radius: 0.4rem; background: transparent; color: inherit; color-scheme: dark; font: inherit; }
-.authoring input[type="checkbox"] { width: auto; }
+.authoring label:has(input[type="checkbox"]) { display: flex; align-items: center; min-height: var(--control-min-height); gap: var(--space-2); }
+.authoring :is(input:not([type="checkbox"]):not([type="radio"]), textarea, select) { box-sizing: border-box; min-width: 0; width: 100%; min-height: var(--control-min-height); padding: var(--space-3); border: 1px solid var(--color-border-control); border-radius: var(--radius-control); background: var(--color-surface-input); color: var(--color-text); color-scheme: dark; font: inherit; font-size: var(--font-size-control); }
+.authoring input[type="checkbox"] { flex: 0 0 var(--control-choice-size); width: var(--control-choice-size); height: var(--control-choice-size); margin: 0; accent-color: var(--color-accent); }
 .authoring textarea { min-height: 5rem; resize: vertical; }
-.authoring button { width: fit-content; max-width: 100%; height: fit-content; margin: 0.3rem; padding: 0.6rem 0.8rem; color: inherit; background: transparent; border: 1px solid var(--color-accent-text); border-radius: 0.45rem; font: inherit; cursor: pointer; }
+.authoring button { width: fit-content; max-width: 100%; min-height: var(--control-min-height); height: fit-content; margin: var(--space-1); padding: var(--space-2) var(--space-3); color: var(--color-text); background: var(--color-surface-raised); border: 1px solid var(--color-border-control); border-radius: var(--radius-control); font: inherit; font-size: var(--font-size-control); white-space: normal; overflow-wrap: anywhere; cursor: pointer; }
+.authoring button:hover:not(:disabled) { background: var(--color-surface-hover); border-color: var(--color-accent); }
 .authoring button:disabled { opacity: 0.5; cursor: not-allowed; }
-.authoring :is(input, select, textarea, button, summary):focus-visible { outline: 2px solid var(--color-accent-text); outline-offset: 0.2rem; }
-.authoring summary { cursor: pointer; color: var(--color-accent-text); }
+.authoring :is(input, select, textarea, button, summary):focus-visible { outline: var(--focus-width) solid var(--focus-color); outline-offset: var(--focus-offset); }
+.authoring summary { min-height: var(--control-min-height); padding-block: var(--space-2); cursor: pointer; color: var(--color-accent); }
 .authoring article { margin-block: 1rem; }

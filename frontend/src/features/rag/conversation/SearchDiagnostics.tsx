@@ -2,6 +2,7 @@ import type { DomainSearchResult } from "./api";
 import { buildSourceHref } from "../search/source-route-query";
 import { BudgetTrace } from "./BudgetTrace";
 import { GenerationInputInspection } from "./GenerationInputInspection";
+import { AgentTracePanel } from "../executions/AgentTracePanel";
 
 const reasons: Record<string, string> = {
   selected: "선택", context_member: "문맥으로 포함", below_threshold: "임계값 미달",
@@ -24,9 +25,10 @@ export function SearchDiagnostics({ diagnostics, query }: {
   const contexts = new Map(diagnostics.candidates.filter((item) => item.evidence_unit_id === null)
     .map((item) => [item.source.chunk_id, item.semantic_score]));
   return <details className="conversation-evidence">
-    <summary>검색 근거·유사도 · {new Set(diagnostics.candidates.map(item => item.source.asset_version_id)).size}개 문서</summary>
+    <summary>검색 근거·유사도{diagnostics.agent_trace ? " · 에이전트 흐름" : ""} · {new Set(diagnostics.candidates.map(item => item.source.asset_version_id)).size}개 문서</summary>
     <p>실제 검색 질문: <span>{query}</span></p>
     <GenerationInputInspection input={diagnostics.generation_input} />
+    <AgentTracePanel trace={diagnostics.agent_trace} view="current" />
     {diagnostics.warning ? <p role="status">일부 진단 점수를 계산하지 못했습니다. 미계산 값은 선택 점수로 사용하지 않았습니다.</p> : null}
     <p>반환된 검색 후보만 표시합니다. 점수는 정답 확률이 아닙니다. BM25·벡터 원점수·RRF·코사인 유사도는 서로 다른 척도입니다.</p>
     <p>의미 임계값: {score(diagnostics.min_semantic_score)} · 키워드 포함률 임계값: {score(diagnostics.min_keyword_coverage)}</p>

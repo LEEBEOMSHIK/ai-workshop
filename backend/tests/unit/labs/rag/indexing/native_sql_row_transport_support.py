@@ -94,12 +94,17 @@ class RelationalRows:
     def predicate(
         self, table: str, condition: str, parameters: dict[str, Any]
     ) -> Callable[[dict[str, Any]], bool]:
-        if table == "rag_profile_model_bindings":
-            match = re.fullmatch(r"rag_profile_model_bindings.profile_id IN \((.+)\)", condition)
-            if match is None:
+        scope_column = {
+            "rag_profile_model_bindings": "profile_id",
+            "rag_profiles": "id",
+        }.get(table)
+        if scope_column is not None:
+            match = re.fullmatch(rf"{table}\.{scope_column} IN \((.+)\)", condition)
+            if match is not None:
+                values = [_parameter(part, parameters) for part in match.group(1).split(", ")]
+                return lambda row: row[scope_column] in values
+            if table == "rag_profile_model_bindings":
                 raise _denied()
-            values = [_parameter(part, parameters) for part in match.group(1).split(", ")]
-            return lambda row: row["profile_id"] in values
         terms = condition.split(" AND ") if condition else []
         wanted: dict[str, Any] = {}
         for term in terms:
@@ -129,11 +134,12 @@ class RelationalRows:
             return ["value"], [(initialization[normalized.lower()],)], 1
         selected = re.fullmatch(
             r"SELECT (.+) FROM ([a-z_][a-z_0-9]*)(?: WHERE (.*?))?"
-            r"(?: ORDER BY ([a-z_][a-z_0-9]*)\.([a-z_][a-z_0-9]*))?(?: FOR UPDATE)?",
+            r"(?: ORDER BY ([a-z_][a-z_0-9]*)\.([a-z_][a-z_0-9]*))?"
+            r"(?: LIMIT (%\([A-Za-z_][A-Za-z_0-9]*\)s(?:::INTEGER)?))?(?: FOR UPDATE)?",
             normalized,
         )
         if selected:
-            projected, table, where, ordering_table, ordering = selected.groups()
+            projected, table, where, ordering_table, ordering, limit_expression = selected.groups()
             self.selected_tables.append(table)
             if table not in TABLES:
                 raise _denied()
@@ -153,11 +159,17 @@ class RelationalRows:
                 if ordering_table != table:
                     raise _denied()
                 self.column(table, ordering)
-            found = [
-                r for r in self.tables[table] if self.predicate(table, where or "", parameters)(r)
-            ]
+            limit = None if limit_expression is None else _parameter(limit_expression, parameters)
+            if limit is not None and (type(limit) is not int or limit < 0):
+                raise _denied()
+            if limit_expression is not None and limit is None:
+                raise _denied()
+            predicate = self.predicate(table, where or "", parameters)
+            found = [r for r in self.tables[table] if predicate(r)]
             if ordering is not None:
                 found.sort(key=lambda row: row[ordering])
+            if limit is not None:
+                found = found[:limit]
             self.select_count += 1
             return columns, [tuple(deepcopy(row[c]) for c in columns) for row in found], len(found)
         inserted = re.fullmatch(

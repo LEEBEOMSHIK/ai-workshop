@@ -9,6 +9,7 @@ from ai_workshop.labs.rag.evaluation.domain import (
     PromotionGate,
 )
 from ai_workshop.labs.rag.generation.domain import (
+    ANTHROPIC_GENERATION_DISCLOSURE_VERSION,
     CODEX_GENERATION_DISCLOSURE_VERSION,
     EXTERNAL_GENERATION_DISCLOSURE_VERSION,
 )
@@ -45,6 +46,7 @@ class ExternalTransferApprovalConfirmation:
         if self.confirmed is not True or self.disclosure_version not in (
             EXTERNAL_GENERATION_DISCLOSURE_VERSION,
             CODEX_GENERATION_DISCLOSURE_VERSION,
+            ANTHROPIC_GENERATION_DISCLOSURE_VERSION,
         ):
             raise ConfigurationValidationError(
                 "External transfer approval must use the current disclosure."

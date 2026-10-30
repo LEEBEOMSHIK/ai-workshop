@@ -4,10 +4,12 @@ export type Area = "public" | "workspace" | "admin";
 interface MenuItem { label: string; href: string; prefixes: readonly string[]; domainChat?: boolean; domainFiles?: boolean; exact?: boolean }
 export const adminMenuGroups: readonly {label: string; items: readonly MenuItem[]}[] = [
     {label: "RAG 관리", items: [
+      {label: "모델 연결·RAG 설정", href: routes.adminRagSetup, prefixes: [routes.adminRagSetup]},
       {label: "실행 모니터링", href: routes.adminRagExecutions, prefixes: [routes.adminRagExecutions]},
+      {label: "모델 비교 결과", href: routes.adminRagComparisons, prefixes: [routes.adminRagComparisons]},
     {label: "RAG 도메인", href: routes.adminRagDomains, prefixes: [routes.adminRagDomains]},
-    {label: "RAG 구성", href: routes.adminRagConfigurations, prefixes: [routes.adminRagConfigurations]},
-    {label: "RAG 모델", href: routes.adminRagModels, prefixes: [routes.adminRagModels]},
+    {label: "RAG 구성 · 고급", href: routes.adminRagConfigurations, prefixes: [routes.adminRagConfigurations]},
+    {label: "RAG 모델 · 고급", href: routes.adminRagModels, prefixes: [routes.adminRagModels]},
   ]},
   {label: "공개 콘텐츠", items: [
     {label: "공개 연구 관리", href: routes.adminPublishing, prefixes: [routes.adminPublishing]},
@@ -22,7 +24,7 @@ export const adminMenuGroups: readonly {label: string; items: readonly MenuItem[
 export const areaLinks = [
   { label: "AI Lab", href: routes.labs, prefix: "/labs", ownerOnly: false },
   { label: "비공개 작업소", href: routes.workshopHome, prefix: "/workshop", ownerOnly: false },
-  { label: "관리자", href: routes.adminRagModels, prefix: "/admin", ownerOnly: true },
+  { label: "관리자", href: routes.adminRagSetup, prefix: "/admin", ownerOnly: true },
 ] as const;
 
 export const areaMenus: Record<Area, { label: string; items: readonly MenuItem[] }> = {

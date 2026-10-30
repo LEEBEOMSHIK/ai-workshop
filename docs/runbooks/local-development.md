@@ -1,7 +1,99 @@
 # 로컬 개발 실행서
 
+## HTTP DB 풀과 무결성 검사의 수명주기
+
+[ADR-0054](../decisions/0054-request-response-lifetimes.md) 이후 HTTP DB 풀은 앱 lifespan이 소유한다. 첫 DB 요청에 연결을 준비하고 요청별 세션·트랜잭션은 분리하며 정상 종료 시 background/model host 다음에 풀을 폐기한다. worker의 명시 엔진 소유권은 유지한다. 새 설정이나 migration 없이 본래 API 재시작으로 반영한다. ASGI 테스트에서 실제 `get_session`을 쓰면 lifespan을 실행해야 하며 lifespan 없는 합성 테스트는 기존처럼 의존성을 대체한다.
+
+Codex 실행파일 검사는 async 상태/검증 경로에서 전체 무결성 검사를 이벤트 루프 밖에서 한 번에1개 수행한다. 취소 시 실행 중 검사가 끝날 때까지 기다리며 검사 성공을 캐시하지 않는다. 전체 검사 비용이 사라진 것은 아니다. [본래 응답 비교와 한계](../worklogs/2026-10-31-backend-response-improvements.md).
+
+## 대화의 백그라운드 실행
+
+대화 화면은 `Prefer: respond-async`로 질문을 접수한다. 202 응답 뒤에도 앱이 소유하는
+실행 루프가 검색·생성을 계속하며, 새 화면으로 이동해도 취소하지 않는다. 대화에 돌아오면
+기존 상태 조회 API로 결과를 갱신한다. `답변 취소`는 별도 명시 동작이다.
+같은 대화에서 다음 질문은 미리 작성할 수 있으나 이전 실행/종료 확인 중에는 전송을 막는다.
+
+별도 worker 명령이나 설정·DB migration은 필요하지 않다. 본래 API를 코드 반영 후 재시작한다.
+정상 종료는 소유 작업 정리를 기다린다. 프로세스 강제 종료/재시작 뒤 추론 자동 재시도는
+하지 않으며 기존 만료·종료 미확인 상태를 보존한다. 기존 일반 대화 연결의 준비 조건과
+활성화 정책은 그대로 적용한다. [설계와 제한](../decisions/0048-background-conversations.md),
+[구현·검증 결과](../worklogs/2026-10-26-background-conversations.md).
+
+2026-10-26 본래 자산운용 도메인은 종료된 Codex 연결2 대신 정상 검색 평가를 수용한
+기존 Gemma 직접답변 v6의 연결4를 활성화했다. 전역 기본값은 유지했다. 실제 질문2건에서
+파일함 이동·복귀와 탭 종료·재접속 후 자동 결과 표시를 확인했다. 답변·인용·근거의 추가
+퇴행은 없었지만 기존 정답0/2와 첫 입력 처리134.335초는 남는다.
+[연결 원인·실제 수용·품질 경계](../worklogs/2026-10-26-conversation-live-connection.md).
+
 Windows 호스트 CLI 예시의 `$workshopPython`은 [표준 활성화](#windows-도구용-표준-활성화)에서
 승인된 Conda 환경을 검증한 뒤 얻는다. Docker 명령에는 적용하지 않는다.
+
+## OpenAI Agents SDK 선택형 실행과 모니터링
+
+SDK 의존성은 `backend/pyproject.toml`과 `uv.lock`에 고정한다. 기존 Conda에는
+아래 수치 패키지 보호 설치 절차를 사용하며 `uv sync`로 환경을 덮어쓰지 않는다.
+2026-10-23 SDK 추가분은 공식 SHA 고정 wheel 19개이며 보호 파일 6,121개의 동일성을 확인했다.
+
+관리자의 HTTP 생성 프로파일 폼에서 SDK 위임 방식을 선택하고 draft 프로파일을 등록한다.
+초기 지원은 local OpenAI-compatible 배포, 로컬 실행, 외부 전송 없음, 재시도 0,
+답변 스키마 2다. 기존 모델·endpoint·지침/근거 한도 설정을 사용한다.
+SDK 설치/프로파일 등록은 활성 연결 전환이나 평가 통과를 뜻하지 않는다.
+
+호출별 출력 한도가 512인 프로파일의 조정 설정 예시는 다음과 같다. `orchestration`은
+프로파일 `config`의 최상위 필드이며 `generation` 내부에 넣지 않는다.
+
+```json
+{
+  "orchestration": {
+    "engine": "openai_agents",
+    "version": 1,
+    "max_model_calls": 3,
+    "max_tool_calls": 1,
+    "max_total_output_tokens": 1536
+  }
+}
+```
+
+무이력 질문은 조정자/답변 담당자 2회, 문맥화가 필요한 후속 질문은 최대 3회다.
+실제 문맥화 필요 여부를 보고 첫 호출 전에 예산을 검사한다. 출력 예산은 사용량 보고가
+없어도 호출별 최대 출력 예약량으로 제한하고, 시간 제한은 문맥화 소요 시간을 차감한
+남은 시간으로 SDK를 실행한다. 검색 전체 응답 시간과 모델 시간 제한을 혼동하지 않는다.
+선택한 SDK 경로가 실패하면 기존 직접 생성으로 조용히 전환하지 않는다.
+
+관리자 실행 상세에서 위임 흐름의 단계 버튼을 선택한다. 현재 대화에서는
+‘검색 근거·유사도 · 에이전트 흐름’을 펼쳐 전달 지침/입력과 결과를 확인한다.
+실제 HTTP 입력과 SDK 입력을 구분한다. [ADR-0040](../decisions/0040-private-agent-step-content.md)
+이후 새 SDK 실행의 단계 본문은 비공개 execution에 보관하고, 현재 권한을 재검증한 관리자
+실행 상세에서 새로고침 후에도 조회한다. 진단 옵션은 현재 응답의 노출만 제어한다.
+과거 미수집/미보관 본문은 복원되지 않는다. 해당 없음·빈 문자열·기록 한도 초과도 구분한다.
+단계 반환값은 관측 결과이며 검증된 최종 답변과 구분한다. 현재 대화 응답의 검증 실패
+초안 가림은 유지한다. 완료/품질 통과, 단계 취소/실제 모델 종료도 별개다.
+
+오프라인 SDK 검증은 표준 활성화 후 `backend` 디렉터리에서 실행한다.
+
+```powershell
+& $workshopPython -B -m pytest tests/unit/labs/rag/orchestration tests/unit/labs/rag/executions -q
+```
+
+본래 환경·실제 Gemma 도구 호출 수용 범위와 검증 한계는
+[구현 기록](../worklogs/2026-10-23-rag-agents-monitoring.md)을 확인한다.
+
+### 검색·선택 세부 시간 해석
+
+[ADR-0041](../decisions/0041-rag-operation-timings.md) 적용 뒤 새로 관측한 실행의
+단계 JSON에는 선택적 `operations`가 함께 저장된다. 관리자 실행 상세 API의 현재 권한
+검사를 그대로 사용한다. 기존 실행의 필드 생략/`null`은 미수집이며, 실제 수집된 빈
+목록과 구분한다. 과거 실행을 재처리하거나 값을 추정해 채우지 않는다.
+
+`duration_ms`는 연산의 대기와 자식 연산을 포함한 누적 경과시간이다. 병렬 BM25/dense와
+중첩된 모델 적재/토큰화 시간이 있으므로 항목을 합쳐 전체 응답 시간으로 표시하지 않는다.
+`calls`는 계측 블록 진입 횟수이고 `items`/`reused_items`는 처리·재사용 항목 수다.
+모델 HTTP 호출 횟수나 토큰 수와 다르다. 본문·질문·예외 메시지는 이 필드에 넣지 않는다.
+Ollama 내부 적재/prefill/decode 시간은 이번 계약으로 수집하지 않는다.
+
+현재 화면의 기존 단계 표시는 유지한다. 세부 연산 UI가 추가됐다고 간주하지 않으며,
+실제 응답 속도 개선은 같은 조건의 별도 모델 실행 결과로 확인한다. 함수 합성 벤치마크를
+실제 RAG 응답 시간이나 운영 P95로 보고하지 않는다.
 
 ## 로컬 Transformers 생성 (코드 제공, 활성화 미실행)
 
@@ -418,6 +510,8 @@ pnpm --dir frontend dev
 
 Next.js는 루트 `.env`의 `API_PORT`를 읽어 `/api` rewrite 대상을 구성하므로 다른 프로젝트와 포트가 충돌하면 `.env`의 값만 바꾸고 프론트와 API를 재시작한다.
 
+새 화면·디렉터리를 추가한 뒤에는 타입/단위 검사뿐 아니라 본래 Next 경로의 빌드와 인증된 화면을 확인한다. 파일이 존재하는데 `Module not found`가 표시되면 먼저 정확한 import·파일명·실행 중 프로세스의 프로젝트 경로와 개발 로그를 대조한다. 장시간 실행된 서버의 갱신 상태가 의심되면 해당 프론트엔드만 같은 설정으로 재기동하고 다시 확인한다. 이 확인을 위해 `.next`나 의존성을 임의로 지우지 않는다. 로그인307은 인증 경계 확인이며 로그인 이후 화면의 수용 성공은 아니다. 실제 사례와 검증 범위는 [저장 비교 연결 기록](../worklogs/2026-10-29-stored-model-comparisons.md#사용자-보고-본래-next-모듈-빌드-오류)을 따른다.
+
 - 프론트엔드: `http://127.0.0.1:5173`
 - API 상태: `http://127.0.0.1:$env:API_PORT/api/v1/health`
 - API 문서: `http://127.0.0.1:$env:API_PORT/api/docs`
@@ -677,10 +771,21 @@ IDE·Codex·frontend를 종료하거나 전체 client 부재를 요구하지 않
 새 epoch/credential/receipt 생성이나 서버 재시작은 없다. raw inspect/env/오류 대신 고정 진단만 출력한다.
 [정확한 범위](../decisions/0033-rag-access-epoch.md#2026-10-08-읽기-전용-사전검사-구현-범위)를 따른다.
 
-현재 본래 ARM64 호스트의 native helper/controller는 설치된 공식 PowerShell7.6.6의
-`C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.6.0_arm64__8wekyb3d8bbwe\pwsh.exe`와
-SHA256 `abb215e4d87889c85a18333a310b1dbdae33e78a25e13dc7cf129fbdaea848e0`에 고정한다.
+현재 본래 ARM64 호스트의 native helper/controller는 설치된 공식 PowerShell7.6.7의
+`C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.7.0_arm64__8wekyb3d8bbwe\pwsh.exe`와
+SHA256 `b444dbe54328db2a42e7156d8394e4164900ebaace0f2544cbb05f437247dfe6`에 고정한다.
+2026-10-21 기존7.6.6 파일 부재와 설치된7.6.7의 Microsoft 서명 Valid·SHA·파일/상위 경로
+reparse 없음 확인 후 현재 helper pin만 갱신했다. 과거 supervisor의7.6.6 identity는 보존한다.
+이 변경은 Python AMD64 실행 환경의 변경이나 과거 실행 종료 증명이 아니다.
 운영 전 Microsoft 서명·파일 해시를 확인하며, 경로/해시가 변하면 새 검증 전에는 거부한다.
+2026-10-21 Docker bootstrap 관찰에서 두 ISO 인자가 `/c/Program Files/Docker/Docker/resources/`
+아래의 `docker-desktop.iso`, `wsl/docker-wsl-cli.iso`인 정확한 POSIX 쌍을 확인했다.
+분류기는 기존 Windows 경로 쌍과 별도로 이 대소문자·슬래시 그대로의 쌍만 지원한다.
+혼합 쌍·일반 경로 정규화·다른 드라이브·임의 WSL 명령을 허용하지 않으며 기존 binary/SCM/
+부모/distro/VM 검증은 유지한다. 이는 ISO 물리 파일 동일성 증명이 아니다.
+수정 뒤 실제 최초 거부는 지원하지 않는 `com.docker.build.exe`가 남는 최종 인프라 집합 검사다.
+Docker 이름이나 부모 관계만으로 이 프로세스를 허용하거나 종료하지 않는다.
+실제 receipt/release/parity는 미실행이며 [후속 결과](../worklogs/2026-10-21-rag-recovery-wsl-boundary.md)를 따른다.
 현재 Windows PowerShell5.1은 서명 조회 모듈을 로드하지 못했다. 이를 숨겨 자동 전환하거나
 정책을 바꾸지 않으며 기존 공식7을 명시적으로 사용한다. recover의 실행 shell도 같은 정확한
 경로를 지정한다. 이 로컬 배포 경계는 일반 production 또는 다른 호스트 지원을 뜻하지 않는다.
@@ -774,6 +879,26 @@ Evaluation과 ingestion은 worker가 처리하고 beat가 영속 outbox·handoff
 `query_tokenizer_unavailable` 오류 코드를 반환한다. 질의를 조용히 truncate하거나 다른
 tokenizer로 대체하지 말고 선택 Configuration Version과 model cache를 확인한다.
 
+### 저장된 모델 비교 결과 가져오기·조회
+
+완료된 OpenAI·Gemma 비교 기록은 [ADR-0051](../decisions/0051-stored-model-comparisons.md)의 비공개 보고서로 보관한다. 기존 생성형 평가·일반 실행과 별도 자료이며 실행 건수·통계·품질 게이트에 합산하지 않는다. 가져오기와 조회는 모델 호출, 검색, worker 접수 또는 기본 프로파일 변경을 수행하지 않는다.
+
+1. 먼저 아래의 `0067_stored_model_comparisons` migration 절차와 기존 환경의 적용 상태를 확인한다. 화면 코드만 존재하거나 합성 UI 검사가 통과한 것으로 DB/API 반영을 추정하지 않는다. 기존 계정·DB·자료를 사용하며 검증용 별도 계정이나 환경을 만들지 않는다.
+2. 본래 관리자 계정으로 왼쪽 `RAG 관리 → 모델 비교 결과`를 연다. 작업소에서는 `관리자` 영역으로 먼저 이동하며, 모바일은 `메뉴 열기`에서 같은 항목을 선택한다. 기존 `/admin/rag/configurations?tab=comparison&view=stored`의 `저장된 모델 비교`와 `/admin/rag/executions`의 같은 이름 링크도 유지한다. 독립 목록은 `/admin/rag/comparisons`, 상세는 `/admin/rag/comparisons/{comparisonId}`다.
+3. 검증한 완료 기록에서 만든 형식 버전 1의 JSON 파일을 준비한다. 파일은 최대 2MiB이며 질문·실제 답변·근거·시간·사용량·비용·품질 검토·분석·한계와 원본 결과/사용량 원장/입력의 SHA-256만 허용된 계약에 담는다. 원시 provider 응답, 응답 식별자, 자격 증명이나 계정 잔액을 넣지 않는다. 원본 결과와 원장은 수정하지 않는다. 이번 비교의 검증 자료는 기존 공개 합성 질문 1개·모델별 2회 반복이며, 비공개 문서를 새 테스트 자료로 사용하지 않는다.
+4. `결과 파일 가져오기`에서 native 파일 선택을 열고 제목·모델·완료 요청 수를 확인한 뒤 `비교 결과 저장`을 누른다. 파일 선택만으로 서버에 저장되지 않는다. 서버는 전체 스키마와 수치·비용 합계·인용 관계, 현재 사용자의 소유권·workspace 읽기 권한, 문서/버전/Projection/index의 정확한 관계·활성/READY 상태 및 근거 본문·위치를 대조한다.
+5. 저장된 상세를 열어 원본과 요청 수·완료 시간·각 회차의 답변/인용·사용량·비용·품질 검토가 같은지 확인한다. 화면 이탈/복귀와 새로고침 후 같은 보고서를 다시 조회하고 인용의 기존 원문 뷰어 이동을 확인한다. 완료 여부는 실제 수행한 항목만 작업 기록에 남긴다. 단위/mock 또는 합성 화면 검사는 이 인증된 저장·조회 확인을 대체하지 않는다.
+
+같은 소유자·`source_key`에 같은 내용을 다시 가져오면 기존 기록을 반환하며 중복 생성하지 않는다. 같은 키의 다른 내용은 409로 거절한다. 저장 보고서는 불변이므로 정정은 출처와 변경 이유를 확인한 새 키의 별도 기록으로 남긴다. SQL로 덮어쓰거나 삭제해 충돌을 해소하지 않는다. 원본 SHA는 출처 식별자이며 서버가 그 모델 실행을 직접 수행·인증했다는 뜻이 아니다.
+
+목록·상세·가져오기는 `/api/v1/admin/rag/comparisons` 아래의 관리자 API를 사용한다. POST에는 JSON Content-Type, 허용된 Origin과 `X-Comparison-Request: 1`이 필요하며 제품 화면이 이를 처리한다. 인증을 우회한 직접 DB 입력으로 저장 성공을 만들지 않는다. 현재 원문 권한이나 자료 관계를 확인할 수 없어진 보고서는 목록에서 제외하고 상세는 404로 처리한다. 재조회 실패 시 이전 본문을 화면에 남기지 않으며 비공개 응답은 no-store다.
+
+완료 응답 시간은 비스트리밍 생성 요청의 응답 완료까지 측정한 시간이다. 전체 RAG 처리 시간이나 첫 토큰 시간으로 해석하지 않는다. 첫 토큰/서버 내부 단계가 null이면 `미측정`이며 0초가 아니다. 형식·인용 검사, 항목별 의미 검토와 기준선 동일 여부를 별도로 읽고, 한 질문의 반복 결과를 전체 모델 품질 향상으로 확대하지 않는다.
+
+비용은 토큰과 기록된 단가로 계산한 **예상 비용**과 청구 자료로 대조한 **확인된 청구액**을 구분한다. 청구 대조가 없으면 `미확인` 상태를 유지하고 작은 USD 소수도 반올림해 0으로 만들지 않는다. 로컬 Gemma의 `API 청구 해당 없음`은 전력·장비 비용이 0이라는 뜻이 아니다. 이 조회 기능은 계정 잔액 조회나 실시간 청구 모니터링을 수행하지 않는다.
+
+2026-10-29에는 공개 동결 자료를 사용하는 실제 컴포넌트의 합성 320/375/1280px 화면·회차 키보드 전환·인용 링크 구성을 확인했다. 후속으로 인증된 본래 계정에서4회/28근거 실제 저장·중복재수입1건·두 진입점·새로고침·원문PDF2페이지 문맥 강조/복귀를 확인했다. 기존 Next의 모듈 빌드 오류는 프론트엔드 재기동 후 해당 로그인 화면에서 해소했다. 실제 저장 ID와 검증·미완료 생산 빌드 검사 범위는 [작업 기록](../worklogs/2026-10-29-stored-model-comparisons.md)을 따른다.
+
 ## 5. 마이그레이션
 
 현재 revision 확인과 신규 migration 검사는 다음과 같이 실행한다.
@@ -791,6 +916,20 @@ docker compose -f infrastructure/compose/compose.yaml --profile tools run --rm m
 ```
 
 API, worker와 beat를 여러 개 실행해도 migration을 자동 수행하지 않는다.
+
+### 저장된 모델 비교 스키마
+
+[0067_stored_model_comparisons](../../backend/alembic/versions/0067_stored_model_comparisons.py)는 기존 `0066_generative_pending_cancel` 다음에 별도 `rag_comparison_reports` 테이블을 추가한다. 완료 기록을 가져오기 전에 기존 환경의 migration 적용과 새 API 반영이 필요하다. 실제 반영·인증된 저장 수용 상태는 [WORKBOARD](../../WORKBOARD.md)를 확인한다.
+
+기존 `.env`와 이 문서의 승인된 Windows Python 실행 환경을 유지한 채 저장소 루트에서 current를 확인한다. 기존 자료의 보존 상태와 백업·복구 준비를 확인하고, 현재 revision이 `0066_generative_pending_cancel`인 경우에 명시적으로 `0067_stored_model_comparisons`까지 적용한다. 이미 0067이면 다시 새 환경을 만들거나 stamp하지 않는다. 다른 revision이면 해당 migration 경로부터 확인한다.
+
+```powershell
+& $workshopPython -c "import asyncio; asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()); from alembic.config import main; main(argv=['-c','backend/alembic.ini','current'])"
+& $workshopPython -c "import asyncio; asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()); from alembic.config import main; main(argv=['-c','backend/alembic.ini','upgrade','0067_stored_model_comparisons'])"
+& $workshopPython -c "import asyncio; asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy()); from alembic.config import main; main(argv=['-c','backend/alembic.ini','current'])"
+```
+
+적용 뒤 기존 자료와 서비스 응답이 유지되는지 확인하고, 새 비교 API 및 관리자 파일 가져오기·재조회를 별도로 검증한다. 테이블은 소유자별 수입 키 유일성과 본문 불변성을 강제한다. 비교 근거가 저장된 상태의 downgrade는 거절되며, 이를 회피하려고 trigger를 해제하거나 기록을 삭제하지 않는다. migration 성공은 실제 보고서 저장이나 답변 품질 검증의 완료를 뜻하지 않는다.
 
 ### 비공개 Learning 스키마와 검증
 
@@ -865,6 +1004,7 @@ uv run alembic check
 cd ..\frontend
 pnpm test --run
 pnpm test:runtime
+pnpm test:styles
 pnpm typecheck
 pnpm lint
 pnpm build
@@ -874,6 +1014,9 @@ pnpm api:check
 `test:runtime`은 Windows 로컬 Python 선택과 OpenAPI 실행 경계의 Node 전용
 `node:test` 두 파일을 module mock으로 검증한다. 이 두 파일은 Vitest 수집에서 분리하며,
 UI 단위 테스트와 함께 별도로 실행한다. 실제 Python 서비스·모델을 시작하지 않는다.
+
+`test:styles`는 디자인 토큰의 텍스트·경계·포커스 대비를 Node에서 검사한다.
+파일 URL로 실제 CSS를 읽는 Node 전용 검사이므로 Vitest 수집에서 분리한다.
 
 백엔드 이미지를 변경했으면 build check와 실제 image footprint 회귀 검사를 함께 실행한다.
 Core는 512 MiB, embedding API는 2 GiB, OCR worker는 4 GiB 이하를 요구한다. 세 운영 target은
@@ -920,6 +1063,68 @@ E2E 테스트는 `AI_WORKSHOP_E2E=1`, `AI_WORKSHOP_ENVIRONMENT=test`, `AI_WORKSH
 
 ## 7. 로그와 문제 해결
 
+### 고정 생성형 평가의 임베딩 계산 재사용
+
+`AI_WORKSHOP_FROZEN_EVALUATION_EMBEDDING_CACHE_BYTES`는 기본 `0`(비활성)이며
+0~67,108,864 bytes의 정수만 허용한다. 명시한 비교 실험의 worker 프로세스에서만
+예를 들어 `16777216`(16MiB)을 지정한다. 실험을 위해 공통 `.env`나 일반 기본값을
+바꾸지 않는다. 설치·모델 파일 건강 검증은 `0`으로 수행한다.
+
+하나의 생성형 평가 claim 안에서 같은 actor·고정 구성·case·권한 시나리오와 정확히 같은
+입력의 완료 토큰 수·벡터만 재사용한다. 모델은 기존대로 생성 전에 해제하며 권한·검색·선택은
+매번 검사한다. 일반 대화와 첫 요청의 개선으로 해석하지 않는다. worker_runtime의
+`embedding_result_reuse`에서 활성 여부·상한·범위를 확인하고 실행 단계의
+`embedding.result_reuse`에서 실제 재사용 항목 수를 확인한다. 연산 시간은 포함 관계이므로
+서로 더하지 않는다. 상한은 보관한 계산값의 크기이며 전체 프로세스 메모리 상한이 아니다.
+
+실행 중 모델 파일 변경은 지원하지 않는다. 실패·취소 결과는 보관하지 않으며 claim 종료 시
+메모리 참조를 지운다. 실제 속도·답변 품질 검증 전에는 일반 기본값으로 승격하지 않는다.
+정확한 경계와 검증 기준은 [ADR-0045](../decisions/0045-frozen-evaluation-embedding-reuse.md)를 따른다.
+
+### 답변 담당 직접 실행 비교
+
+생성 프로파일의 `orchestration.dispatch_mode`를 명시적으로 `direct_answer`로 지정하면
+같은 SDK 답변 담당을 한 번 호출한다. 생략하거나 `manager_delegation`이면 기존 관리자와
+답변 담당의 두 호출을 유지한다. 변경할 때 기존 프로파일을 덮어쓰지 않고 draft·비기본
+후보를 만들며 검색·근거·prompt·모델·출력 예산은 그대로 둔다.
+
+직접 경로의 `delegated_task`는 원질문이다. 실제 agent/model 두 단계, 생성 호출1회·도구0회를
+확인한다. 선행 문맥화가 있으면 추가 모델1회와 예약 출력량도 총예산에 들어간다.
+관리자 span이나 위임 span이 없다는 이유만으로 기록 누락으로 판정하지 않는다.
+관리자 반환 작업이 원질문과 같았던 사례에서만 specialist 전송 바이트 동등성을 기대할 수 있다.
+모델 호출 절감과 답변 품질 통과는 다르며 일반 기본값으로 자동 승격하지 않는다.
+
+실측은 승인한 데이터·횟수·retry0으로 제한한다. 같은 질문 두 반복이면 직접 생성 최대2회다.
+첫 응답의 초기 로드가 답변 담당으로 이동할 수 있으므로 종전 관리자 전체 시간을 절감량으로
+보고하지 않는다. 전체 시간과 서버 load/prefill/decode, 입력 토큰·답변·인용·품질 항목을 함께
+비교한다. 상세 계약은 [ADR-0046](../decisions/0046-rag-direct-answer-dispatch.md)을 따른다.
+
+### Ollama 배치·스레드 비교
+
+`local_http_api=ollama_chat`인 생성 프로파일에만 다음 선택 설정을 넣는다.
+기존 프로파일을 덮어쓰지 않고 같은 입력·모델·출력 예산을 가진 draft·비기본 후보를 사용한다.
+
+```json
+{"ollama_runtime": {"version": 1, "num_batch": 256}}
+```
+
+위 객체는 `orchestration` 내부에 넣는다. `num_batch`는 정수1~2048,
+`num_thread`는 정수1~64이며 하나 이상 필요하다. 문자열·bool·float·알 수 없는 키는
+허용하지 않는다. 이는 앱의 허용 범위이고 최적값이나 Ollama 지원 한도가 아니다.
+설정 생략/null은 기존 요청을 유지하고, 생략한 스레드 수를 임의로 채우지 않는다.
+
+실행의 native 모델 입력 `options`는 요청한 값이다. 서버가 실제 사용한 값은 해당 요청
+구간의 runner와 예상 모델 blob, serve PID·생성 시각을 대조한 관측으로만 확인한다.
+runner가 없거나 관측에 실패하면 미확인으로 남긴다. API 기본512를 과거 실효값으로
+대신 기록하지 않는다. 0.40.3의 자동 배치 선택과 명시 배치의 physical ubatch 동시 변경을
+고려하고, thread 옵션을 입력 처리 전용 스레드 수로 설명하지 않는다.
+
+한 번에 배치 또는 스레드 한 조건만 바꿔 첫/반복의 전체·load/prefill/decode 시간과 입력
+토큰·답변·인용·필수 조건을 비교한다. 실행 시각을 기준으로 순서를 판정한다. 첫 비교의
+batch256은 가설이며 더 느릴 수도 있다. temperature0도 수치 연산 차이에 따른 답변 변화를
+막지 못하므로 실제 비교 전에는 품질 보존·속도 개선 또는 기본 승격을 선언하지 않는다.
+승인된 호출 상한·retry0을 유지한다. [ADR-0047](../decisions/0047-ollama-runtime-batch-threads.md).
+
 ### 로컬 생성 LLM 실행기
 
 생성형 RAG는 별도 로컬 OpenAI-compatible HTTP 실행기를 사용한다. 특정 제품이나 모델명을
@@ -940,6 +1145,24 @@ endpoint는 loopback 주소만 허용한다. 준비 상태 확인은 `/v1/models
 상태는 정상이며 Hybrid RRF 결과가 곧바로 근거 선별 단계로 전달된다.
 
 ### Deployment Registry와 OpenAI Responses 운영
+
+#### Claude 직접 API 연결
+
+Claude는 `anthropic_messages` 공급자와 `anthropic` dialect를 사용한다. 관리자 **모델 연결·RAG 설정 → 새 연결 등록 → Claude · Anthropic**에서 공개 모델을 선택한다. 키·URL은 이 폼에 입력하지 않고 기존 서버 reference map에 **별도 항목으로 추가**한다. 아래는 형식 예시이며 기존 map을 이 내용으로 덮어쓰면 안 된다.
+
+```dotenv
+AI_WORKSHOP_PROVIDER_ENDPOINT_REFS={"claude-api":"https://api.anthropic.com/v1"}
+AI_WORKSHOP_PROVIDER_ENDPOINT_DIALECTS={"claude-api":"anthropic"}
+AI_WORKSHOP_PROVIDER_SECRET_REFS={"claude-credential":"<workspace-scoped-anthropic-api-key>"}
+```
+
+이번 연결은 Anthropic의 특정 workspace에 귀속된 API key만 지원한다. workspace에 귀속되지 않은 조직 key는 별도 `anthropic-workspace-id`가 필요하므로 현재 지원 범위 밖이다. [공식 인증](https://platform.claude.com/docs/en/manage-claude/authentication#select-a-workspace). 키를 채팅·Git·로그에 넣지 않는다. 서버 설정 반영 후 기존 API를 재시작하며 reference 존재는 실제 모델 접근 성공이 아니다.
+
+Claude 후보는 전용 `grounded-anthropic-schema1-v1` 프리셋을 명시 선택한다. `rag-answer-v1`, `rag-contextualize-v1`, 응답 schema1, `generation.sampling_mode=provider_default`, `temperature=1.0`을 사용한다. API version `2026-10-21`에 temperature/top_p/top_k를 보내지 않으며 기존 모델 프로파일을 자동 수정하지 않는다. 초기 Claude 연결에는 로컬 SDK 위임·문맥 근거 예산 옵션을 사용할 수 없다.
+
+설치·선택 지식 공간 정책에서 Anthropic을 승인하고 해당 구성의 **Anthropic 수신자 고지**를 별도로 확인해야 실행할 수 있다. 기존 OpenAI 승인은 Claude 승인이 아니다. 모델별 보관 조건도 확인한다. 특히 Fable 5.1은 공식 정책상 30일 보관이 필요하며 별도 승인 없는 ZDR은 지원하지 않는다. 연결 확인은 모델 접근 검사일 뿐 답변·인용 품질 수용이 아니다. 공개/비식별 승인 자료의 별도 평가를 통과한 정확한 후보만 명시 적용한다.
+
+새 공급자 DB 제약 migration은 기존 데이터·정책 승인을 변경하지 않는다. 본래 환경 migration·API 반영과 실제 키/모델 품질 확인 상태는 [작업 기록](../worklogs/2026-10-31-claude-admin-workflows.md)에서 구분한다. 사용량은 응답의 입력·출력 토큰을 기록하고 입력에는 공식 cache 생성/읽기 수치를 포함한다. 모델·가격 근거 없는 비용이나 미측정 내부 시간은 0으로 추정하지 않는다.
 
 새 Deployment는 endpoint와 인증정보의 실제 값을 DB에 저장하지 않는다. 루트 `.env` 또는
 승인된 Secret Manager에서 안전한 reference 이름을 실제 값으로 해석하고, 관리자 화면에는

@@ -107,6 +107,9 @@ class Settings(BaseSettings):
     rag_index_store_id: str | None = Field(default=None, max_length=80)
     rag_index_cluster_uuid: str | None = Field(default=None, max_length=128)
     model_cache_root: Path = Path(".local-data/models")
+    frozen_evaluation_embedding_cache_bytes: int = Field(
+        default=0, strict=True, ge=0, le=64 * 1024 * 1024
+    )
     evaluation_authoring_max_documents: int = Field(default=20, strict=True, ge=1, le=100)
     evaluation_authoring_max_evidence_units: int = Field(default=1000, strict=True, ge=1, le=10_000)
     evaluation_authoring_max_response_bytes: int = Field(
@@ -121,6 +124,7 @@ class Settings(BaseSettings):
     )
 
     @field_validator(
+        "frozen_evaluation_embedding_cache_bytes",
         "evaluation_authoring_max_documents",
         "evaluation_authoring_max_evidence_units",
         "evaluation_authoring_max_response_bytes",
@@ -135,7 +139,7 @@ class Settings(BaseSettings):
         return value
 
     provider_endpoint_refs: dict[str, str] = Field(default_factory=dict)
-    provider_endpoint_dialects: dict[str, Literal["openai", "ollama"]] = Field(
+    provider_endpoint_dialects: dict[str, Literal["openai", "ollama", "anthropic"]] = Field(
         default_factory=dict
     )
     local_model_refs: dict[str, LocalModelSpec] = Field(default_factory=dict, repr=False)

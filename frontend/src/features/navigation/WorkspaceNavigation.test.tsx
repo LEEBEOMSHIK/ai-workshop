@@ -35,7 +35,7 @@ describe("WorkspaceNavigation", () => {
       "href",
       routes.workshopLearning,
     );
-    expect(screen.queryByRole("link", { name: "RAG 구성" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "RAG 구성 · 고급" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "AI Lab" })).toHaveAttribute(
       "href",
       routes.labs,

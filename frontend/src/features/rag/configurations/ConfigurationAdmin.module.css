@@ -1,0 +1,19 @@
+.admin { min-width: 0; overflow-wrap: anywhere; }
+.admin [hidden] { display: none; }
+.workspace { display: grid; gap: var(--space-6); min-width: 0; }
+.workspace > div, .workspace :is(section, form, fieldset, label, details) { min-width: 0; max-width: 100%; }
+.workspace :global(.section-heading-row) > div { flex: 1 1 14rem; min-inline-size: 0; }
+.workspace :global(.section-heading-row) > p { flex: 1 1 15rem; text-align: start; line-height: var(--line-height-ui); }
+.taskIntro { padding: var(--space-5); border: 1px solid var(--color-border); border-radius: var(--radius-panel); background: var(--color-surface-raised); }
+.taskIntro h2 { margin-top: 0; }
+.taskIntro > p { color: var(--color-text-muted); }
+.admin :global(.saved-configuration-grid) { grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr)); }
+.admin :global(.configuration-builder) { max-width: 60rem; }
+.admin :global(.configuration-builder) form { display: grid; gap: var(--space-5); }
+.admin :global(.configuration-builder) fieldset { min-inline-size: 0; }
+.admin :global(.configuration-builder) input:not([type="checkbox"]):not([type="radio"]),
+.admin :global(.configuration-builder) select { min-width: 0; max-width: 100%; }
+.admin summary { min-height: var(--control-min-height); padding-block: var(--space-3); cursor: pointer; color: var(--color-accent); }
+.admin summary:focus-visible { outline: var(--focus-width) solid var(--focus-color); outline-offset: var(--focus-offset); }
+.pipelineDetails { margin-block: var(--space-4); padding-block: var(--space-2); border-block: 1px solid var(--color-border); }
+.pipelineDetails > summary { font-weight: 650; }

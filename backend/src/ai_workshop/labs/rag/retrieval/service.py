@@ -4,6 +4,7 @@ from typing import Protocol
 from uuid import UUID
 
 from ai_workshop.labs.rag.embeddings.contracts import EmbeddingPort
+from ai_workshop.labs.rag.executions.operation_timings import measure_operation
 from ai_workshop.labs.rag.models.domain import FrozenJsonValue, Profile, ProfileKind
 from ai_workshop.labs.rag.retrieval.domain import (
     ActiveIndexAlias,
@@ -116,28 +117,33 @@ class HybridRetrievalService:
             dense_top_k=dense_top_k,
         )
 
-        scope = await self.scope_resolver.resolve(
-            actor_id=actor_id,
-            workspace_ids=workspace_ids,
-            folder_ids=folder_ids,
-            indexing_profile_id=indexing_profile_id,
-            document_ids=document_ids,
-            document_processing_profile_id=document_processing_profile_id,
-        )
+        with measure_operation("retrieval.authorize"):
+            scope = await self.scope_resolver.resolve(
+                actor_id=actor_id,
+                workspace_ids=workspace_ids,
+                folder_ids=folder_ids,
+                indexing_profile_id=indexing_profile_id,
+                document_ids=document_ids,
+                document_processing_profile_id=document_processing_profile_id,
+            )
         if isinstance(index_alias, ActiveIndexAlias) and not scope.active_only:
             raise ValueError("Normal retrieval requires the active profile index alias.")
         if scope.active_only and not scope.authorized_documents:
             return ()
 
-        if dense_top_k is None:
-            try:
-                sparse_hits = await self.sparse_retriever.search_sparse(
+        async def sparse() -> tuple[SparseHit, ...]:
+            with measure_operation("retrieval.bm25", items=1):
+                return await self.sparse_retriever.search_sparse(
                     index_alias=index_alias,
                     query=clean_query,
                     actor_id=actor_id,
                     scope=scope,
                     top_k=bm25_top_k,
                 )
+
+        if dense_top_k is None:
+            try:
+                sparse_hits = await sparse()
             except SearchBackendUnavailableError as exc:
                 raise AppError(
                     "bm25_search_unavailable",
@@ -158,37 +164,32 @@ class HybridRetrievalService:
         # Encoding may take long enough for another request to revoke access.
         # Revalidate immediately before either candidate branch starts, while
         # retaining the same authorized source snapshot for sparse and dense.
-        current_scope = await self.scope_resolver.resolve(
-            actor_id=actor_id,
-            workspace_ids=workspace_ids,
-            folder_ids=folder_ids,
-            indexing_profile_id=indexing_profile_id,
-            document_ids=document_ids,
-            document_processing_profile_id=document_processing_profile_id,
-        )
-        if scope.active_only:
-            require_authorized_identities(scope.authorized_documents, current_scope)
+        with measure_operation("retrieval.authorize"):
+            current_scope = await self.scope_resolver.resolve(
+                actor_id=actor_id,
+                workspace_ids=workspace_ids,
+                folder_ids=folder_ids,
+                indexing_profile_id=indexing_profile_id,
+                document_ids=document_ids,
+                document_processing_profile_id=document_processing_profile_id,
+            )
+            if scope.active_only:
+                require_authorized_identities(scope.authorized_documents, current_scope)
+
+        async def dense(top_k: int) -> tuple[DenseHit, ...]:
+            with measure_operation("retrieval.dense", items=1):
+                return await self.dense_retriever.search_dense(
+                    index_alias=index_alias,
+                    query_vector=query_vector,
+                    actor_id=actor_id,
+                    scope=scope,
+                    top_k=top_k,
+                )
 
         try:
             async with asyncio.TaskGroup() as group:
-                sparse_task = group.create_task(
-                    self.sparse_retriever.search_sparse(
-                        index_alias=index_alias,
-                        query=clean_query,
-                        actor_id=actor_id,
-                        scope=scope,
-                        top_k=bm25_top_k,
-                    )
-                )
-                dense_task = group.create_task(
-                    self.dense_retriever.search_dense(
-                        index_alias=index_alias,
-                        query_vector=query_vector,
-                        actor_id=actor_id,
-                        scope=scope,
-                        top_k=dense_top_k,
-                    )
-                )
+                sparse_task = group.create_task(sparse())
+                dense_task = group.create_task(dense(dense_top_k))
         except ExceptionGroup as exc:
             if not _only_search_backend_failures(exc):
                 raise

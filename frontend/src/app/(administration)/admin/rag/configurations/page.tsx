@@ -51,5 +51,6 @@ export default async function RagConfigurationsRoute({ searchParams }: {
     initialTab={typeof query?.tab === "string" ? query.tab : undefined}
     initialRunId={typeof query?.run === "string" ? query.run : undefined}
     initialCaseId={typeof query?.case === "string" ? query.case : undefined}
+    initialComparisonView={typeof query?.view === "string" ? query.view : undefined}
   />;
 }

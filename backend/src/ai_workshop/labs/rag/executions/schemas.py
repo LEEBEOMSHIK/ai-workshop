@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, Field
 
+from ai_workshop.labs.rag.executions.agent_trace import AgentTrace
 from ai_workshop.labs.rag.executions.domain import ExecutionState, StageName, StageObservation
 from ai_workshop.labs.rag.generation.numeric_proof_schemas import NumericValidationBindingView
 from ai_workshop.labs.rag.search.schemas import (
@@ -80,6 +81,7 @@ class ExecutionUsage(BaseModel):
 
 
 class ExecutionDetailResponse(ExecutionSummary):
+    agent_trace: AgentTrace | None = None
     stages: list[StageObservation]
     generation: MonitoringGeneration | None
     evidence: list[EvidenceAnswerResponse]

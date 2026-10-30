@@ -407,3 +407,32 @@ def test_owner_metadata_is_not_mistaken_for_api_key_metadata_or_published(case):
     authenticated = c.builder.decode_authenticated(command, response(c, value))
     assert "private-note" not in repr(authenticated)
     assert c.builder.privileges(authenticated).role == "reader"
+
+
+@pytest.mark.parametrize("number", [b"1e400", b"-1e400"])
+def test_overflowing_json_number_in_private_metadata_is_rejected(case, number):
+    c = case
+    body = json.dumps(auth_value(c, "reader")).encode()
+    body = body.replace(b'"metadata": {}', b'"metadata": {"private": ' + number + b"}")
+    command = c.builder.authenticate("reader")
+    with pytest.raises(ValueError, match="^final_auth_response_denied$"):
+        c.builder.decode_authenticated(command, c.m.FinalAuthResponse(0, body + b"\n200"))
+    with pytest.raises(ValueError):
+        c.builder.assert_command(command)
+
+
+def test_active_wire_limit_still_includes_status_bytes(case):
+    c = case
+    body = json.dumps(auth_value(c, "reader")).encode()
+    accepted = body + b" " * (262140 - len(body)) + b"\n200"
+    assert (
+        c.builder.decode_authenticated(
+            c.builder.authenticate("reader"), c.m.FinalAuthResponse(0, accepted)
+        ).role
+        == "reader"
+    )
+    with pytest.raises(ValueError, match="^final_auth_response_denied$"):
+        c.builder.decode_authenticated(
+            c.builder.authenticate("reader"),
+            c.m.FinalAuthResponse(0, accepted[:-4] + b" " + accepted[-4:]),
+        )

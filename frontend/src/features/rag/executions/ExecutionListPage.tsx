@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { executionPath } from "../../../shared/routing/routes";
+import { executionPath, routes } from "../../../shared/routing/routes";
 import { searchExecutions, type ExecutionSearchRequest, type ExecutionSearchResponse } from "./api";
 import { duration, stageLabels } from "./ExecutionStages";
 import styles from "./ExecutionMonitoring.module.css";
@@ -42,6 +42,10 @@ export function ExecutionListPage({ initialFilters = {} }: { initialFilters?: Ex
         <p>기록은 자동으로 새로고침되지 않습니다. 최신 상태는 목록의 조회 버튼으로 다시 불러오세요.</p>
       </details>
     </header>
+    <section className={styles.card} aria-label="저장된 모델 비교 안내">
+      <h2><Link className={styles.detailNavigationLink} href={routes.adminRagComparisons}>저장된 모델 비교</Link></h2>
+      <p>완료된 모델 비교의 속도·답변·인용·품질 검토와 사용 비용을 확인합니다. 아래 실행 통계와 별도로 관리합니다.</p>
+    </section>
     <form className={styles.filters} onSubmit={event => { event.preventDefault(); apply(); }}>
       <label>질문 검색<input value={filters.query ?? ""} onChange={e => setFilters({ ...filters, query: e.target.value })} placeholder="질문 내용으로 찾기" /></label>
       <label>실행 상태<select value={filters.status ?? ""} onChange={e => setFilters({ ...filters, status: e.target.value as ExecutionSearchRequest["status"] || null })}><option value="">전체 상태</option>{Object.entries(executionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>

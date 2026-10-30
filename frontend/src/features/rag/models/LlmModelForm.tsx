@@ -9,7 +9,7 @@ export function LlmModelForm({ onSaved }: { onSaved: (model: ModelDefinitionSumm
     const form = new FormData(event.currentTarget); setSaving(true); setMessage("");
     try {
       onSaved(await registerModelVersion({ kind: "llm", name: String(form.get("name")).trim(), version: Number(form.get("version")), config: { model_identifier: String(form.get("identifier")).trim() } }));
-      setMessage("LLM 정의를 등록했습니다. 아래에서 이 모델의 배포를 등록하세요.");
+      setMessage("LLM 정의를 등록했습니다. 실행 배포 등록 작업에서 이 모델을 연결하세요.");
     } catch (error) { setMessage(codexError(error)); } finally { setSaving(false); }
   }
   return <form className="version-form" onSubmit={save}><h3>LLM 모델 식별자</h3><fieldset disabled={saving}>

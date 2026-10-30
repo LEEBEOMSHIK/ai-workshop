@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Request, Response, status
 
 from ai_workshop.config import Settings, get_settings
 from ai_workshop.labs.rag.deployments.domain import ProviderKind
@@ -9,6 +9,7 @@ from ai_workshop.labs.rag.deployments.schemas import (
     DeploymentAdminResponse,
     DeploymentHealthResponse,
     DeploymentOptionResponse,
+    DeploymentSetupOptionsResponse,
     DeploymentVersionCreate,
 )
 from ai_workshop.labs.rag.deployments.service import (
@@ -17,11 +18,25 @@ from ai_workshop.labs.rag.deployments.service import (
     get_deployment_health_service,
     get_deployment_registry_service,
 )
+from ai_workshop.labs.rag.deployments.setup_options import deployment_setup_options
 from ai_workshop.labs.rag.generation.codex_admin_api import require_codex_mutation
 from ai_workshop.platform.identity.api import require_owner
 from ai_workshop.platform.identity.domain import User
 
 router = APIRouter(tags=["rag-deployments"])
+
+
+@router.get(
+    "/api/v1/admin/rag/deployment-setup-options",
+    response_model=DeploymentSetupOptionsResponse,
+)
+async def get_deployment_setup_options(
+    response: Response,
+    _user: Annotated[User, Depends(require_owner)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> DeploymentSetupOptionsResponse:
+    response.headers["Cache-Control"] = "no-store"
+    return deployment_setup_options(settings)
 
 
 @router.post(

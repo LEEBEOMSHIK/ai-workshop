@@ -170,7 +170,7 @@ def _freeze(value: object) -> object:
     if isinstance(value, SecretStr):
         return value.get_secret_value()
     if isinstance(value, UUID):
-        if type(value) is not UUID:
+        if type(value) is not UUID or type(value.int) is not int or not 0 <= value.int < 2**128:
             raise _denied()
         return ("uuid", str(value))
     if isinstance(value, datetime):

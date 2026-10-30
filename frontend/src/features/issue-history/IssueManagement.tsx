@@ -1,4 +1,5 @@
 "use client";
+import { Button } from "../../shared/ui/Button";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ApiError, apiRequest } from "../../shared/api/client";
 import { issueApi, mutationRequest, saveIssueHistory } from "./api";
@@ -61,7 +62,7 @@ function SaveForm({ title, path, method = "POST", payload, onSaved, children }: 
     finally {
         setPending(false);
     } }
-    return <details className={styles.editor}><summary>{title}</summary><form onSubmit={submit}><fieldset disabled={pending}>{children}<button type="submit">{pending ? "저장 중…" : "저장"}</button></fieldset>{message && <p role={failed ? "alert" : "status"}>{message}</p>}{failed && <button type="button" onClick={() => window.location.reload()}>최신 내용 다시 열기 (입력 초기화)</button>}</form></details>;
+    return <details className={styles.editor}><summary>{title}</summary><form onSubmit={submit}><fieldset disabled={pending}>{children}<Button variant="primary" type="submit">{pending ? "저장 중…" : "저장"}</Button></fieldset>{message && <p role={failed ? "alert" : "status"}>{message}</p>}{failed && <Button type="button" onClick={() => window.location.reload()}>최신 내용 다시 열기 (입력 초기화)</Button>}</form></details>;
 }
 export function IssueManagement({ categories, issue, onSaved }: {
     categories: Category[];
@@ -93,7 +94,7 @@ export function IssueManagement({ categories, issue, onSaved }: {
  <SaveForm key={`event-${issue.id}`} title="진행 이력 추가" path={`issues/${issue.id}/events`} payload={data => ({ expected_revision: issue.revision, event_date: value(data, "event_date"), description: value(data, "description") })} onSaved={saved}><Field name="event_date" label="진행 날짜" type="date" required/><Field name="description" label="진행 내용" large required/></SaveForm></>}
  <details className={styles.editor}><summary>카테고리 관리</summary><label>편집할 카테고리<select value={categoryId} onChange={e => setCategoryId(e.target.value)}><option value="">새 카테고리</option>{categories.map(c => <option value={c.id} key={c.id}>{categoryPath(categories, c.id)}{!c.is_active ? " (비활성)" : ""}</option>)}</select></label>
  <SaveForm key={categoryId} title={category ? "카테고리 편집" : "카테고리 등록"} path={category ? `categories/${category.id}` : "categories"} method={category ? "PUT" : "POST"} payload={data => ({ ...(category ? { expected_revision: category.revision } : { code: value(data, "code") }), name: value(data, "name"), sort_order: Number(value(data, "sort_order")), is_active: data.has("is_active"), parent_id: value(data, "parent_id") || null })} onSaved={saved}>{!category && <Field name="code" label="고유 코드" required max={80}/>}<Field name="name" label="카테고리 이름" initial={category?.name} required max={200}/><CategoryParentSelect categories={categories} category={category}/><Field name="sort_order" label="정렬 순서" type="number" initial={String(category?.sort_order ?? 0)}/><label><input type="checkbox" name="is_active" defaultChecked={category?.is_active ?? true}/>사용</label></SaveForm></details>
- <details className={styles.editor}><summary>문서 관리·연결</summary>{error && <p role="alert">{error}<button onClick={() => setGeneration(n => n + 1)}>다시 불러오기</button></p>}
+ <details className={styles.editor}><summary>문서 관리·연결</summary>{error && <p role="alert">{error}<Button onClick={() => setGeneration(n => n + 1)}>다시 불러오기</Button></p>}
  <SaveForm title="문서 등록" path="documents" payload={data => ({ title: value(data, "title"), content: value(data, "content"), source_path: value(data, "source_path") || null })} onSaved={saved}><Field name="title" label="문서 제목" required max={200}/><Field name="content" label="Markdown 본문" large required max={524288}/><Field name="source_path" label="출처 (선택)"/></SaveForm>
  <label>관리할 문서<select value={documentId} onChange={e => { setDocumentId(e.target.value); setPreview(null); }}><option value="">문서 선택</option>{documents.map(d => <option value={d.id} key={d.id}>{d.title} · 현재 버전 {d.current_version}</option>)}</select></label>
  {document && <><SaveForm key={`title-${document.id}`} title="문서 제목 편집" path={`documents/${document.id}`} method="PUT" payload={data => ({ expected_revision: document.revision, title: value(data, "title") })} onSaved={saved}><Field name="title" label="문서 제목" initial={document.title} required max={200}/></SaveForm>
@@ -104,7 +105,7 @@ export function IssueManagement({ categories, issue, onSaved }: {
         catch {
             setPreview(null);
             setError("해당 문서 버전을 읽지 못했습니다.");
-        } }}><Field name="version" label="열어볼 버전" initial={String(document.current_version)} type="number" required/><button>버전 열기</button></form>
+        } }}><Field name="version" label="열어볼 버전" initial={String(document.current_version)} type="number" required/><Button type="submit">버전 열기</Button></form>
  {preview?.document_id === document.id && <details open><summary>{preview.title} · 버전 {preview.version}</summary><pre className={styles.documentBody}>{preview.content}</pre></details>}
  {issue && <SaveForm key={`link-${document.id}-${issue.id}`} title="선택한 문제에 문서 버전 연결" path={`issues/${issue.id}/links`} method="PUT" payload={data => ({ expected_revision: issue.revision, links: [...issue.documents.filter(d => d.document_id !== document.id || d.version !== Number(value(data, "version"))).map(d => ({ document_id: d.document_id, version: d.version })), { document_id: document.id, version: Number(value(data, "version")) }] })} onSaved={saved}><Field name="version" label="연결할 정확한 버전" type="number" initial={String(document.current_version)} required/></SaveForm>}</>}
  {issue && issue.documents.length > 0 && <SaveForm key={`unlink-${issue.id}`} title="문서 연결 해제" path={`issues/${issue.id}/links`} method="PUT" payload={data => ({ expected_revision: issue.revision, links: issue.documents.filter(d => data.getAll("keep").includes(`${d.document_id}:${d.version}`)).map(d => ({ document_id: d.document_id, version: d.version })) })} onSaved={saved}><p>유지할 연결만 선택하세요. 문서와 이전 진행 기록은 보존됩니다.</p>{issue.documents.map(d => <label key={`${d.document_id}:${d.version}`}><input type="checkbox" name="keep" value={`${d.document_id}:${d.version}`} defaultChecked/>{d.title} · 버전 {d.version}</label>)}</SaveForm>}

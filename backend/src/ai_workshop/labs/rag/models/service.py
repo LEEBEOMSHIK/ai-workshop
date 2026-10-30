@@ -14,6 +14,7 @@ from ai_workshop.labs.rag.models.domain import (
     ProfileModelBinding,
     ProfileValidationError,
 )
+from ai_workshop.labs.rag.models.provider_policy import validate_provider_profile_config
 from ai_workshop.labs.rag.models.repository import (
     ModelRegistryRepository,
     SqlAlchemyModelRegistryRepository,
@@ -65,6 +66,7 @@ class RagModelRegistryService:
         if await self.repository.profile_version_exists(kind, name.strip(), version):
             raise AppError("profile_version_exists", "This profile version already exists.", 409)
         model_ids = tuple(binding.model_id for binding in bindings)
+        deployment = None
         models = await self.repository.find_models(model_ids)
         kinds_by_id = {model.id: model.kind for model in models}
         if len(kinds_by_id) != len(set(model_ids)) or any(
@@ -107,7 +109,9 @@ class RagModelRegistryService:
                 deployment_version_id=deployment_version_id,
                 evaluation_state=evaluation_state,
             )
-        except ProfileValidationError as exc:
+            if deployment is not None:
+                validate_provider_profile_config(profile.config, deployment)
+        except (ProfileValidationError, ValueError) as exc:
             raise AppError("invalid_profile", str(exc), 422) from exc
         return await self.repository.add_profile(profile)
 

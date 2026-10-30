@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "catalog_version": "2026-10-30.1",
+  "verified_at": "2026-10-30",
+  "release_source_url": "https://developers.openai.com/api/docs/changelog",
+  "models": [
+    {
+      "id": "gpt-6.1-terra",
+      "name": "GPT-6.1 Terra",
+      "released_at": "2026-10-26",
+      "verified_at": "2026-10-30",
+      "documentation_url": "https://developers.openai.com/api/docs/models/gpt-6.1-terra",
+      "supports": { "responses": true, "text_output": true, "structured_outputs": true },
+      "parameter_notes": []
+    },
+    {
+      "id": "gpt-6.1-sol",
+      "name": "GPT-6.1 Sol",
+      "released_at": "2026-09-29",
+      "verified_at": "2026-10-30",
+      "documentation_url": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+      "supports": { "responses": true, "text_output": true, "structured_outputs": true },
+      "parameter_notes": []
+    },
+    {
+      "id": "gpt-6-sol",
+      "name": "GPT-6 Sol",
+      "released_at": "2026-09-22",
+      "verified_at": "2026-10-30",
+      "documentation_url": "https://developers.openai.com/api/docs/models/gpt-6-sol",
+      "supports": { "responses": true, "text_output": true, "structured_outputs": true },
+      "parameter_notes": []
+    },
+    {
+      "id": "gpt-6-luna",
+      "name": "GPT-6 Luna",
+      "released_at": "2026-09-22",
+      "verified_at": "2026-10-30",
+      "documentation_url": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+      "supports": { "responses": true, "text_output": true, "structured_outputs": true },
+      "parameter_notes": []
+    },
+    {
+      "id": "gpt-6-astra",
+      "name": "GPT-6 Astra",
+      "released_at": "2026-09-03",
+      "verified_at": "2026-10-30",
+      "documentation_url": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+      "supports": { "responses": true, "text_output": true, "structured_outputs": true },
+      "parameter_notes": ["사용자 지정 temperature를 지원하지 않습니다. 현재 연결의 생성 파라미터 호환성 확인이 필요합니다."]
+    }
+  ]
+}

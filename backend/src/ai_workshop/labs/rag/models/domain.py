@@ -367,13 +367,26 @@ def _validate_generation_profile(
 ) -> None:
     from ai_workshop.labs.rag.models.context_evidence import resolve_evidence_budget
     from ai_workshop.labs.rag.models.numeric_proof_policy import resolve_numeric_proof_policy
+    from ai_workshop.labs.rag.models.orchestration_policy import resolve_orchestration_policy
 
     generation_settings = config.get("generation")
     if isinstance(generation_settings, Mapping):
         resolve_answer_reasoning_effort(generation_settings)
+        from ai_workshop.labs.rag.models.provider_policy import resolve_sampling_mode
+
+        try:
+            resolve_sampling_mode(generation_settings)
+        except ValueError as exc:
+            raise ProfileValidationError(str(exc)) from exc
     try:
         resolve_evidence_budget(config)
         resolve_numeric_proof_policy(config)
+        orchestration = resolve_orchestration_policy(config)
+        if orchestration is not None and (
+            not isinstance(generation_settings, Mapping)
+            or generation_settings.get("response_schema_version") != 2
+        ):
+            raise ValueError("Agent orchestration requires response schema2.")
     except ValueError as exc:
         raise ProfileValidationError(str(exc)) from exc
     required = {

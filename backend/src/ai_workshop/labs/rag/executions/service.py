@@ -12,7 +12,11 @@ from pydantic import ValidationError
 
 from ai_workshop.labs.rag.conversations.access import source_identities
 from ai_workshop.labs.rag.conversations.service import ConversationAccessPort
+from ai_workshop.labs.rag.executions.agent_trace import read_agent_trace
+from ai_workshop.labs.rag.executions.contextualization import storage_contextualization
 from ai_workshop.labs.rag.executions.domain import STAGES, StageObservation
+from ai_workshop.labs.rag.executions.execution_content import storage_stages
+from ai_workshop.labs.rag.executions.history_selection import validate_history_binding
 from ai_workshop.labs.rag.executions.read_repository import MonitoringEntry, MonitoringRepository
 from ai_workshop.labs.rag.executions.schemas import (
     ExecutionDetailResponse,
@@ -29,14 +33,35 @@ def missing() -> AppError:
     return AppError("not_found", "The execution is unavailable.", 404)
 
 
+def _binding(entry: MonitoringEntry) -> tuple[UUID | None, ...]:
+    execution = entry.execution
+    return (
+        entry.owner_id, entry.conversation_id, entry.domain_id, entry.turn.id,
+        execution.id if execution else None, execution.actor_id if execution else None,
+        execution.turn_id if execution else None,
+        execution.evaluation_attempt_id if execution else None,
+    )
+
+
+def _owned_binding(entry: MonitoringEntry, actor_id: UUID) -> bool:
+    execution = entry.execution
+    return entry.owner_id == actor_id and (execution is None or (
+        execution.actor_id == actor_id and execution.turn_id == entry.turn.id
+        and execution.evaluation_attempt_id is None
+    ))
+
+
 def stages(entry: MonitoringEntry) -> list[StageObservation]:
     data = entry.execution.stages if entry.execution else {}
-    return [
+    values = [
         StageObservation.model_validate(data[name])
         if name in data
         else StageObservation(stage=name, state="unrecorded")
         for name in STAGES
     ]
+    return [value.model_copy(update={
+        "contextualization": storage_contextualization(value.contextualization),
+    }) if value.contextualization is not None else value for value in values]
 
 
 def summary(entry: MonitoringEntry) -> ExecutionSummary:
@@ -102,6 +127,8 @@ class ExecutionReadService:
                 old = checked[id]
                 if (
                     fresh is None
+                    or not _owned_binding(fresh, actor_id)
+                    or _binding(fresh) != _binding(old)
                     or fresh.turn.updated_at != old.turn.updated_at
                     or fresh.turn.dependencies != old.turn.dependencies
                     or (fresh.execution.stages if fresh.execution else {})
@@ -116,7 +143,7 @@ class ExecutionReadService:
             if id in checked:
                 continue
             entry = await self.repository.find(actor_id, id, legacy=True)
-            if entry is None or entry.owner_id != actor_id:
+            if entry is None or not _owned_binding(entry, actor_id):
                 return None
             if conversation_id is None:
                 conversation_id = entry.conversation_id
@@ -126,7 +153,20 @@ class ExecutionReadService:
                 "response": entry.turn.response,
                 "observations": entry.execution.stages if entry.execution else {},
             }
-            if not await self.access.visible(actor_id, replace(entry.turn, response=payload)):
+            try:
+                if entry.execution is not None:
+                    safe = storage_stages(entry.execution.stages)
+                    raw_request = safe.get("request")
+                    if isinstance(raw_request, dict) and raw_request.get("history_selection"):
+                        stage = StageObservation.model_validate(raw_request)
+                        validate_history_binding(
+                            stage.history_selection, tuple(entry.turn.dependencies),
+                        )
+                allowed = await self.access.visible(actor_id, replace(entry.turn, response=payload))
+            except (ValueError, TypeError):
+                # Corrupt source manifests cannot bypass ACLs or break unrelated rows.
+                return None
+            if not allowed:
                 return None
             checked[id] = entry
             visiting.add(id)
@@ -135,7 +175,7 @@ class ExecutionReadService:
         return checked.get(turn_id)
 
     async def _authorized(self, actor_id: UUID) -> list[MonitoringEntry]:
-        ids = [entry.turn.id async for entry in self.repository.entries(actor_id)]
+        ids = [id async for id in self.repository.turn_ids(actor_id)]
         result = []
         for id in ids:
             fresh = await self._current_visible(actor_id, id)
@@ -146,7 +186,11 @@ class ExecutionReadService:
     async def search(
         self, actor_id: UUID, request: ExecutionSearchRequest
     ) -> ExecutionSearchResponse:
-        rows = [summary(e) for e in await self._authorized(actor_id)]
+        rows = (
+            [summary(e) for e in await self._authorized(actor_id)]
+            if request.kind != "evaluation"
+            else []
+        )
         if self.evaluations is not None and request.kind != "conversation":
             rows.extend(await self.evaluations.summaries(actor_id))
         rows = [r for r in rows if self._matches(r, request)]
@@ -226,6 +270,19 @@ class ExecutionReadService:
         fresh = await self._current_visible(actor_id, target.turn.id) if target else None
         if fresh is None:
             raise missing()
+        binding = _binding(fresh)
+        if (legacy and fresh.turn.id != id) or (
+            not legacy and (fresh.execution is None or fresh.execution.id != id)
+        ):
+            raise missing()
+        usage = (
+            await self.repository.usage(actor_id, fresh.execution.id) if fresh.execution else []
+        )
+        # Usage is a separate await/session. Reauthorize the closure and exact parent
+        # binding before returning any private body from this final snapshot.
+        fresh = await self._current_visible(actor_id, fresh.turn.id)
+        if fresh is None or _binding(fresh) != binding:
+            raise missing()
         response = fresh.turn.response or {}
         raw_evidence = response.get("grounding_evidence", [])
         evidence = (
@@ -240,12 +297,17 @@ class ExecutionReadService:
             )
         except ValidationError:
             generation = None
+        details = summary(fresh).model_dump()
+        try:
+            agent_trace = read_agent_trace(fresh.execution.stages) if fresh.execution else None
+        except ValidationError:
+            agent_trace = None
+            details["observation_complete"] = False
         return ExecutionDetailResponse(
-            **summary(fresh).model_dump(),
+            **details,
+            agent_trace=agent_trace,
             stages=stages(fresh),
             generation=generation,
             evidence=evidence,
-            usage=await self.repository.usage(actor_id, fresh.execution.id)
-            if fresh.execution
-            else [],
+            usage=usage,
         )

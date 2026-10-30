@@ -1,0 +1,65 @@
+.panel {
+  display: grid;
+  gap: var(--space-5);
+  min-width: 0;
+  padding: var(--space-6);
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  overflow-wrap: anywhere;
+}
+
+.panel h2 { margin: 0; font-size: var(--font-size-heading); }
+.panel p { margin: 0; line-height: var(--line-height-ui); }
+.panel header { display: grid; gap: var(--space-2); }
+.panel header p, .help { color: var(--color-text-muted); }
+.catalogHelp, .catalogSelection { display: grid; gap: var(--space-2); min-width: 0; color: var(--color-text-muted); }
+.catalogHelp { font-size: var(--font-size-caption); }
+.catalogSelection code { color: var(--color-text); overflow-wrap: anywhere; }
+.form, .fields { display: grid; gap: var(--space-4); min-width: 0; }
+.panel fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.panel legend { margin-bottom: var(--space-3); font-weight: 600; }
+.field { display: grid; gap: var(--space-2); min-width: 0; }
+
+.field input, .field select, .field textarea {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  min-height: var(--control-min-height);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text);
+  background: var(--color-surface-input);
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  font: inherit;
+}
+.field textarea { min-height: 6rem; resize: vertical; }
+.field :disabled { opacity: .65; }
+.field input:focus-visible, .field select:focus-visible, .field textarea:focus-visible,
+.advanced summary:focus-visible, .check input:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+
+.check { display: flex; gap: var(--space-3); align-items: center; min-height: var(--control-min-height); }
+.check input { flex: 0 0 auto; width: var(--control-choice-size); height: var(--control-choice-size); accent-color: var(--color-accent); }
+.check span { min-width: 0; }
+.check small { display: block; color: var(--color-text-muted); font-size: var(--font-size-caption); }
+.capabilities { display: grid; gap: var(--space-2); }
+.advanced { padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-control); }
+.advanced summary { display: list-item; align-content: center; min-height: var(--control-min-height); cursor: pointer; }
+.advanced[open] summary { margin-bottom: var(--space-4); }
+.actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.actions > * { min-width: 0; }
+.notice, .error, .success { display: grid; gap: var(--space-2); padding: var(--space-4); border: 1px solid; border-radius: var(--radius-control); }
+.notice { color: var(--color-info); background: var(--color-info-surface); border-color: var(--color-info-border); }
+.error { color: var(--color-danger); background: var(--color-danger-surface); border-color: var(--color-danger-border); }
+.success { color: var(--color-success); background: var(--color-success-surface); border-color: var(--color-success-border); }
+.notice code { overflow-wrap: anywhere; }
+
+/* Keep the form within the administration shell on narrow phones. */
+@media (max-width: 480px) {
+  .panel { padding: var(--space-4); }
+  .actions > * { flex: 1 1 100%; }
+}

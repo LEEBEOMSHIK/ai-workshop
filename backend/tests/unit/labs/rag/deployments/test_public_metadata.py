@@ -289,7 +289,9 @@ def test_external_approval_output_and_input_share_the_exact_version_literal() ->
         == output_version
         == {"$ref": "#/components/schemas/ExternalGenerationDisclosureVersion"}
     )
-    assert shared_version["enum"] == ["external-generation-v1", "codex-external-generation-v1"]
+    assert shared_version["enum"] == [
+        "external-generation-v1", "codex-external-generation-v1", "anthropic-generation-v1",
+    ]
     assert shared_version["type"] == "string"
 
 

@@ -127,6 +127,35 @@ it("shows missing duration without zero and distinguishes skipped from unrecorde
   expect(screen.queryByText("0.00초")).not.toBeInTheDocument();
 });
 
+it("keeps completed execution, generated answer and failed quality separate in the summary", async () => {
+  const detail = { ...evidenceDetail(), status: "completed" as const,
+    answer_status: "answered" as const, quality_status: "failed" as const, duration_ms: 125000 };
+  vi.mocked(getExecutionDetail).mockResolvedValue(detail);
+  render(<ExecutionDetailPage id={detail.id} />);
+  const summary = within(await screen.findByRole("region", { name: "실행 결과 요약" }));
+  expect(summary.getByText("처리 완료")).toBeVisible();
+  expect(summary.getByText("답변 생성")).toBeVisible();
+  expect(summary.getByText("실패")).toBeVisible();
+  expect(summary.getByText("125.00초")).toBeVisible();
+  expect(summary.queryByText("통과")).not.toBeInTheDocument();
+});
+
+it("compares observed stage times against the longest stage without inventing missing times", () => {
+  render(<ExecutionStages stages={[
+    { stage: "retrieval", state: "completed", duration_ms: 1000 },
+    { stage: "generation", state: "completed", duration_ms: 9000 },
+    { stage: "persistence", state: "completed", duration_ms: 0 },
+    { stage: "history", state: "unrecorded", duration_ms: null },
+  ]} />);
+  expect(screen.getByRole("meter", { name: "검색 소요 시간" })).toHaveAttribute("aria-valuenow", "1000");
+  expect(screen.getByRole("meter", { name: "검색 소요 시간" })).toHaveAttribute("aria-valuemax", "9000");
+  expect(screen.getByRole("meter", { name: "답변 생성 소요 시간" })).toHaveAttribute("aria-valuenow", "9000");
+  expect(screen.getByRole("meter", { name: "결과 저장 소요 시간" })).toHaveAttribute("aria-valuenow", "0");
+  expect(screen.queryByRole("meter", { name: "이전 대화 준비 소요 시간" })).not.toBeInTheDocument();
+  expect(screen.getByText("시간 미기록")).toBeVisible();
+  expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+});
+
 it("keeps usage guidance collapsed until requested", async () => {
   vi.mocked(searchExecutions).mockResolvedValue({ items: [], total: 0, failed_count: 0,
     insufficient_count: 0, duration_count: 0, duration_missing: 0, median_ms: null,

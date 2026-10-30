@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, vi } from "vitest";
 
 import { ConfigurationStudioPage } from "./ConfigurationStudioPage";
+import { SavedConfigurationList } from "./SavedConfigurationList";
 import type { ConfigurationStudioData, SavedConfiguration, EvaluationRun } from "./api";
 
 afterEach(() => {
@@ -10,6 +11,93 @@ afterEach(() => {
 });
 
 describe("ConfigurationStudioPage", () => {
+  it("preserves monitoring query parameters when selecting a task and changing studio tabs", async () => {
+    const previousUrl = window.location.href;
+    const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
+    try {
+      window.history.replaceState(null, "", "/admin/rag/configurations?tab=models&run=run-one&case=case-one&view=stored");
+      const user = userEvent.setup();
+      render(<ConfigurationStudioPage initialData={studioData()} initialTab="models" />);
+      expect(screen.getByRole("tab", { name: "모델 레지스트리" })).toHaveAttribute("aria-selected", "true");
+      await user.click(screen.getByRole("tab", { name: "RAG 구성" }));
+      await user.click(screen.getByRole("radio", { name: "새 구성 만들기" }));
+      expect(Object.fromEntries(new URL(window.location.href).searchParams)).toEqual({ tab: "configuration", run: "run-one", case: "case-one", view: "stored" });
+      await user.click(screen.getByRole("tab", { name: "모델 레지스트리" }));
+      expect(Object.fromEntries(new URL(window.location.href).searchParams)).toEqual({ tab: "models", run: "run-one", case: "case-one", view: "stored" });
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally {
+      window.history.replaceState(null, "", previousUrl);
+    }
+  });
+
+  it("keeps one configuration task visible and preserves the draft across tasks and studio tabs", async () => {
+    const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
+    const user = userEvent.setup();
+    render(<ConfigurationStudioPage initialData={studioData()} />);
+    expect(screen.getByRole("region", { name: "저장된 RAG 구성" })).toBeVisible();
+    expect(screen.queryByRole("textbox", { name: "구성 이름" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("radio", { name: "새 구성 만들기" }));
+    await user.type(screen.getByRole("textbox", { name: "구성 이름" }), "보존할 구성 초안");
+    await user.click(screen.getByRole("checkbox", { name: "전사 지식" }));
+    expect(screen.queryByRole("region", { name: "저장된 RAG 구성" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("radio", { name: "저장 구성 확인" }));
+    expect(screen.queryByRole("textbox", { name: "구성 이름" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: "비교 실험" }));
+    await user.click(screen.getByRole("tab", { name: "모델 레지스트리" }));
+    await user.click(screen.getByRole("tab", { name: "RAG 구성" }));
+    await user.click(screen.getByRole("radio", { name: "새 구성 만들기" }));
+    expect(screen.getByRole("textbox", { name: "구성 이름" })).toHaveValue("보존할 구성 초안");
+    expect(screen.getByRole("checkbox", { name: "전사 지식" })).toBeChecked();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("shows saved identity and readiness before expandable pipeline details", async () => {
+    const data = studioData();
+    render(<SavedConfigurationList configurations={data.configurations} models={data.models} profiles={data.profiles} />);
+    const card = screen.getAllByRole("article")[0];
+    expect(within(card).getByText("LLM")).toBeVisible();
+    expect(within(card).getByText("검색 준비")).toBeVisible();
+    expect(within(card).getByText("Parser")).not.toBeVisible();
+    await userEvent.click(within(card).getByText("구성 요소 자세히"));
+    expect(within(card).getByText("Parser")).toBeVisible();
+    expect(within(card).getByText("Answer Policy")).toBeVisible();
+    expect(within(card).getByText("구성 버전 ID")).not.toBeVisible();
+  });
+  it.each([false, true])("shows the saved deployment model without requiring legacy bindings (profile loaded: %s)", (profileLoaded) => {
+    const data = studioData();
+    if (profileLoaded) data.profiles.push(generationProfile("generation-http", "deployment-http", "HTTP generation"));
+    const configuration = savedConfiguration({
+      generation_profile_id: "generation-http",
+      answer_policy: { ...savedConfiguration().answer_policy, mode: "generative" },
+      generation_execution_preview: {
+        deployment_name: "Local deployment", model_name: "Example model", model_version: 3,
+        provider: "local_openai_compatible", location: "local", external_transfer: false,
+        disclosure_version: "local-generation-v1", disclosure: "Local processing",
+        requested_provider_model_id: "example/runtime-v3", observed_provider_model_id: null,
+        model_identity_status: "unknown",
+      },
+    });
+    render(<SavedConfigurationList configurations={[configuration]} models={data.models} profiles={data.profiles} />);
+
+    const llm = screen.getByText("LLM").nextElementSibling;
+    expect(llm).toHaveTextContent("Example model v3");
+    expect(llm).toHaveTextContent("요청 모델: example/runtime-v3");
+    expect(llm).not.toHaveTextContent("연결된 모델 정보 없음");
+    expect(screen.getByText("평가 대기")).toBeVisible();
+    expect(screen.queryByText("평가 통과")).not.toBeInTheDocument();
+    expect(screen.queryByText("운영 기본값")).not.toBeInTheDocument();
+  });
+
+  it("keeps missing generative metadata distinct from an extractive configuration", () => {
+    const configuration = savedConfiguration({
+      generation_profile_id: "unavailable-profile",
+      answer_policy: { ...savedConfiguration().answer_policy, mode: "generative" },
+    });
+    render(<SavedConfigurationList configurations={[configuration]} models={[]} profiles={[]} />);
+    expect(screen.getByText("LLM").nextElementSibling).toHaveTextContent("연결된 모델 정보 없음");
+    expect(screen.getByText("LLM").nextElementSibling).not.toHaveTextContent("사용 안 함");
+  });
+
   it("names comparison modes by purpose and opens answer evaluation read-only", async () => {
     const fetcher = vi.fn(async () => jsonResponse([], 200));
     vi.stubGlobal("fetch", fetcher);
@@ -135,6 +223,7 @@ describe("ConfigurationStudioPage", () => {
     );
     const user = userEvent.setup();
     render(<ConfigurationStudioPage initialData={data} />);
+    await userEvent.click(screen.getByRole("radio", { name: "새 구성 만들기" }));
 
     await user.selectOptions(
       screen.getByRole("combobox", { name: "답변 방식" }),
@@ -188,6 +277,7 @@ describe("ConfigurationStudioPage", () => {
     }));
     const user = userEvent.setup();
     render(<ConfigurationStudioPage initialData={data} />);
+    await userEvent.click(screen.getByRole("radio", { name: "새 구성 만들기" }));
 
     await user.selectOptions(screen.getByRole("combobox", { name: "답변 방식" }), "generative");
     const generationSelect = await screen.findByRole("combobox", { name: "생성 구성" });
@@ -239,6 +329,7 @@ describe("ConfigurationStudioPage", () => {
     }));
     const user = userEvent.setup();
     render(<ConfigurationStudioPage initialData={data} />);
+    await userEvent.click(screen.getByRole("radio", { name: "새 구성 만들기" }));
 
     await user.selectOptions(screen.getByRole("combobox", { name: "답변 방식" }), "generative");
     await screen.findByRole("combobox", { name: "생성 구성" });
@@ -279,6 +370,7 @@ describe("ConfigurationStudioPage", () => {
     }));
     const user = userEvent.setup();
     render(<ConfigurationStudioPage initialData={data} />);
+    await userEvent.click(screen.getByRole("radio", { name: "새 구성 만들기" }));
 
     await user.selectOptions(screen.getByRole("combobox", { name: "답변 방식" }), "generative");
     await screen.findByRole("combobox", { name: "생성 구성" });
@@ -308,6 +400,7 @@ describe("ConfigurationStudioPage", () => {
     }));
     const user = userEvent.setup();
     render(<ConfigurationStudioPage initialData={data} />);
+    await userEvent.click(screen.getByRole("radio", { name: "새 구성 만들기" }));
 
     await user.selectOptions(screen.getByRole("combobox", { name: "답변 방식" }), "generative");
     expect(await screen.findByRole("alert")).toHaveTextContent("생성 배포 정보를 불러오지 못했습니다");
@@ -333,6 +426,7 @@ describe("ConfigurationStudioPage", () => {
     }));
     const user = userEvent.setup();
     render(<ConfigurationStudioPage initialData={data} />);
+    await userEvent.click(screen.getByRole("radio", { name: "새 구성 만들기" }));
 
     await user.selectOptions(screen.getByRole("combobox", { name: "답변 방식" }), "generative");
     await screen.findByRole("combobox", { name: "생성 구성" });
@@ -347,8 +441,9 @@ describe("ConfigurationStudioPage", () => {
     );
   });
 
-  it("shows only the automatic BM25 baseline before the user saves a configuration", () => {
+  it("shows only the automatic BM25 baseline before the user saves a configuration", async () => {
     render(<ConfigurationStudioPage initialData={studioData()} />);
+    await userEvent.click(screen.getByRole("radio", { name: "새 구성 만들기" }));
 
     const indexingSelect = screen.getByRole("combobox", {
       name: "색인 패키지",
@@ -380,16 +475,18 @@ describe("ConfigurationStudioPage", () => {
       "workspace-company",
     );
 
+    expect(screen.getByRole("button", { name: "저장" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "저장하고 비교에 추가" })).toBeVisible();
+    await userEvent.click(screen.getByRole("radio", { name: "저장 구성 확인" }));
     const savedList = screen.getByRole("region", { name: "저장된 RAG 구성" });
     expect(within(savedList).getByText("BM25 기준선")).toBeVisible();
     expect(within(savedList).queryByText(/E5 하이브리드/)).not.toBeInTheDocument();
     expect(within(savedList).queryByText(/BGE 하이브리드/)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "저장" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "저장하고 비교에 추가" })).toBeVisible();
   });
 
-  it("describes indexing choices by embedding and chunker roles without internal identifiers", () => {
+  it("describes indexing choices by embedding and chunker roles without internal identifiers", async () => {
     render(<ConfigurationStudioPage initialData={studioData()} />);
+    await userEvent.click(screen.getByRole("radio", { name: "새 구성 만들기" }));
 
     const indexingSelect = screen.getByRole("combobox", {
       name: "색인 패키지",
@@ -411,7 +508,7 @@ describe("ConfigurationStudioPage", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("excludes indexing profiles that have no embedding binding", () => {
+  it("excludes indexing profiles that have no embedding binding", async () => {
     const data = studioData();
     data.profiles = [
       {
@@ -437,6 +534,7 @@ describe("ConfigurationStudioPage", () => {
       ...data.profiles,
     ];
     render(<ConfigurationStudioPage initialData={data} />);
+    await userEvent.click(screen.getByRole("radio", { name: "새 구성 만들기" }));
 
     const indexingSelect = screen.getByRole("combobox", {
       name: "색인 패키지",
@@ -472,6 +570,7 @@ describe("ConfigurationStudioPage", () => {
 
     const user = userEvent.setup();
     render(<ConfigurationStudioPage initialData={studioData()} />);
+    await userEvent.click(screen.getByRole("radio", { name: "새 구성 만들기" }));
 
     await user.selectOptions(
       screen.getByRole("combobox", { name: "색인 패키지" }),
@@ -514,6 +613,7 @@ describe("ConfigurationStudioPage", () => {
     expect(card).not.toBeNull();
     if (!card) throw new Error("Expected a saved configuration card.");
 
+    await user.click(within(card).getByText("구성 요소 자세히"));
     expect(within(card).getByText("e5-structure-aware v2")).toBeVisible();
     expect(within(card).getByText("multilingual-e5-base v1")).toBeVisible();
     expect(within(card).getByText("bm25-only v1")).toBeVisible();
@@ -545,7 +645,7 @@ describe("ConfigurationStudioPage", () => {
     }
   });
 
-  it("shows every saved RAG package component with human-readable identities", () => {
+  it("shows every saved RAG package component with human-readable identities", async () => {
     const data = studioData();
     data.configurations = [savedConfiguration({ name: "내 E5 패키지" })];
     render(<ConfigurationStudioPage initialData={data} />);
@@ -555,6 +655,7 @@ describe("ConfigurationStudioPage", () => {
     expect(card).not.toBeNull();
     if (!card) throw new Error("Expected a saved RAG package card.");
 
+    await userEvent.click(within(card).getByText("구성 요소 자세히"));
     const expectedComponents = [
       ["Parser", "형식별 자동 선택 · 현재 구성에 고정되지 않음"],
       ["Chunker", "structure-aware · v2 · target 380 · overlap 60"],
@@ -632,6 +733,7 @@ describe("ConfigurationStudioPage", () => {
     );
     const user = userEvent.setup();
     render(<ConfigurationStudioPage initialData={studioData()} />);
+    await userEvent.click(screen.getByRole("radio", { name: "새 구성 만들기" }));
 
     await user.type(screen.getByRole("textbox", { name: "구성 이름" }), "비교할 E5 구성");
     await user.click(screen.getByRole("checkbox", { name: /전사 지식/ }));
@@ -644,7 +746,7 @@ describe("ConfigurationStudioPage", () => {
     expect(
       screen.getByRole("checkbox", { name: "비교할 E5 구성 v1" }),
     ).toBeChecked();
-    expect(screen.queryByText("configuration-compare-version-1")).not.toBeInTheDocument();
+    expect(screen.getByText("configuration-compare-version-1")).not.toBeVisible();
   });
 
   it("shows the selected document processing and full OCR configuration without UUID labels", async () => {
@@ -691,8 +793,9 @@ describe("ConfigurationStudioPage", () => {
     const user = userEvent.setup();
 
     render(<ConfigurationStudioPage initialData={data} />);
+    await userEvent.click(screen.getByRole("radio", { name: "새 구성 만들기" }));
 
-    expect(screen.getByRole("group", { name: "문서 처리 구성" })).toBeVisible();
+    expect(screen.getByRole("group", { name: "2. 문서 처리" })).toBeVisible();
     expect(screen.getByRole("option", { name: /DOCX 구조·OCR v1.*PP-StructureV3 3.7.0.*draft/ })).toBeVisible();
     const detailsSummary = screen.getByText("전체 OCR 구성 보기");
     await user.click(detailsSummary);
@@ -917,6 +1020,7 @@ it("excludes retired Codex generation from new configurations without fetching r
   });
   vi.stubGlobal("fetch", fetcher);
   render(<ConfigurationStudioPage initialData={data} />);
+    await userEvent.click(screen.getByRole("radio", { name: "새 구성 만들기" }));
   const user = userEvent.setup();
   await user.selectOptions(screen.getByLabelText("답변 방식"), "generative");
   await waitFor(() => expect(screen.queryByRole("option", { name: /Codex draft/ })).not.toBeInTheDocument());
@@ -937,6 +1041,7 @@ it("keeps HTTP generation selectable if the optional Codex catalog is unavailabl
     throw new Error("Codex catalog unavailable");
   }));
   render(<ConfigurationStudioPage initialData={data} />);
+    await userEvent.click(screen.getByRole("radio", { name: "새 구성 만들기" }));
   const user = userEvent.setup();
   await user.selectOptions(screen.getByLabelText("답변 방식"), "generative");
   await waitFor(() => expect(screen.getByRole("option", { name: /HTTP ready/ })).toBeEnabled());

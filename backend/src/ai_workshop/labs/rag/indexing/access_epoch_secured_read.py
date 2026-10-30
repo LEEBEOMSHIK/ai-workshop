@@ -19,7 +19,10 @@ from pydantic import BaseModel, SecretStr
 
 from ai_workshop.config import Settings
 from ai_workshop.infrastructure.local.credential_store_windows import WindowsCredentialStore
-from ai_workshop.infrastructure.search.access_credentials import SecuredStoreIdentity
+from ai_workshop.infrastructure.search.access_credentials import (
+    CredentialEnvelope,
+    SecuredStoreIdentity,
+)
 from ai_workshop.labs.rag.indexing.access_epoch_deployment import PROJECT_ROOT
 from ai_workshop.labs.rag.indexing.access_epoch_evidence_packets import _stored_control_manifest
 from ai_workshop.labs.rag.indexing.access_epoch_keys import (
@@ -61,6 +64,8 @@ def _freeze(value: object) -> object:
     if isinstance(value, SecretStr):
         return (type(value), value.get_secret_value())
     if type(value) is UUID:
+        if type(value.int) is not int or not 0 <= value.int < 1 << 128:
+            raise _denied()
         return ("uuid", value.int)
     if type(value) is datetime:
         return ("datetime", value.isoformat())
@@ -104,6 +109,7 @@ class _Sample:
     evidence: VerifiedAccessEpoch
     state: AccessEpochReadback
     material: object
+    credentials: tuple[tuple[KeyActionReadback, CredentialEnvelope], ...]
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -402,6 +408,7 @@ class NativeSecuredReadSource:
         if set(latest) != set(KEY_ROLES):
             raise _denied()
         material: list[object] = []
+        credentials: list[tuple[KeyActionReadback, CredentialEnvelope]] = []
         for role in KEY_ROLES:
             row = latest[role]
             if row.outcome != "settled" or row.result is None or row.result.result != "issued":
@@ -427,10 +434,11 @@ class NativeSecuredReadSource:
             ):
                 raise _denied()
             material.append(_freeze((row, envelope)))
+            credentials.append((row, envelope))
         if self._store.read_floor_anchor() != anchor:
             raise _denied()
         self._claim_guard(claim, seal)
-        return _Sample(evidence, state, (_freeze(anchor), tuple(material)))
+        return _Sample(evidence, state, (_freeze(anchor), tuple(material)), tuple(credentials))
 
     async def _sample_committed(
         self, claim: FrozenAliasClaim, seal: object, binding: SecuredReadBinding | None = None

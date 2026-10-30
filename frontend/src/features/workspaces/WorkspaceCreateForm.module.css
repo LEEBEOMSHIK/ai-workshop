@@ -4,46 +4,79 @@
   margin-block: 1.5rem;
   padding: 1.25rem;
   border: 1px solid var(--color-border-subtle);
-  border-radius: 0.85rem;
-  background: #101821;
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
 }
 
 .form fieldset {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
-  gap: 1rem;
+  gap: var(--space-4);
   min-width: 0;
   margin: 1rem 0;
   padding: 0;
   border: 0;
 }
 
-.form label { display: grid; align-content: start; gap: 0.5rem; min-width: 0; }
-.help { font-size: 0.85rem; color: #9aa8b5; }
+.form label { display: grid; align-content: start; gap: var(--space-2); min-width: 0; }
+.help { font-size: var(--font-size-caption); color: var(--color-text-muted); }
 .form :is(input, select) {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 0.5rem;
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
   padding: 0.7rem;
-  background: #141e29;
-  color: #edf2f7;
+  background: var(--color-surface-input);
+  color: var(--color-text);
   color-scheme: dark;
   font: inherit;
+  font-size: var(--font-size-control);
+  min-height: var(--control-min-height);
 }
 .form button {
   width: fit-content;
   padding: 0.7rem 1rem;
   border: 1px solid var(--color-accent-text);
-  border-radius: 0.5rem;
+  border-radius: var(--radius-control);
   background: var(--color-accent-text);
-  color: #07100f;
+  color: var(--color-on-accent);
   font: inherit;
   font-weight: 750;
   cursor: pointer;
 }
 .form :disabled { opacity: 0.6; cursor: not-allowed; }
-.form :is(input, select, button):focus-visible { outline: 2px solid var(--color-accent-text); outline-offset: 0.2rem; }
-.form [role="alert"] { color: #ffb4ab; }
+.form :is(input, select, button):focus-visible { outline: var(--focus-width) solid var(--focus-color); outline-offset: var(--focus-offset); }
+.form [role="alert"] { color: var(--color-danger); }
 .form [role="status"] { color: var(--color-accent-text); }
+
+/* Shared control geometry; native choice symbols and reader typography stay separate. */
+.form :where(button, select, textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="file"]):not([type="range"]), summary) {
+  box-sizing: border-box;
+  min-height: var(--control-min-height);
+  max-width: 100%;
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-control);
+}
+.form :where(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="file"]):not([type="range"]), select, textarea) {
+  background-color: var(--color-surface-input);
+  color: var(--color-text);
+  border-color: var(--color-border-control);
+  border-radius: var(--radius-control);
+}
+.form :is(input[type="checkbox"], input[type="radio"]) {
+  flex: 0 0 auto;
+  width: var(--control-choice-size);
+  height: var(--control-choice-size);
+  min-height: 0;
+  padding: 0;
+  accent-color: var(--color-accent);
+}
+.form :is(button, a, input, select, textarea, summary):focus-visible {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--focus-offset);
+}
+.form button { overflow-wrap: anywhere; }
+.form button:disabled { cursor: not-allowed; }
+.form { font-family: var(--font-family-ui); }
+.form h1 { font-family: var(--font-family-ui); font-size: var(--font-size-title); line-height: 1.25; }

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ai_workshop.config import Settings
 from ai_workshop.labs.rag.evaluation.domain import load_evaluation_dataset
+from ai_workshop.labs.rag.evaluation.embedding_reuse import FrozenEmbeddingResults
 from ai_workshop.labs.rag.evaluation.generative import (
     ClaimCitation,
     GenerativeObservation,
@@ -35,6 +36,11 @@ from ai_workshop.labs.rag.executions.observer import ExecutionObserver
 from ai_workshop.labs.rag.executions.repository import SqlAlchemyExecutionRecorder
 from ai_workshop.labs.rag.generation.codex_admin_api import CodexInputApprovalRequest
 from ai_workshop.labs.rag.generation.codex_composition import codex_services
+from ai_workshop.labs.rag.generation.execution import (
+    PROVIDER_TERMINATION_UNCONFIRMED,
+    GenerationTermination,
+    tracked_generation_call,
+)
 from ai_workshop.labs.rag.generation.local_model_host import LocalModelHost
 from ai_workshop.labs.rag.generation.numeric_proof_schemas import (
     NumericValidationBindingView,
@@ -83,9 +89,14 @@ class GenerativeWorkflow:
         self.repository = GenerativeRepository(sessions)
 
     async def run(self, run_id: UUID) -> None:
+        worker_runtime = capture_worker_runtime(environment=self.settings.environment)
+        max_bytes = self.settings.frozen_evaluation_embedding_cache_bytes
+        worker_runtime["embedding_result_reuse"] = {
+            "version": 1, "scope": "claim", "max_bytes": max_bytes, "enabled": max_bytes > 0,
+        }
         token = await self.repository.claim_run(
             run_id,
-            capture_worker_runtime(environment=self.settings.environment),
+            worker_runtime,
         )
         if token is None:
             return
@@ -104,6 +115,20 @@ class GenerativeWorkflow:
                 return
 
     async def _execute_claimed(self, run_id: UUID, token: UUID) -> None:
+        max_bytes = self.settings.frozen_evaluation_embedding_cache_bytes
+        if max_bytes == 0:
+            await self._execute_attempts(run_id, token)
+            return
+        embedding_results = FrozenEmbeddingResults(max_bytes=max_bytes)
+        try:
+            await self._execute_attempts(run_id, token, embedding_results=embedding_results)
+        finally:
+            embedding_results.close()
+
+    async def _execute_attempts(
+        self, run_id: UUID, token: UUID, *,
+        embedding_results: FrozenEmbeddingResults | None = None,
+    ) -> None:
         async with self.sessions() as session:
             run = await session.get(GenerativeRunRecord, run_id)
             assert run is not None
@@ -134,8 +159,14 @@ class GenerativeWorkflow:
             )
             await observer.start()
             await observer.begin("request")
+            # Frozen evaluation does not collect conversation history. Snapshot-provided
+            # history is still validated/contextualized by the shared pipeline. Record
+            # this known skip before complete_attempt makes the execution terminal.
+            await observer.end("history", state="skipped", reason="not_executed")
             started = perf_counter()
             error: str | None = None
+            termination = GenerationTermination()
+            cancellation_requested = False
             try:
                 case = next(c for c in dataset.cases if c.id == attempt.case_id)
                 candidate = candidate_input(run, attempt.configuration_version_id)
@@ -148,21 +179,33 @@ class GenerativeWorkflow:
                         aclosing(LocalModelHost()) as local_model_host,
                     ):
                         resolver = get_search_configuration_resolver(session, self.settings)
-                        adapter = FrozenGenerativeAdapter(
-                            frozen,
-                            resolver,
-                            FrozenEvaluationAccess(session),
-                            input_approval=CodexInputApprovalRequest.model_validate(
-                                run.input_approval,
-                            )
-                            if run.input_approval
-                            else None,
+                        access = FrozenEvaluationAccess(session)
+                        input_approval = (
+                            CodexInputApprovalRequest.model_validate(run.input_approval)
+                            if run.input_approval else None
                         )
+                        if embedding_results is None:
+                            adapter = FrozenGenerativeAdapter(
+                                frozen, resolver, access, input_approval=input_approval,
+                            )
+                        else:
+                            adapter = FrozenGenerativeAdapter(
+                                frozen, resolver, access, input_approval=input_approval,
+                                embedding_results=embedding_results,
+                            )
                         prepared = await adapter.prepare(run.owner_id, candidate, case)
                         async with asynccontextmanager(get_search_service)(
                             session, self.settings, resolver, codex, local_model_host
                         ) as pipeline:
-                            output = await pipeline.execute(prepared, observer=observer)
+                            output = await tracked_generation_call(
+                                pipeline.execute(prepared, observer=observer), termination,
+                            )
+                            if not termination.confirmed:
+                                # A later successful response cannot settle an earlier HTTP attempt.
+                                raise AppError(
+                                    PROVIDER_TERMINATION_UNCONFIRMED,
+                                    "Local provider termination is unconfirmed.", 409,
+                                )
                         cited = tuple(
                             dict.fromkeys(
                                 id
@@ -217,8 +260,15 @@ class GenerativeWorkflow:
                         )
                 finally:
                     await frozen.close()
-            except Exception as exc:
-                error = exc.code if isinstance(exc, AppError) else "evaluation_execution_failed"
+            except (Exception, asyncio.CancelledError) as exc:
+                if isinstance(exc, asyncio.CancelledError):
+                    if termination.confirmed:
+                        raise
+                    cancellation_requested = True
+                error = (
+                    PROVIDER_TERMINATION_UNCONFIRMED if not termination.confirmed else
+                    exc.code if isinstance(exc, AppError) else "evaluation_execution_failed"
+                )
                 failed_stage = observer.active or observer.failed_stage or "request"
                 exposed = set(observer.retrieved_evidence_ids) | set(observer.selected_evidence_ids)
                 await observer.fail(error)
@@ -265,4 +315,9 @@ class GenerativeWorkflow:
                     answer_status=result.observation.generation_status,
                 )
             )
+            if error == PROVIDER_TERMINATION_UNCONFIRMED:
+                # complete_attempt atomically fenced untouched siblings and this parent run.
+                if cancellation_requested:
+                    raise asyncio.CancelledError
+                return
         await self.repository.finish_run(run_id, token)

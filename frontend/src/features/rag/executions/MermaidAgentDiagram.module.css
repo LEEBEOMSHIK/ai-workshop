@@ -1,0 +1,38 @@
+.diagram { min-width: 0; margin-block: var(--space-4); border: 1px solid var(--color-border-control); border-radius: var(--radius-panel); background: var(--color-background); overflow: hidden; }
+.heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3); padding: var(--space-3) var(--space-4); }
+.heading > div:first-child { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); }
+.outcome { min-width: 0; margin: 0 var(--space-4) var(--space-3); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-control); background: var(--color-surface); }
+.outcomeJudgment { margin: 0 0 var(--space-3); font-weight: 700; line-height: var(--line-height-heading); overflow-wrap: anywhere; }
+.diagram .outcomeFacts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 7rem), 1fr)); gap: var(--space-3); margin: 0; font-size: var(--font-size-ui); }
+.diagram .outcomeFacts > div { min-width: 0; }
+.diagram .outcomeFacts dt { color: var(--color-text-muted); font-size: var(--font-size-caption); }
+.diagram .outcomeFacts dd { margin: var(--space-1) 0 0; font-weight: 600; overflow-wrap: anywhere; }
+.outcome [data-quality="failed"], .outcomeObservation { color: var(--color-danger); }
+.outcome [data-quality="passed"] { color: var(--color-success); }
+.outcomeObservation { margin: var(--space-2) 0 0; font-size: var(--font-size-caption); }
+.engine, .hint, .footer { color: var(--color-text-muted); font-size: var(--font-size-caption); }
+.controls { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.controls button { min-height: var(--control-min-height); min-width: var(--control-min-height); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-control); border-radius: var(--radius-control); background: var(--color-surface); color: var(--color-text); font: inherit; font-size: var(--font-size-caption); cursor: pointer; }
+.controls button:hover:enabled { border-color: var(--color-accent); }
+.controls button:disabled { opacity: .6; cursor: not-allowed; }
+.controls button:focus-visible, .footer summary:focus-visible { outline: var(--focus-width) solid var(--focus-color); outline-offset: var(--focus-offset); }
+.diagram .hint { margin: 0; padding: 0 var(--space-4) var(--space-3); }
+.canvas { height: clamp(22rem, 55vh, 34rem); min-width: 0; border-block: 1px solid var(--color-border); background-image: radial-gradient(var(--color-border) 1px, transparent 1px); background-size: 20px 20px; touch-action: none; }
+.canvas > svg { display: block; width: 100%; height: 100%; cursor: grab; user-select: none; }
+.canvas > svg:active { cursor: grabbing; }
+.canvas :global(g.node) { cursor: grab; outline: none; }
+.canvas :global(g.node):active { cursor: grabbing; }
+.canvas :global(g.node) > rect { rx: 10px; stroke-width: 1.5px; }
+.canvas :global(g.node[data-kind="delegation"]) > rect { stroke-dasharray: 5 3; }
+.canvas :global(g.node[data-kind="model"]) > rect { stroke: var(--color-text-muted) !important; }
+.canvas :global(g.node[data-state="failed"]) > rect { stroke: var(--color-danger) !important; }
+.canvas :global(g.node[data-state="cancelled"]) > rect { stroke: var(--color-warning) !important; }
+.canvas :global(g.node[aria-pressed="true"]) > rect, .canvas :global(g.node):focus > rect { stroke: var(--color-accent) !important; stroke-width: 3.5px !important; }
+.canvas :global(g.node):focus { filter: drop-shadow(0 0 3px var(--color-accent)); }
+.canvas :global(.edgePaths path) { stroke-width: 1.6px; }
+.footer { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3) var(--space-4); }
+.footer details { max-width: 32rem; }
+.footer summary { min-height: var(--control-min-height); padding-block: var(--space-2); cursor: pointer; }
+.error, .diagram > p[role="status"] { padding-inline: var(--space-4); }
+.scratch { position: fixed; left: -10000px; top: 0; width: 1600px; visibility: hidden; pointer-events: none; }
+@media (max-width: 480px) { .heading { padding: var(--space-3); } .outcome { margin-inline: var(--space-3); } .controls { width: 100%; } .controls button { flex-grow: 1; padding-inline: var(--space-2); } .diagram .hint, .footer { padding-inline: var(--space-3); } }

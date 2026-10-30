@@ -10,6 +10,7 @@ class ProviderKind(StrEnum):
     LOCAL_TRANSFORMERS = "local_transformers"
     LOCAL_OPENAI_COMPATIBLE = "local_openai_compatible"
     OPENAI_RESPONSES = "openai_responses"
+    ANTHROPIC_MESSAGES = "anthropic_messages"
     DEVELOPMENT_CODEX_EXEC = "development_codex_exec"
 
 
@@ -190,14 +191,14 @@ class ModelDeploymentVersion:
             raise DeploymentValidationError(
                 "A local Provider requires local or on-premise execution."
             )
-        if self.provider is ProviderKind.OPENAI_RESPONSES:
+        if self.provider in {ProviderKind.OPENAI_RESPONSES, ProviderKind.ANTHROPIC_MESSAGES}:
             if not is_external:
                 raise DeploymentValidationError(
-                    "OpenAI Responses requires external execution."
+                    "An external API Provider requires external execution."
                 )
             if clean_secret_ref is None:
                 raise DeploymentValidationError(
-                    "OpenAI Responses requires a secret reference."
+                    "An external API Provider requires a secret reference."
                 )
 
         if self.external_transfer:

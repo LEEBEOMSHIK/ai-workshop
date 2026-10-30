@@ -24,17 +24,19 @@ def migration_sql(direction: str) -> str:
     return output.getvalue()
 
 
-def test_upgrade_sql_matches_orm_constraints_without_connecting() -> None:
+def test_upgrade_sql_retains_original_contract_and_local_constraints_without_connecting() -> None:
     sql = migration_sql("upgrade")
     assert "ADD COLUMN local_model_ref VARCHAR(120)" in sql
     for constraint in ModelDeploymentVersionRecord.__table__.constraints:
         if isinstance(constraint, CheckConstraint) and constraint.name in {
-            "ck_rag_deployment_versions_provider",
-            "ck_rag_deployment_versions_execution_reference",
             "ck_rag_deployment_versions_local_model_safe_name",
             "ck_rag_deployment_versions_local_transformers_contract",
         }:
             assert str(constraint.sqltext) in sql
+    # Provider/reference checks expanded in 0068; the historical 0065 SQL stays immutable.
+    assert "'openai_responses', 'development_codex_exec')" in sql
+    assert "(provider IN ('local_openai_compatible', 'openai_responses')" in sql
+    assert "anthropic_messages" not in sql
     assert "rag_installation_data_policy_versions" in sql
     assert "rag_workspace_data_policy_versions" in sql
 

@@ -7,6 +7,7 @@ from uuid import UUID
 
 from ai_workshop.labs.rag.documents.domain import EvidenceUnit, SourceLocation
 from ai_workshop.labs.rag.embeddings.contracts import EmbeddingPort
+from ai_workshop.labs.rag.executions.operation_timings import measure_operation
 from ai_workshop.labs.rag.highlighting.domain import (
     AnswerPolicy,
     AnswerStatus,
@@ -20,6 +21,7 @@ from ai_workshop.labs.rag.highlighting.domain import (
 )
 
 _TOKEN_PATTERN = re.compile(r"\w+|[%]+", re.UNICODE)
+_WHITESPACE_PATTERN = re.compile(r"\s+")
 _NUMERIC_VALUE_PATTERN = re.compile(
     r"([+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)"
 )
@@ -100,9 +102,87 @@ def _normalize_with_original_offsets(
     return "".join(collapsed), tuple(collapsed_starts), tuple(collapsed_ends)
 
 
-def _query_terms(query: str) -> tuple[str, ...]:
-    normalized, _, _ = _normalize_with_original_offsets(query)
-    return tuple(dict.fromkeys(_TOKEN_PATTERN.findall(normalized)))
+def _normalize_text(text: str) -> str:
+    return _WHITESPACE_PATTERN.sub(" ", unicodedata.normalize("NFKC", text).casefold())
+
+
+class KeywordMatcher:
+    """Reuse one query's text calculations for the lifetime of its request."""
+
+    def __init__(self, query: str) -> None:
+        self._query = query
+        self._normalized_texts: dict[str, str] = {}
+        self._offsets: dict[str, tuple[str, tuple[int, ...], tuple[int, ...]]] = {}
+        self._terms = tuple(dict.fromkeys(_TOKEN_PATTERN.findall(self._normalized(query))))
+
+    def validate_query(self, query: str) -> None:
+        if query != self._query:
+            raise ValueError("Keyword matcher query does not match selection query.")
+
+    def _normalized(self, text: str) -> str:
+        reused = text in self._normalized_texts
+        with measure_operation("keyword.normalize", items=1, reused_items=int(reused)):
+            if not reused:
+                self._normalized_texts[text] = _normalize_text(text)
+            return self._normalized_texts[text]
+
+    def _original_offsets(self, text: str) -> tuple[str, tuple[int, ...], tuple[int, ...]]:
+        reused = text in self._offsets
+        with measure_operation("keyword.offsets", items=1, reused_items=int(reused)):
+            if not reused:
+                self._offsets[text] = _normalize_with_original_offsets(text)
+            return self._offsets[text]
+
+    def coverage(self, text: str) -> float:
+        if not self._terms:
+            return 0.0
+        normalized = self._normalized(text)
+        return sum(term in normalized for term in self._terms) / len(self._terms)
+
+    def highlights(
+        self,
+        text: str,
+        location: SourceLocation,
+        evidence_unit_id: UUID,
+    ) -> KeywordHighlightResult:
+        coverage = self.coverage(text)
+        if coverage == 0.0:
+            return KeywordHighlightResult(0.0, ())
+        normalized_text, original_starts, original_ends = self._original_offsets(text)
+        spans: list[HighlightSpan] = []
+        for term in self._terms:
+            position = 0
+            while True:
+                start = normalized_text.find(term, position)
+                if start < 0:
+                    break
+                end = start + len(term)
+                original_start = original_starts[start]
+                original_end = original_ends[end - 1]
+                absolute_start = location.char_start + original_start
+                absolute_end = location.char_start + original_end
+                is_whole_unit = original_start == 0 and original_end == len(text)
+                bbox = location.bbox if is_whole_unit else None
+                warnings = (
+                    ("pdf_keyword_bbox_unavailable",)
+                    if location.bbox is not None and not is_whole_unit
+                    else ()
+                )
+                spans.append(
+                    HighlightSpan(
+                        kind=HighlightKind.KEYWORD,
+                        evidence_unit_id=evidence_unit_id,
+                        text=text[original_start:original_end],
+                        char_start=absolute_start,
+                        char_end=absolute_end,
+                        page=location.page,
+                        bbox=bbox,
+                        warnings=warnings,
+                    )
+                )
+                position = end
+        spans.sort(key=lambda item: (item.char_start, item.char_end, item.text))
+        return KeywordHighlightResult(coverage, tuple(spans))
 
 
 def find_keyword_highlights(
@@ -112,50 +192,9 @@ def find_keyword_highlights(
     location: SourceLocation,
     evidence_unit_id: UUID,
 ) -> KeywordHighlightResult:
-    terms = _query_terms(query)
-    if not terms:
-        return KeywordHighlightResult(0.0, ())
-    normalized_text, original_starts, original_ends = _normalize_with_original_offsets(
-        text
+    return KeywordMatcher(query).highlights(
+        text=text, location=location, evidence_unit_id=evidence_unit_id,
     )
-    matched_terms = 0
-    spans: list[HighlightSpan] = []
-    for term in terms:
-        position = 0
-        term_matched = False
-        while True:
-            start = normalized_text.find(term, position)
-            if start < 0:
-                break
-            end = start + len(term)
-            original_start = original_starts[start]
-            original_end = original_ends[end - 1]
-            absolute_start = location.char_start + original_start
-            absolute_end = location.char_start + original_end
-            is_whole_unit = original_start == 0 and original_end == len(text)
-            bbox = location.bbox if is_whole_unit else None
-            warnings = (
-                ("pdf_keyword_bbox_unavailable",)
-                if location.bbox is not None and not is_whole_unit
-                else ()
-            )
-            spans.append(
-                HighlightSpan(
-                    kind=HighlightKind.KEYWORD,
-                    evidence_unit_id=evidence_unit_id,
-                    text=text[original_start:original_end],
-                    char_start=absolute_start,
-                    char_end=absolute_end,
-                    page=location.page,
-                    bbox=bbox,
-                    warnings=warnings,
-                )
-            )
-            term_matched = True
-            position = end
-        matched_terms += int(term_matched)
-    spans.sort(key=lambda item: (item.char_start, item.char_end, item.text))
-    return KeywordHighlightResult(matched_terms / len(terms), tuple(spans))
 
 
 def semantic_highlight(evidence: EvidenceUnit, *, score: float) -> HighlightSpan:
@@ -187,9 +226,12 @@ class EvidenceSelector:
         query: str,
         sources: tuple[EvidenceSource, ...],
         policy: AnswerPolicy,
+        keywords: KeywordMatcher | None = None,
     ) -> EvidenceSelection:
         if policy.require_complete_provenance is not True:
             raise ValueError("The extractive V1 policy requires complete provenance.")
+        keywords = keywords if keywords is not None else KeywordMatcher(query)
+        keywords.validate_query(query)
         candidates = tuple(
             (source, evidence, _provenance_warnings(source, evidence))
             for source in sources
@@ -210,7 +252,7 @@ class EvidenceSelector:
                 for warning in warnings
             )
         )
-        keyword_answers = self._keyword_answers(query, eligible, policy)
+        keyword_answers = self._keyword_answers(keywords, eligible, policy)
         keyword_evidence_ids = frozenset(
             answer.evidence.id for answer in keyword_answers
         )
@@ -241,7 +283,7 @@ class EvidenceSelector:
                 or document_id in conflict_documents
             ):
                 continue
-            if _directly_incompatible(query, primary, answer):
+            if _directly_incompatible(keywords, primary, answer):
                 conflicts.append(answer)
                 conflict_documents.add(document_id)
         conflict_state = (
@@ -258,14 +300,13 @@ class EvidenceSelector:
 
     @staticmethod
     def _keyword_answers(
-        query: str,
+        keywords: KeywordMatcher,
         eligible: tuple[tuple[EvidenceSource, EvidenceUnit], ...],
         policy: AnswerPolicy,
     ) -> tuple[EvidenceAnswer, ...]:
         answers: list[EvidenceAnswer] = []
         for source, evidence in eligible:
-            result = find_keyword_highlights(
-                query=query,
+            result = keywords.highlights(
                 text=evidence.text,
                 location=evidence.location,
                 evidence_unit_id=evidence.id,
@@ -354,14 +395,16 @@ def _provenance_warnings(
 
 
 def _directly_incompatible(
-    query: str,
+    keywords: KeywordMatcher,
     left: EvidenceAnswer,
     right: EvidenceAnswer,
 ) -> bool:
-    if not _same_claim_key(query, left.excerpt, right.excerpt):
+    left_normalized = keywords._normalized(left.excerpt)
+    right_normalized = keywords._normalized(right.excerpt)
+    if not _same_claim_key(keywords._terms, left_normalized, right_normalized):
         return False
-    left_number = _single_numeric_claim(left.excerpt)
-    right_number = _single_numeric_claim(right.excerpt)
+    left_number = _single_numeric_claim(left_normalized)
+    right_number = _single_numeric_claim(right_normalized)
     if (
         left_number is not None
         and right_number is not None
@@ -370,8 +413,8 @@ def _directly_incompatible(
         and left_number[0] != right_number[0]
     ):
         return True
-    left_polarity = _explicit_polarity(left.excerpt)
-    right_polarity = _explicit_polarity(right.excerpt)
+    left_polarity = _explicit_polarity(left_normalized)
+    right_polarity = _explicit_polarity(right_normalized)
     return (
         left_polarity is not None
         and right_polarity is not None
@@ -380,24 +423,21 @@ def _directly_incompatible(
     )
 
 
-def _same_claim_key(query: str, left: str, right: str) -> bool:
-    left_normalized, _, _ = _normalize_with_original_offsets(left)
-    right_normalized, _, _ = _normalize_with_original_offsets(right)
+def _same_claim_key(terms: tuple[str, ...], left: str, right: str) -> bool:
     subject_terms = tuple(
         term
-        for term in _query_terms(query)
+        for term in terms
         if len(term) >= 2
         and not any(character.isdigit() for character in term)
     )
     return any(
-        f"{first} {second}" in left_normalized
-        and f"{first} {second}" in right_normalized
+        f"{first} {second}" in left
+        and f"{first} {second}" in right
         for first, second in zip(subject_terms, subject_terms[1:], strict=False)
     )
 
 
-def _single_numeric_claim(text: str) -> tuple[Decimal, str] | None:
-    normalized, _, _ = _normalize_with_original_offsets(text)
+def _single_numeric_claim(normalized: str) -> tuple[Decimal, str] | None:
     matches = tuple(_NUMERIC_VALUE_PATTERN.finditer(normalized))
     if len(matches) != 1:
         return None
@@ -438,8 +478,7 @@ def _is_unicode_token_character(character: str) -> bool:
     return category[0] in {"L", "M", "N"} or category == "Pc"
 
 
-def _explicit_polarity(text: str) -> tuple[str, bool] | None:
-    normalized, _, _ = _normalize_with_original_offsets(text)
+def _explicit_polarity(normalized: str) -> tuple[str, bool] | None:
     claims: list[tuple[str, bool]] = []
     for predicate, positive_patterns, negative_patterns in _POLARITY_PATTERNS:
         negative = any(re.search(pattern, normalized) for pattern in negative_patterns)

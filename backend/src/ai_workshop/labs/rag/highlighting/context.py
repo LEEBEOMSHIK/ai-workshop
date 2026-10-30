@@ -15,9 +15,9 @@ from ai_workshop.labs.rag.highlighting.domain import (
     EvidenceSource,
 )
 from ai_workshop.labs.rag.highlighting.service import (
+    KeywordMatcher,
     _cosine_similarity,
     _provenance_warnings,
-    find_keyword_highlights,
 )
 from ai_workshop.labs.rag.highlighting.structural_context import inspect_grid_candidate
 from ai_workshop.labs.rag.highlighting.table_context import payment_table_units
@@ -60,9 +60,12 @@ def select_context(
     policy: AnswerPolicy, budget: EvidenceBudget, embedding: EmbeddingPort,
     include_diagnostics: bool,
     table_strategy: Literal["payment-v1", "structure-v1"] = "payment-v1",
+    keywords: KeywordMatcher | None = None,
 ) -> ContextSelection:
     if table_strategy not in {"payment-v1", "structure-v1"}:
         raise ValueError("Unknown context table strategy.")
+    keywords = keywords if keywords is not None else KeywordMatcher(query)
+    keywords.validate_query(query)
     groups: list[ContextGroup] = []
     seen: dict[UUID, tuple[UUID, UUID, EvidenceUnit]] = {}
     seen_chunks: dict[UUID, EvidenceSource] = {}
@@ -90,10 +93,7 @@ def select_context(
             valid.append(unit)
         if valid:
             body = "\n".join(unit.text for unit in valid)
-            coverage = find_keyword_highlights(
-                query=query, text=body, location=valid[0].location,
-                evidence_unit_id=valid[0].id,
-            ).coverage
+            coverage = keywords.coverage(body)
             groups.append(ContextGroup(source, tuple(valid), coverage, None))
         elif table_strategy == "structure-v1":
             warning = "structural_context_incomplete_source"
@@ -216,8 +216,7 @@ def select_context(
                 structure_reason=structure_reasons.get(group.source.chunk.chunk_id),
             ))
         for (group, unit), score in zip(unit_pairs, unit_scores, strict=True):
-            coverage = find_keyword_highlights(query=query, text=unit.text,
-                location=unit.location, evidence_unit_id=unit.id).coverage
+            coverage = keywords.coverage(unit.text)
             qualifies = unit.id in qualified_ids or (
                 coverage > 0 and coverage >= policy.min_keyword_coverage
             )

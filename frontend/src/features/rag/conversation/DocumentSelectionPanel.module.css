@@ -1,10 +1,11 @@
-.backdrop { position: fixed; z-index: 40; inset: 0; display: grid; padding: clamp(1rem, 4vw, 3rem); background: rgb(0 0 0 / 60%); place-items: center; }
-.panel { display: flex; flex-direction: column; width: min(100%, 56rem); max-height: min(80dvh, 46rem); min-height: 0; border: 1px solid var(--color-border-subtle); border-radius: 0.9rem; background: #0a0e13; box-shadow: 0 1.5rem 5rem rgb(0 0 0 / 50%); overflow: hidden; }
-.header { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border-subtle); }
+.backdrop { position: fixed; z-index: 40; inset: 0; display: grid; padding: clamp(1rem, 4vw, 3rem); background: var(--color-overlay); place-items: center; }
+.panel { display: flex; flex-direction: column; width: min(100%, 56rem); max-height: min(80dvh, 46rem); min-height: 0; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-panel); background: var(--color-background); box-shadow: var(--shadow-overlay); overflow: hidden; }
+.header { display: flex; flex: none; flex-wrap: wrap; align-items: center; justify-content: space-between; min-width: 0; gap: var(--space-4); padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--color-border); }
 .body { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 1rem 1.25rem; }
-.description { margin: 0 0 1rem; color: #91a0ac; font-size: .85rem; }
-.header h2 { margin: 0; }
-.header button { padding: 0.55rem 0.75rem; border: 1px solid var(--color-border-subtle); border-radius: 0.5rem; color: #e9edf3; background: #25313b; cursor: pointer; }
-.error { color: #ffd8dc; }
-.panel :focus-visible { outline: 3px solid #f5c86d; outline-offset: 3px; }
+.description { margin: 0 0 1rem; color: var(--color-text-muted); font-size: var(--font-size-caption); }
+.header h2 { min-width: 0; margin: 0; font-size: var(--font-size-heading); overflow-wrap: anywhere; }
+.header button { min-height: var(--control-min-height); max-width: 100%; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-control); border-radius: var(--radius-control); color: var(--color-text); background: var(--color-surface-raised); font: inherit; font-size: var(--font-size-control); overflow-wrap: anywhere; cursor: pointer; }
+.header button:hover:not(:disabled) { background: var(--color-surface-hover); }
+.error { color: var(--color-danger); }
+.panel :focus-visible { outline: var(--focus-width) solid var(--focus-color); outline-offset: var(--focus-offset); }
 @media (max-width: 680px) { .backdrop { padding: .75rem; } .panel { max-height: calc(100dvh - 1.5rem); } .header, .body { padding: .75rem; } }

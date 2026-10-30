@@ -125,6 +125,7 @@ function GenerationExecutionDetails({
     local_transformers: "로컬 Transformers",
     local_openai_compatible: "로컬 OpenAI 호환",
     openai_responses: "OpenAI Responses API",
+    anthropic_messages: "Claude · Anthropic Messages API",
     development_codex_exec: "개발용 Codex CLI (외부 처리)",
   };
   const locations: Record<typeof execution.location, string> = {

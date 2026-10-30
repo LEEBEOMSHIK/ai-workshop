@@ -13,6 +13,11 @@ from ai_workshop.labs.rag.models.domain import (
     resolve_answer_reasoning_effort,
 )
 from ai_workshop.labs.rag.models.numeric_proof_policy import resolve_numeric_proof_policy
+from ai_workshop.labs.rag.models.orchestration_policy import resolve_orchestration_policy
+from ai_workshop.labs.rag.models.provider_policy import (
+    resolve_sampling_mode,
+    validate_provider_profile_config,
+)
 
 
 def resolve_generation_profile(
@@ -32,6 +37,7 @@ def resolve_generation_profile(
     ):
         raise ValueError("The generation profile requires an exact Deployment binding.")
 
+    validate_provider_profile_config(profile.config, deployment)
     context = _mapping(profile.config.get("context_policy"), "context policy")
     generation = _mapping(profile.config.get("generation"), "generation settings")
     return GenerationProfile(
@@ -71,6 +77,8 @@ def resolve_generation_profile(
         evidence_budget=resolve_evidence_budget(profile.config),
         numeric_proof_policy=resolve_numeric_proof_policy(profile.config),
         answer_reasoning_effort=resolve_answer_reasoning_effort(generation),
+        orchestration=resolve_orchestration_policy(profile.config),
+        sampling_mode=resolve_sampling_mode(generation),
     )
 
 

@@ -10,9 +10,11 @@ export const routes = {
   workshopLearning: "/workshop/learning",
   workshopFlows: "/workshop/flows",
   adminRagExecutions: "/admin/rag/executions",
+  adminRagComparisons: "/admin/rag/comparisons",
   adminRagDomains: "/admin/rag/domains",
   adminRagConfigurations: "/admin/rag/configurations",
   adminRagModels: "/admin/rag/models",
+  adminRagSetup: "/admin/rag/setup",
   adminSystemRuntime: "/admin/system/runtime",
   adminSystemAccess: "/admin/system/access",
   adminSystemIssues: "/admin/system/issues",
@@ -90,4 +92,8 @@ export function loginPath(nextPath: string): string {
 
 export function executionPath(id: string, kind: "execution" | "legacy" = "execution"): string {
   return `${routes.adminRagExecutions}/${kind === "legacy" ? "legacy/" : ""}${encodeURIComponent(id)}`;
+}
+
+export function comparisonPath(id: string): string {
+  return `${routes.adminRagComparisons}/${encodeURIComponent(id)}`;
 }

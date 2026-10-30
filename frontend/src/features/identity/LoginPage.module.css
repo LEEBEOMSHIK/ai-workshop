@@ -1,10 +1,10 @@
 .page {
-  --login-bg: #0a0e13;
-  --login-surface: #101820;
-  --login-border: #2b3944;
-  --login-muted: #91a0ac;
-  --login-text: #edf4f5;
-  --login-accent: #55d9c9;
+  --login-bg: var(--color-background);
+  --login-surface: var(--color-surface);
+  --login-border: var(--color-border);
+  --login-muted: var(--color-text-muted);
+  --login-text: var(--color-text);
+  --login-accent: var(--color-accent);
   display: flex;
   flex-direction: column;
   min-height: calc(100dvh - var(--application-header-height, 0rem));
@@ -26,18 +26,18 @@
 
 .card {
   display: grid;
-  gap: 1rem;
+  gap: var(--space-4);
   width: min(100%, 28rem);
   padding: clamp(1.5rem, 5vw, 2.5rem);
   border: 1px solid var(--login-border);
-  border-radius: 0.85rem;
+  border-radius: var(--radius-panel);
   background: var(--login-surface);
 }
 
 .eyebrow {
   margin: 0;
   color: var(--login-accent);
-  font-size: 0.72rem;
+  font-size: var(--font-size-small);
   font-weight: 800;
   letter-spacing: 0.1em;
 }
@@ -50,42 +50,99 @@
   letter-spacing: -0.035em;
 }
 
-.copy { margin: 0; color: var(--login-muted); font-size: 0.9rem; line-height: 1.7; }
+.copy { margin: 0; color: var(--login-muted); font-size: var(--font-size-control); line-height: 1.7; }
 .form { display: grid; gap: 1.1rem; margin-block: 0.5rem; }
-.form label { display: grid; gap: 0.5rem; font-size: 0.85rem; font-weight: 600; }
+.form label { display: grid; gap: var(--space-2); font-size: var(--font-size-caption); font-weight: 600; }
 .form input {
   width: 100%;
   min-width: 0;
-  min-height: 2.9rem;
+  min-height: var(--control-min-height);
   padding: 0.75rem;
-  border: 1px solid var(--login-border);
-  border-radius: 0.5rem;
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
   color: var(--login-text);
-  background: var(--login-bg);
+  background: var(--color-surface-input);
   font: inherit;
-  font-size: 1rem;
+  font-size: var(--font-size-control);
 }
 .form input:hover { border-color: var(--login-muted); }
 .form input:focus { border-color: var(--login-accent); }
 
-.card a, .card a:visited { color: var(--color-accent-text, #8ee6dc); font-size: 0.85rem; text-underline-offset: 0.25em; }
+.card a, .card a:visited { color: var(--color-accent-text, var(--color-accent)); font-size: var(--font-size-caption); }
 .card a:hover { color: var(--login-text); }
+.card .secondaryLink,
+.card .secondaryLink:visited {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: var(--control-min-height);
+  max-width: 100%;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-raised);
+  color: var(--login-muted);
+  font-size: var(--font-size-control);
+  font-weight: 600;
+  line-height: var(--line-height-heading);
+  text-align: center;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.card .secondaryLink:hover {
+  border-color: var(--login-accent);
+  background: var(--color-surface-hover);
+  color: var(--color-accent-text);
+}
 .form button, .card .primaryLink, .card .primaryLink:visited {
   display: block;
-  min-height: 2.9rem;
+  min-height: var(--control-min-height);
   padding: 0.8rem 1rem;
   border: 1px solid var(--login-accent);
-  border-radius: 0.5rem;
+  border-radius: var(--radius-control);
   color: var(--login-bg);
   background: var(--login-accent);
   font: inherit;
-  font-size: 0.9rem;
+  font-size: var(--font-size-control);
   font-weight: 750;
   text-align: center;
   text-decoration: none;
   cursor: pointer;
 }
-.form button:hover:not(:disabled), .card .primaryLink:hover { background: var(--color-accent-text, #8ee6dc); }
+.form button:hover:not(:disabled), .card .primaryLink:hover { background: var(--color-accent-text, var(--color-accent)); }
 .form button:disabled { opacity: 0.6; cursor: wait; }
-.card :focus-visible { outline: 2px solid var(--login-accent); outline-offset: 3px; }
-.error { margin: 0; padding: 0.75rem; border: 1px solid #78484e; border-radius: 0.5rem; color: #ffb8c1; background: #2b1a20; font-size: 0.85rem; line-height: 1.6; }
+.card :focus-visible { outline: var(--focus-width) solid var(--focus-color); outline-offset: var(--focus-offset); }
+.error { margin: 0; padding: 0.75rem; border: 1px solid var(--color-danger-border); border-radius: var(--radius-control); color: var(--color-danger); background: var(--color-danger-surface); font-size: var(--font-size-caption); line-height: 1.6; }
+
+/* Shared control geometry; native choice symbols and reader typography stay separate. */
+.page :where(button, select, textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="file"]):not([type="range"]), summary) {
+  box-sizing: border-box;
+  min-height: var(--control-min-height);
+  max-width: 100%;
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-control);
+}
+.page :where(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="file"]):not([type="range"]), select, textarea) {
+  background-color: var(--color-surface-input);
+  color: var(--color-text);
+  border-color: var(--color-border-control);
+  border-radius: var(--radius-control);
+}
+.page :is(input[type="checkbox"], input[type="radio"]) {
+  flex: 0 0 auto;
+  width: var(--control-choice-size);
+  height: var(--control-choice-size);
+  min-height: 0;
+  padding: 0;
+  accent-color: var(--color-accent);
+}
+.page :is(button, a, input, select, textarea, summary):focus-visible {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--focus-offset);
+}
+.page button { overflow-wrap: anywhere; }
+.page button:disabled { cursor: not-allowed; }
+.page { font-family: var(--font-family-ui); }
+.page h1 { font-family: var(--font-family-ui); font-size: var(--font-size-title); line-height: 1.25; }

@@ -726,7 +726,7 @@ async def test_ollama_contextualize_requests_no_thinking_without_increasing_budg
     assert "SYNTHETIC-PRIVATE-CANARY" not in repr(result)
     assert sent["reasoning_effort"] == "none"
     assert sent["max_tokens"] == budget
-    assert 'one short standalone search query' in sent["messages"][0]["content"]
+    assert '짧고 독립적인 검색 질의 하나' in sent["messages"][0]["content"]
     assert "think" not in sent and "options" not in sent
 
 
@@ -737,7 +737,7 @@ async def test_ollama_context_policy_does_not_change_other_modes(dialect, schema
         operation="contextualize", dialect=dialect, selected=selected)
     assert result.resolved_query == "query"
     assert "reasoning_effort" not in sent
-    assert 'one short standalone search query' not in sent["messages"][0]["content"]
+    assert '짧고 독립적인 검색 질의 하나' not in sent["messages"][0]["content"]
     assert sent["max_tokens"] == selected.max_output_tokens
 
 
@@ -912,10 +912,10 @@ async def test_endpoint_dialect_reaches_context_request_without_inference(
     assert sent[0]["max_tokens"] == selected_profile.max_output_tokens
     if dialect == "ollama" and schema == 2:
         assert sent[0]["reasoning_effort"] == "none"
-        assert "one short standalone search query" in sent[0]["messages"][0]["content"]
+        assert "짧고 독립적인 검색 질의 하나" in sent[0]["messages"][0]["content"]
     else:
         assert "reasoning_effort" not in sent[0]
-        assert "one short standalone search query" not in sent[0]["messages"][0]["content"]
+        assert "짧고 독립적인 검색 질의 하나" not in sent[0]["messages"][0]["content"]
 
 
 def test_endpoint_dialect_does_not_replace_other_provider_factory():
@@ -1039,11 +1039,11 @@ async def test_answer_contract_prompt_is_scoped_and_explicit(dialect, version):
         selected=replace(schema2_profile(), response_schema_version=version))
     prompt = sent["messages"][0]["content"]
     if dialect == "ollama" and version == 2:
-        assert "schema_version must be exactly 2" in prompt
-        assert 'status "answered": claims must contain at least 1 item' in prompt
-        assert 'status "insufficient_evidence": claims must contain exactly 0 items' in prompt
+        assert "schema_version은 정확히 정수 2" in prompt
+        assert 'status가 "answered"이면 claims는 최소 1개' in prompt
+        assert 'status가 "insufficient_evidence"이면 claims는 정확히 0개' in prompt
     else:
-        assert "schema_version must be exactly" not in prompt
+        assert "schema_version은 정확히" not in prompt
 
 
 @pytest.mark.parametrize("dialect,version,effort", [

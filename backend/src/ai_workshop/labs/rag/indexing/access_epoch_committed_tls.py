@@ -6,7 +6,7 @@ filesystem snapshot or proof that unseen changes never occurred.
 """
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from hashlib import sha256
 from typing import cast
@@ -63,6 +63,17 @@ class CommittedTlsObservation:
     original_ipv4: str
     manifest_json: str
     phase: str
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class _HttpMaterial:
+    """Fresh private data only; never a server observation or launch capability."""
+
+    ca_pem: bytes
+    leaf_sha256: str
+    manifest_json: str
+    phase: str
+    sample: _Sample
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -123,7 +134,7 @@ class NativeCommittedTlsReader:
                 None,
                 {},
             )
-            files, manifest, phase = await reader._fresh()
+            files, manifest, phase, _sample = await reader._fresh()
             origin = reader._guard()
             _ORIGINS[reader] = _Origin(
                 origin.owner,
@@ -338,7 +349,7 @@ class NativeCommittedTlsReader:
             raise _denied()
         return value
 
-    async def _fresh(self) -> tuple[tuple[ProtectedFileRead, ...], str, str]:
+    async def _fresh(self) -> tuple[tuple[ProtectedFileRead, ...], str, str, _Sample]:
         origin = self._guard()
         first = await NativeSecuredReadSource._private_read_bound_sample(
             origin.source, origin.binding
@@ -368,14 +379,14 @@ class NativeCommittedTlsReader:
         if origin.phase == "receipted" and phase != "receipted":
             raise _denied()
         self._guard()
-        return files, manifest, phase
+        return files, manifest, phase, second
 
     async def observe(self) -> CommittedTlsObservation:
         try:
             origin = self._guard()
             if origin.baseline is None or origin.manifest_json is None:
                 raise _denied()
-            _files, manifest, phase = await self._fresh()
+            _files, manifest, phase, _sample = await self._fresh()
             origin = self._guard()
             public = json.loads(manifest)
             value = CommittedTlsObservation(
@@ -401,6 +412,36 @@ class NativeCommittedTlsReader:
             )
             self.assert_observed(value)
             return value
+        except BaseException as error:
+            self._invalidate()
+            if isinstance(error, Exception):
+                raise _denied() from None
+            raise
+
+    async def _private_read_http_material(
+        self, source: NativeSecuredReadSource, binding: SecuredReadBinding
+    ) -> _HttpMaterial:
+        """Only the exact retained source may obtain freshly validated HTTP CA bytes.
+
+        The caller must bracket its transport with fresh phase/material checks.
+        This does not reveal any private key or reconstruct material from a seal.
+        """
+        try:
+            origin = self._memory()
+            if source is not origin.source or binding is not origin.binding:
+                raise _denied()
+            if origin.baseline is None or origin.manifest_json is None:
+                raise _denied()
+            files, manifest, phase, sample = await self._fresh()
+            origin = self._guard()
+            public = json.loads(manifest)
+            ca_pem = files[3].data  # bundle, http key, http leaf, http CA
+            if sha256(ca_pem).hexdigest() != public["http_ca_sha256"]:
+                raise _denied()
+            result = _HttpMaterial(ca_pem, public["http_leaf_der_sha256"], manifest, phase, sample)
+            _ORIGINS[self] = replace(origin, phase=phase)
+            self._guard()
+            return result
         except BaseException as error:
             self._invalidate()
             if isinstance(error, Exception):

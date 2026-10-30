@@ -18,19 +18,31 @@ from ai_workshop.labs.rag.evaluation.offline_layout_candidate import (
     prepare_layout_candidate,
     verify_layout_candidate,
 )
+from ai_workshop.labs.rag.evaluation.offline_readable_layout import (
+    ReadableLayoutCandidate,
+    prepare_readable_layout_candidate,
+    verify_readable_layout_candidate,
+)
 
 
 def _escape(value: object) -> str:
     return html.escape(str(value), quote=True)
 
 
-def write_layout_report(sources: tuple[Capture, ...], output: Path) -> None:
-    candidates = tuple(prepare_layout_candidate(source) for source in sources)
+def write_layout_report(
+    sources: tuple[Capture, ...], output: Path, *, readable: bool = False,
+) -> None:
+    condition = "E" if readable else "D"
+    candidates = tuple(prepare_readable_layout_candidate(source) if readable
+                       else prepare_layout_candidate(source) for source in sources)
     if not sources or len({s.attempt_id for s in sources}) != len(sources):
         raise ValueError("Distinct source attempts are required.")
     sections: list[str] = []
     for source, candidate in zip(sources, candidates, strict=True):
-        verify_layout_candidate(source, candidate)
+        if isinstance(candidate, ReadableLayoutCandidate):
+            verify_readable_layout_candidate(source, candidate)
+        else:
+            verify_layout_candidate(source, candidate)
         body = parse_object(candidate.request_json)
         payload = parse_object(content(body, 1))
         by_id = {str(f["evidence_id"]): f for f in fragments(payload)}
@@ -38,6 +50,10 @@ def write_layout_report(sources: tuple[Capture, ...], output: Path) -> None:
         section = (f'<article><h2>{_escape(payload["question"])}</h2>'
                    f'<p>상태: 미실행 · 관측 격자 {candidate.grid_count}개 · '
                    f'입력 {source.body_bytes:,} → {candidate.body_bytes:,}bytes</p>')
+        if isinstance(candidate, ReadableLayoutCandidate):
+            section += (f'<p>같은 원문 {candidate.repeated_fragment_count}조각·'
+                        f'{candidate.repeated_text_bytes} UTF-8 bytes를 격자에 반복합니다. '
+                        '새 근거가 아니며 원문 중복·길이·강조가 함께 달라집니다.</p>')
         for raw_grid in cast(list[JsonValue], layout["grids"]):
             grid = object_value(raw_grid)
             section += ('<table><caption>좌표로 관측한 배열 — 의미 역할·표 전체 미확정'
@@ -50,8 +66,8 @@ def write_layout_report(sources: tuple[Capture, ...], output: Path) -> None:
         if not candidate.grid_count:
             section += '<p>지원하는 격자 없음: 입력을 바이트 그대로 유지했습니다.</p>'
         for label, value in (("보존한 system 지침", content(body, 0)),
-                             ("D의 최종 user 입력", content(body, 1)),
-                             ("A 대비 차이", candidate.diff),
+                             (f"{condition}의 최종 user 입력", content(body, 1)),
+                             ("D 대비 차이" if readable else "A 대비 차이", candidate.diff),
                              ("출처 입력 SHA", source.sha256)):
             section += f'<details><summary>{label}</summary><pre>{_escape(value)}</pre></details>'
         sections.append(section + '</article>')
@@ -60,25 +76,31 @@ def write_layout_report(sources: tuple[Capture, ...], output: Path) -> None:
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; '
         'style-src \'unsafe-inline\'; base-uri \'none\'; form-action \'none\'">'
-        '<title>원문 배열 D 비교 후보</title><style>'
+        f'<title>원문 배열 {condition} 비교 후보</title><style>'
         'body{font:17px/1.6 system-ui,sans-serif;max-width:1100px;margin:24px auto;padding:16px;'
         'color:#172033;background:#f6f8fb}article{background:white;padding:24px;margin:24px 0;'
         'border:1px solid #ccd5df}table{border-collapse:collapse;width:100%;table-layout:fixed}'
         'td{border:1px solid #ccd5df;padding:12px;overflow-wrap:anywhere}small{display:block;'
         'overflow-wrap:anywhere;color:#5a6879}pre{white-space:pre-wrap;overflow-wrap:anywhere;'
         'font-size:14px}summary{cursor:pointer;padding:10px}caption{text-align:left}</style>'
-        '<h1>원문 배열 D 비교 후보 — 미실행</h1>'
+        f'<h1>원문 배열 {condition} 비교 후보 — 미실행</h1>'
         '<p>원문·인용 ID·선택 범위·지침을 보존하고 좌표에서 관측되는 행·열 배열만 추가했습니다. '
         '첫 행을 헤더로 지정하거나 상품·규칙·조건 관계를 확정하지 않습니다. '
         '다른 열·주석·조건을 생략하지 않으며 모델 답변을 생성하지 않았습니다.</p>'
         '<p>현재 원문 접근 권한을 재조회한 자료가 아닙니다. '
         '실제 전송 전 별도로 확인해야 합니다.</p>'
+        + ('<p>E는 D의 ID 배열과 안내문을 그대로 두고 각 격자에 원문과 ID를 '
+           '함께 반복한 readable_rows만 추가합니다. 본문·순서·지침·모델 옵션을 유지하며 '
+           '품질 개선은 아직 검증하지 않았습니다. 향후 개선되어도 ID 대조 부담이 원인이라고 '
+           '확정할 수 없습니다.</p>' if readable else '')
         + ''.join(sections) + '</html>'
     )
     output.mkdir(parents=True, exist_ok=False)
     (output / 'index.html').write_text(page, encoding='utf-8')
     (output / 'candidates.json').write_text(encode({
-        "version": "offline-layout-candidate-v1", "execution_status": "not_run", "model_calls": 0,
+        "version": ("offline-readable-layout-candidate-v1" if readable
+                    else "offline-layout-candidate-v1"),
+        "execution_status": "not_run", "model_calls": 0,
         "items": [{"source": s.model_dump(mode="json"), "candidate": c.model_dump(mode="json")}
                   for s, c in zip(sources, candidates, strict=True)],
     }), encoding='utf-8')

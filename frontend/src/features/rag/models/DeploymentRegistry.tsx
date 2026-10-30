@@ -4,12 +4,13 @@ import { useId, useState } from "react";
 
 import { checkDeploymentHealth, type DeploymentHealth, type DeploymentSummary } from "./api";
 
-const supportedProviders = new Set(["local_transformers", "local_openai_compatible", "openai_responses", "development_codex_exec"]);
+const supportedProviders = new Set(["local_transformers", "local_openai_compatible", "openai_responses", "anthropic_messages", "development_codex_exec"]);
 
 const providerLabels: Record<string, string> = {
   local_transformers: "로컬 Transformers",
   local_openai_compatible: "로컬 OpenAI 호환",
   openai_responses: "OpenAI Responses API",
+  anthropic_messages: "Claude · Anthropic Messages API",
   development_codex_exec: "개발용 Codex CLI (외부 처리)",
 };
 

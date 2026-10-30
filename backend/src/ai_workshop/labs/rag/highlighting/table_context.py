@@ -1,4 +1,4 @@
-"""Conservative runtime projection of an unambiguous PDF payment timing table.
+"""Conservative target-column selection for an unambiguous PDF attribute table.
 
 This is a selection view, not reconstructed parser metadata. Original units and
 all prose surrounding the table survive; only unrelated product columns leave.
@@ -15,23 +15,49 @@ from ai_workshop.labs.rag.highlighting.domain import EvidenceSource
 _HEADER_LABELS = frozenset({"항목", "구분", "item", "attribute"})
 _PAYMENT_LABELS = frozenset({"대금 지급일", "환매 대금 지급일", "환매대금 지급일",
                              "payment date", "payment timing", "payout date"})
-# Deliberately bounded lexical intent: this does not infer an answer or change
-# keyword/semantic scores. Other intents continue through existing selection.
+# Preserve the established payment paraphrases in addition to explicit source
+# attribute labels. Neither route infers an answer or changes relevance scores.
 _ACTION = re.compile(r"환매|현금화|인출|\bredeem\w*\b|\bredemption\b|\bcash out\b|\bwithdraw\w*\b")
 _TIME = re.compile(r"언제|며칠|몇\s*일|지급일|\bwhen\b|\bhow (?:many days|long)\b")
 _RECEIVE = re.compile(
     r"(?:돈|대금|현금).*받|대금.*지급|\breceive\b.*\b(?:money|payment|proceeds)\b"
 )
 _UNSUPPORTED = re.compile(
-    r"않|아니|아닌|없|못|말고|안\s*(?:받|하|되|주|지급|환매)|비교|다른\s*상품|수익|수수료|가격|이자|"
-    r"\b(?:not|never|without|compare|versus|other|rate|price|fee|interest)\b|n['’]t\b"
+    r"않|아니|아닌|없|못|말고|안\s*(?:받|하|되|주|지급|환매)|비교|대비|차이|다른\s*상품|"
+    r"\b(?:not|never|without|compare|versus|other|both|difference)\b|n['’]t\b"
+)
+_NON_PAYMENT = re.compile(
+    r"수익|수수료|가격|이자|\b(?:rate|price|fee|interest)\b"
+)
+_COMPARISON = re.compile(
+    r"보다|가장|더\s*(?:빠|늦|높|낮|크|작)|"
+    r"\b(?:vs|than|earlier|later|higher|lower|earliest|latest|highest|lowest)\b"
 )
 _REFERENCE = re.compile(r"동일|상동|같[음은다]|참조|좌측|우측|왼쪽|오른쪽|〃|″|"
                         r"\b(?:same|ditto|above|below|refer|see)\b")
+_SHARED_CELL = re.compile(r"모두|공통|전부|모든\s*상품|전체\s*상품|"
+                          r"\b(?:both|all|shared|common)\b")
 
 
 def _normalized(text: str) -> str:
     return " ".join(unicodedata.normalize("NFKC", text).casefold().split())
+
+
+def _label_pattern(label: str) -> str:
+    """Match a complete source label, including a following Korean particle."""
+    return (r"(?<![\w-])" + re.escape(label)
+            + r"(?=(?:을|를|은|는|이|가|의|에|와|과)?(?:\W|$))")
+
+
+def _mentions_attribute(query: str, label: str) -> bool:
+    """Require every literal row-label token in order; do not invent synonyms."""
+    end = 0
+    for token in label.split():
+        match = re.search(_label_pattern(token), query[end:])
+        if match is None:
+            return False
+        end += match.end()
+    return bool(label)
 
 
 def _detached_page_footer(
@@ -70,10 +96,15 @@ def _detached_page_footer(
 def payment_table_units(
     query: str, source: EvidenceSource, units: tuple[EvidenceUnit, ...],
 ) -> tuple[EvidenceUnit, ...] | None:
-    """Return an indivisible target-column bundle only for a strict regular grid."""
+    """Return an indivisible original-column bundle for a strict regular grid.
+
+    The historical name matches the persisted ``payment-v1`` strategy. Explicit
+    source attributes also qualify; no payment row or product vocabulary is
+    required for that path. Unsupported cases retain whole-chunk selection.
+    """
     query = _normalized(query)
     if (source.media_type != "application/pdf" or _UNSUPPORTED.search(query)
-            or not all(pattern.search(query) for pattern in (_ACTION, _TIME, _RECEIVE))):
+            or _COMPARISON.search(query)):
         return None
     # Missing/invalid source units must not become an excuse to lose a condition.
     if {u.id for u in units} != {u.id for u in source.chunk.evidence_units}:
@@ -104,11 +135,10 @@ def payment_table_units(
     start = headers[0]
     header = rows[start]
     labels = [_normalized(u.text) for u in header]
-    if len(set(labels)) != len(labels):
+    if not all(labels) or len(set(labels)) != len(labels):
         return None
     targets = [column for column, label in enumerate(labels[1:], 1)
-               if re.search(r"(?<![\w-])" + re.escape(label)
-                            + r"(?=(?:을|를|은|는|이|가|의|에|와|과)?(?:\W|$))", query)]
+               if re.search(_label_pattern(label), query)]
     if len(targets) != 1:
         return None
     column = targets[0]
@@ -136,16 +166,34 @@ def payment_table_units(
                 if prior[2] >= box[0]:
                     return None
         table.append(row)
-    if (any(len(row) != 1 for row in rows[:start]) or len(table) < 2
-            or sum(_normalized(row[0].text) in _PAYMENT_LABELS for row in table[1:]) != 1):
+    if any(len(row) != 1 for row in rows[:start]) or len(table) < 2:
+        return None
+    attributes = [_normalized(row[0].text) for row in table[1:]]
+    if not all(attributes) or len(set(attributes)) != len(attributes):
+        return None
+    # A product name containing attribute words is not an attribute request.
+    attribute_query = re.sub(_label_pattern(labels[column]), " ", query)
+    explicit_attribute = any(_mentions_attribute(attribute_query, label) for label in attributes)
+    payment_intent = (
+        not _NON_PAYMENT.search(query)
+        and all(pattern.search(query) for pattern in (_ACTION, _TIME, _RECEIVE))
+        and sum(label in _PAYMENT_LABELS for label in attributes) == 1
+    )
+    if not explicit_attribute and not payment_intent:
+        return None
+    # Inspect even cells that would be omitted: a condition in another product's
+    # column may still govern the target. All surrounding prose stays verbatim.
+    if any(_REFERENCE.search(_normalized(unit.text)) for unit in units):
+        return None
+    for row in table[1:]:
+        for index, cell in enumerate(row):
+            text = _normalized(cell.text)
+            if _SHARED_CELL.search(text) or _COMPARISON.search(text) or any(
+                label in text for other, label in enumerate(labels[1:], 1) if other != index
+            ):
+                return None
+    if any(not _normalized(cell.text) for row in table for cell in row):
         return None
     excluded = {cell.id for row in table for index, cell in enumerate(row)
                 if index not in (0, column)}
-    retained = tuple(unit for unit in units if unit.id not in excluded)
-    if any(_REFERENCE.search(_normalized(unit.text)) for unit in retained):
-        return None
-    omitted_labels = [label for index, label in enumerate(labels) if index not in (0, column)]
-    if any(label in _normalized(row[column].text)
-           for row in table[1:] for label in omitted_labels):
-        return None
-    return retained
+    return tuple(unit for unit in units if unit.id not in excluded)

@@ -1,31 +1,31 @@
 .root {
-  --access-page-background: #0a0e13;
-  --access-text: #e9edf3;
-  --access-muted-text: #aebbc8;
-  --access-accent-border: #4c8a83;
-  --access-inset-surface: #101821;
-  --access-surface: #10171f;
-  --access-border: #2b3944;
-  --access-pill-background: #1b2934;
-  --access-pill-text: #b9c8d5;
-  --access-success-text: #98ebc1;
-  --access-danger-text: #ffc1bb;
-  --access-control-background: #0d141b;
-  --access-secondary-text: #94a4b3;
-  --access-interactive-border: #5aa89f;
-  --access-selected-background: #142621;
-  --access-inactive-border: #be6a62;
-  --access-primary-background: #22564f;
-  --access-primary-text: #f5fffd;
-  --access-secondary-border: #40515f;
-  --access-secondary-button-text: #c3d0dc;
-  --access-warning-border: #c79b52;
-  --access-success-border: #3e756d;
-  --access-notice-text: #a7eadf;
-  --access-danger-border: #7d4945;
-  --access-time-text: #8fa0ae;
-  --access-control-accent: #68c8bc;
-  --access-dialog-border: #4c665f;
+  --access-page-background: var(--color-background);
+  --access-text: var(--color-text);
+  --access-muted-text: var(--color-text-muted);
+  --access-accent-border: var(--color-success-border);
+  --access-inset-surface: var(--color-surface);
+  --access-surface: var(--color-surface);
+  --access-border: var(--color-border);
+  --access-pill-background: var(--color-surface-raised);
+  --access-pill-text: var(--color-text-muted);
+  --access-success-text: var(--color-success);
+  --access-danger-text: var(--color-danger);
+  --access-control-background: var(--color-surface-input);
+  --access-secondary-text: var(--color-text-muted);
+  --access-interactive-border: var(--color-success-border);
+  --access-selected-background: var(--color-surface-selected);
+  --access-inactive-border: var(--color-danger-border);
+  --access-primary-background: var(--color-success-surface);
+  --access-primary-text: var(--color-text);
+  --access-secondary-border: var(--color-border-control);
+  --access-secondary-button-text: var(--color-text-muted);
+  --access-warning-border: var(--color-warning-border);
+  --access-success-border: var(--color-success-border);
+  --access-notice-text: var(--color-success);
+  --access-danger-border: var(--color-danger-border);
+  --access-time-text: var(--color-text-muted);
+  --access-control-accent: var(--color-accent);
+  --access-dialog-border: var(--color-border-control);
 }
 
 .shell {
@@ -63,7 +63,7 @@
 .eyebrow {
   margin: 0 0 0.35rem;
   color: var(--color-accent-text);
-  font-size: 0.75rem;
+  font-size: var(--font-size-small);
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -82,7 +82,7 @@
 .layout {
   display: grid;
   grid-template-columns: minmax(15rem, 22rem) minmax(0, 1fr);
-  gap: 1rem;
+  gap: var(--space-4);
   margin-top: 1.5rem;
   align-items: start;
 }
@@ -112,7 +112,7 @@
 .accountControls {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
+  gap: var(--space-4);
   align-items: start;
 }
 
@@ -125,7 +125,7 @@
   border-radius: 999px;
   background: var(--access-pill-background);
   color: var(--access-pill-text);
-  font-size: 0.75rem;
+  font-size: var(--font-size-small);
   white-space: nowrap;
 }
 
@@ -155,7 +155,7 @@
   gap: 0.25rem;
   padding: 0.8rem;
   border: 1px solid var(--access-border);
-  border-radius: 0.7rem;
+  border-radius: var(--radius-panel);
   background: var(--access-control-background);
   color: inherit;
   text-align: left;
@@ -209,10 +209,10 @@
 .secondaryButton,
 .alert button,
 .alert a {
-  min-height: 2.6rem;
+  min-height: var(--control-min-height);
   padding: 0.65rem 0.9rem;
   border: 1px solid var(--access-interactive-border);
-  border-radius: 0.55rem;
+  border-radius: var(--radius-control);
   background: var(--access-primary-background);
   color: var(--access-primary-text);
   font: inherit;
@@ -248,7 +248,7 @@
   min-width: 0;
   padding: 1rem;
   border: 1px solid var(--access-border);
-  border-radius: 0.8rem;
+  border-radius: var(--radius-panel);
 }
 
 .technology legend {
@@ -281,7 +281,7 @@
 
 .preparing {
   border-color: var(--access-warning-border);
-  font-size: 0.9rem;
+  font-size: var(--font-size-control);
 }
 
 .inlineError,
@@ -311,7 +311,7 @@
 .empty {
   padding: 1rem;
   border: 1px dashed var(--access-secondary-border);
-  border-radius: 0.65rem;
+  border-radius: var(--radius-panel);
   color: var(--access-secondary-text);
 }
 
@@ -324,7 +324,7 @@
 .audit li {
   padding: 0.8rem;
   border: 1px solid var(--access-border);
-  border-radius: 0.65rem;
+  border-radius: var(--radius-panel);
 }
 
 .audit li + li {
@@ -334,12 +334,12 @@
 .audit li > div {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
+  gap: var(--space-4);
 }
 
 .audit time {
   color: var(--access-time-text);
-  font-size: 0.8rem;
+  font-size: var(--font-size-caption);
 }
 
 .audit li p {
@@ -352,7 +352,7 @@
   gap: 0.35rem;
   padding: 0.7rem;
   border: 1px solid var(--access-border);
-  border-radius: 0.55rem;
+  border-radius: var(--radius-control);
 }
 
 .dialogBackdrop {
@@ -383,8 +383,8 @@
 .root button:focus-visible,
 .root a:focus-visible,
 .root input:focus-visible {
-  outline: 2px solid var(--color-accent-text);
-  outline-offset: 0.2rem;
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--focus-offset);
 }
 
 @media (max-width: 56rem) {
@@ -416,3 +416,34 @@
     flex: 1 1 100%;
   }
 }
+
+/* Shared control geometry; native choice symbols and reader typography stay separate. */
+.root :where(button, select, textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="file"]):not([type="range"]), summary) {
+  box-sizing: border-box;
+  min-height: var(--control-min-height);
+  max-width: 100%;
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-control);
+}
+.root :where(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="file"]):not([type="range"]), select, textarea) {
+  background-color: var(--color-surface-input);
+  color: var(--color-text);
+  border-color: var(--color-border-control);
+  border-radius: var(--radius-control);
+}
+.root :is(input[type="checkbox"], input[type="radio"]) {
+  flex: 0 0 auto;
+  width: var(--control-choice-size);
+  height: var(--control-choice-size);
+  min-height: 0;
+  padding: 0;
+  accent-color: var(--color-accent);
+}
+.root :is(button, a, input, select, textarea, summary):focus-visible {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--focus-offset);
+}
+.root button { overflow-wrap: anywhere; }
+.root button:disabled { cursor: not-allowed; }
+.root { font-family: var(--font-family-ui); }
+.root h1 { font-family: var(--font-family-ui); font-size: var(--font-size-title); line-height: 1.25; }

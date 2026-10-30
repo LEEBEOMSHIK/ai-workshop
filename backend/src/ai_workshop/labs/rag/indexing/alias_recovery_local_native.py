@@ -61,9 +61,9 @@ NODE_SHA = "9a4eb5f1c29c6a2e93852ead46b999e284a6a5ca8bab4d4e241d587d025a52de"
 DOCKER_EXE = r"C:\Program Files\Docker\Docker\resources\bin\docker.exe"
 ORIGINAL_IMAGE_ID = "sha256:80d3ab189f131fca45c958c281975078ac88d8b133200fbae33d70baa40f4654"
 POWERSHELL_EXE = (
-    r"C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.6.0_arm64__8wekyb3d8bbwe\pwsh.exe"
+    r"C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.7.0_arm64__8wekyb3d8bbwe\pwsh.exe"
 )
-POWERSHELL_SHA = "abb215e4d87889c85a18333a310b1dbdae33e78a25e13dc7cf129fbdaea848e0"
+POWERSHELL_SHA = "b444dbe54328db2a42e7156d8394e4164900ebaace0f2544cbb05f437247dfe6"
 WSL_EXE = r"C:\Windows\System32\wsl.exe"
 NETSH_EXE = r"C:\Windows\System32\netsh.exe"
 

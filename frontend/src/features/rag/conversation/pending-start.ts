@@ -30,6 +30,7 @@ export class PendingStart {
   private cancelling = false;
   private cancelled = false;
   private polling = false;
+  private detached = false;
   private timer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(readonly slug: string, readonly request: StartRequest,
@@ -42,8 +43,9 @@ export class PendingStart {
     this.rejectedDraftDisposition = undefined;
     if (this.cancelIntent) await this.cancelAccepted();
     else {
-      this.settled = !detail.turns.some(turn => turn.status === "running");
-      if (this.settled) this.finish();
+      // This owner resolves acceptance. The selected conversation polls execution.
+      this.settled = true;
+      this.finish();
       this.receive?.(detail);
     }
   }
@@ -76,20 +78,21 @@ export class PendingStart {
     if (this.accepted) void this.cancelAccepted(); else void this.recover();
   }
 
-  // In-app unmount detaches presentation, not the uncertain server operation.
-  // This owner remains alive until original rejection or accepted-ID cancellation.
+  // Navigation releases presentation; only an explicit cancellation may keep
+  // recovery alive after leaving. The server owns the accepted execution.
   detach() {
     this.receive = undefined;
     this.failed = undefined;
-    if (this.settled) { this.finish(); return; }
+    this.detached = true;
+    if (this.settled || !this.cancelIntent) { this.finish(); return; }
     detachedStarts.add(this);
-    this.cancel();
+    void this.recover();
   }
 
   private finish() { clearTimeout(this.timer); detachedStarts.delete(this); }
 
   async recover() {
-    if (this.polling || this.settled) return;
+    if (this.polling || this.settled || (this.detached && !this.cancelIntent)) return;
     clearTimeout(this.timer);
     this.polling = true;
     try {
@@ -100,7 +103,7 @@ export class PendingStart {
       // Authentication/network/404 errors retain both request and cancel intent.
     } finally {
       this.polling = false;
-      if (!this.settled) { clearTimeout(this.timer); this.timer = setTimeout(() => void this.recover(), 2000); }
+      if (!this.settled && (!this.detached || this.cancelIntent)) { clearTimeout(this.timer); this.timer = setTimeout(() => void this.recover(), 2000); }
     }
   }
 

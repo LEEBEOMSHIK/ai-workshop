@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import Literal
+from typing import Literal, cast
 
 from pydantic import SecretStr
 
@@ -10,11 +10,16 @@ from ai_workshop.labs.rag.deployments.domain import (
     ModelDeploymentVersion,
     ProviderKind,
 )
+from ai_workshop.labs.rag.deployments.endpoint_policy import (
+    EndpointDialect,
+    validate_endpoint_dialect,
+)
 from ai_workshop.labs.rag.deployments.secrets import (
     EndpointReferenceResolver,
     SecretReferenceError,
     SecretReferenceResolver,
 )
+from ai_workshop.labs.rag.generation.anthropic_messages import AnthropicMessagesRuntime
 from ai_workshop.labs.rag.generation.contracts import GenerationRuntimePort
 from ai_workshop.labs.rag.generation.execution import (
     GenerationProviderError,
@@ -36,28 +41,37 @@ GenerationRuntimeFactory = Callable[
 
 def builtin_generation_runtime_factories(
     *,
-    provider_endpoint_dialects: Mapping[str, Literal["openai", "ollama"]] | None = None,
+    provider_endpoint_dialects: Mapping[str, EndpointDialect] | None = None,
 ) -> dict[
     ProviderKind,
     GenerationRuntimeFactory,
 ]:
     dialects = dict(provider_endpoint_dialects or {})
+
+    def http_factory(
+        deployment: ModelDeploymentVersion, endpoint: str, secret: str | None,
+    ) -> GenerationRuntimePort:
+        dialect = validate_endpoint_dialect(
+            deployment.provider, deployment.endpoint_ref or "", dialects,
+        )
+        if deployment.provider is ProviderKind.ANTHROPIC_MESSAGES:
+            return AnthropicMessagesRuntime(
+                deployment=deployment, endpoint=endpoint, api_key=secret or "",
+            )
+        if deployment.provider is ProviderKind.OPENAI_RESPONSES:
+            return OpenAIResponsesRuntime(
+                deployment=deployment, endpoint=endpoint, api_key=secret or "",
+            )
+
+        return LocalOpenAICompatibleRuntime(
+            deployment=deployment, endpoint=endpoint, api_key=secret,
+            dialect=cast(Literal["openai", "ollama"], dialect),
+        )
+
     return {
-        ProviderKind.LOCAL_OPENAI_COMPATIBLE: (
-            lambda deployment, endpoint, secret: LocalOpenAICompatibleRuntime(
-                deployment=deployment,
-                endpoint=endpoint,
-                api_key=secret,
-                dialect=dialects.get(deployment.endpoint_ref or "", "openai"),
-            )
-        ),
-        ProviderKind.OPENAI_RESPONSES: (
-            lambda deployment, endpoint, secret: OpenAIResponsesRuntime(
-                deployment=deployment,
-                endpoint=endpoint,
-                api_key=secret or "",
-            )
-        ),
+        ProviderKind.LOCAL_OPENAI_COMPATIBLE: http_factory,
+        ProviderKind.OPENAI_RESPONSES: http_factory,
+        ProviderKind.ANTHROPIC_MESSAGES: http_factory,
     }
 
 

@@ -164,10 +164,22 @@ def _launcher(arguments: tuple[str, ...]) -> str:
         len(arguments) == 13
         and arguments[:5] == ("-d", "docker-desktop", "-u", "root", "-e")
         and arguments[5:8] == ("wsl-bootstrap", "run", "--base-image")
-        and _path(arguments[8]) == _path(resources + "docker-desktop.iso")
         and arguments[9] == "--cli-iso"
-        and _path(arguments[10]) == _path(resources + "wsl/docker-wsl-cli.iso")
         and arguments[11] == "--data-disk"
+        and (
+            (_path(arguments[8]), _path(arguments[10]))
+            == (
+                _path(resources + "docker-desktop.iso"),
+                _path(resources + "wsl/docker-wsl-cli.iso"),
+            )
+            # Installed Docker also emits this exact POSIX pair. Do not apply
+            # Windows case/slash normalization or infer physical file identity.
+            or (arguments[8], arguments[10])
+            == (
+                "/c/Program Files/Docker/Docker/resources/docker-desktop.iso",
+                "/c/Program Files/Docker/Docker/resources/wsl/docker-wsl-cli.iso",
+            )
+        )
     ):
         _uuid(arguments[12])
         return "bootstrap"

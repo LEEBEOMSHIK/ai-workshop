@@ -125,7 +125,9 @@ async def test_late_queue_delivery_never_enters_execution_after_cancel(monkeypat
         lambda **kwargs: {},
     )
     workflow = object.__new__(GenerativeWorkflow)
-    workflow.settings = SimpleNamespace(environment="test")
+    workflow.settings = SimpleNamespace(
+        environment="test", frozen_evaluation_embedding_cache_bytes=0,
+    )
     workflow.repository = SimpleNamespace(claim_run=AsyncMock(return_value=None))
     workflow._execute_claimed = AsyncMock(side_effect=AssertionError("must not execute"))
     await workflow.run(uuid4())

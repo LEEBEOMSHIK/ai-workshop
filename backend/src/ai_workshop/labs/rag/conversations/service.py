@@ -14,7 +14,12 @@ from pathlib import Path
 from typing import Protocol
 from uuid import UUID, uuid4
 
-from ai_workshop.labs.rag.conversations.domain import Conversation, Turn, reserve_turn
+from ai_workshop.labs.rag.conversations.domain import (
+    CONVERSATION_TERMINATION_UNCONFIRMED,
+    Conversation,
+    Turn,
+    reserve_turn,
+)
 from ai_workshop.labs.rag.conversations.schemas import (
     ConversationDetail,
     ConversationStart,
@@ -27,11 +32,13 @@ from ai_workshop.labs.rag.conversations.title_policy import REDACTED_TITLE, deri
 from ai_workshop.labs.rag.domains.api import DomainSearchExecutorPort
 from ai_workshop.labs.rag.domains.schemas import DomainSearchRequest, DomainSearchResponse
 from ai_workshop.labs.rag.domains.service import DomainService
+from ai_workshop.labs.rag.executions.agent_trace import persisted_agent_trace
 from ai_workshop.labs.rag.executions.domain import (
     ExecutionIdentity,
     ExecutionOutcome,
     ExecutionRecorder,
 )
+from ai_workshop.labs.rag.executions.history_selection import bind_history_provenance
 from ai_workshop.labs.rag.executions.observer import ExecutionObserver, observed_call
 from ai_workshop.labs.rag.generation.domain import CODEX_GENERATION_DISCLOSURE_VERSION
 from ai_workshop.labs.rag.generation.execution import (
@@ -47,9 +54,16 @@ logger = logging.getLogger(__name__)
 
 def _stored_response(result: DomainSearchResponse) -> dict[str, object]:
     """Keep transport input inspection request-local, outside conversation history."""
-    return result.model_dump(
-        mode="json", exclude={"diagnostics": {"generation_input"}},
+    stored = result.model_dump(
+        mode="json", exclude={"diagnostics": {"generation_input", "agent_trace"}},
     )
+    diagnostics = stored.get("diagnostics")
+    if (isinstance(diagnostics, dict) and result.diagnostics is not None
+            and result.diagnostics.agent_trace is not None):
+        diagnostics["agent_trace"] = persisted_agent_trace(
+            result.diagnostics.agent_trace,
+        ).model_dump(mode="json")
+    return stored
 
 
 def _with_request_input(
@@ -59,14 +73,15 @@ def _with_request_input(
     if result is None or result.diagnostics is None:
         return detail
     inspection = result.diagnostics.generation_input
-    if inspection is None:
+    agent_trace = result.diagnostics.agent_trace
+    if inspection is None and agent_trace is None:
         return detail
     turns = []
     for turn in detail.turns:
         if (turn.id == turn_id and turn.status == "completed" and not turn.redacted
                 and turn.response is not None and turn.response.diagnostics is not None):
             diagnostics = turn.response.diagnostics.model_copy(
-                update={"generation_input": inspection}, deep=True,
+                update={"generation_input": inspection, "agent_trace": agent_trace}, deep=True,
             )
             turn = turn.model_copy(update={
                 "response": turn.response.model_copy(update={"diagnostics": diagnostics}),
@@ -244,7 +259,8 @@ class ConversationService:
         return await self._view(item)
 
     async def submit(
-        self, slug: str, actor_id: UUID, id: UUID, request: ConversationTurnCreate
+        self, slug: str, actor_id: UUID, id: UUID, request: ConversationTurnCreate,
+        *, on_accepted: Callable[[ConversationDetail], None] | None = None,
     ) -> ConversationDetail:
         await self.domains.detail_for_actor(slug, actor_id)
         domain_id = await self.repository.domain_id(slug)
@@ -272,7 +288,9 @@ class ConversationService:
             turn, created = reserve_turn(item, request, identity, datetime.now(UTC))
         if not created:
             return await self._view(item)
-        return await self._execute_reserved(slug, actor_id, item, turn, request)
+        return await self._execute_reserved(
+            slug, actor_id, item, turn, request, on_accepted=on_accepted,
+        )
 
     @staticmethod
     def _require_writer(item: Conversation) -> None:
@@ -282,7 +300,8 @@ class ConversationService:
             )
 
     async def start(
-        self, slug: str, actor_id: UUID, request: ConversationStart
+        self, slug: str, actor_id: UUID, request: ConversationStart,
+        *, on_accepted: Callable[[ConversationDetail], None] | None = None,
     ) -> ConversationDetail:
         await self.domains.detail_for_actor(slug, actor_id)
         domain_id = await self.repository.domain_id(slug)
@@ -347,7 +366,9 @@ class ConversationService:
         item, created = await self.repository.start(item, request, digest)
         if not created:
             return await self._view(item)
-        return await self._execute_reserved(slug, actor_id, item, item.turns[0], turn_request)
+        return await self._execute_reserved(
+            slug, actor_id, item, item.turns[0], turn_request, on_accepted=on_accepted,
+        )
 
     async def start_status(self, slug: str, actor_id: UUID, request_id: UUID) -> ConversationDetail:
         await self.domains.detail_for_actor(slug, actor_id)
@@ -364,6 +385,7 @@ class ConversationService:
         item: Conversation,
         turn: Turn,
         request: ConversationTurnCreate,
+        *, on_accepted: Callable[[ConversationDetail], None] | None = None,
     ) -> ConversationDetail:
         id = item.id
         domain_id = item.domain_id
@@ -382,6 +404,9 @@ class ConversationService:
             if observer:
                 await observer.start()
                 await observer.begin("history")
+            if on_accepted is not None:
+                # Reservation is committed. Acceptance failure still owns terminal cleanup.
+                on_accepted(await self._view(item))
             history, dependencies = await self._history(item, turn, request)
             phase = ExecutionPhase.RESERVE_DEPENDENCIES
             async with self.repository.locked(actor_id, domain_id, id) as current:
@@ -401,19 +426,20 @@ class ConversationService:
                 await observer.end("history")
                 await observer.begin("request")
             phase = ExecutionPhase.EXECUTE
-            task = asyncio.create_task(
-                tracked_generation_call(
-                    observed_call(
-                        self.executor.execute(
-                            slug=slug,
-                            actor_id=actor_id,
-                            request=execution_request,
+            with bind_history_provenance(tuple(dependencies)):
+                task = asyncio.create_task(
+                    tracked_generation_call(
+                        observed_call(
+                            self.executor.execute(
+                                slug=slug,
+                                actor_id=actor_id,
+                                request=execution_request,
+                            ),
+                            observer,
                         ),
-                        observer,
+                        termination,
                     ),
-                    termination,
                 )
-            )
             while not task.done():
                 phase = ExecutionPhase.MONITOR_EXECUTION
                 done, _ = await asyncio.wait({task}, timeout=0.5)
@@ -480,6 +506,15 @@ class ConversationService:
                         target.response = (
                             _stored_response(result) if result is not None else None
                         )
+                    if (
+                        target.status == "interrupted"
+                        and target.error_code == CONVERSATION_TERMINATION_UNCONFIRMED
+                    ):
+                        # Only this execution's joined finalizer may release its
+                        # lease-expiry block. A late answer stays interrupted.
+                        result = None
+                        if termination.confirmed:
+                            target.error_code = "conversation_execution_interrupted"
                     if not termination.confirmed:
                         target.error_code = PROVIDER_TERMINATION_UNCONFIRMED
                         target.response = None
@@ -612,7 +647,9 @@ class ConversationService:
                     status=turn.status,
                     query=turn.query if allowed else "",
                     response=(
-                        DomainSearchResponse.model_validate(turn.response)
+                        DomainSearchResponse.model_validate(_stored_response(
+                            DomainSearchResponse.model_validate(turn.response)
+                        ))
                         if allowed and turn.response
                         else None
                     ),

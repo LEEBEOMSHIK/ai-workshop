@@ -16,6 +16,7 @@ from ai_workshop.labs.rag.deployments.domain import (
 from ai_workshop.labs.rag.embeddings.contracts import EmbeddingRuntimeUnavailableError
 from ai_workshop.labs.rag.embeddings.request_cache import RequestScopedEmbedding
 from ai_workshop.labs.rag.executions import observer as trace
+from ai_workshop.labs.rag.executions.operation_timings import measure_operation
 from ai_workshop.labs.rag.executions.selection import selection_observation
 from ai_workshop.labs.rag.generation.audit import (
     GenerationExecutionAudit,
@@ -82,7 +83,13 @@ from ai_workshop.labs.rag.highlighting.domain import (
     EvidenceSource,
     HighlightKind,
 )
-from ai_workshop.labs.rag.highlighting.service import EvidenceSelector, semantic_highlight
+from ai_workshop.labs.rag.highlighting.service import (
+    EvidenceSelector,
+    KeywordMatcher,
+    semantic_highlight,
+)
+from ai_workshop.labs.rag.orchestration.budget import require_generation_budget
+from ai_workshop.labs.rag.orchestration.contracts import GenerationOrchestratorPort
 from ai_workshop.labs.rag.policies.domain import (
     PolicyDecision,
     exact_external_approval_is_current,
@@ -215,6 +222,7 @@ class RagExecutionPipeline:
         generation_runtime_resolver: GenerationRuntimeResolverPort | None = None,
         generation_audit_repository: GenerationAuditRepositoryPort | None = None,
         codex_runtime_factory: CodexSearchRuntimeFactory | None = None,
+        generation_orchestrator: GenerationOrchestratorPort | None = None,
     ) -> None:
         self.configuration_resolver = configuration_resolver
         self.scope_resolver = scope_resolver
@@ -226,6 +234,7 @@ class RagExecutionPipeline:
         self.generation_runtime_resolver = generation_runtime_resolver
         self.generation_audit_repository = generation_audit_repository
         self.codex_runtime_factory = codex_runtime_factory
+        self.generation_orchestrator = generation_orchestrator
 
     async def execute(
         self,
@@ -255,7 +264,15 @@ class RagExecutionPipeline:
                 frozen_access=request.frozen_access,
                 release_embedding=owned_embedding.close if owned_embedding is not None else None,
             )
-            with capture_generation_input(request.request.include_diagnostics):
+            from ai_workshop.labs.rag.executions.agent_trace import capture_agent_trace
+
+            with (
+                capture_generation_input(request.request.include_diagnostics),
+                capture_agent_trace(
+                    observer is not None or trace.current_observer.get() is not None
+                    or request.request.include_diagnostics,
+                ),
+            ):
                 result = (
                     await trace.observed_call(operation, observer)
                     if observer is not None
@@ -384,6 +401,11 @@ class RagExecutionPipeline:
                 history,
                 token_counter=configuration.embedding.count_tokens,
             )
+            from ai_workshop.labs.rag.executions.history_selection import history_selection
+
+            await trace.capture_history_selection(lambda: history_selection(
+                history, bounded_history, generation_profile.context_policy,
+            ))
         prepared_generation = await self._prepare_generation(
             actor_id=actor_id,
             request=request,
@@ -405,6 +427,22 @@ class RagExecutionPipeline:
             )
             raise _safe_generation_error("deployment_not_ready")
         contextualization_execution: ProviderExecutionMetadata | None = None
+        if generation_profile is not None and generation_profile.orchestration is not None:
+            try:
+                require_generation_budget(
+                    generation_profile, prior_model_calls=int(bool(bounded_history)),
+                    prior_reserved_output_tokens=(
+                        generation_profile.max_output_tokens if bounded_history else 0
+                    ),
+                )
+            except GenerationProviderError as exc:
+                assert prepared_generation is not None
+                await self._record_audit(
+                    actor_id=actor_id, configuration=configuration,
+                    policy=prepared_generation.policy, evidence_ids=(),
+                    status="failed", safe_error_code=exc.code,
+                )
+                raise _safe_generation_error(exc.code) from None
         if generation_profile is not None:
             assert prepared_generation is not None
             assert generation_runtime is not None
@@ -567,11 +605,12 @@ class RagExecutionPipeline:
                 document_ids=resolved_scope.document_ids,
                 document_processing_profile_id=processing_profile_id,
             )
-            sources = await (source_resolver or self.source_resolver).resolve(
-                actor_id=actor_id,
-                indexing_profile_id=configuration.indexing_profile_id,
-                hits=hits,
-            )
+            with measure_operation("retrieval.sources", items=len(hits)):
+                sources = await (source_resolver or self.source_resolver).resolve(
+                    actor_id=actor_id,
+                    indexing_profile_id=configuration.indexing_profile_id,
+                    hits=hits,
+                )
             if {hit.chunk_id for hit in hits} != {source.chunk.chunk_id for source in sources}:
                 raise AppError(
                     "conversation_scope_changed",
@@ -582,11 +621,14 @@ class RagExecutionPipeline:
             await trace.end("retrieval")
             await trace.begin("selection")
             selection_started = perf_counter()
-            selection = EvidenceSelector(embedding).select(
-                query=resolved_query,
-                sources=sources,
-                policy=policy,
-            )
+            keywords = KeywordMatcher(resolved_query)
+            with measure_operation("selection.extractive", items=len(sources)):
+                selection = EvidenceSelector(embedding).select(
+                    query=resolved_query,
+                    sources=sources,
+                    policy=policy,
+                    keywords=keywords,
+                )
             generation_answers = (
                 *((selection.answer,) if selection.answer is not None else ()),
                 *selection.conflicts,
@@ -599,15 +641,17 @@ class RagExecutionPipeline:
                     max(1, sum(len(u.text) for s in sources for u in s.chunk.evidence_units)),
                 )
                 try:
-                    context_selection = select_context(
-                        query=resolved_query,
-                        sources=sources,
-                        extractive=selection,
-                        policy=policy,
-                        budget=budget or diagnostic_budget,
-                        embedding=embedding,
-                        include_diagnostics=request.include_diagnostics,
-                    )
+                    with measure_operation("selection.context", items=len(sources)):
+                        context_selection = select_context(
+                            query=resolved_query,
+                            sources=sources,
+                            extractive=selection,
+                            policy=policy,
+                            budget=budget or diagnostic_budget,
+                            embedding=embedding,
+                            include_diagnostics=request.include_diagnostics,
+                            keywords=keywords,
+                        )
                 except (EmbeddingRuntimeUnavailableError, ValueError):
                     if budget is not None:
                         raise AppError(
@@ -722,6 +766,8 @@ class RagExecutionPipeline:
             prepared_generation=prepared_generation,
             contextualization_execution=contextualization_execution,
             conversation_scope=resolved_conversation_scope,
+            revalidate=lambda: revalidate_access(required_sources),
+            prior_generation_elapsed_ms=stages["contextualization"] or 0,
         )
         # Generation/audit persistence may release its original authorization
         # transaction. Re-read authority before returning an answer or proof.
@@ -760,6 +806,8 @@ class RagExecutionPipeline:
                 )
                 for item in context_selection.diagnostics
             )
+            from ai_workshop.labs.rag.executions.agent_trace import response_agent_trace
+
             diagnostics = SearchDiagnostics(
                 candidates,
                 hits,
@@ -769,6 +817,9 @@ class RagExecutionPipeline:
                 policy.min_semantic_score,
                 context_selection.diagnostic_warning,
                 current_input_inspection(),
+                response_agent_trace(
+                    answer_validated=generation.status is GenerationStatus.ANSWERED,
+                ),
             )
         return SearchResult(
             selection=selection,
@@ -1053,6 +1104,8 @@ class RagExecutionPipeline:
         prepared_generation: PreparedGeneration | None,
         contextualization_execution: ProviderExecutionMetadata | None,
         conversation_scope: ConversationScopeBinding | None,
+        revalidate: Callable[[], Awaitable[None]] | None = None,
+        prior_generation_elapsed_ms: float = 0,
     ) -> GenerationOutcome:
         profile = configuration.generation_profile
         if profile is None:
@@ -1119,8 +1172,7 @@ class RagExecutionPipeline:
         await trace.begin("generation")
         generation_started = perf_counter()
         try:
-            generation_result = await generation_runtime.generate(
-                GenerationRequest(
+            generation_request = GenerationRequest(
                     question=original_query,
                     resolved_query=resolved_query,
                     history=history,
@@ -1128,8 +1180,20 @@ class RagExecutionPipeline:
                     profile=profile,
                     correlation_id=correlation_id_context.get(),
                     numeric_catalogue=catalogue,
-                )
             )
+            if profile.orchestration is not None:
+                if self.generation_orchestrator is None:
+                    raise GenerationProviderError("orchestration_not_supported", retryable=False)
+                generation_result = await self.generation_orchestrator.generate(
+                    generation_request, policy=prepared_generation.policy, revalidate=revalidate,
+                    prior_model_calls=int(contextualization_execution is not None),
+                    prior_reserved_output_tokens=(
+                        profile.max_output_tokens if contextualization_execution is not None else 0
+                    ),
+                    prior_latency_ms=prior_generation_elapsed_ms,
+                )
+            else:
+                generation_result = await generation_runtime.generate(generation_request)
             if not _execution_is_exact(
                 generation_result.execution,
                 profile.deployment,
@@ -1157,6 +1221,7 @@ class RagExecutionPipeline:
                 safe_error_code=code,
                 provider_execution=_failed_execution(
                     exc.execution, profile.deployment, contextualization_execution,
+                    require_complete_usage=profile.orchestration is not None,
                 ),
                 latency_ms=_elapsed_ms(generation_started),
             )
@@ -1216,6 +1281,7 @@ class RagExecutionPipeline:
                 provider_execution=_combine_execution(
                     contextualization_execution,
                     generation_result.execution,
+                    require_complete_usage=profile.orchestration is not None,
                 ),
             )
             return GenerationOutcome(
@@ -1256,6 +1322,7 @@ class RagExecutionPipeline:
                 provider_execution=_combine_execution(
                     contextualization_execution,
                     generation_result.execution,
+                    require_complete_usage=profile.orchestration is not None,
                 ),
                 latency_ms=_elapsed_ms(generation_started),
             )
@@ -1293,6 +1360,7 @@ class RagExecutionPipeline:
             provider_execution=_combine_execution(
                 contextualization_execution,
                 generation_result.execution,
+                require_complete_usage=profile.orchestration is not None,
             ),
             latency_ms=_elapsed_ms(generation_started),
             validated=validated,
@@ -1415,6 +1483,9 @@ class _ResolvedScopeResolver:
 
 
 _SAFE_GENERATION_ERRORS: dict[str, tuple[str, int]] = {
+    "orchestration_not_supported": ("선택한 에이전트 실행 구성을 사용할 수 없습니다.", 409),
+    "orchestration_budget_exceeded": ("에이전트 실행 한도를 초과했습니다.", 422),
+    "orchestration_invalid_delegation": ("에이전트의 작업 위임을 검증할 수 없습니다.", 502),
     "provider_busy": ("로컬 생성 모델이 다른 요청을 처리 중입니다. 잠시 후 다시 시도하세요.", 503),
     "provider_input_too_large": (
         "질문과 근거가 모델 입력 한도를 초과했습니다. 범위를 줄여 주세요.", 422,
@@ -1549,6 +1620,7 @@ def _elapsed_ms(started: float) -> int:
 def _combine_execution(
     first: ProviderExecutionMetadata | None,
     second: ProviderExecutionMetadata,
+    *, require_complete_usage: bool = False,
 ) -> ProviderExecutionMetadata:
     if first is None:
         return second
@@ -1562,8 +1634,12 @@ def _combine_execution(
         provider=second.provider,
         provider_model_id=second.provider_model_id,
         deployment_version_id=second.deployment_version_id,
-        input_tokens=_sum_optional(first.input_tokens, second.input_tokens),
-        output_tokens=_sum_optional(first.output_tokens, second.output_tokens),
+        input_tokens=_sum_optional(
+            first.input_tokens, second.input_tokens, require_complete=require_complete_usage,
+        ),
+        output_tokens=_sum_optional(
+            first.output_tokens, second.output_tokens, require_complete=require_complete_usage,
+        ),
         latency_ms=first.latency_ms + second.latency_ms,
     )
 
@@ -1584,13 +1660,16 @@ def _failed_execution(
     execution: ProviderExecutionMetadata | None,
     deployment: ModelDeploymentVersion | None,
     prior: ProviderExecutionMetadata | None = None,
+    *, require_complete_usage: bool = False,
 ) -> ProviderExecutionMetadata | None:
     # Untrusted failure metadata must never replace the original provider error.
     if prior is not None:
         prior = _bounded_failure_usage(prior) if _execution_is_exact(prior, deployment) else None
     if execution is None or not _execution_is_exact(execution, deployment):
         return prior
-    return _combine_execution(prior, _bounded_failure_usage(execution))
+    return _combine_execution(
+        prior, _bounded_failure_usage(execution), require_complete_usage=require_complete_usage,
+    )
 
 
 def _bounded_failure_usage(execution: ProviderExecutionMetadata) -> ProviderExecutionMetadata:
@@ -1610,7 +1689,11 @@ def _bounded_failure_usage(execution: ProviderExecutionMetadata) -> ProviderExec
     )
 
 
-def _sum_optional(first: int | None, second: int | None) -> int | None:
+def _sum_optional(
+    first: int | None, second: int | None, *, require_complete: bool = False,
+) -> int | None:
+    if require_complete and (first is None or second is None):
+        return None
     if first is None and second is None:
         return None
     total = (first or 0) + (second or 0)

@@ -130,13 +130,18 @@ try {
 
     const visualState = locator => locator.evaluate(input => {
       const style = getComputedStyle(input.closest("label"));
+      const marker = getComputedStyle(input.closest("label"), "::before");
       return { background: style.backgroundColor, color: style.color, weight: style.fontWeight,
-        decoration: style.textDecorationLine };
+        decoration: style.textDecorationLine,
+        selectionMarkerVisible: marker.content !== "none" && Number(marker.opacity) > 0
+          && parseFloat(marker.width) > 0 && parseFloat(marker.height) > 0
+          && parseFloat(marker.borderBottomWidth) > 0 && parseFloat(marker.borderRightWidth) > 0 };
     });
     const selected = await visualState(saved);
     const idle = await visualState(create);
     assert.notEqual(selected.background, idle.background, "Selection must have a distinct surface");
-    assert.ok(selected.decoration.includes("underline"), "Selection must have a non-color cue");
+    assert.ok(selected.selectionMarkerVisible && !idle.selectionMarkerVisible, "Selection must have a visible shape cue");
+    assert.ok(!selected.decoration.includes("underline"), "Selection must not underline its label");
     await create.locator("..").hover();
     const hover = await visualState(create);
     assert.notEqual(hover.background, idle.background, "Enabled segment hover must be visible");

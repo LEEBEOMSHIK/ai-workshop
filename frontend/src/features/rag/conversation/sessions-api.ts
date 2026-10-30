@@ -9,12 +9,12 @@ export type StartRequest = components["schemas"]["ConversationStart"];
 export type AttachmentDraft = components["schemas"]["DraftResponse"];
 export const conversationPath = (slug: string, id?: string) => `/api/v1/rag/domains/${encodeURIComponent(slug)}/conversations${id ? `/${encodeURIComponent(id)}` : ""}`;
 export const listConversations = (slug: string, signal?: AbortSignal) => apiRequest<ConversationSummary[]>(conversationPath(slug), {signal, cache: "no-store"});
-export const startConversation = (slug: string, request: StartRequest, signal?: AbortSignal) => apiRequest<ConversationDetail>(`${conversationPath(slug)}/start`, {method: "POST", json: request, signal, cache: "no-store", ...(request.codex_input_approval ? {headers: {"x-codex-request": "1"}} : {})});
+export const startConversation = (slug: string, request: StartRequest, signal?: AbortSignal) => apiRequest<ConversationDetail>(`${conversationPath(slug)}/start`, {method: "POST", json: request, signal, cache: "no-store", headers: {Prefer: "respond-async", ...(request.codex_input_approval ? {"x-codex-request": "1"} : {})}});
 export const getConversationStart = (slug: string, requestId: string, signal?: AbortSignal) => apiRequest<ConversationDetail>(`${conversationPath(slug)}/starts/${encodeURIComponent(requestId)}`, {signal, cache: "no-store"});
 export const getConversation = (slug: string, id: string, signal?: AbortSignal) => apiRequest<ConversationDetail>(conversationPath(slug, id), {signal, cache: "no-store"});
 export const renameConversation = (slug: string, session: ConversationSummary, title: string) => apiRequest<ConversationDetail>(conversationPath(slug, session.id), {method: "PATCH", json: {title, expected_revision: session.revision}, cache: "no-store"});
 export const deleteConversation = (slug: string, session: ConversationSummary) => apiRequest<void>(`${conversationPath(slug, session.id)}?expected_revision=${session.revision}`, {method: "DELETE", cache: "no-store"});
-export const sendConversationTurn = (slug: string, id: string, request: TurnRequest, signal?: AbortSignal) => apiRequest<ConversationDetail>(`${conversationPath(slug, id)}/turns`, {method: "POST", json: request, signal, cache: "no-store", ...(request.codex_input_approval ? {headers: {"x-codex-request": "1"}} : {})});
+export const sendConversationTurn = (slug: string, id: string, request: TurnRequest, signal?: AbortSignal) => apiRequest<ConversationDetail>(`${conversationPath(slug, id)}/turns`, {method: "POST", json: request, signal, cache: "no-store", headers: {Prefer: "respond-async", ...(request.codex_input_approval ? {"x-codex-request": "1"} : {})}});
 export const cancelConversationTurn = (slug: string, id: string, requestId: string) => apiRequest<ConversationDetail>(`${conversationPath(slug, id)}/turns/${encodeURIComponent(requestId)}/cancel`, {method: "POST", json: {}, cache: "no-store"});
 
 export type Attachment = components["schemas"]["ConversationAttachmentResponse"];

@@ -1039,9 +1039,7 @@
   color: #8ee6dc;
   font-weight: 750;
   overflow-wrap: anywhere;
-  text-decoration-color: currentcolor;
-  text-decoration-thickness: 0.12em;
-  text-underline-offset: 0.2em;
+  text-decoration: none;
 }
 
 .dialogCopy a:visited {

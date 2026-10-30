@@ -6,6 +6,7 @@ from ai_workshop.labs.rag.generation.domain import (
     StructuredGeneration,
 )
 from ai_workshop.labs.rag.generation.exact_values import exact_values
+from ai_workshop.labs.rag.generation.relative_day_citations import defined_business_day_values
 
 
 class CitationValidator:
@@ -35,6 +36,8 @@ class CitationValidator:
                 cited.append(item)
             claimed_values = exact_values(claim.text)
             supported_values = {value for item in cited for value in exact_values(item.text)}
+            if not claimed_values.issubset(supported_values):
+                supported_values.update(defined_business_day_values(claim.text, tuple(cited)))
             if not claimed_values.issubset(supported_values):
                 return _failed("exact_value_not_supported")
             citations.append(

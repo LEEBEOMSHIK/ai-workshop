@@ -831,7 +831,7 @@ def test_all_fixed_commands_use_absolute_executable_and_no_caller_arguments():
 
 
 WORKING_POWERSHELL = (
-    r"C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.6.0_arm64__8wekyb3d8bbwe\pwsh.exe"
+    r"C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.7.0_arm64__8wekyb3d8bbwe\pwsh.exe"
 )
 
 
@@ -858,7 +858,7 @@ def test_fixed_helper_argv_pins_working_versioned_powershell_and_hash():
 
     assert native.POWERSHELL_EXE == WORKING_POWERSHELL
     assert (
-        native.POWERSHELL_SHA == "abb215e4d87889c85a18333a310b1dbdae33e78a25e13dc7cf129fbdaea848e0"
+        native.POWERSHELL_SHA == "b444dbe54328db2a42e7156d8394e4164900ebaace0f2544cbb05f437247dfe6"
     )
     for command in (native.FixedCommand.HOST, native.FixedCommand.WSL_STATE):
         assert native.command_argv(command)[0] == WORKING_POWERSHELL
@@ -928,7 +928,8 @@ def test_exact_windowsapps_controller_requires_pinned_binary_and_payload(monkeyp
     for changed in (
         r"C:\synthetic-private-moved\pwsh.exe",
         r"C:\Program Files\PowerShell\7\pwsh.exe",
-        WORKING_POWERSHELL.replace("7.6.6.0", "7.6.7.0"),
+        WORKING_POWERSHELL.replace("7.6.7.0", "7.6.6.0"),
+        WORKING_POWERSHELL.replace("7.6.7.0", "7.6.8.0"),
     ):
         assert not native._controller_matches(
             command.replace(WORKING_POWERSHELL, changed), changed, {payload}

@@ -1,16 +1,16 @@
 .shell,
 .reader {
-  --study-text: #eaf2f4;
-  --study-muted: #abb9c2;
-  --study-accent: #8ee6dc;
-  --study-link: #75ded2;
-  --study-visited: #c8b8ff;
-  --study-hover: #b8f4ed;
-  --study-focus: #f5c86d;
-  --study-border: #2c3a44;
-  --study-surface: #111820;
-  --study-control-surface: #182b31;
-  --study-control-hover: #243e43;
+  --study-text: var(--color-text);
+  --study-muted: var(--color-text-muted);
+  --study-accent: var(--color-accent);
+  --study-link: var(--color-accent);
+  --study-visited: var(--color-link-visited);
+  --study-hover: var(--color-accent);
+  --study-focus: var(--color-warning);
+  --study-border: var(--color-border);
+  --study-surface: var(--color-surface);
+  --study-control-surface: var(--color-surface-raised);
+  --study-control-hover: var(--color-surface-hover);
   --study-font: Arial, Helvetica, sans-serif;
   --study-title-size: clamp(1.75rem, 3vw, 2.5rem);
   --study-heading-size: 1.25rem;
@@ -26,7 +26,7 @@
   min-height: calc(100dvh - var(--application-header-height, 0rem));
   padding: clamp(1.25rem, 4vw, 4rem);
   color: var(--study-text);
-  background: radial-gradient(circle at 90% 0, rgb(85 217 201 / 12%), transparent 28rem), #0a0e13;
+  background: radial-gradient(circle at 90% 0, rgb(85 217 201 / 12%), transparent 28rem), var(--color-background);
 }
 
 .header,
@@ -40,10 +40,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 2.75rem;
+  min-height: var(--control-min-height);
   padding: 0.5rem 0.875rem;
   border: 1px solid var(--study-border);
-  border-radius: 0.65rem;
+  border-radius: var(--radius-panel);
   color: var(--study-accent);
   background: var(--study-control-surface);
   font-size: 0.875rem;
@@ -76,9 +76,9 @@
 .panel,
 .studyCard {
   padding: clamp(1rem, 2.5vw, 1.75rem);
-  border: 1px solid #2c3a44;
-  border-radius: 1rem;
-  background: #111820;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
 }
 
 .controls,
@@ -94,7 +94,7 @@
 .list,
 .cards {
   display: grid;
-  gap: 0.75rem;
+  gap: var(--space-3);
   margin: 1rem 0;
   padding: 0;
   list-style: none;
@@ -106,11 +106,18 @@
 .controls button,
 .controls select {
   padding: 0.7rem 0.9rem;
-  border: 1px solid #46606a;
-  border-radius: 0.65rem;
-  color: #eaf2f4;
-  background: #18232c;
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-panel);
+  color: var(--color-text);
+  background: var(--color-surface-raised);
   cursor: pointer;
+}
+
+.controls select {
+  background-color: var(--color-surface-input);
+  border-color: var(--color-border-control);
+  font-size: var(--font-size-control);
+  min-height: var(--control-min-height);
 }
 
 .list button {
@@ -127,24 +134,26 @@
 
 .form {
   display: grid;
-  gap: 1rem;
+  gap: var(--space-4);
 }
 
 .form label {
   display: grid;
   gap: 0.4rem;
-  color: #c3cdd2;
+  color: var(--color-text-muted);
 }
 
-.form input,
+.form input:not([type="checkbox"]):not([type="radio"]),
 .form textarea,
 .form select {
   min-width: 0;
   padding: 0.75rem;
-  border: 1px solid #40515d;
-  border-radius: 0.55rem;
-  color: #f3f7f8;
-  background: #090e13;
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  color: var(--color-text);
+  background: var(--color-surface-input);
+  font-size: var(--font-size-control);
+  min-height: var(--control-min-height);
 }
 
 .form textarea {
@@ -159,18 +168,18 @@
 .status,
 .error {
   padding: 0.8rem 1rem;
-  border-left: 4px solid #55d9c9;
-  background: #0d2224;
+  border-left: 4px solid var(--color-accent);
+  background: var(--color-surface-selected);
 }
 
 .error {
-  border-color: #ef9b77;
-  background: #2a1713;
+  border-color: var(--color-warning);
+  background: var(--color-danger-surface);
 }
 
 .preview {
   margin-top: 1.5rem;
-  border-top: 1px solid #31404a;
+  border-top: 1px solid var(--color-border);
   padding-top: 1.5rem;
 }
 
@@ -183,9 +192,7 @@
 .shell a {
   color: var(--study-link);
   font-weight: 750;
-  text-decoration-color: currentcolor;
-  text-decoration-thickness: 0.12em;
-  text-underline-offset: 0.2em;
+  text-decoration: none;
 }
 
 .shell a:visited {
@@ -240,10 +247,11 @@
 
 .catalogPager a,
 .catalogPager span {
+  box-shadow: none;
   padding: 0.5rem 0.8rem;
-  min-height: 2.75rem;
+  min-height: var(--control-min-height);
   border: 1px solid var(--study-border);
-  border-radius: 0.65rem;
+  border-radius: var(--radius-panel);
   background: var(--study-control-surface);
   overflow-wrap: anywhere;
   text-decoration: none;
@@ -266,10 +274,10 @@
 
 .categoryTrigger,
 .categoryPanel button {
-  min-height: 2.75rem;
+  min-height: var(--control-min-height);
   padding: 0.5rem 0.8rem;
   border: 1px solid var(--study-border);
-  border-radius: 0.65rem;
+  border-radius: var(--radius-panel);
   color: var(--study-text);
   background: var(--study-control-surface);
   font: inherit;
@@ -308,7 +316,7 @@
 .categoryPanel button:focus-visible,
 .categoryPanel input:focus-visible {
   outline: 3px solid var(--study-focus);
-  outline-offset: 3px;
+  outline-offset: var(--focus-offset);
 }
 
 .categoryPanel {
@@ -323,10 +331,10 @@
   gap: var(--study-space-small);
   padding: 1rem;
   border: 1px solid var(--study-accent);
-  border-radius: 1rem;
+  border-radius: var(--radius-panel);
   color: var(--study-text);
   background: var(--study-surface);
-  box-shadow: 0 1rem 4rem rgb(0 0 0 / 60%);
+  box-shadow: var(--shadow-overlay);
   overflow-y: auto;
 }
 
@@ -359,13 +367,14 @@
   flex: 1 1 10rem;
   width: 100%;
   min-width: 0;
-  min-height: 2.75rem;
+  min-height: var(--control-min-height);
   padding: 0.5rem 0.8rem;
-  border: 1px solid var(--study-border);
-  border-radius: 0.65rem;
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-panel);
   color: var(--study-text);
-  background: var(--study-control-surface);
+  background: var(--color-surface-input);
   font: inherit;
+  font-size: var(--font-size-control);
 }
 
 .categoryOptions {
@@ -386,9 +395,9 @@
   display: block;
   flex-shrink: 0;
   padding: 0.5rem 0.8rem;
-  min-height: 2.75rem;
+  min-height: var(--control-min-height);
   border: 1px solid var(--study-border);
-  border-radius: 0.65rem;
+  border-radius: var(--radius-panel);
   overflow-wrap: anywhere;
   text-decoration: none;
 }
@@ -441,7 +450,7 @@
 }
 
 .shell .studyCard:focus-visible {
-  border-radius: 1rem;
+  border-radius: var(--radius-panel);
   outline: 3px solid var(--study-focus);
   outline-offset: 4px;
 }
@@ -540,7 +549,7 @@
 
 .topics span {
   padding: 0.2rem 0.5rem;
-  border: 1px solid #3f6263;
+  border: 1px solid var(--color-success-border);
   border-radius: 999px;
   color: var(--study-accent);
   font-size: 0.78rem;
@@ -569,3 +578,32 @@
 @container admin-content (max-width: 56rem) {
   .workspace { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Shared control geometry; native choice symbols and reader typography stay separate. */
+:is(.shell, .reader) :where(button, select, textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="file"]):not([type="range"]), summary) {
+  box-sizing: border-box;
+  min-height: var(--control-min-height);
+  max-width: 100%;
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-control);
+}
+:is(.shell, .reader) :where(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="file"]):not([type="range"]), select, textarea) {
+  background-color: var(--color-surface-input);
+  color: var(--color-text);
+  border-color: var(--color-border-control);
+  border-radius: var(--radius-control);
+}
+:is(.shell, .reader) :is(input[type="checkbox"], input[type="radio"]) {
+  flex: 0 0 auto;
+  width: var(--control-choice-size);
+  height: var(--control-choice-size);
+  min-height: 0;
+  padding: 0;
+  accent-color: var(--color-accent);
+}
+:is(.shell, .reader) :is(button, a, input, select, textarea, summary):focus-visible {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--focus-offset);
+}
+:is(.shell, .reader) button { overflow-wrap: anywhere; }
+:is(.shell, .reader) button:disabled { cursor: not-allowed; }

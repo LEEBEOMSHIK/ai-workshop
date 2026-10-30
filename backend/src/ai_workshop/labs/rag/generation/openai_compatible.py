@@ -49,6 +49,11 @@ from ai_workshop.labs.rag.generation.input_inspection import (
     record_generation_response,
 )
 from ai_workshop.labs.rag.generation.prompts import PromptNotFoundError, load_prompt
+from ai_workshop.labs.rag.generation.reference_evidence import (
+    build_reference_map,
+    pack_reference_evidence,
+    resolve_evidence_refs,
+)
 from ai_workshop.labs.rag.generation.source_reading import build_source_reading
 from ai_workshop.shared.request_context import correlation_id_context
 
@@ -257,6 +262,22 @@ class _ClaimV2(BaseModel):
 
 
 _ANSWER_VERSION = 2
+_ANSWER_JSON_INSTRUCTIONS = (
+    '\n다음 형식의 JSON만 반환한다: {"schema_version":2,"status":"answered",'
+    '"claims":[{"text":"근거가 뒷받침하는 주장",'
+    '"evidence_ids":["제공된 근거의 정확한 UUID"]}]}. '
+    '근거가 부족하면 status는 "insufficient_evidence", claims는 []로 반환한다. '
+    'status가 "answered"인 결과에는 주장과 인용이 필요하다. '
+    '추가 키나 Markdown을 출력하지 않는다.'
+)
+
+
+def _answer_json_instructions(profile: GenerationProfile) -> str:
+    if profile.prompt_ref == "rag-answer-v6":
+        return _ANSWER_JSON_INSTRUCTIONS.replace(
+            "제공된 근거의 정확한 UUID", "제공된 근거의 정확한 eN 참조",
+        )
+    return _ANSWER_JSON_INSTRUCTIONS
 
 
 @dataclass(frozen=True)
@@ -293,11 +314,11 @@ def _answer_contract_schema(schema: dict[str, Any]) -> None:
 
 
 def _answer_contract_prompt() -> str:
-    requirements = [f"schema_version must be exactly {_ANSWER_VERSION} (integer)."]
+    requirements = [f"schema_version은 정확히 정수 {_ANSWER_VERSION}여야 한다."]
     for rule in _ANSWER_RULES:
-        bound = (f"exactly {rule.min_items} items" if rule.min_items == rule.max_items
-                 else f"at least {rule.min_items} item")
-        requirements.append(f'status "{rule.status}": claims must contain {bound}.')
+        bound = (f"정확히 {rule.min_items}개" if rule.min_items == rule.max_items
+                 else f"최소 {rule.min_items}개")
+        requirements.append(f'status가 "{rule.status}"이면 claims는 {bound} 항목을 포함해야 한다.')
     return "\n" + " ".join(requirements)
 
 
@@ -372,7 +393,7 @@ class LocalOpenAICompatibleRuntime:
     async def contextualize(
         self, request: ContextualizationRequest
     ) -> ProviderContextualizationResult:
-        self._validate_profile(request.profile)
+        self.validate_profile(request.profile)
         started = monotonic()
         system_prompt = _safe_load_prompt(request.profile.context_prompt_ref)
         if system_prompt is None:
@@ -400,29 +421,37 @@ class LocalOpenAICompatibleRuntime:
                 raise GenerationProviderError(
                     "provider_invalid_response", retryable=False,
                 ) from None
+            if request.profile.orchestration is not None:
+                from ai_workshop.labs.rag.executions.contextualization import (
+                    record_contextualization_output,
+                )
+
+                record_contextualization_output(content)
             return ProviderContextualizationResult(
                 resolved_query=resolved_query,
                 execution=self._metadata(started, payload),
             )
 
         except GenerationProviderError as error:
+            if request.profile.orchestration is not None:
+                from ai_workshop.labs.rag.executions.contextualization import (
+                    record_contextualization_failure,
+                )
+
+                record_contextualization_failure()
             error.execution = self._metadata(started, payload)
             raise
 
     async def generate(self, request: GenerationRequest) -> ProviderGenerationResult:
-        self._validate_profile(request.profile)
+        self.validate_profile(request.profile)
         started = monotonic()
         system_prompt = _safe_load_prompt(request.profile.prompt_ref)
         if system_prompt is None:
             raise _invalid_response(_Rejection.PROMPT) from None
         if request.profile.response_schema_version == 2:
-            system_prompt += (
-                '\nReturn only JSON: {"schema_version":2,"status":"answered",'
-                '"claims":[{"text":"supported claim",'
-                '"evidence_ids":["exact supplied evidence UUID"]}]}. '
-                'When evidence is insufficient use status "insufficient_evidence" and claims []. '
-                'An answered result requires claims and citations. No extra keys or Markdown.'
-            )
+            system_prompt += _answer_json_instructions(request.profile)
+        reference_map = (build_reference_map(request.evidence)
+                         if request.profile.prompt_ref == "rag-answer-v6" else None)
         payload = await self._chat_completion(
             profile=request.profile,
             system_prompt=system_prompt,
@@ -442,6 +471,7 @@ class LocalOpenAICompatibleRuntime:
             generation = _safe_generation(
                 content,
                 expected_schema_version=request.profile.response_schema_version,
+                reference_map=reference_map,
             )
             if generation is None:
                 raise GenerationProviderError(
@@ -474,8 +504,8 @@ class LocalOpenAICompatibleRuntime:
         ollama_schema2 = self.dialect == "ollama" and profile.response_schema_version == 2
         if ollama_schema2 and contextualize:
             system_prompt += (
-                '\nReturn only {"resolved_query":"one short standalone search query"}. '
-                'Preserve the subject and constraints; do not answer the question or explain.'
+                '\n{"resolved_query":"짧고 독립적인 검색 질의 하나"}만 반환한다. '
+                '질문의 대상과 제약을 보존하고 질문에 답하거나 설명하지 않는다.'
             )
         if ollama_schema2 and not contextualize:
             system_prompt += _answer_contract_prompt()
@@ -505,10 +535,25 @@ class LocalOpenAICompatibleRuntime:
                 evidence_budget=profile.evidence_budget,
                 model_name=profile.model_name, model_version=profile.model_version,
             )
-        payload = await self._request_json(
-            method="POST", path="/v1/chat/completions", json_body=body,
-            strict_json=ollama_schema2,
-        )
+        elif profile.orchestration is not None:
+            from ai_workshop.labs.rag.executions.contextualization import (
+                record_contextualization_input,
+            )
+
+            record_contextualization_input(body)
+        try:
+            payload = await self._request_json(
+                method="POST", path="/v1/chat/completions", json_body=body,
+                strict_json=ollama_schema2,
+            )
+        except BaseException:
+            if contextualize and profile.orchestration is not None:
+                from ai_workshop.labs.rag.executions.contextualization import (
+                    record_contextualization_failure,
+                )
+
+                record_contextualization_failure()
+            raise
         if not contextualize:
             record_generation_response()
         _record_response_diagnostics(payload, contextualize=contextualize)
@@ -624,7 +669,8 @@ class LocalOpenAICompatibleRuntime:
             latency_ms=max(0, int((monotonic() - started) * 1000)),
         )
 
-    def _validate_profile(self, profile: GenerationProfile) -> None:
+    def validate_profile(self, profile: GenerationProfile) -> None:
+        """Apply the same deployment/dialect contract to direct and SDK execution."""
         if profile.answer_reasoning_effort is not None and self.dialect != "ollama":
             raise GenerationProviderError("generation_schema_not_supported", retryable=False)
         if profile.response_schema_version == 3:
@@ -652,26 +698,42 @@ class LocalOpenAICompatibleRuntime:
         message = first.get("message")
         if not isinstance(message, Mapping):
             raise _invalid_response(_Rejection.MESSAGE) from None
-        if strict and self.dialect == "ollama":
-            # Only this documented string metadata is discarded. It is never
-            # parsed as answer content, returned, or retained in execution records.
-            if set(message) - {"role", "content", "reasoning", "tool_calls"}:
-                raise _invalid_response(_Rejection.MESSAGE_FIELDS) from None
-            if "reasoning" in message and not isinstance(message["reasoning"], str):
-                raise _invalid_response(_Rejection.REASONING_TYPE) from None
-            message = {key: value for key, value in message.items() if key != "reasoning"}
-        if strict and message.get("role") != "assistant":
-            raise _invalid_response(_Rejection.ROLE) from None
-        if strict and any(
-            message.get(field) not in (None, "", [])
-            for field in ("thinking", "reasoning", "reasoning_content", "tool_calls",
-                          "function_call", "refusal")
-        ):
-            raise _invalid_response(_Rejection.OUTPUT) from None
+        if strict:
+            validate_http_message(message, dialect=self.dialect)
         content = message.get("content")
         if not isinstance(content, str):
             raise _invalid_response(_Rejection.CONTENT) from None
         return content
+
+
+def validate_http_message(
+    message: Mapping[str, Any], *, dialect: str, allow_tool_calls: bool = False,
+) -> None:
+    """Validate assistant envelopes before interpreting answers or authorized delegation."""
+    if dialect == "ollama":
+        # Only this documented string metadata is discarded, never observed or persisted.
+        if set(message) - {"role", "content", "reasoning", "tool_calls"}:
+            raise _invalid_response(_Rejection.MESSAGE_FIELDS) from None
+        if "reasoning" in message and not isinstance(message["reasoning"], str):
+            raise _invalid_response(_Rejection.REASONING_TYPE) from None
+        message = {key: value for key, value in message.items() if key != "reasoning"}
+    if message.get("role") != "assistant":
+        raise _invalid_response(_Rejection.ROLE) from None
+    fields: tuple[str, ...] = (
+        "thinking", "reasoning", "reasoning_content", "function_call", "refusal",
+    )
+    if not allow_tool_calls:
+        fields += ("tool_calls",)
+    if any(message.get(field) not in (None, "", []) for field in fields):
+        raise _invalid_response(_Rejection.OUTPUT) from None
+
+
+def parse_http_json(content: str) -> object:
+    """Reject duplicate keys and non-JSON constants in both execution paths."""
+    try:
+        return _strict_json(content)
+    except (TypeError, ValueError):
+        raise _invalid_response(_Rejection.RESPONSE_JSON) from None
 
 
 def _safe_load_prompt(reference: str) -> str | None:
@@ -717,6 +779,7 @@ def _safe_generation(
     content: str,
     *,
     expected_schema_version: int,
+    reference_map: Mapping[str, UUID] | None = None,
 ) -> StructuredGeneration | None:
     failure = _Rejection.ANSWER_JSON
     try:
@@ -741,7 +804,10 @@ def _safe_generation(
             failure = _Rejection.ANSWER_SCHEMA
             claim_text, raw_ids = raw_claim["text"], raw_claim["evidence_ids"]
             failure = _Rejection.EVIDENCE_ID
-            evidence_ids = tuple(UUID(value) for value in raw_ids)
+            evidence_ids = (
+                resolve_evidence_refs(raw_ids, reference_map)
+                if reference_map is not None else tuple(UUID(value) for value in raw_ids)
+            )
             failure = _Rejection.CLAIM
             claims.append(GeneratedClaim(text=claim_text, evidence_ids=evidence_ids))
         failure = _Rejection.ANSWER_CONTRACT
@@ -823,10 +889,12 @@ def _generation_user_content(request: GenerationRequest) -> str:
             {"role": turn.role.value, "content": turn.content} for turn in request.history
         ],
     }
-    if request.profile.prompt_ref == "rag-answer-v5":
+    if request.profile.prompt_ref in {"rag-answer-v5", "rag-answer-v6"}:
         if not contextual:
             raise ValueError("Compact source reading requires an explicit evidence budget.")
-        payload.update(pack_compact_evidence(request.evidence))
+        payload.update(pack_reference_evidence(request.evidence).payload
+                       if request.profile.prompt_ref == "rag-answer-v6"
+                       else pack_compact_evidence(request.evidence))
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     evidence = evidence_payload(request.evidence, contextual=contextual)
     payload["evidence"] = evidence
@@ -846,3 +914,32 @@ def _generation_user_content(request: GenerationRequest) -> str:
     return json.dumps(
         payload, ensure_ascii=False, separators=(",", ":") if contextual else None,
     )
+
+
+def http_generation_input(request: GenerationRequest) -> str:
+    """Shared exact evidence serializer for direct HTTP and SDK execution."""
+    return _generation_user_content(request)
+
+
+def http_answer_instructions(profile: GenerationProfile, *, dialect: str) -> str:
+    prompt = _safe_load_prompt(profile.prompt_ref)
+    if prompt is None or profile.response_schema_version != 2:
+        raise GenerationProviderError("generation_schema_not_supported", retryable=False)
+    prompt += _answer_json_instructions(profile)
+    return prompt + (_answer_contract_prompt() if dialect == "ollama" else "")
+
+
+def http_answer_schema() -> dict[str, Any]:
+    return _AnswerV2.model_json_schema()
+
+
+def parse_http_answer(
+    content: str, *, request: GenerationRequest | None = None,
+) -> StructuredGeneration:
+    reference_map = (build_reference_map(request.evidence)
+                     if request is not None and request.profile.prompt_ref == "rag-answer-v6"
+                     else None)
+    generation = _safe_generation(content, expected_schema_version=2, reference_map=reference_map)
+    if generation is None:
+        raise GenerationProviderError("provider_invalid_response", retryable=False)
+    return generation

@@ -12,6 +12,7 @@ from ai_workshop.labs.rag.documents.domain import (
     SourceLocation,
     TableCellLocation,
 )
+from ai_workshop.labs.rag.executions.operation_timings import measure_operation
 from ai_workshop.labs.rag.retrieval.domain import (
     ActiveIndexAlias,
     DenseHit,
@@ -84,6 +85,14 @@ async def describe_frozen_index(
     index_name: str,
 ) -> FrozenIndexDescription:
     """Resolve one concrete index and return its Elasticsearch UUID/RAG metadata."""
+
+    with measure_operation("retrieval.describe", items=1):
+        return await _describe_frozen_index(client, index_name)
+
+
+async def _describe_frozen_index(
+    client: AsyncElasticsearch, index_name: str,
+) -> FrozenIndexDescription:
 
     try:
         response = cast(
@@ -441,11 +450,12 @@ async def _search_frozen(
     pit_id: str | None = None
     primary_error: BaseException | None = None
     try:
-        opened = cast(
-            dict[str, Any],
-            await client.open_point_in_time(index=identity.index_name, keep_alive="1m"),
-        )
-        pit_id = str(opened["id"])
+        with measure_operation("retrieval.pit_open", items=1):
+            opened = cast(
+                dict[str, Any],
+                await client.open_point_in_time(index=identity.index_name, keep_alive="1m"),
+            )
+            pit_id = str(opened["id"])
         after = await describe_frozen_index(client, identity.index_name)
         _require_same_frozen_identity(identity, after.identity)
         if query is not None:
@@ -484,14 +494,15 @@ async def _search_frozen(
     finally:
         if pit_id is not None:
             try:
-                closed = cast(
-                    dict[str, Any], await client.close_point_in_time(id=pit_id)
-                )
-                if not bool(closed.get("succeeded", False)):
-                    raise PointInTimeCleanupError(
-                        "Elasticsearch point-in-time cleanup was not acknowledged for "
-                        f"{identity.index_name}."
+                with measure_operation("retrieval.pit_close", items=1):
+                    closed = cast(
+                        dict[str, Any], await client.close_point_in_time(id=pit_id)
                     )
+                    if not bool(closed.get("succeeded", False)):
+                        raise PointInTimeCleanupError(
+                            "Elasticsearch point-in-time cleanup was not acknowledged for "
+                            f"{identity.index_name}."
+                        )
             except Exception as exc:
                 cleanup_error = (
                     exc

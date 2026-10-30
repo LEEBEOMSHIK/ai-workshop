@@ -226,14 +226,14 @@ async def test_wire_json_schema_preserves_prompt_contract_and_local_validation(s
         "type": "json_schema", "json_schema": {"schema": _AnswerV2.model_json_schema()},
     }
     prompt = sent["messages"][0]["content"]
-    start = prompt.index('Return only JSON: ') + len('Return only JSON: ')
+    start = prompt.index('다음 형식의 JSON만 반환한다: ') + len('다음 형식의 JSON만 반환한다: ')
     example, _ = json.JSONDecoder().raw_decode(prompt[start:])
     assert set(example) == set(answer) == {"schema_version", "status", "claims"}
     assert set(example["claims"][0]) == {"text", "evidence_ids"}
     assert example["schema_version"] == 2
     assert example["status"] == "answered"
-    assert 'status "insufficient_evidence" and claims []' in prompt
-    assert 'No extra keys' in prompt
+    assert 'status는 "insufficient_evidence", claims는 []' in prompt
+    assert '추가 키나 Markdown을 출력하지 않는다' in prompt
     assert result.status.value == status
     assert sent["max_tokens"] == schema2_profile().max_output_tokens
 

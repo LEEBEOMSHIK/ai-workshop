@@ -32,6 +32,7 @@ class MonitoringEntry:
 
 class MonitoringRepository(Protocol):
     async def usage(self, actor_id: UUID, execution_id: UUID) -> list[ExecutionUsage]: ...
+    def turn_ids(self, actor_id: UUID) -> AsyncIterator[UUID]: ...
     def entries(self, actor_id: UUID) -> AsyncIterator[MonitoringEntry]: ...
     async def find(
         self,
@@ -71,6 +72,26 @@ class SqlAlchemyMonitoringRepository:
 
     def entries(self, actor_id: UUID) -> AsyncIterator[MonitoringEntry]:
         return self._entries(actor_id)
+
+    async def turn_ids(self, actor_id: UUID) -> AsyncIterator[UUID]:
+        # Candidates only: find() still validates the full payload before exposure.
+        async with self.sessions() as session:
+            ids = (
+                await session.scalars(
+                    select(ConversationTurnRecord.id)
+                    .join(
+                        ConversationRecord,
+                        ConversationRecord.id == ConversationTurnRecord.conversation_id,
+                    )
+                    .join(RagDomainRecord, RagDomainRecord.id == ConversationRecord.domain_id)
+                    .where(
+                        ConversationRecord.owner_id == actor_id,
+                        ConversationRecord.deleted_at.is_(None),
+                    )
+                )
+            ).all()
+        for id in ids:
+            yield id
 
     async def _entries(
         self, actor_id: UUID, id: UUID | None = None, *, legacy: bool = False

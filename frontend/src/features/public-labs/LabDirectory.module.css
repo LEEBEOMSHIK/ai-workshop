@@ -1,14 +1,14 @@
 .page {
-  --directory-text: #eaf2f4;
-  --directory-muted: #abb9c2;
-  --directory-accent: #8ee6dc;
-  --directory-focus: #f5c86d;
-  --directory-border: #2c3a44;
-  --directory-surface: #111820;
-  --directory-hover: #182b31;
+  --directory-text: var(--color-text);
+  --directory-muted: var(--color-text-muted);
+  --directory-accent: var(--color-accent);
+  --directory-focus: var(--focus-color);
+  --directory-border: var(--color-border);
+  --directory-surface: var(--color-surface);
+  --directory-hover: var(--color-surface-hover);
   min-height: 100%;
   color: var(--directory-text);
-  background: radial-gradient(circle at 90% 0, rgb(85 217 201 / 12%), transparent 28rem), #0a0e13;
+  background: radial-gradient(circle at 90% 0, rgb(85 217 201 / 12%), transparent 28rem), var(--color-background);
 }
 
 .content {
@@ -66,7 +66,7 @@
   height: 100%;
   padding: clamp(1rem, 2.5vw, 1.75rem);
   border: 1px solid var(--directory-border);
-  border-radius: 1rem;
+  border-radius: var(--radius-panel);
   color: var(--directory-text);
   background: var(--directory-surface);
   text-decoration: none;
@@ -79,8 +79,8 @@ a.card:hover {
 }
 
 a.card:focus-visible {
-  outline: 3px solid var(--directory-focus);
-  outline-offset: 4px;
+  outline: var(--focus-width) solid var(--directory-focus);
+  outline-offset: var(--focus-offset);
 }
 
 .card h3,

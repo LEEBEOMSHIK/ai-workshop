@@ -9,7 +9,6 @@ import base64
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -18,6 +17,7 @@ from uuid import UUID
 
 from ai_workshop.infrastructure.local.control_process_windows import (
     ChildToken,
+    ControlProcessError,
     LocalProcessResult,
     WindowsControlProcess,
 )
@@ -37,6 +37,14 @@ _REGISTRY_LOCK = Lock()
 
 def _denied() -> ValueError:
     return ValueError("secured_read_process_denied")
+
+
+def _copy_cleanup_notes(source: BaseException, target: BaseException) -> None:
+    for note in ("secured_read_cleanup_unverified", "secured_read_capture_unverified"):
+        if note in getattr(source, "__notes__", ()) and note not in getattr(
+            target, "__notes__", ()
+        ):
+            target.add_note(note)
 
 
 class _StoppedRead(BaseException):
@@ -201,6 +209,7 @@ async def _capture_docker_read(
         result: LocalProcessResult | None = None
         primary: BaseException | None = None
         cleanup_ok = False
+        cleanup_failed = capture_failed = False
         try:
             if stop.is_set():
                 raise _StoppedRead()
@@ -250,27 +259,36 @@ async def _capture_docker_read(
             )
         except BaseException as error:
             primary = error
+            if (
+                isinstance(error, ControlProcessError)
+                and str(error) == "control_process_cleanup_unknown"
+            ):
+                cleanup_failed = True
         finally:
             if token is not None:
                 try:
                     native.close(token)
                     cleanup_ok = True
                 except BaseException as error:
+                    cleanup_failed = True
                     if primary is None:
                         primary = error
-                    else:
-                        primary.add_note("secured_read_cleanup_unverified")
                 try:
                     persist("cleanup", {"child": child_packet(token), "closed": cleanup_ok})
                 except BaseException as error:
+                    capture_failed = True
                     if primary is None:
                         primary = error
-                    else:
-                        primary.add_note("secured_read_capture_unverified")
         if primary is not None:
+            if cleanup_failed:
+                primary.add_note("secured_read_cleanup_unverified")
+            if capture_failed:
+                primary.add_note("secured_read_capture_unverified")
             if not isinstance(primary, Exception):
                 raise primary
-            raise _denied() from None
+            denial = _denied()
+            _copy_cleanup_notes(primary, denial)
+            raise denial from None
         if not cleanup_ok or result is None or token is None:
             raise _denied()
         if stop.is_set():
@@ -304,11 +322,15 @@ async def _capture_docker_read(
                 except BaseException:
                     break
             if future.done() and not future.cancelled():
-                with suppress(BaseException):
+                try:
                     future.result()
+                except BaseException as error:
+                    _copy_cleanup_notes(error, primary)
             raise primary
-    except Exception:
-        raise _denied() from None
+    except Exception as error:
+        denial = _denied()
+        _copy_cleanup_notes(error, denial)
+        raise denial from None
     finally:
         # The worker barrier completed before this point; never close its child
         # on the event-loop thread or leave a cancelled executor task running.

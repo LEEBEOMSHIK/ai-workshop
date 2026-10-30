@@ -1,8 +1,9 @@
 from typing import cast
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import defer
 
 from ai_workshop.labs.rag.conversations.access import source_identities
 from ai_workshop.labs.rag.documents.models import RagProjectionRecord
@@ -28,12 +29,18 @@ from ai_workshop.labs.rag.evaluation.generative_schemas import (
 from ai_workshop.labs.rag.evaluation.models import EvaluationDatasetCaseRecord
 from ai_workshop.labs.rag.executions.models import ExecutionRecord
 from ai_workshop.labs.rag.generation.numeric_restore import verify_numeric_views
+from ai_workshop.labs.rag.generation.numeric_validation_batch import (
+    CONTEXT_BATCH_SIZE,
+    NumericValidationBatch,
+)
 from ai_workshop.labs.rag.generation.numeric_validation_repository import (
     SqlAlchemyNumericValidationRepository,
 )
 from ai_workshop.platform.assets.models import AssetVersionRecord, DocumentRecord
 from ai_workshop.platform.workspaces.models import WorkspaceRecord
 from ai_workshop.platform.workspaces.permissions import workspace_read_allowed
+
+_SOURCE_BATCH_SIZE = 64
 
 
 def frozen_generation_profile_id(
@@ -57,9 +64,12 @@ def frozen_generation_profile_id(
 async def visible_run(session: AsyncSession, actor_id: UUID, run: GenerativeRunRecord) -> bool:
     if run.owner_id != actor_id:
         return False
-    for document, version, projection in source_identities(run.snapshot):
-        found = await session.scalar(
-            select(DocumentRecord.id)
+    identities = sorted(source_identities(run.snapshot))
+    for offset in range(0, len(identities), _SOURCE_BATCH_SIZE):
+        expected = set(identities[offset:offset + _SOURCE_BATCH_SIZE])
+        rows = await session.execute(
+            select(DocumentRecord.id, AssetVersionRecord.id, RagProjectionRecord.id)
+            .select_from(DocumentRecord)
             .join(
                 WorkspaceRecord,
                 WorkspaceRecord.id == DocumentRecord.workspace_id,
@@ -70,23 +80,28 @@ async def visible_run(session: AsyncSession, actor_id: UUID, run: GenerativeRunR
                 RagProjectionRecord.asset_version_id == AssetVersionRecord.id,
             )
             .where(
-                DocumentRecord.id == document,
+                tuple_(DocumentRecord.id, AssetVersionRecord.id, RagProjectionRecord.id).in_(
+                    expected
+                ),
                 DocumentRecord.lifecycle == "active",
-                AssetVersionRecord.id == version,
                 AssetVersionRecord.status == "ready",
-                RagProjectionRecord.id == projection,
                 RagProjectionRecord.status == "ready",
                 workspace_read_allowed(actor_id),
             )
         )
-        if found is None:
+        if {tuple(row) for row in rows.all()} != expected:
             return False
     return True
 
 
-async def run_detail(session: AsyncSession, actor_id: UUID, run_id: UUID) -> GenerativeRunView:
+async def run_detail(
+    session: AsyncSession, actor_id: UUID, run_id: UUID, *, list_only: bool = False
+) -> GenerativeRunView:
     run = await session.scalar(
         select(GenerativeRunRecord)
+        .options(
+            *([defer(GenerativeRunRecord.snapshot_bytes, raiseload=True)] if list_only else [])
+        )
         .where(
             GenerativeRunRecord.id == run_id,
             GenerativeRunRecord.owner_id == actor_id,
@@ -106,6 +121,12 @@ async def run_detail(session: AsyncSession, actor_id: UUID, run_id: UUID) -> Gen
     attempts = (
         await session.scalars(
             select(GenerativeAttemptRecord)
+            .options(
+                *(
+                    [defer(GenerativeAttemptRecord.result_bytes, raiseload=True)]
+                    if list_only else []
+                )
+            )
             .where(
                 GenerativeAttemptRecord.run_id == run.id,
             )
@@ -150,12 +171,24 @@ async def run_detail(session: AsyncSession, actor_id: UUID, run_id: UUID) -> Gen
                 page=cast(int | None, unit.get("page")),
             )
     views = []
-    for attempt in attempts:
+    batch: NumericValidationBatch | None = None
+    for index, attempt in enumerate(attempts):
         result = PrivateGenerativeResult.model_validate(attempt.result) if attempt.result else None
         if result is not None and attempt.status == "completed":
             try:
+                if list_only and batch is None:
+                    end = (index // CONTEXT_BATCH_SIZE + 1) * CONTEXT_BATCH_SIZE
+                    batch = await NumericValidationBatch.prepare(
+                        session,
+                        actor_id=actor_id,
+                        execution_ids=[
+                            item.execution_id for item in attempts[index:end]
+                            if item.status == "completed" and item.result
+                            and item.execution_id is not None
+                        ],
+                    )
                 await verify_numeric_views(
-                    SqlAlchemyNumericValidationRepository(session),
+                    batch if batch is not None else SqlAlchemyNumericValidationRepository(session),
                     actor_id=actor_id,
                     execution_id=attempt.execution_id,
                     status=result.observation.generation_status or "not_requested",
@@ -175,8 +208,9 @@ async def run_detail(session: AsyncSession, actor_id: UUID, run_id: UUID) -> Gen
         if (
             review
             and result
-            and review.result_digest == result.digest()
-            and review.rule_digest == rule.digest()
+            and judgment
+            and review.result_digest == judgment.result_digest
+            and review.rule_digest == judgment.rule_digest
         ):
             judgment = CorrectnessJudgment(
                 status=cast(JudgmentStatus, review.status),
@@ -213,6 +247,14 @@ async def run_detail(session: AsyncSession, actor_id: UUID, run_id: UUID) -> Gen
                 else [],
             )
         )
+        if batch is not None and (
+            (index + 1) % CONTEXT_BATCH_SIZE == 0 or index + 1 == len(attempts)
+        ):
+            try:
+                await batch.revalidate()
+            except Exception:
+                raise unavailable() from None
+            batch = None
     if not await visible_run(session, actor_id, run):
         raise unavailable()
     return GenerativeRunView(

@@ -1,5 +1,24 @@
 # 자산운용 문서 RAG AI 검색 설계
 
+schema1/2의 원문 정의 기반 상대 영업일 검증은 [ADR-0035의 2026-10-30 후속](../../decisions/0035-rag-exact-value-canonicalization.md#2026-10-30-후속-원문-정의에-한정한-상대-영업일-지원)을 따른다. 같은 주장에 인용된 동일 출처의 연속 정의와 명시적인 표 대상·항목·값·기준점이 모두 일치하는 제한 문법에서만 `T+N`을 풀어 쓴 영업일 값을 지원한다. schema3 계산, 기존 어휘 정규화, 원문/주장/인용 ID와 과거 평가 결과는 유지한다. 일반 자연어 의미 정확성이나 질문 대상의 완전한 검증을 보장하지 않는다.
+
+원문 표의 단일 대상 열·항목·조건을 보존하는 선택과 완료 저장 관측의 정합성, 선택형 RAG 자율 재위임은 [ADR-0050](../../decisions/0050-rag-relations-and-autonomous-handoffs.md)을 따른다. version 2 handoff는 선택된 원문 묶음 안에서 근거·답변·검토 담당이 서로 요청하며 최종 인용 검증과 호출 사용자의 권한을 유지한다. 기존 활성 프로파일은 실제 평가 없이 바꾸지 않는다.
+
+별도 진단으로 완료한 모델 비교의 비공개 저장·조회는 [ADR-0051](../../decisions/0051-stored-model-comparisons.md)을 따른다. 평가·실행 화면에서 접근하되 생성형 실행·승격 게이트·실행 통계와 분리한다. 수입·조회 모두 소유자와 현재 원문 권한/정확 위치를 검증하며 모델 재호출 없이 저장 관측·수동 품질 검토·예상/확정 비용을 구분해 보여준다.
+
+> 대화 턴 연결과 최종 사용 문맥·질문 문맥화의 비공개 관측은 [ADR-0049](../../decisions/0049-conversation-context-observation.md)를 따른다. 기존 선택·모델 입력·권한·답변 계약을 보존하고 과거 미기록을 추정하지 않는다.
+
+선택형 Ollama 배치·스레드 설정은 [ADR-0047](../../decisions/0047-ollama-runtime-batch-threads.md)을 따른다. 생성 프로파일에 고정한 요청값만 native 경로에 전달하며 입력·근거와 기본값을 보존한다. 요청값·실제 런타임 관측·품질 수용은 구분한다.
+
+SDK 모델 호출의 요청·응답·검증 시간과 런타임 내부 시간 미제공 표시는
+[ADR-0042](../../decisions/0042-rag-model-call-timing.md)를 따른다. 기존 비공개 실행 기록을
+사용하며 과거 미관측 값을 추정하지 않는다.
+
+명시적으로 선택하는 SDK Ollama native 호출과 서버 준비·입력·출력 시간은
+[ADR-0043](../../decisions/0043-ollama-native-timing.md)를 따른다. 기존 프로파일 기본 경로를 유지한다.
+
+선택적 `rag-answer-v6`는 근거/위치를 보존한 columns/rows와 요청 한정 짧은 참조를 사용하고 출력 인용을 실제 UUID로 복원한다. 실패·취소에서도 역매핑 가능한 비공개 trace 메타데이터와 품질 비퇴행 수용 조건은 [ADR-0044](../../decisions/0044-rag-reference-evidence-input.md)를 따른다. 기존 v5·기본 프로파일은 유지한다.
+
 로컬 Python 생성 provider `local_transformers`의 배포 참조·모델 재사용·취소 종료 계약은
 [ADR-0037](../../decisions/0037-local-transformers-generation.md)을 따른다. schema2 기존
 인용 검증을 유지하며 모델 다운로드·실추론·배포 등록과 migration 적용은 별도 운영 단계다.
@@ -29,7 +48,15 @@
 ## 1. 목적
 
 질문별 실행 관측은 [ADR-0029](../../decisions/0029-rag-execution-monitoring.md)를 따른다.
-본문을 중복 저장하지 않는 제한된 실행 메타데이터와 관리자 본인의 현재 원문 권한 기반 조회를 허용한다.
+본문을 중복 저장하지 않는 제한된 실행 메타데이터와 관리자 본인의 현재 원문 권한 기반 조회를 허용한다. 새 SDK 단계의 지침·입력·반환값은 [ADR-0040](../../decisions/0040-private-agent-step-content.md)에 따라 비공개 execution에 한 번 보관하며, 일반 로그·대화/평가 결과 JSON에 중복하지 않는다.
+
+검색·선택의 세부 연산 시간은 [ADR-0041](../../decisions/0041-rag-operation-timings.md)의
+선택적 stage `operations`로 같은 실행에 저장한다. 닫힌 연산 이름과 시간·횟수·항목 수만
+기록하며 본문을 추가 수집하지 않는다. 과거 미수집 값은 0으로 해석하지 않고, 중첩·병렬
+연산의 누적 시간을 전체 응답 시간에 더하지 않는다. 근거 coverage와 하이라이트는
+[요청 내부 문자열 재사용 설계](../../superpowers/specs/2026-10-25-rag-selection-speed-design.md)에
+따라 정규화 결과를 재사용한다. coverage에는 원문 위치 배열을 만들지 않으며 실제 인용
+위치 계산·선택 규칙·권한 검사는 유지한다.
 
 첫 번째 RAG는 자산운용 전문 문서에서 관련 근거를 찾고, 사용자가 그 위치를 직접 확인할 수 있게 하는 AI 검색이다. 초기에는 자동 투자 판단, 투자 추천과 자동매매를 수행하지 않는다.
 
@@ -417,6 +444,10 @@ Generation 프로파일의 불변 버전을 조합한 저장된 RAG 구성을 �
 
 ### Agents SDK 도입 — 다음 작업 등록 (2026-10-04)
 
+2026-10-23 사용자 요청으로 선택형 OpenAI Agents SDK와 위임 모니터링 구현을 시작했다. 현재 생성 프로파일을 바꾸지 않고 명시적인 `orchestration` 설정에서만 중앙 조정자 → 답변 담당자의 `as_tool` 위임을 사용한다. 고정 검색/권한/인용 검증은 기존 서비스가 담당한다. 실행 상세와 현재 대화 진단에 같은 위임 패널을 제공한다. 최초 요청 한정 본문 정책은 후속 사용자 요청의 [ADR-0040](../../decisions/0040-private-agent-step-content.md)에 따라 새 SDK 실행의 비공개 단계 본문 보관·권한 재조회로 확장한다. 역할·실행 계약은 [ADR-0039](../../decisions/0039-rag-agents-sdk-monitoring.md), 본문 보관 구현은 [후속 계획](../../superpowers/plans/2026-10-23-agent-step-retention.md)을 따른다. 아래는 최초 등록 당시 배경이다.
+
+2026-10-26 첫 응답 개선의 선택형 경로는 [ADR-0046](../../decisions/0046-rag-direct-answer-dispatch.md)을 따른다. `orchestration.dispatch_mode`를 생략하면 기존 `manager_delegation`을 유지한다. 명시적인 `direct_answer`는 애플리케이션이 원질문을 작업으로 지정하고 같은 SDK 답변 담당만 실행한다. 실제 agent/model 두 단계와 생성 모델1회·도구0회를 기록하며 가짜 관리자·위임 단계를 만들지 않는다. 선행 문맥화의 모델·토큰 비용도 기존 총예산에 합산한다. 원질문과 같은 관리자 반환이 관측된 질문에 대한 입력 동등성과 전체 질문에 대한 품질 동등성은 구분하며, 평가 전 기본값으로 승격하지 않는다.
+
 사용자 요청에 따라 다음 개발 작업은 OpenAI Agents SDK 기반 서비스 RAG 실행 계층 도입으로 잡는다. 현재 검색·생성 파이프라인은 비교 기준으로 유지하고, SDK 어댑터·기존 세션/권한 연결·필요한 전문 역할 협업·실행 모니터링·본래 환경 검증을 단계적으로 진행한다. 도입 목적과 책임 경계, 호환성·ADR 준비 및 완료 기준은 [도입 준비 계획](../../superpowers/plans/2026-10-04-rag-agents-sdk-adoption.md)을 따른다.
 
 이번 등록은 SDK 설치나 활성화 완료가 아니다. SDK는 실행 조율 수단이며 기존 DB 대화 이력·현재 권한/범위·문서 revision·외부 전송 승인·인용 검증을 대체하지 않는다. 프로젝트 개발 Codex의 협업 도구와 기존 Codex SDK Provider 조사도 별개로 유지한다. 실제 실행 계약 변경 전에는 호환성 확인과 ADR·상세 구현 계획을 확정한다.
@@ -542,7 +573,7 @@ Generation Profile과 Deployment·Model 연결, 현재 환경과 최신 health�
 
 문맥 근거와 테스트 진단의 상세 계약은
 [문맥 근거 설계](../../superpowers/specs/2026-09-21-contextual-rag-evidence-design.md)를 따른다.
-`rag-codex-answer-v4`와 `rag-answer-v2`·`rag-answer-v3`·`rag-answer-v4`·`rag-answer-v5`는 명시적 `context_evidence` 예산을 요구한다.
+`rag-codex-answer-v4`와 `rag-answer-v2`·`rag-answer-v3`·`rag-answer-v4`·`rag-answer-v5`·`rag-answer-v6`는 명시적 `context_evidence` 예산을 요구한다.
 적격 문장 또는 적격 문맥이 있는 검색 청크의 원문 단위를 그룹 단위로 전달하고, 문서·버전·projection·위치와 표 좌표를 보존한다.
 기존 추출 답변과 생성 근거 목록 `grounding_evidence`를 구분한다. 모든 생성 인용은 후자의 원문 위치로 연결한다.
 `context` 하이라이트는 생성에 함께 전달된 문맥이며, `keyword`/`semantic` 일치와 구분한다.
@@ -556,9 +587,13 @@ Generation Profile과 Deployment·Model 연결, 현재 환경과 최신 health�
 
 선택형 `rag-answer-v5`의 HTTP 입력은 `evidence_sources`의 출처 문맥과 `evidence_blocks`의 원문 조각으로 구성한다. 문서·버전·projection·청크 등 비인용 식별자는 서버의 `GroundingEvidence`에 보존하고 wire에서 생략한다. 문서·버전·projection·청크·페이지·source kind/part·표 셀·section 경계를 구별하며, 기존 파서 위치 검사에서 연속인 입력 조각만 같은 블록에 배치한다. 원문·인용 UUID·입력 순서·bbox·문자 범위·ordinal은 보존하고 누락·역순·출처 변경을 정렬이나 병합으로 보정하지 않는다. 요청 안의 숫자 `source_ref`는 출처 문맥 참조이며 인용할 수 없다. 블록의 인접성은 의미 관계나 규칙·조건의 역할을 뜻하지 않는다.
 
+선택형 `rag-answer-v6`는 같은 자료를 짧은 요청 한정 인용 참조와 고정 열 순서의 행으로 표현하고 출력 인용을 원래 UUID로 복원한다. 원문·출처·위치·순서 전체를 보존하며 기존 v5 입력은 바꾸지 않는다. 로컬 HTTP·schema2·최대200개 명시 예산만 허용한다. 실행 기록의 서버 소유 인용 변환표와 실제 품질·성능 수용 조건은 [ADR-0044](../../decisions/0044-rag-reference-evidence-input.md)를 따른다. 오프라인 정보 보존 검증만으로 기본 프로파일을 전환하지 않는다.
+
 v5는 로컬 HTTP 입력 후보이며 기존 v1~v4 직렬화와 활성 구성을 변경하지 않는다. `LOCAL_OPENAI_COMPATIBLE`·`LOCAL` Deployment만 허용하고, 다른 조합은 생성 프로파일 검증과 준비 상태 계산에서 거절한다. 다른 provider의 serializer를 확장하지 않으며 모델 정답·조건 보존·P95 개선을 오프라인 계약 검사만으로 주장하지 않는다. 동일 원문을 재구성한 입력 비교는 과거 실행의 실제 전송 원문과 구분한다. [승인 범위와 검증 기록](../../worklogs/2026-10-19-rag-input-quality-diagnosis.md)을 따른다.
 
 2026-10-19 A/B/C 후속의 오프라인 D 후보는 같은 v5 입력에 원문 좌표로 관측한 행·열 ID 배열만 추가한다. 기존 원문·인용·선택·지침을 보존하고, 부분 격자가 완전한 표라거나 첫 행이 헤더라는 의미 역할은 부여하지 않는다. 이 후보 준비 경로는 운영 프로파일/serializer의 기본값과 분리한다. 짧은 수치 표기의 인용 지원 검사 확대는 [ADR-0035](../../decisions/0035-rag-exact-value-canonicalization.md#2026-10-19-짧은-수치-표기의-지원-검사-확대), 범위·검증·미완료는 [후속 기록](../../worklogs/2026-10-19-rag-relation-improvement.md)을 따른다.
+
+2026-10-20 오프라인 E 후보는 원본에서 D를 재계산한 뒤 각 격자의 `readable_rows`에 해당 인용 ID와 원문을 그대로 반복한다. D의 ID 배열·안내문과 기존 원문·순서·지침·옵션을 유지하며, 질문별 선택·요약·의미 역할·정답을 추가하지 않는다. 지원하는 격자가 없으면 원본 바이트를 유지한다. 길이·중복·강조가 함께 달라지므로 향후 품질 변화로 모델 내부 원인을 단정하지 않는다. 기본 CLI는 D이며 `--readable`로만 E를 준비하고 실제 생성·운영 승격을 수행하지 않는다. [구현·검증과 미완료](../../worklogs/2026-10-20-rag-readable-layout.md)를 따른다.
 
 - 모든 정상 검색 결과가 권한이 허용된 원문 위치로 이동한다.
 - 전사, 개인, 임시 첨부의 검색 범위를 정확히 분리한다.
@@ -584,6 +619,10 @@ v5는 로컬 HTTP 입력 후보이며 기존 v1~v4 직렬화와 활성 구성을
 
 ## 영속 대화 세션
 
+화면 이동과 질문 실행의 수명 분리는 [ADR-0048](../../decisions/0048-background-conversations.md)을
+따른다. 비동기 접수는 기존 대화 저장·현재 권한·명시 취소를 재사용하고, 모델 재시도나
+입력/근거 변경을 추가하지 않는다. 서버 재시작을 넘는 자동 복구와 브라우저 이탈 후 계속 실행을 구분한다.
+
 HTTP 검색의 DB session은 요청 전체를 하나의 명시적 `begin()`으로 감싸지 않는다.
 생성 감사와 numeric receipt의 명시적 commit 이후에도 같은 검색 session의 새 트랜잭션에서
 최종 원문 권한을 재확인해야 하기 때문이다. 검색 구성·scope·정책·감사는 같은 RAG 전용
@@ -606,6 +645,9 @@ RAG conversations 모듈이 소유자·도메인별 세션과 서버 turn을 저
 - 로컬 HTTP schema2 및 취소·timeout의 원격 종료 미확인 상태는
   [ADR-0009 보완](../../decisions/0009-model-deployments-and-data-policy.md#2026-10-12-로컬-http-schema2종료-상태-보완)을 따른다.
   Ollama 연결은 기존 provider를 사용하며, 코드·모의 검증을 실제 서버 수용으로 확대하지 않는다.
+- 새로 실행 기한이 만료된 대화 요청은 종료 확인까지 `conversation_termination_unconfirmed`로
+  새 질문을 차단한다. 과거 중단 기록의 의미와 늦은 답변 차단은
+  [ADR-0009 만료 계약](../../decisions/0009-model-deployments-and-data-policy.md#2026-10-21-대화-실행-기한-만료와-종료-확인)을 따른다.
 
 ### 프로파일별 answer reasoning opt-in (2026-10-14)
 

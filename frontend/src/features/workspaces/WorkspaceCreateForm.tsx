@@ -1,3 +1,4 @@
+import { Button } from "../../shared/ui/Button";
 import { useId, useRef, useState, type FormEvent } from "react";
 import { ApiError } from "../../shared/api/client";
 import { createWorkspace, type WorkspaceCreate, type WorkspaceSummary } from "./api";
@@ -56,7 +57,7 @@ export function WorkspaceCreateForm({ canCreateCompany, onCreated }: {
       {kind === "temporary" ? <div><label>만료 일시<input type="datetime-local" value={expiry} aria-describedby={expiryHelpId} onChange={(event) => { setExpiry(event.target.value); edited(); }} required /></label>
         <p id={expiryHelpId} className={styles.help}>현재 기기의 현지 시각 기준으로 미래 일시를 지정해 주세요.</p></div> : null}
     </fieldset>
-    <button type="submit" disabled={saving}>{saving ? "생성 중…" : "공간 만들기"}</button>
+    <Button variant="primary" type="submit" disabled={saving}>{saving ? "생성 중…" : "공간 만들기"}</Button>
     {error ? <p role="alert">{error}</p> : null}
     {success ? <p role="status">{success}</p> : null}
   </form>;

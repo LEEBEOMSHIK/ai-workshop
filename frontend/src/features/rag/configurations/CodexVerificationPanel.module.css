@@ -6,7 +6,7 @@
   margin-block: 1rem;
   padding: 1rem;
   border: 1px solid var(--color-border-subtle);
-  border-radius: 0.8rem;
+  border-radius: var(--radius-panel);
   line-height: 1.65;
   overflow-wrap: anywhere;
 }
@@ -27,18 +27,19 @@
   align-items: flex-start;
   gap: 0.75rem;
   min-width: 0;
+  min-height: var(--control-min-height);
   padding: 1rem;
   border: 1px solid var(--color-accent-text);
-  border-radius: 0.6rem;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--color-accent-text) 8%, transparent);
   font-size: 0.95rem;
   cursor: pointer;
 }
 
 .panel .consent input[type="checkbox"] {
-  flex: 0 0 1.25rem;
-  width: 1.25rem;
-  height: 1.25rem;
+  flex: 0 0 var(--control-choice-size);
+  width: var(--control-choice-size);
+  height: var(--control-choice-size);
   margin: 0.15rem 0 0;
   padding: 0;
   accent-color: var(--color-accent-text);
@@ -51,7 +52,7 @@
 }
 
 .help {
-  font-size: 0.85rem;
+  font-size: var(--font-size-caption);
 }
 
 .actions {
@@ -64,18 +65,19 @@
 .panel .actions button {
   width: fit-content;
   max-width: 100%;
-  min-height: 2.75rem;
+  min-height: var(--control-min-height);
   padding: 0.7rem 0.9rem;
   border: 1px solid var(--color-accent-text);
-  border-radius: 0.6rem;
+  border-radius: var(--radius-control);
   font: inherit;
+  font-size: var(--font-size-control);
   font-weight: 750;
   white-space: normal;
   cursor: pointer;
 }
 
 .panel .primaryAction {
-  color: #07100f;
+  color: var(--color-on-accent);
   background: var(--color-accent-text);
 }
 
@@ -90,18 +92,25 @@
 }
 
 .panel :is(input, button, a):focus-visible {
-  outline: 2px solid var(--color-accent-text);
-  outline-offset: 0.2rem;
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--focus-offset);
 }
 
 .panel .result {
   padding: 0.85rem;
   border: 1px solid var(--color-border-subtle);
-  border-radius: 0.6rem;
+  border-radius: var(--radius-control);
 }
 
 .refreshLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-min-height);
   justify-self: start;
   color: var(--color-accent-text);
-  text-underline-offset: 0.2em;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
 }
+.refreshLink:hover { background: var(--color-surface-hover); }

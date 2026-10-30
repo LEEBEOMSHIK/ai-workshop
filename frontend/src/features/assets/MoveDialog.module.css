@@ -1,22 +1,22 @@
-.backdrop { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 1rem; background: rgb(0 0 0 / 65%); }
-.dialog { width: min(100%, 42rem); min-width: 0; max-height: 90dvh; overflow: auto; padding: 1.25rem; border: 1px solid var(--file-border); border-radius: 0.85rem; background: var(--file-surface); color: inherit; overflow-wrap: anywhere; }
+.backdrop { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 1rem; background: var(--color-backdrop); }
+.dialog { width: min(100%, 42rem); min-width: 0; max-height: 90dvh; overflow: auto; padding: 1.25rem; border: 1px solid var(--file-border); border-radius: var(--radius-panel); background: var(--file-surface); color: inherit; overflow-wrap: anywhere; }
 .dialog h2 { margin: 0; }
-.dialog h3 { margin: 0; font-size: 0.82rem; }
+.dialog h3 { margin: 0; font-size: var(--font-size-caption); }
 .dialog p { color: var(--file-muted); }
 .dialog [role="alert"] { color: var(--file-error); }
-.objectHeader { display: grid; min-width: 0; gap: 0.25rem; margin-top: 1rem; padding: 0.85rem; border: 1px solid var(--file-border); border-radius: 0.65rem; background: var(--file-surface-raised); }
-.objectType { color: var(--file-muted); font-size: 0.72rem; font-weight: 750; }
+.objectHeader { display: grid; min-width: 0; gap: 0.25rem; margin-top: 1rem; padding: 0.85rem; border: 1px solid var(--file-border); border-radius: var(--radius-panel); background: var(--file-surface-raised); }
+.objectType { color: var(--file-muted); font-size: var(--font-size-small); font-weight: 750; }
 .objectName { min-width: 0; font-size: 1.05rem; overflow-wrap: anywhere; word-break: break-word; }
-.locations { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; margin-top: 0.75rem; }
-.location { min-width: 0; padding: 0.85rem; border: 1px solid var(--file-border); border-radius: 0.65rem; }
+.locations { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); margin-top: 0.75rem; }
+.location { min-width: 0; padding: 0.85rem; border: 1px solid var(--file-border); border-radius: var(--radius-panel); }
 .location dl { display: grid; gap: 0.55rem; margin: 0.65rem 0 0; }
 .location dl > div { min-width: 0; }
-.location dt { color: var(--file-muted); font-size: 0.68rem; }
+.location dt { color: var(--file-muted); font-size: var(--font-size-small); }
 .location dd { min-width: 0; margin: 0.15rem 0 0; overflow-wrap: anywhere; word-break: break-word; }
-.destinationBrowser { min-width: 0; margin-top: 0.9rem; padding: 0.9rem; border: 1px solid var(--file-border); border-radius: 0.65rem; background: var(--file-surface-raised); }
-.breadcrumbs { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.7rem; }
-.actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--file-border); }
-.dialog button { max-width: 100%; min-width: 0; padding: 0.55rem 0.7rem; border: 1px solid var(--file-border); border-radius: 0.5rem; color: var(--file-accent); background: var(--file-surface-raised); font: inherit; overflow-wrap: anywhere; cursor: pointer; }
+.destinationBrowser { min-width: 0; margin-top: 0.9rem; padding: 0.9rem; border: 1px solid var(--file-border); border-radius: var(--radius-panel); background: var(--file-surface-raised); }
+.breadcrumbs { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: 0.7rem; }
+.actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--file-border); }
+.dialog button { max-width: 100%; min-width: 0; padding: 0.55rem 0.7rem; border: 1px solid var(--file-border); border-radius: var(--radius-control); color: var(--file-accent); background: var(--file-surface-raised); font: inherit; overflow-wrap: anywhere; cursor: pointer; }
 .dialog .primaryAction { color: var(--file-bg); border-color: var(--file-accent); background: var(--file-accent); font-weight: 750; }
 .dialog button:disabled { opacity: 0.5; cursor: not-allowed; }
 .folders { display: grid; gap: 0.4rem; margin-bottom: 0; list-style: none; padding: 0; }
@@ -28,3 +28,34 @@
   .locations { grid-template-columns: 1fr; }
   .actions > button { flex: 1 1 9rem; }
 }
+
+/* Shared control geometry; native choice symbols and reader typography stay separate. */
+.dialog :where(button, select, textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="file"]):not([type="range"]), summary) {
+  box-sizing: border-box;
+  min-height: var(--control-min-height);
+  max-width: 100%;
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-control);
+}
+.dialog :where(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="file"]):not([type="range"]), select, textarea) {
+  background-color: var(--color-surface-input);
+  color: var(--color-text);
+  border-color: var(--color-border-control);
+  border-radius: var(--radius-control);
+}
+.dialog :is(input[type="checkbox"], input[type="radio"]) {
+  flex: 0 0 auto;
+  width: var(--control-choice-size);
+  height: var(--control-choice-size);
+  min-height: 0;
+  padding: 0;
+  accent-color: var(--color-accent);
+}
+.dialog :is(button, a, input, select, textarea, summary):focus-visible {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: var(--focus-offset);
+}
+.dialog button { overflow-wrap: anywhere; }
+.dialog button:disabled { cursor: not-allowed; }
+.dialog { font-family: var(--font-family-ui); }
+.dialog h1 { font-family: var(--font-family-ui); font-size: var(--font-size-title); line-height: 1.25; }

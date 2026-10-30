@@ -20,6 +20,7 @@ from ai_workshop.labs.rag.evaluation.generative_models import (
 from ai_workshop.labs.rag.evaluation.repository import SqlAlchemyEvaluationApplicationRepository
 from ai_workshop.labs.rag.executions.models import ExecutionRecord
 from ai_workshop.labs.rag.generation.audit_models import GenerationExecutionAuditRecord
+from ai_workshop.labs.rag.generation.execution import PROVIDER_TERMINATION_UNCONFIRMED
 from ai_workshop.shared.errors import AppError
 
 
@@ -124,6 +125,11 @@ class GenerativeRepository:
                 .order_by(GenerativeAttemptRecord.attempt_number)
             )
         ).all()
+        if any(row.error_code == PROVIDER_TERMINATION_UNCONFIRMED for row in rows):
+            raise AppError(
+                "evaluation_retry_unavailable",
+                "Local provider termination is unconfirmed; this run cannot be retried.", 409,
+            )
         latest = {(r.configuration_version_id, r.case_id, r.repetition): r for r in rows}
         failed = [r for r in latest.values() if r.status in {"failed", "interrupted"}]
         if not failed:
@@ -415,6 +421,27 @@ class GenerativeRepository:
             row.result_bytes, row.result_digest = canonical(row.result), result.digest()
             row.error_code, row.finished_at = error_code, datetime.now(UTC)
             row.status = "failed" if error_code else "completed"
+            if error_code == PROVIDER_TERMINATION_UNCONFIRMED:
+                pending = (await session.scalars(
+                    select(GenerativeAttemptRecord)
+                    .where(
+                        GenerativeAttemptRecord.run_id == run.id,
+                        GenerativeAttemptRecord.status == "pending",
+                    )
+                    .order_by(GenerativeAttemptRecord.id)
+                    .with_for_update()
+                )).all()
+                for unstarted in pending:
+                    # The token identifies the fencing owner, not a model invocation.
+                    unstarted.claim_token = token
+                    unstarted.status = "interrupted"
+                    unstarted.error_code = PROVIDER_TERMINATION_UNCONFIRMED
+                    unstarted.finished_at = row.finished_at
+                # Child guards require the current running parent until all fences are flushed.
+                await session.flush()
+                run.status = "failed"
+                run.claim_token, run.claimed_at = None, None
+                run.finished_at = row.finished_at
 
     async def finish_run(self, run_id: UUID, token: UUID) -> None:
         async with self.sessions.begin() as session:

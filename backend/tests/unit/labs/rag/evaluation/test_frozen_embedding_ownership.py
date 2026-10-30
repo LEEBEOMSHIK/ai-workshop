@@ -3,6 +3,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
+import pytest
+
 from ai_workshop.labs.rag.evaluation.generative_adapter import FrozenGenerativeAdapter
 from tests.unit.labs.rag.highlighting.test_evidence_selector import _source
 from tests.unit.labs.rag.search.test_generation_policy_gate import (
@@ -13,7 +15,8 @@ from tests.unit.labs.rag.search.test_generation_policy_gate import (
 )
 
 
-async def test_frozen_evaluation_clears_resolver_ownership_when_replacing_embedding():
+@pytest.mark.parametrize("owned", [False, True])
+async def test_frozen_evaluation_clears_resolver_ownership_when_replacing_embedding(owned):
     def forbidden_factory():
         raise AssertionError("Frozen evaluation must not acquire a current search embedding.")
 
@@ -21,7 +24,11 @@ async def test_frozen_evaluation_clears_resolver_ownership_when_replacing_embedd
         _configuration(approval=None), request_owned_embedding_factory=forbidden_factory
     )
     frozen_embedding = StubEmbedding()
-    frozen = replace(configuration, embedding=frozen_embedding)
+    frozen_factory = (lambda: StubEmbedding()) if owned else None
+    frozen = replace(
+        configuration, embedding=frozen_embedding,
+        request_owned_embedding_factory=frozen_factory,
+    )
     source = _source(1, "synthetic fact")
     chunk = source.chunk
     target = SimpleNamespace(
@@ -67,6 +74,6 @@ async def test_frozen_evaluation_clears_resolver_ownership_when_replacing_embedd
         ACTOR_ID, candidate, SimpleNamespace(id=uuid4(), query="synthetic fact")
     )
     assert prepared.configuration.embedding is frozen_embedding
-    assert prepared.configuration.request_owned_embedding_factory is None
+    assert prepared.configuration.request_owned_embedding_factory is frozen_factory
     assert configuration.request_owned_embedding_factory is forbidden_factory
     assert prepared.configuration.embedding.encode_query("synthetic") == [1.0, 0.0]

@@ -1,5 +1,6 @@
 import type { ModelDefinition, Profile, SavedConfiguration } from "./api";
 import { profileIdentity, summarizeRagPackage } from "./packageSummary";
+import styles from "./ConfigurationAdmin.module.css";
 
 const evaluationLabels: Record<SavedConfiguration["evaluation_state"], string> = {
   draft: "초안",
@@ -54,10 +55,20 @@ export function SavedConfigurationList({
                   {configuration.experimental ? <span>실험</span> : null}
                 </div>
               </div>
-              <p className="configuration-package-label">RAG 패키지 구성</p>
               <dl className="identity-list package-component-list">
                 <div><dt>불변 버전</dt><dd>v{configuration.version}</dd></div>
                 <div><dt>평가 상태</dt><dd>{evaluationLabels[configuration.evaluation_state]}</dd></div>
+                <div><dt>LLM</dt><dd>{savedLlmIdentity(configuration, generation, summary.llm)}</dd></div>
+                <div><dt>검색 준비</dt><dd>{configuration.search_ready ? "완료" : "준비 필요"}</dd></div>
+                <div><dt>답변 준비</dt><dd>{configuration.answer_ready ? "완료" : "준비 필요"}</dd></div>
+                <div><dt>서비스 상태</dt><dd>{configuration.generation_execution_preview?.provider === "development_codex_exec" ? "Codex CLI 지원 종료 · 기록 조회" : configuration.service_ready ? "사용 가능" : "사용 불가"}</dd></div>
+              </dl>
+              {!configuration.service_ready ? (
+                <p className="configuration-readiness" role="status">{readinessMessage(configuration)}</p>
+              ) : null}
+              <details className={styles.pipelineDetails}>
+                <summary>구성 요소 자세히</summary>
+                <dl className="identity-list package-component-list">
                 <div><dt>Indexing</dt><dd>{profileIdentity(indexing)}</dd></div>
                 <div><dt>Retrieval</dt><dd>{profileIdentity(retrieval)}</dd></div>
                 <div><dt>Generation</dt><dd>{profileIdentity(generation)}</dd></div>
@@ -69,16 +80,8 @@ export function SavedConfigurationList({
                 <div><dt>Fusion</dt><dd>{summary.fusion}</dd></div>
                 <div><dt>Reranker</dt><dd>{summary.reranker}</dd></div>
                 <div><dt>Answer Policy</dt><dd>{configuration.answer_policy.mode} v{configuration.answer_policy.version}</dd></div>
-                <div><dt>LLM</dt><dd>{summary.llm}</dd></div>
-                <div><dt>검색 준비</dt><dd>{configuration.search_ready ? "완료" : "준비 필요"}</dd></div>
-                <div><dt>답변 준비</dt><dd>{configuration.answer_ready ? "완료" : "준비 필요"}</dd></div>
-                <div><dt>서비스 상태</dt><dd>{configuration.generation_execution_preview?.provider === "development_codex_exec" ? "Codex CLI 지원 종료 · 기록 조회" : configuration.service_ready ? "사용 가능" : "사용 불가"}</dd></div>
-              </dl>
-              {!configuration.service_ready ? (
-                <p className="configuration-readiness" role="status">
-                  {readinessMessage(configuration)}
-                </p>
-              ) : null}
+                </dl>
+              </details>
               <details className="technical-identifiers">
                 <summary>기술 식별자 보기</summary>
                 <dl className="identity-list">
@@ -99,6 +102,18 @@ export function SavedConfigurationList({
       </div>
     </section>
   );
+}
+
+function savedLlmIdentity(
+  configuration: SavedConfiguration,
+  generation: Profile | undefined,
+  legacyIdentity: string,
+): string {
+  if (configuration.answer_policy.mode !== "generative") return "사용 안 함 (추출식)";
+  const preview = configuration.generation_execution_preview;
+  if (!preview) return generation ? legacyIdentity : "연결된 모델 정보 없음";
+  const requested = preview.requested_provider_model_id;
+  return `${preview.model_name} v${preview.model_version}${requested ? ` · 요청 모델: ${requested}` : ""}`;
 }
 
 function readinessMessage(configuration: SavedConfiguration): string {

@@ -67,6 +67,7 @@ class MemorySession:
         self.commit = AsyncMock()
         self.rollback = AsyncMock()
         self.scalar = AsyncMock()
+        self.execute = AsyncMock()
         self.get = AsyncMock()
 
     def add(self, value):
@@ -251,7 +252,8 @@ async def test_direct_numeric_claim_is_not_restored_after_source_revocation():
     session = MemorySession()
     binding = await SqlAlchemyGenerationAuditRepository(session).add_validated(audit, validated)
     session.get.return_value = session.rows[-1]
-    session.scalar.side_effect = [audit, None]
+    session.scalar.return_value = audit
+    session.execute.return_value = SimpleNamespace(all=lambda: [])
     expected = ExpectedNumericContext(
         audit.actor_id,
         audit.execution_id,

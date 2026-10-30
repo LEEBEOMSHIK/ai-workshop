@@ -1,0 +1,33 @@
+/* Two explicit classes outrank feature descendant button rules without !important. */
+.button.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  min-height: var(--control-min-height);
+  min-width: 0;
+  max-width: 100%;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-control);
+  font-weight: 600;
+  line-height: var(--line-height-heading);
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.button.primary { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-on-accent); }
+.button.quiet { background: transparent; border-color: transparent; color: var(--color-accent); }
+.button.danger { background: var(--color-danger-surface); border-color: var(--color-danger-border); color: var(--color-danger); }
+.button.secondary { background: var(--color-surface-raised); }
+.button.button:hover:not(:disabled) { background: var(--color-surface-hover); }
+.button.primary:hover:not(:disabled) { background: var(--color-accent-strong); }
+.button.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--color-danger) 18%, var(--color-surface)); }
+.button.button:focus-visible { outline: var(--focus-width) solid var(--focus-color); outline-offset: var(--focus-offset); }
+.button.button:disabled { opacity: .5; cursor: not-allowed; }

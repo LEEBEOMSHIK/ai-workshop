@@ -10,6 +10,7 @@ from ai_workshop.shared.errors import AppError
 
 TurnStatus = Literal["running", "completed", "failed", "cancelled", "interrupted"]
 RUNNING_LEASE = timedelta(minutes=15)
+CONVERSATION_TERMINATION_UNCONFIRMED = "conversation_termination_unconfirmed"
 
 
 @dataclass
@@ -67,7 +68,10 @@ class Conversation:
         for turn in self.turns:
             if turn.status == "running" and now - turn.updated_at > RUNNING_LEASE:
                 turn.status = "interrupted"
-                turn.error_code = "conversation_execution_interrupted"
+                turn.error_code = (
+                    "conversation_execution_interrupted" if turn.execution_terminated
+                    else CONVERSATION_TERMINATION_UNCONFIRMED
+                )
                 turn.updated_at = now
                 recovered = True
         if recovered:
@@ -95,7 +99,9 @@ def reserve_turn(
     if any(
         turn.status == "running" or (
             not turn.execution_terminated and (
-                turn.status == "cancelled" or turn.error_code == PROVIDER_TERMINATION_UNCONFIRMED
+                turn.status == "cancelled" or turn.error_code in {
+                    PROVIDER_TERMINATION_UNCONFIRMED, CONVERSATION_TERMINATION_UNCONFIRMED,
+                }
             )
         )
         for turn in conversation.turns

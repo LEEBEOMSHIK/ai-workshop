@@ -4,12 +4,18 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from ai_workshop.config import get_settings
+from ai_workshop.labs.rag.comparisons.api import router as rag_comparison_router
 from ai_workshop.labs.rag.configurations.api import router as rag_configuration_router
 from ai_workshop.labs.rag.conversations.api import router as rag_conversation_router
 from ai_workshop.labs.rag.conversations.attachment_api import (
     cleanup_router as rag_attachment_cleanup_router,
 )
 from ai_workshop.labs.rag.conversations.attachment_api import router as rag_attachment_router
+from ai_workshop.labs.rag.conversations.background import ConversationBackground
+from ai_workshop.labs.rag.conversations.background_composition import (
+    background_conversation_service,
+)
 from ai_workshop.labs.rag.conversations.draft_api import router as rag_draft_router
 from ai_workshop.labs.rag.deployments.api import router as rag_deployment_router
 from ai_workshop.labs.rag.domains.api import admin_router as rag_domain_admin_router
@@ -44,6 +50,7 @@ from ai_workshop.platform.publishing.http import NoStoreMiddleware
 from ai_workshop.platform.runtime_topology.api import router as runtime_topology_router
 from ai_workshop.platform.setup.api import router as setup_router
 from ai_workshop.platform.workspaces.api import router as workspace_router
+from ai_workshop.shared.db import RequestDatabase
 from ai_workshop.shared.errors import COMMON_ERROR_RESPONSES, register_error_handlers
 from ai_workshop.shared.request_context import CorrelationIdMiddleware
 
@@ -51,12 +58,20 @@ from ai_workshop.shared.request_context import CorrelationIdMiddleware
 def create_app(*, startup_admission: Callable[[], Awaitable[None]] | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        if startup_admission is not None:
-            await startup_admission()
+        database = RequestDatabase()
+        _app.state.request_database = database
         try:
+            if startup_admission is not None:
+                await startup_admission()
             yield
         finally:
-            await _app.state.local_model_host.aclose()
+            try:
+                try:
+                    await _app.state.conversation_background.aclose()
+                finally:
+                    await _app.state.local_model_host.aclose()
+            finally:
+                await database.aclose()
 
     application = FastAPI(
         title="AI Workshop API",
@@ -67,6 +82,11 @@ def create_app(*, startup_admission: Callable[[], Awaitable[None]] | None = None
         lifespan=lifespan,
     )
     application.state.local_model_host = LocalModelHost()
+    application.state.conversation_background = ConversationBackground(
+        lambda actor_id: background_conversation_service(
+            get_settings(), actor_id, application.state.local_model_host,
+        ),
+    )
     application.add_middleware(
         CORSMiddleware,
         allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
@@ -82,6 +102,7 @@ def create_app(*, startup_admission: Callable[[], Awaitable[None]] | None = None
         path_prefix="/api/v1/admin/publishing",
     )
     application.add_middleware(NoStoreMiddleware, path_prefix="/api/v1/admin/issue-history")
+    application.add_middleware(NoStoreMiddleware, path_prefix="/api/v1/admin/rag/comparisons")
     register_error_handlers(application)
     application.include_router(asset_router)
     application.include_router(authorization_router)
@@ -92,6 +113,7 @@ def create_app(*, startup_admission: Callable[[], Awaitable[None]] | None = None
     application.include_router(publishing_router)
     application.include_router(runtime_topology_router)
     application.include_router(rag_configuration_router)
+    application.include_router(rag_comparison_router)
     application.include_router(rag_codex_admin_router)
     application.include_router(rag_evidence_request_router)
     application.include_router(rag_deployment_router)

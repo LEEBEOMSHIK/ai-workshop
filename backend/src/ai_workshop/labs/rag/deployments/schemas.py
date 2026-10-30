@@ -16,6 +16,7 @@ from ai_workshop.labs.rag.generation.domain import (
     NonExternalGenerationDisclosureVersion,
     generation_disclosure,
 )
+from ai_workshop.labs.rag.models.domain import JsonValue
 
 if TYPE_CHECKING:
     from ai_workshop.labs.rag.deployments.service import DeploymentHealthResult
@@ -44,6 +45,26 @@ class DeploymentVersionCreate(BaseModel):
     retry_backoff_seconds: float = Field(ge=0)
     healthcheck_enabled: bool
     development_only: bool
+
+
+class DeploymentEndpointSetupOption(BaseModel):
+    reference: str
+    dialect: Literal["openai", "ollama", "anthropic"]
+
+
+class GenerationSetupPreset(BaseModel):
+    id: str
+    name: str
+    description: str
+    supported_providers: list[ProviderKind]
+    config: dict[str, JsonValue]
+
+
+class DeploymentSetupOptionsResponse(BaseModel):
+    endpoints: list[DeploymentEndpointSetupOption]
+    secret_references: list[str]
+    environment: DeploymentEnvironment
+    generation_presets: list[GenerationSetupPreset]
 
 
 class DeploymentReadinessResponse(BaseModel):

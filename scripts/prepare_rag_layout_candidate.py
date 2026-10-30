@@ -1,4 +1,4 @@
-"""Create unexecuted D layout candidates from approved synthetic capture/result exports."""
+"""Prepare unexecuted D or readable E candidates from approved synthetic exports."""
 
 import argparse
 import json
@@ -15,11 +15,13 @@ def main() -> None:
     parser.add_argument('--results', type=Path, required=True)
     parser.add_argument('--classification', choices=['public_synthetic'], required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--readable', action='store_true',
+                        help='Prepare E: repeat exact source text alongside D grid UUIDs.')
     args = parser.parse_args()
     records = load_records(parse_object(args.captures.read_text(encoding='utf-8')),
                            parse_object(args.results.read_text(encoding='utf-8')),
                            kind='actual_capture')
-    write_layout_report(tuple(r.capture for r in records), args.output)
+    write_layout_report(tuple(r.capture for r in records), args.output, readable=args.readable)
     print(json.dumps({'report': str(args.output / 'index.html'), 'attempts': len(records),
                       'execution_status': 'not_run', 'model_calls': 0}, ensure_ascii=False))
 

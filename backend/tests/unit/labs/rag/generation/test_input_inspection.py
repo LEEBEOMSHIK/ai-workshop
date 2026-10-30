@@ -101,7 +101,7 @@ def test_capture_matches_final_adapter_body_and_preserves_stored_sources(referen
         assert "model" not in body
         assert result.model == request.profile.model_name
         assert request.profile.runtime_model not in result.request_json
-        assert "Return only JSON" in body["messages"][0]["content"]
+        assert "다음 형식의 JSON만 반환한다" in body["messages"][0]["content"]
         if dialect == "ollama":
             assert body["response_format"]["type"] == "json_schema"
         payload = json.loads(body["messages"][1]["content"])

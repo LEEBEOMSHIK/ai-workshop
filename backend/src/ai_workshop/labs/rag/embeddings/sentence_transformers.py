@@ -8,6 +8,7 @@ from ai_workshop.labs.rag.embeddings.contracts import (
     EmbeddingRuntimeUnavailableError,
     EmbeddingValidationError,
 )
+from ai_workshop.labs.rag.executions.operation_timings import measure_operation
 
 
 class _SentenceTransformerModel(Protocol):
@@ -50,14 +51,15 @@ class SentenceTransformerEmbedding:
         return self._count_tokens(self._query_input(text))
 
     def _count_tokens(self, model_input: str) -> int:
-        try:
-            return self._count_input(model_input)
-        except EmbeddingRuntimeUnavailableError:
-            raise
-        except (ImportError, OSError, RuntimeError) as exc:
-            raise EmbeddingRuntimeUnavailableError(
-                "The local embedding tokenizer runtime is unavailable."
-            ) from exc
+        with measure_operation("embedding.tokenize", items=1):
+            try:
+                return self._count_input(model_input)
+            except EmbeddingRuntimeUnavailableError:
+                raise
+            except (ImportError, OSError, RuntimeError) as exc:
+                raise EmbeddingRuntimeUnavailableError(
+                    "The local embedding tokenizer runtime is unavailable."
+                ) from exc
 
     def _count_input(self, model_input: str) -> int:
         encoded = self._load().tokenizer(
@@ -102,21 +104,23 @@ class SentenceTransformerEmbedding:
         if self._closed:
             raise EmbeddingRuntimeUnavailableError("The embedding runtime is closed.")
         if self._model is None:
-            model = self._loader(
-                self.config.repo_id,
-                revision=self.config.revision,
-                cache_folder=str(self.cache_folder),
-                device=self.config.device,
-                trust_remote_code=False,
-                local_files_only=self._local_files_only,
-                dtype=self.config.dtype,
-            )
-            actual_dimension = model.get_sentence_embedding_dimension()
-            if actual_dimension != self.dimension:
-                raise EmbeddingValidationError(
-                    "The loaded model definition dimension does not match its pinned definition."
+            with measure_operation("embedding.model_load", items=1):
+                model = self._loader(
+                    self.config.repo_id,
+                    revision=self.config.revision,
+                    cache_folder=str(self.cache_folder),
+                    device=self.config.device,
+                    trust_remote_code=False,
+                    local_files_only=self._local_files_only,
+                    dtype=self.config.dtype,
                 )
-            self._model = model
+                actual_dimension = model.get_sentence_embedding_dimension()
+                if actual_dimension != self.dimension:
+                    raise EmbeddingValidationError(
+                        "The loaded model definition dimension does not match "
+                        "its pinned definition."
+                    )
+                self._model = model
         return self._model
 
     def _encode(self, texts: Sequence[str]) -> list[list[float]]:

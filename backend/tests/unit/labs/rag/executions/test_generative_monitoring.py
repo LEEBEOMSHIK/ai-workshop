@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -59,7 +60,8 @@ def setup_reader(monkeypatch, groups):
     detail = AsyncMock(side_effect=AssertionError("List must not construct detail or usage"))
     monkeypatch.setattr(reader, "detail", detail)
 
-    async def read(session, actor, run_id):
+    async def read(session, actor, run_id, *, list_only=False):
+        assert list_only is True
         return views[run_id]
 
     read_mock = AsyncMock(side_effect=read)
@@ -106,7 +108,8 @@ async def test_one_revoked_run_does_not_hide_other_authorized_run(monkeypatch):
     reader, views, read, _ = setup_reader(monkeypatch, [2, 1])
     revoked = next(iter(views))
 
-    async def current_view(session, actor, run_id):
+    async def current_view(session, actor, run_id, *, list_only=False):
+        assert list_only is True
         if run_id == revoked:
             raise AppError("not_found", "Unavailable", 404)
         return views[run_id]
@@ -128,3 +131,63 @@ async def test_unfinished_execution_retains_missing_observation(monkeypatch):
     assert row.failed_stage is None
     assert row.quality_status == "unreviewed"
     assert row.document_count == 0
+
+
+async def test_bounded_workers_overlap_and_preserve_original_run_order(monkeypatch):
+    reader, views, read, _ = setup_reader(monkeypatch, [1] * 11)
+    active = peak = 0
+
+    async def delayed(session, actor, run_id, *, list_only=False):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        try:
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            return views[run_id]
+        finally:
+            active -= 1
+
+    read.side_effect = delayed
+    result = await reader.summaries(uuid4())
+    assert peak == 4
+    assert active == 0
+    assert [row.id for row in result] == [v.attempts[0].execution_id for v in views.values()]
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+async def test_workers_are_drained_and_original_error_is_propagated(monkeypatch, cancel):
+    reader, views, read, _ = setup_reader(monkeypatch, [1] * 8)
+    started = asyncio.Event()
+    active = 0
+    blocked = asyncio.Event()
+    failure = AppError("database_unavailable", "Unavailable", 503)
+    first = next(iter(views))
+
+    async def controlled(session, actor, run_id, *, list_only=False):
+        nonlocal active
+        active += 1
+        if active == 4:
+            started.set()
+        try:
+            if run_id == first and not cancel:
+                await asyncio.wait_for(started.wait(), 1)
+                raise failure
+            await blocked.wait()
+            return views[run_id]
+        finally:
+            active -= 1
+
+    read.side_effect = controlled
+    task = asyncio.create_task(reader.summaries(uuid4()))
+    if cancel:
+        await asyncio.wait_for(started.wait(), 1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    else:
+        with pytest.raises(AppError) as caught:
+            await task
+        assert caught.value is failure
+    assert active == 0
+    assert read.await_count == 4

@@ -32,6 +32,7 @@ import { selectionFromDocuments, type ScopeMode, type ScopeSnapshot, type Select
 import { abandonAttachmentDraft, createAttachmentDraft, getAttachmentDraft, restoreConversationDraft, startConversation, cancelConversationTurn, deleteConversation, getConversation, listConversations, listAttachments, renameConversation, sendConversationTurn, type ConversationDetail, type ConversationSummary, type TurnRequest, type StartRequest, type AttachmentDraft } from "./sessions-api";
 import { PendingStart } from "./pending-start";
 import { mergeGenerationInput } from "./merge-generation-input";
+import { blocksNextTurn, isTerminationUnconfirmed } from "./turn-state";
 import { ConversationAttachments } from "./ConversationAttachments";
 const authenticationExpiredMessage = "로그인이 만료되었습니다. 다시 로그인한 뒤 질문을 보내 주세요.";
 
@@ -191,6 +192,54 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [domain.slug]);
 
+  const selectedSessionId = session?.id;
+  const waitingForTurn = session?.turns.some(blocksNextTurn) ?? false;
+  useEffect(() => {
+    if (!selectedSessionId || !waitingForTurn) return;
+    const screen = screenGeneration.current;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    const ownsScreen = () => !controller.signal.aborted && mounted.current
+      && screenGeneration.current === screen && sessionRef.current?.id === selectedSessionId;
+    async function poll() {
+      let again = true;
+      const request = requestGeneration.current;
+      try {
+        const detail = await getConversation(domain.slug, selectedSessionId!, controller.signal);
+        if (!ownsScreen()) return;
+        if (detail.turns.some(turn => turn.redacted)) {
+          requestGeneration.current += 1;
+          setEditingTitle(null);
+          setTranscript([]); setSelectedEvidence(null); setSelectedOriginal(null);
+          setKnownDocuments([]); updateSelection(null); setWorkspaceIds([]); setFolderIds([]);
+          setScopeMode("workspace"); setRequiresScopeRevision(true);
+        } else if (requestGeneration.current !== request
+          || (sessionRef.current && detail.revision < sessionRef.current.revision)) {
+          again = sessionRef.current?.turns.some(blocksNextTurn) ?? false;
+          return;
+        }
+        saveSession(detail);
+        again = detail.turns.some(blocksNextTurn);
+      } catch (caught) {
+        if (!ownsScreen()) return;
+        if (caught instanceof ApiError && [401, 403, 404, 410].includes(caught.status)) {
+          // Do not retain a private result after authority or ownership is lost.
+          requestGeneration.current += 1; setEditingTitle(null);
+          sessionRef.current = null; setSession(null); setSessions([]); setTranscript([]);
+          setSelectedEvidence(null); setSelectedOriginal(null); setKnownDocuments([]);
+          updateSelection(null); setWorkspaceIds([]); setFolderIds([]); setScopeMode("workspace");
+          setRequiresDomainReentry(true); again = false;
+          setSessionError(caught.status === 401 ? authenticationExpiredMessage : "현재 권한으로 대화를 확인할 수 없습니다. 도메인을 다시 열어 주세요.");
+        } else setSessionError("진행 상태를 확인하지 못했습니다. 잠시 후 자동으로 다시 확인합니다.");
+      } finally {
+        if (ownsScreen() && again) timer = setTimeout(() => void poll(), 2000);
+      }
+    }
+    timer = setTimeout(() => void poll(), 2000);
+    return () => { controller.abort(); clearTimeout(timer); };
+    // Presentation helpers use refs; changing the selected conversation releases this poll.
+  }, [domain.slug, selectedSessionId, waitingForTurn, screenKey]);
+
   const externalProcessing = domain.generation_execution_preview?.external_transfer === true;
   const codexProcessing = domain.generation_execution_preview?.provider === "development_codex_exec";
   const canSend = domain.ready
@@ -207,7 +256,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
     && !attachmentBusy
     && !pendingStart.current?.cancelIntent
     && (!draft || draft.state === "open")
-    && !session?.turns.some(turn => turn.status === "running" || (turn.status === "cancelled" && !turn.execution_terminated))
+    && !session?.turns.some(blocksNextTurn)
     && !requiresDomainReentry
     && !requiresScopeRevision
     && !requiresContextReset
@@ -302,7 +351,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
   }
 
   async function selectSession(id: string) {
-    pendingStart.current?.cancel();
+    pendingStart.current?.detach();
     screenGeneration.current += 1; setScreenKey(screenGeneration.current);
     creatingDraft.current = null; updateDraft(null); updateAttachmentBusy(false); submitting.current = false;
     requestGeneration.current += 1;
@@ -395,7 +444,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
       || submitting.current || searching || sessionLoading || draftRestoreUnavailable || attachmentBusyRef.current
       || pendingStart.current?.cancelIntent
       || (draftRef.current && draftRef.current.state !== "open")
-      || sessionRef.current?.turns.some(turn => turn.status === "running" || (turn.status === "cancelled" && !turn.execution_terminated))
+      || sessionRef.current?.turns.some(blocksNextTurn)
       || !domain.ready
       || !domain.connection_version
       || !domain.generation_execution_preview
@@ -450,7 +499,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
           job = new PendingStart(domain.slug, request, detail => {
             if (mounted.current && screenGeneration.current === owner && pendingStart.current === job) {
               saveSession(detail); updateDraft(null); updateUrl(detail.id); setTranscript([]);
-              if (!detail.turns.some(turn => turn.status === "running")) pendingStart.current = null;
+              pendingStart.current = null;
               submitting.current = false; setSearching(false); setSessionLoading(false); setPendingQuery(""); setError(""); setRetryQuery(""); setSessionError("");
             } else if (mounted.current) void refreshSessions();
           }, caught => {
@@ -468,7 +517,11 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
           if (mounted.current && screenGeneration.current === owner
             && requestGeneration.current === generation && requestController.current === controller
             && !controller.signal.aborted && !job.cancelIntent) {
-            const current = sessionRef.current;
+            let current = sessionRef.current;
+            if (current?.id === detail.id && detail.revision >= current.revision) {
+              saveSession(detail);
+              current = detail;
+            }
             const enriched = mergeGenerationInput(current, detail, job.request.request_id);
             if (enriched && enriched !== current) saveSession(enriched);
           }
@@ -480,7 +533,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
         const failure = conversationFailure(caught);
         setError(failure.message);
         setRetryQuery(failure.action === "retry" ? normalized : "");
-        if (failure.action !== "retry") setQuery(normalized);
+        if (failure.action !== "retry") setQuery(current => current || normalized);
         setRequiresDomainReentry(failure.action === "reenter");
         setRequiresScopeRevision(failure.action === "revise-scope");
         setRequiresContextReset(failure.action === "reset-context");
@@ -504,7 +557,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
     setExternalConfirmed(false);
     requestGeneration.current += 1;
     requestController.current?.abort(); requestController.current = null;
-    if (restoreQuery && pendingQuery) setQuery(pendingQuery);
+    if (restoreQuery && pendingQuery) setQuery(current => current || pendingQuery);
     setPendingQuery(""); setSearching(false); submitting.current = false;
     const first = pendingStart.current;
     if (first) {
@@ -557,7 +610,10 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
       const detail = await getConversation(domain.slug, selectedId);
       if (!ownsScreen()) return;
       if (sessionRef.current?.title !== detail.title) setEditingTitle(value => value === null ? null : detail.title);
-      if (detail.turns.some(turn => turn.redacted)) clearPrivateContext();
+      if (detail.turns.some(turn => turn.redacted)) {
+        requestGeneration.current += 1;
+        setEditingTitle(value => value === null ? null : detail.title); clearPrivateContext();
+      }
       saveSession(detail);
     } catch { if (ownsScreen()) setSessionError("대화 목록을 불러오지 못했습니다."); }
   }
@@ -576,7 +632,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
       if (pendingStart.current) pendingStart.current.disposeDraftOnRejection(abandonDraft);
       else abandonDraft();
     }
-    pendingStart.current?.cancel();
+    pendingStart.current?.detach();
     screenGeneration.current += 1; setScreenKey(screenGeneration.current);
     requestGeneration.current += 1; requestController.current?.abort(); requestController.current = null;
     pendingRequest.current = null; pendingStart.current = null; sessionRef.current = null; creatingDraft.current = null; updateDraft(null); updateAttachmentBusy(false); submitting.current = false;
@@ -655,7 +711,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
             disabled={requiresDomainReentry || requiresScopeRevision}
             onClick={() => startNewConversation()}
           >새 대화</button>
-          <Link href={routes.workshopRagSearch} onClick={() => cancelCurrent({ restoreQuery: false })}>도메인 변경</Link>
+          <Link href={routes.workshopRagSearch}>도메인 변경</Link>
         </div>
       </header>
 
@@ -683,7 +739,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
       {sessionError ? <p role="alert">{sessionError}</p> : null}
       {legacyId && !draft ? <button type="button" disabled={sessionLoading} onClick={() => void selectSession(legacyId)}>초안 상태 새로고침</button> : null}
       {draft ? <p role="status">미전송 첨부 초안 · {draft.state === "open" ? "원본 파일 보존" : draft.state}</p> : null}
-      {draft?.state === "open" ? <button type="button" onClick={() => startNewConversation()}>첨부 초안 취소</button> : null}
+      {draft?.state === "open" ? <button type="button" onClick={() => { pendingStart.current?.cancel(); startNewConversation(); }}>첨부 초안 취소</button> : null}
       {sessionLoading ? <p role="status">대화를 불러오는 중…</p> : null}
       {session ? <div className="conversation-session-heading"><h2>{session.title}</h2>
         <button type="button" aria-label="대화 이름 변경" disabled={searching} onClick={() => setEditingTitle(session.title)}>이름 변경</button>
@@ -724,9 +780,9 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
               folderIds: turn.request_scope.folder_ids ?? [], folderNames: Object.values(foldersByWorkspace).flat().filter(folder => turn.request_scope?.folder_ids?.includes(folder.id)).map(folder => folder.name), documentIds: turn.request_scope.document_ids ?? null,
               documentNames: knownDocuments.filter(item => turn.request_scope?.document_ids?.includes(item.id)).map(item => item.name), documents: knownDocuments,
             }}} onOpenEvidence={openEvidence} onOpenSelectedVersion={openSelectedVersion} />
-            : <article className="conversation-turn"><p className="user-message"><strong>나</strong>{turn.query}</p><p role="status">{turn.status === "cancelled" ? (turn.execution_terminated ? "답변 생성을 취소했습니다." : "취소를 요청했습니다. 실행 종료 확인 중입니다.") : turn.status === "interrupted" ? "답변 생성이 중단되었습니다. 새 질문으로 다시 요청할 수 있습니다." : turn.status === "running" ? "답변 생성 중입니다. 상태를 새로고침해 확인할 수 있습니다." : conversationFailure(new ApiError("", 500, turn.error_code ?? "generation_failed")).message}</p>
+            : <article className="conversation-turn"><p className="user-message"><strong>나</strong>{turn.query}</p><p role="status">{turn.status === "cancelled" ? (turn.execution_terminated ? "답변 생성을 취소했습니다." : "취소를 요청했습니다. 실행 종료 확인 중입니다.") : turn.status === "running" ? "백그라운드에서 답변을 만들고 있습니다. 다른 화면에서 작업해도 계속되며, 이 대화로 돌아오면 결과를 확인할 수 있습니다." : isTerminationUnconfirmed(turn) ? "이전 요청의 실행 종료를 확인하지 못했습니다. 종료 확인 전에는 다음 질문을 보낼 수 없습니다." : turn.status === "interrupted" ? "답변 생성이 중단되었습니다. 새 질문으로 다시 요청할 수 있습니다." : conversationFailure(new ApiError("", 500, turn.error_code ?? "generation_failed")).message}</p>
               {turn.status === "running" ? <><button type="button" onClick={() => cancelCurrent()}>답변 취소</button><button type="button" onClick={() => void refreshSessions()}>상태 새로고침</button></> : null}
-              {turn.status === "cancelled" && !turn.execution_terminated ? <button type="button" onClick={() => void refreshSessions()}>상태 새로고침</button> : null}
+              {turn.status !== "running" && isTerminationUnconfirmed(turn) ? <button type="button" onClick={() => void refreshSessions()}>상태 새로고침</button> : null}
             </article>}
             {canMonitor && !turn.redacted ? <a href={executionPath(turn.execution_id ?? turn.id, turn.execution_id ? "execution" : "legacy")}>실행 단계·근거 확인</a> : null}
         </div>)}
@@ -781,7 +837,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
             ) : retryQuery ? (
               <button
                 type="button"
-                disabled={codexProcessing || (externalProcessing && !externalConfirmed)}
+                disabled={session?.turns.some(blocksNextTurn) || codexProcessing || (externalProcessing && !externalConfirmed)}
                 onClick={() => void sendQuestion(retryQuery)}
               >같은 질문 다시 시도</button>
             ) : null}
@@ -808,7 +864,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
               ref={questionRef}
               rows={1}
               value={query}
-              disabled={searching || !domain.ready || requiresDomainReentry || codexProcessing}
+              disabled={!domain.ready || requiresDomainReentry || codexProcessing}
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={handleQuestionKeyDown}
               onCompositionStart={() => { composing.current = true; }}
@@ -826,7 +882,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
             {searching ? <button type="button" className="secondary-button" onClick={() => cancelCurrent()}>답변 취소</button> : null}
           </div>
         </div>
-        <p className="conversation-input-hint">Enter 전송 · Shift+Enter 줄바꿈</p>
+        <p className="conversation-input-hint">{waitingForTurn || searching ? "다음 질문을 미리 작성할 수 있습니다. 이 대화의 답변 처리가 끝나면 전송할 수 있습니다." : "Enter 전송 · Shift+Enter 줄바꿈"}</p>
       </form>
 
       </div></div>

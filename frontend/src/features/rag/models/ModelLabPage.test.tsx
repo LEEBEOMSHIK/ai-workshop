@@ -59,13 +59,14 @@ describe("ModelLabPage", () => {
     render(<ModelLabPage initialModels={[]} initialProfiles={[]} />);
 
     expect(screen.getByRole("status")).toHaveTextContent("실행 배포와 정책을 불러오는 중");
+    await userEvent.click(screen.getByText(/실행 배포와 과거 기록/));
     expect(await screen.findByRole("heading", { name: "사내 답변 모델" })).toBeVisible();
-    await userEvent.click(screen.getByRole("tab", { name: "데이터 사용 범위·승인" }));
+    await userEvent.click(screen.getByRole("tab", { name: "데이터 정책" }));
     expect(screen.getByRole("heading", { name: "외부 전송 정책" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "전사 지식" })).toBeVisible();
   });
 
-  it("separates model and profile kinds without exposing execution controls", () => {
+  it("separates model and profile kinds without exposing execution controls", async () => {
     render(
       <ModelLabPage
         initialModels={[
@@ -102,6 +103,8 @@ describe("ModelLabPage", () => {
       />,
     );
 
+    await userEvent.click(screen.getByText(/모델 정의 목록/));
+    await userEvent.click(screen.getByText("프로파일 목록"));
     expect(screen.getByRole("heading", { name: "임베딩 모델" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "리랭커 모델" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "LLM 모델" })).toBeVisible();
@@ -109,8 +112,8 @@ describe("ModelLabPage", () => {
     expect(screen.getByRole("heading", { name: "검색 프로파일" })).toBeVisible();
     expect(screen.getByRole("heading", { name: "생성 프로파일" })).toBeVisible();
     expect(screen.getByText("embedding-baseline")).toBeVisible();
-    expect(within(screen.getByRole("tabpanel", { name: "현재 구성 확인" })).getByText("hybrid-rrf")).toBeVisible();
-    expect(within(screen.getByRole("tabpanel", { name: "현재 구성 확인" })).getByText("등록 기본값")).toBeVisible();
+    expect(within(screen.getByRole("tabpanel", { name: "등록 현황" })).getByText("hybrid-rrf")).toBeVisible();
+    expect(within(screen.getByRole("tabpanel", { name: "등록 현황" })).getByText("등록 기본값")).toBeVisible();
     expect(screen.queryByRole("button", { name: "모델 버전 등록" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "YAML 프로파일 등록" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /실행/ })).not.toBeInTheDocument();
@@ -151,8 +154,10 @@ describe("ModelLabPage", () => {
       />,
     );
 
+    await user.click(screen.getByText(/모델 정의 목록/));
+    await user.click(screen.getByText("프로파일 목록"));
     const modelRow = screen.getByText("embedding-baseline").closest("tr");
-    const profileRow = within(screen.getByRole("tabpanel", { name: "현재 구성 확인" })).getByText("hybrid-rrf").closest("tr");
+    const profileRow = within(screen.getByRole("tabpanel", { name: "등록 현황" })).getByText("hybrid-rrf").closest("tr");
     expect(modelRow).not.toBeNull();
     expect(profileRow).not.toBeNull();
     expect(within(modelRow!).getByText("v1")).toBeVisible();
@@ -221,18 +226,18 @@ describe("ModelLabPage", () => {
 
     expect(screen.queryByText("BM25")).not.toBeInTheDocument();
     expect(screen.queryByText("RRF")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("tab", { name: "모델·실행 환경 설정" }));
+    await user.click(screen.getByRole("tab", { name: "모델 연결" }));
     await user.click(screen.getByText("고급 모델 정의 JSON 등록"));
-    await user.type(screen.getByRole("textbox", { name: "이름" }), "registered-embedding");
-    await user.clear(screen.getByRole("spinbutton", { name: "버전" }));
-    await user.type(screen.getByRole("spinbutton", { name: "버전" }), "4");
+    fireEvent.change(screen.getByRole("textbox", { name: "이름" }), { target: { value: "registered-embedding" } });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "버전" }), { target: { value: "4" } });
     fireEvent.change(screen.getByRole("textbox", { name: "설정 JSON" }), {
       target: { value: JSON.stringify(modelResponse.config) },
     });
     await user.click(screen.getByRole("button", { name: "모델 버전 등록" }));
     expect(await screen.findByText("registered-embedding")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("tab", { name: "처리·검색·답변 구성" }));
+    await user.click(screen.getByRole("tab", { name: "처리 설정" }));
+    await user.click(screen.getByRole("radio", { name: "YAML로 등록 · 고급" }));
     await user.click(screen.getByText("고급 프로파일 YAML 등록"));
     const profileForm = screen.getByRole("heading", { name: "새 프로파일 버전" }).closest("form");
     expect(profileForm).not.toBeNull();
@@ -243,14 +248,22 @@ describe("ModelLabPage", () => {
       },
     });
     await user.click(within(profileForm!).getByRole("button", { name: "YAML 프로파일 등록" }));
-    expect(await within(screen.getByRole("tabpanel", { name: "처리·검색·답변 구성" })).findByText("registered-retrieval")).toBeVisible();
+    expect(await within(screen.getByRole("tabpanel", { name: "처리 설정" })).findByText("registered-retrieval")).toBeInTheDocument();
+    await user.click(screen.getByRole("radio", { name: "등록 프로파일 확인" }));
+    expect(within(screen.getByRole("tabpanel", { name: "처리 설정" })).getByText("registered-retrieval")).toBeVisible();
     expect(requests.map(([input]) => input).filter((input) =>
       String(input).includes("/admin/rag/models") || String(input).includes("/profiles/"),
     )).toEqual([
       "/api/v1/admin/rag/models",
       "/api/v1/admin/rag/profiles/retrieval/yaml",
     ]);
-  });
+    const modelRequest = requests.find(([input]) => input === "/api/v1/admin/rag/models")![1]!;
+    expect(modelRequest.method).toBe("POST");
+    expect(JSON.parse(String(modelRequest.body))).toEqual({ kind: "embedding", name: "registered-embedding", version: 4, config: modelResponse.config });
+    const yamlRequest = requests.find(([input]) => input === "/api/v1/admin/rag/profiles/retrieval/yaml")![1]!;
+    expect(yamlRequest.method).toBe("POST");
+    expect(JSON.parse(String(yamlRequest.body))).toEqual({ content: "kind: retrieval\nname: registered-retrieval\nversion: 2\nconfig:\n  bm25: {}\nbindings: []" });
+  }, 15000);
 
   it("releases both async registration controls and applies responses under StrictMode", async () => {
     const modelRequest = deferred<Response>();
@@ -271,7 +284,7 @@ describe("ModelLabPage", () => {
       </StrictMode>,
     );
 
-    await user.click(screen.getByRole("tab", { name: "모델·실행 환경 설정" }));
+    await user.click(screen.getByRole("tab", { name: "모델 연결" }));
     await user.click(screen.getByText("고급 모델 정의 JSON 등록"));
     await user.type(screen.getByRole("textbox", { name: "이름" }), "strict-embedding");
     await user.click(screen.getByRole("button", { name: "모델 버전 등록" }));
@@ -286,7 +299,8 @@ describe("ModelLabPage", () => {
     expect(await screen.findByText("strict-embedding")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "모델 버전 등록" })).toBeEnabled();
 
-    await user.click(screen.getByRole("tab", { name: "처리·검색·답변 구성" }));
+    await user.click(screen.getByRole("tab", { name: "처리 설정" }));
+    await user.click(screen.getByRole("radio", { name: "YAML로 등록 · 고급" }));
     await user.click(screen.getByText("고급 프로파일 YAML 등록"));
     const profileForm = screen.getByRole("heading", { name: "새 프로파일 버전" }).closest("form");
     expect(profileForm).not.toBeNull();
@@ -305,7 +319,7 @@ describe("ModelLabPage", () => {
       evaluation_state: "draft",
       is_default: false,
     }, 201));
-    expect(await within(screen.getByRole("tabpanel", { name: "처리·검색·답변 구성" })).findByText("strict-retrieval")).toBeVisible();
+    expect(await within(screen.getByRole("tabpanel", { name: "처리 설정" })).findByText("strict-retrieval")).toBeInTheDocument();
     expect(within(profileForm!).getByRole("button", { name: "YAML 프로파일 등록" })).toBeEnabled();
   });
 });

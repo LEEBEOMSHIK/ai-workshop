@@ -52,6 +52,16 @@ from ai_workshop.shared.errors import AppError
 class RagConfigurationRepository(Protocol):
     async def find_profile(self, profile_id: UUID) -> Profile | None: ...
 
+    async def find_profiles(self, profile_ids: tuple[UUID, ...]) -> dict[UUID, Profile]: ...
+
+    async def get_deployment_versions(
+        self, version_ids: tuple[UUID, ...]
+    ) -> dict[UUID, ModelDeploymentVersion]: ...
+
+    async def get_model_definitions(
+        self, model_ids: tuple[UUID, ...]
+    ) -> dict[UUID, ModelDefinition]: ...
+
     async def authorized_workspace_ids(
         self,
         owner_id: UUID,
@@ -131,6 +141,14 @@ class IngestionJobCreatorPort(Protocol):
 class GenerationReadinessPort(Protocol):
     async def is_ready(self, profile_id: UUID, *, configuration_version_id: UUID) -> bool: ...
 
+    async def is_ready_for(
+        self,
+        profile: Profile,
+        deployment: ModelDeploymentVersion,
+        *,
+        configuration_version_id: UUID,
+    ) -> bool: ...
+
 
 async def _no_op_commit() -> None:
     return None
@@ -154,6 +172,7 @@ class ConfigurationReadiness:
 
 @dataclass(frozen=True, slots=True)
 class _ResolvedGenerationExecution:
+    profile: Profile
     deployment: ModelDeploymentVersion
     snapshot: GenerationExecutionSnapshot
 
@@ -448,20 +467,25 @@ class RagConfigurationService:
         configurations: tuple[SavedRagConfiguration, ...],
     ) -> dict[UUID, ConfigurationReadiness]:
         search = await self.search_readiness(configurations)
+        executions = await self._resolve_generation_executions(configurations)
         result: dict[UUID, ConfigurationReadiness] = {}
         for item in configurations:
             search_ready = search[item.version_id]
             answer_ready = False
             answer_reasons: tuple[str, ...]
-            resolved_execution = await self._resolve_generation_execution(item)
+            resolved_execution = (
+                executions.get(item.generation_profile_id)
+                if item.generation_profile_id is not None else None
+            )
             if item.generation_profile_id is None:
                 answer_ready = True
                 answer_reasons = ()
             elif (
                 resolved_execution is None
                 or self.generation_readiness is None
-                or not await self.generation_readiness.is_ready(
-                    item.generation_profile_id,
+                or not await self.generation_readiness.is_ready_for(
+                    resolved_execution.profile,
+                    resolved_execution.deployment,
                     configuration_version_id=item.version_id,
                 )
             ):
@@ -516,34 +540,53 @@ class RagConfigurationService:
             )
         return result
 
-    async def _resolve_generation_execution(
+    async def _resolve_generation_executions(
         self,
-        configuration: SavedRagConfiguration,
-    ) -> _ResolvedGenerationExecution | None:
-        if configuration.generation_profile_id is None:
-            return None
-        profile = await self.repository.find_profile(configuration.generation_profile_id)
-        if (
-            profile is None
-            or profile.kind is not ProfileKind.GENERATION
-            or profile.deployment_version_id is None
-            or profile.bindings
-        ):
-            return None
-        deployment = await self.repository.get_deployment_version(profile.deployment_version_id)
-        if deployment is None:
-            return None
-        model = await self.repository.get_model_definition(deployment.model_definition_id)
-        if model is None:
-            return None
-        try:
-            resolved = resolve_generation_profile(profile, deployment, model)
-            return _ResolvedGenerationExecution(
-                deployment=deployment,
-                snapshot=generation_execution_snapshot(resolved),
-            )
-        except (TypeError, ValueError):
-            return None
+        configurations: tuple[SavedRagConfiguration, ...],
+    ) -> dict[UUID, _ResolvedGenerationExecution]:
+        # These immutable inputs belong to this call only. Live health, policy,
+        # approvals and Codex integrity checks still run for each configuration.
+        profile_ids = tuple(dict.fromkeys(
+            item.generation_profile_id
+            for item in configurations
+            if item.generation_profile_id is not None
+        ))
+        if not profile_ids:
+            return {}
+        profiles = await self.repository.find_profiles(profile_ids)
+        profiles = {
+            key: profile for key, profile in profiles.items()
+            if profile.kind is ProfileKind.GENERATION
+            and profile.deployment_version_id is not None
+            and not profile.bindings
+        }
+        deployment_ids = tuple(dict.fromkeys(
+            profile.deployment_version_id for profile in profiles.values()
+            if profile.deployment_version_id is not None
+        ))
+        deployments = await self.repository.get_deployment_versions(deployment_ids)
+        models = await self.repository.get_model_definitions(tuple(dict.fromkeys(
+            deployment.model_definition_id for deployment in deployments.values()
+        )))
+        result = {}
+        for profile_id, profile in profiles.items():
+            assert profile.deployment_version_id is not None
+            deployment = deployments.get(profile.deployment_version_id)
+            if deployment is None:
+                continue
+            model = models.get(deployment.model_definition_id)
+            if model is None:
+                continue
+            try:
+                resolved = resolve_generation_profile(profile, deployment, model)
+                result[profile_id] = _ResolvedGenerationExecution(
+                    profile=profile,
+                    deployment=deployment,
+                    snapshot=generation_execution_snapshot(resolved),
+                )
+            except (TypeError, ValueError):
+                continue
+        return result
 
     async def detail(
         self,

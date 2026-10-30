@@ -15,11 +15,12 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
-    // These node:test suites require Node's module-mock support; run test:runtime.
+    // Run node:test suites with test:runtime or test:styles, outside jsdom/Vite.
     exclude: [
       ...configDefaults.exclude,
       "tests/local-python-runtime.test.mjs",
       "tests/openapi-runtime-selection.test.mjs",
+      "tests/ui-style/design-tokens.test.mjs",
     ],
     fileParallelism: false,
     globals: true,

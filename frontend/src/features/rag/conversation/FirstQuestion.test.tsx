@@ -88,7 +88,7 @@ it.each(["cancel","unmount"])("F6 recovers outstanding acceptance after original
   fireEvent.change(screen.getByRole("textbox",{name:"질문"}),{target:{value:"교체 화면 질문"}});
   await act(async()=>resolveLookup(json({...detail,turns:[{...turn,status:"running",execution_terminated:false}]})));
   expect(deletes).toHaveLength(0);
-  expect(cancels).toEqual([`/api/v1/rag/domains/example/conversations/accepted/turns/${posts[0].request_id}/cancel`]);
+  expect(cancels).toEqual(leave === "cancel" ? [`/api/v1/rag/domains/example/conversations/accepted/turns/${posts[0].request_id}/cancel`] : []);
   expect(posts).toHaveLength(1);
   expect(screen.getByRole("textbox",{name:"질문"})).toHaveValue("교체 화면 질문");
   expect(screen.queryByRole("heading",{name:"서버 제목"})).not.toBeInTheDocument();
@@ -173,9 +173,13 @@ it.each(["cancel", "unmount"])("F4 owns unchanged-question retry after transport
   const cancelsBeforeResponse=cancels.length;
   // Settle even the broken fixture before asserting, so no owner leaks into later mocks.
   await act(async()=>resolveStart(json(detail)));
-  expect(cancelsBeforeResponse).toBe(1);expect(cancels).toHaveLength(1);expect(lookups).toBeGreaterThan(beforeLeave);
-  expect(acceptedLookups).toBeGreaterThan(0);expect(deletes).toHaveLength(0);
-  expect(cancels[0]).toBe(`/api/v1/rag/domains/example/conversations/accepted/turns/${posts[1].request_id}/cancel`);
+  expect(cancelsBeforeResponse).toBe(leave === "cancel" ? 1 : 0);
+  expect(cancels).toHaveLength(leave === "cancel" ? 1 : 0);
+  if (leave === "cancel") {
+    expect(lookups).toBeGreaterThan(beforeLeave); expect(acceptedLookups).toBeGreaterThan(0);
+    expect(cancels[0]).toBe(`/api/v1/rag/domains/example/conversations/accepted/turns/${posts[1].request_id}/cancel`);
+  }
+  expect(deletes).toHaveLength(0);
   expect(posts[1]).toMatchObject({query:"첫 질문",draft_id:"draft-one",draft_revision:9});
   expect(posts[1].request_id).not.toBe(posts[0].request_id);
   expect(screen.getByRole("textbox",{name:"질문"})).toHaveValue("교체 화면 질문");
@@ -215,7 +219,7 @@ it("F4/F5 preserves uncertain original draft payload after retry409 and leaves t
   await act(async()=>vi.advanceTimersByTimeAsync(2000));
   expect(posts).toHaveLength(2);expect(posts[1]).toEqual(posts[0]);
   expect(posts[1]).toMatchObject({draft_id:"draft-one",draft_revision:3});
-  expect(cancels).toEqual([`/api/v1/rag/domains/example/conversations/accepted/turns/${posts[0].request_id}/cancel`]);
+  expect(cancels).toEqual([]);
   expect(deletes).toHaveLength(0);
   expect(new URL(location.href).searchParams.has("conversation")).toBe(false);
 });
@@ -596,7 +600,7 @@ it.each(["question","file"])("F1 ignores an old abandon failure after the new sc
   expect(new URL(location.href).searchParams.get(context==="question"?"conversation":"draft")).toBe(context==="question"?"accepted":"new-draft");
 });
 
-it("F2 preserves accepted-ID cancellation after actual start AbortSignal rejection and component unmount with lookup404",async()=>{
+it("F2 detaches after actual start AbortSignal rejection without cancelling the server operation",async()=>{
   let accepted=false;let lookups=0;let aborted=false;const posts:Record<string,unknown>[]=[];const cancels:string[]=[];
   vi.stubGlobal("fetch",vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
     const path=String(input);
@@ -612,15 +616,16 @@ it("F2 preserves accepted-ID cancellation after actual start AbortSignal rejecti
   fireEvent.change(screen.getByRole("textbox",{name:"질문"}),{target:{value:"첫 질문"}});
   fireEvent.click(screen.getByRole("button",{name:"질문 보내기"}));
   await waitFor(()=>expect(lookups).toBeGreaterThan(0));
+  vi.useFakeTimers({toFake:["setTimeout","clearTimeout"]});
   await act(async()=>view.unmount());expect(aborted).toBe(true);
   window.history.replaceState(null,"","/");
   render(<ConversationPage domain={{...domain,id:"replacement-domain"}} initialWorkspaceIds={["workspace"]}/>);
   fireEvent.change(screen.getByRole("textbox",{name:"질문"}),{target:{value:"교체 화면 질문"}});
   accepted=true;
-  await waitFor(()=>expect(cancels).toHaveLength(1),{timeout:4000});
+  await act(async()=>vi.advanceTimersByTimeAsync(4000));
   expect(posts).toHaveLength(1);expect(posts[0]).toMatchObject({query:"첫 질문",workspace_ids:["workspace"]});
-  expect(cancels[0]).toBe(`/api/v1/rag/domains/example/conversations/accepted/turns/${posts[0].request_id}/cancel`);
-  expect(lookups).toBeGreaterThan(1);expect(screen.getByRole("textbox",{name:"질문"})).toHaveValue("교체 화면 질문");
+  expect(cancels).toEqual([]);
+  expect(screen.getByRole("textbox",{name:"질문"})).toHaveValue("교체 화면 질문");
   expect(screen.queryByRole("heading",{name:"서버 제목"})).not.toBeInTheDocument();
   expect(new URL(location.href).searchParams.has("conversation")).toBe(false);
 },10000);

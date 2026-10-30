@@ -1,5 +1,9 @@
 # AI Workshop 전체 시스템 설계
 
+HTTP DB 풀의 앱 수명주기, 이벤트 루프 밖의 제한된 무결성 검사와 현재 권한을 유지하는 구성 일괄 조회는 [ADR-0054](../decisions/0054-request-response-lifetimes.md)를 따른다.
+
+관리자 모델 연결·RAG 구성의 통합 사용 흐름은 [ADR-0052](../decisions/0052-admin-model-setup.md)를 따른다. 기존 불변 버전·평가·데이터 정책을 유지하고 owner 전용 안전한 설정 참조 조회만 추가한다.
+
 로컬 생성 런타임 확장: [ADR-0037](../decisions/0037-local-transformers-generation.md)은
 RAG 어댑터 안에서 Transformers/PyTorch 모델과 단일 추론 수명주기를 소유한다. Platform은
 이 모델 구현에 의존하지 않으며 생성 모델 변경만으로 검색 색인을 재구축하지 않는다.
@@ -63,6 +67,11 @@ UI와 권한 경계는 다음 세 영역으로 고정한다.
 ## 2. 아키텍처 선택
 
 시스템은 모노레포의 모듈형 모놀리스로 시작한다. Next.js React 프론트엔드와 FastAPI 백엔드를 사용하며, 긴 작업은 같은 Python 코드베이스를 공유하는 별도 워커 프로세스가 수행한다.
+
+일반 RAG 대화의 화면 이탈 후 실행은 [ADR-0048](../decisions/0048-background-conversations.md)에
+따라 API 프로세스가 소유한 별도 실행 루프에서 수행한다. 기존 접수·권한·모델 코어를
+재사용하며 HTTP와 의존성 수명을 분리한다. 색인/평가의 별도 워커 계약은 유지하고,
+일반 대화의 프로세스 재시작 후 자동 추론 복구는 제공하지 않는다.
 
 ```text
 React Web
@@ -288,6 +297,8 @@ RAG 공통 기술과 첫 자산운용 도메인을 분리하고, 동적 도메�
 수행하지 않았다. [학습·실습 후속 계획](../superpowers/plans/2026-10-08-kubernetes-learning.md).
 
 ## 9. 품질 목표
+
+RAG 내부 자율 재위임은 [ADR-0050](../decisions/0050-rag-relations-and-autonomous-handoffs.md)의 선택형 정책으로 제공한다. SDK는 등록된 근거·답변·검토 담당 사이 이동을 실행하고, 애플리케이션은 권한·원문·예산·최종 검증을 소유한다. Platform이나 다른 Labs에 대한 직접 호출 권한을 추가하지 않는다.
 
 - 검색 결과는 권한이 허용된 원문 위치로 이동할 수 있다.
 - 전사, 개인, 임시 작업 공간의 검색 범위를 정확히 분리한다.

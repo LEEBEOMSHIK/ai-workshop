@@ -16,10 +16,16 @@ describe("AdminNavigation", () => {
       />,
     );
 
-    expect(within(screen.getByRole("navigation", { name: "관리자 운영" })).getAllByRole("link")).toHaveLength(8);
+    expect(within(screen.getByRole("navigation", { name: "관리자 운영" })).getAllByRole("link")).toHaveLength(10);
+    expect(screen.getByRole("link", { name: "모델 연결·RAG 설정" })).toHaveAttribute("href", routes.adminRagSetup);
+    expect(within(screen.getByRole("navigation", { name: "영역 이동" })).getByRole("link", { name: "관리자" })).toHaveAttribute("href", routes.adminRagSetup);
+    expect(screen.getByRole("link", { name: "모델 비교 결과" })).toHaveAttribute(
+      "href",
+      routes.adminRagComparisons,
+    );
     expect(screen.getByRole("link", { name: "문제 및 개선 이력" })).toHaveAttribute("href", "/admin/system/issues");
     expect(within(screen.getByRole("navigation", { name: "영역 이동" })).getByRole("link", { name: "비공개 작업소" })).toHaveAttribute("href", routes.workshopHome);
-    expect(screen.getByRole("link", { name: "RAG 구성" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "RAG 구성 · 고급" })).toHaveAttribute(
       "href",
       routes.adminRagConfigurations,
     );
@@ -27,7 +33,7 @@ describe("AdminNavigation", () => {
       "href",
       routes.adminRagDomains,
     );
-    expect(screen.getByRole("link", { name: "RAG 모델" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "RAG 모델 · 고급" })).toHaveAttribute(
       "href",
       routes.adminRagModels,
     );

@@ -12,6 +12,8 @@ it("keeps first-start and subsequent-turn paths, replay fields and Codex consent
   const options=fetcher.mock.calls.map(args=>args[1] as RequestInit);
   expect(options[0]).toMatchObject({method:"POST",credentials:"include",cache:"no-store"});
   expect(new Headers(options[0].headers).get("x-codex-request")).toBe("1");
+  expect(new Headers(options[0].headers).get("Prefer")).toBe("respond-async");
+  expect(new Headers(options[2].headers).get("Prefer")).toBe("respond-async");
   expect(JSON.parse(String(options[0].body))).toEqual(request);
   expect(JSON.parse(String(options[0].body))).not.toHaveProperty("expected_revision");
   expect(options[1].method).toBeUndefined();expect(JSON.parse(String(options[2].body)).expected_revision).toBe(2);

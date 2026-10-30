@@ -57,6 +57,55 @@ def test_stale_running_recovery_never_reserves_duplicate():
     assert reserve_turn(item, incoming, "scope", now) == (turn, False)
 
 
+def test_newly_expired_execution_blocks_new_request_until_termination_confirmed():
+    item = conversation()
+    incoming = request()
+    now = datetime.now(UTC)
+    turn, _ = reserve_turn(item, incoming, "scope", now - timedelta(minutes=16))
+    item.recover(now)
+    revision = item.revision
+    assert turn.error_code == "conversation_termination_unconfirmed"
+    assert not turn.execution_terminated
+    with pytest.raises(AppError) as error:
+        reserve_turn(item, request(expected_revision=revision), "scope", now)
+    assert error.value.code == "conversation_busy"
+    item.recover(now + timedelta(minutes=16))
+    assert item.revision == revision
+    assert reserve_turn(item, incoming, "scope", now) == (turn, False)
+    turn.execution_terminated = True
+    _, created = reserve_turn(item, request(expected_revision=revision), "scope", now)
+    assert created
+
+
+@pytest.mark.parametrize("status", ["failed", "interrupted"])
+def test_recovery_preserves_historical_terminal_records_and_admission(status):
+    item = conversation()
+    now = datetime.now(UTC)
+    turn, _ = reserve_turn(item, request(), "scope", now - timedelta(hours=1))
+    turn.status = status
+    turn.error_code = f"conversation_execution_{status}"
+    previous = (turn.error_code, turn.updated_at, item.revision)
+    item.recover(now)
+    assert (turn.error_code, turn.updated_at, item.revision) == previous
+    assert not turn.execution_terminated
+    _, created = reserve_turn(item, request(expected_revision=item.revision), "scope", now)
+    assert created
+
+
+def test_running_lease_boundary_and_already_confirmed_expiration():
+    item = conversation()
+    now = datetime.now(UTC)
+    turn, _ = reserve_turn(item, request(), "scope", now - timedelta(minutes=15))
+    item.recover(now)
+    assert turn.status == "running" and item.revision == 2
+    turn.execution_terminated = True
+    item.recover(now + timedelta(microseconds=1))
+    assert turn.status == "interrupted"
+    assert turn.error_code == "conversation_execution_interrupted"
+    _, created = reserve_turn(item, request(expected_revision=item.revision), "scope", now)
+    assert created
+
+
 def test_changed_identity_opens_new_segment():
     item = conversation()
     turn, _ = reserve_turn(item, request(), "old", datetime.now(UTC))

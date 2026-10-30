@@ -1,11 +1,12 @@
 from collections.abc import AsyncIterator
-from typing import Annotated
+from typing import Annotated, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 
 from ai_workshop.config import Settings, get_settings
 from ai_workshop.labs.rag.conversations.access import ConversationAccess
+from ai_workshop.labs.rag.conversations.background import ConversationBackground
 from ai_workshop.labs.rag.conversations.repository import SqlAlchemyConversationRepository
 from ai_workshop.labs.rag.conversations.schemas import (
     ConversationCreate,
@@ -108,6 +109,21 @@ Actor = Annotated[User, Depends(get_current_user)]
 Service = Annotated[ConversationService, Depends(get_conversation_service)]
 
 
+def _prefers_background(request: Request) -> bool:
+    return any(
+        preference.strip().lower() == "respond-async"
+        for header in request.headers.getlist("prefer")
+        for preference in header.split(",")
+    )
+
+
+def _accepted(response: Response, slug: str, detail: ConversationDetail) -> ConversationDetail:
+    response.status_code = 202
+    response.headers["Preference-Applied"] = "respond-async"
+    response.headers["Location"] = f"/api/v1/rag/domains/{slug}/conversations/{detail.id}"
+    return detail
+
+
 @router.get("", response_model=list[ConversationSummary])
 async def list_conversations(slug: str, user: Actor, service: Service) -> list[ConversationSummary]:
     return await service.list_for_actor(slug, user.id)
@@ -120,17 +136,24 @@ async def create_conversation(
     return await service.create(slug, user.id, request.title)
 
 
-@router.post("/start", response_model=ConversationDetail, status_code=201)
+@router.post(
+    "/start", response_model=ConversationDetail, status_code=201,
+    responses={202: {"model": ConversationDetail, "description": "Question accepted"}},
+)
 async def start_conversation(
     slug: str,
     request: ConversationStart,
     transport: Request,
+    response: Response,
     user: Actor,
     service: Service,
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ConversationDetail:
     if request.codex_input_approval is not None:
         require_codex_mutation(transport, settings)
+    if _prefers_background(transport):
+        background = cast(ConversationBackground, transport.app.state.conversation_background)
+        return _accepted(response, slug, await background.start(slug, user.id, request))
     return await run_until_disconnect(transport, service.start(slug, user.id, request))
 
 
@@ -169,18 +192,27 @@ async def delete_conversation(
     return Response(status_code=204, headers={"Cache-Control": "no-store"})
 
 
-@router.post("/{conversation_id}/turns", response_model=ConversationDetail)
+@router.post(
+    "/{conversation_id}/turns", response_model=ConversationDetail,
+    responses={202: {"model": ConversationDetail, "description": "Question accepted"}},
+)
 async def submit_turn(
     slug: str,
     conversation_id: UUID,
     request: ConversationTurnCreate,
     transport: Request,
+    response: Response,
     user: Actor,
     service: Service,
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ConversationDetail:
     if request.codex_input_approval is not None:
         require_codex_mutation(transport, settings)
+    if _prefers_background(transport):
+        background = cast(ConversationBackground, transport.app.state.conversation_background)
+        return _accepted(
+            response, slug, await background.submit(slug, user.id, conversation_id, request),
+        )
     return await run_until_disconnect(
         transport, service.submit(slug, user.id, conversation_id, request)
     )

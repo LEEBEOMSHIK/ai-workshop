@@ -70,9 +70,12 @@ function CitationSources({ sources }: { sources: Attempt["sources"] }) {
     </li>)}</ul>
   </div>;
 }
-export function GenerativeEvaluationPanel({ configurations, workspaces, initialRunId, initialCaseId, onConfigurationUpdated }: {
+export function GenerativeEvaluationPanel({ configurations, workspaces, initialRunId, initialCaseId, onConfigurationUpdated, initialVersionIds = [], onAccepted, allowedVersionIds }: {
   configurations: SavedConfiguration[]; workspaces: Workspace[]; initialRunId?: string; initialCaseId?: string;
   onConfigurationUpdated?: (configuration: SavedConfiguration) => void;
+  initialVersionIds?: string[];
+  allowedVersionIds?: string[];
+  onAccepted?: (receipt: Awaited<ReturnType<typeof api.acceptGenerativeRun>>) => void;
 }) {
   const [runs, setRuns] = useState<api.GenerativeRun[]>([]);
   const [policies, setPolicies] = useState<api.GenerativePolicy[]>([]);
@@ -85,7 +88,7 @@ export function GenerativeEvaluationPanel({ configurations, workspaces, initialR
     setSnapshot, setSnapshotId, setRules, setHistories, setRetrievalK, setRepetitions, setConsented } = useEvaluationPreparation(mode);
   const savedRequest = useRef<AbortController | null>(null);
   const [savedLoading, setSavedLoading] = useState(false);
-  const [versions, setVersions] = useState<string[]>([]);
+  const [versions, setVersions] = useState<string[]>(initialVersionIds);
   const [policyId, setPolicyId] = useState("");
   const [policyName, setPolicyName] = useState("");
   const [thresholds, setThresholds] = useState({ context: "1", correctness: "1", abstention: "1", latency: "120000" });
@@ -176,14 +179,16 @@ export function GenerativeEvaluationPanel({ configurations, workspaces, initialR
     return provider !== "development_codex_exec";
   }
   function supportsVersion(version: string) {
+    if (allowedVersionIds && !allowedVersionIds.includes(version)) return false;
     const configuration = configurations.find(item => item.version_id === version);
     // The latest-only catalog cannot classify older versions; preserve their existing common actions.
     return configuration == null || supportsExecution(configuration);
   }
-  const available = configurations.filter(item => item.generation_profile_id && !item.is_system && supportsExecution(item));
+  const available = configurations.filter(item => item.generation_profile_id && !item.is_system && supportsExecution(item) && (!allowedVersionIds || allowedVersionIds.includes(item.version_id)));
   const canRetryCurrent = !!current?.attempts.length && current.attempts.every(item => supportsVersion(item.configuration_version_id));
   const chosen = available.filter(item => versions.includes(item.version_id));
   const external = chosen.some(item => item.generation_execution_preview?.external_transfer);
+  const visibleRuns = allowedVersionIds ? runs.filter(run => run.attempts.some(item => allowedVersionIds.includes(item.configuration_version_id))) : runs;
   const attemptCounts = (current?.attempts ?? []).reduce<Record<string, number>>((counts, item) => {
     counts[item.status] = (counts[item.status] ?? 0) + 1;
     return counts;
@@ -217,7 +222,7 @@ export function GenerativeEvaluationPanel({ configurations, workspaces, initialR
           <label>포함하면 안 되는 내용 (한 줄에 하나)<textarea value={rules[item.id]?.forbidden_propositions.join("\n") ?? ""} onChange={event => setRules(values => ({ ...values, [item.id]: { ...values[item.id], forbidden_propositions: event.target.value.split("\n") } }))} /></label>
         </fieldset>)}
       </section> : null}
-      <fieldset disabled={busy}><legend>비교할 저장 구성 버전</legend>{available.map(item => <label key={item.version_id}><input type="checkbox" checked={versions.includes(item.version_id)} onChange={event => setVersions(values => event.target.checked ? [...values, item.version_id] : values.filter(id => id !== item.version_id))} />{item.name} v{item.version}</label>)}</fieldset>
+      <fieldset disabled={busy}><legend>비교할 저장 구성 버전</legend>{available.map(item => <label key={item.version_id}><input type="checkbox" checked={versions.includes(item.version_id)} onChange={event => { setConsented(false); setVersions(values => event.target.checked ? [...values, item.version_id] : values.filter(id => id !== item.version_id)); }} />{item.name} v{item.version}</label>)}</fieldset>
       <details><summary>생성형 승격 기준 저장</summary><fieldset disabled={busy}>
         <label>기준 이름<input value={policyName} onChange={event => setPolicyName(event.target.value)} /></label>
         <label>기준 버전<input type="number" min={1} value={policyVersion} onChange={event => setPolicyVersion(Number(event.target.value))} /></label>
@@ -243,7 +248,7 @@ export function GenerativeEvaluationPanel({ configurations, workspaces, initialR
         })}>생성형 평가 실행</button>
       </fieldset>
     </details>
-    <details className={styles.card}><summary>실행 이력 · {runs.length}건</summary><ul className={styles.runHistory}>{runs.map(item => <li key={item.id}><button type="button" disabled={busy} aria-pressed={current?.id === item.id} onClick={() => void perform(async () => receiveRun(await api.loadGenerativeRun(item.id)))}>{new Date(item.created_at).toLocaleString("ko-KR")} · {runLabel[item.status] ?? item.status}</button></li>)}</ul></details></div>
+    <details className={styles.card}><summary>실행 이력 · {visibleRuns.length}건</summary>{allowedVersionIds ? <p>선택한 구성 버전이 포함된 최근 평가를 표시합니다. 이전 기록은 RAG 구성·평가 전체에서 확인하세요.</p> : null}<ul className={styles.runHistory}>{visibleRuns.map(item => <li key={item.id}><button type="button" disabled={busy} aria-pressed={current?.id === item.id} onClick={() => void perform(async () => receiveRun(await api.loadGenerativeRun(item.id)))}>{new Date(item.created_at).toLocaleString("ko-KR")} · {runLabel[item.status] ?? item.status}</button></li>)}</ul></details></div>
     {current ? <>
       <div className={styles.badges}><span>실행: {runLabel[current.status] ?? current.status}</span><span>사례별 {current.repetition_count}회</span><button disabled={busy} onClick={() => void perform(async () => receiveRun(await api.loadGenerativeRun(current.id)))}>결과 새로고침</button>
         {current.status === "pending" ? <button type="button" disabled={busy} onClick={() => void perform(() => cancelRun(current.id))}>시작 전 평가 취소</button> : null}
@@ -268,7 +273,7 @@ export function GenerativeEvaluationPanel({ configurations, workspaces, initialR
         </details> : <p>완료된 답변을 검토할 수 있습니다.</p>}</> : null}
       </article>} />
       {current.status === "completed" ? <details><summary>DB 검증 후 구성에 생성형 통과 반영</summary><p>저장된 기준과 모든 반복 사례의 증거를 DB에서 재검증합니다. 활성 도메인 연결 변경은 별도 관리 동작입니다.</p>{[...new Set(current.attempts.map(item => item.configuration_version_id))].filter(supportsVersion).map(version => <button key={version} disabled={busy} onClick={() => void perform(async () => {
-        await api.acceptGenerativeRun(current.id, version); setMessage("정확한 구성 버전에 생성형 평가 통과를 반영했습니다.");
+        const receipt = await api.acceptGenerativeRun(current.id, version); onAccepted?.(receipt); setMessage("정확한 구성 버전에 생성형 평가 통과를 반영했습니다.");
         if (onConfigurationUpdated) for (const config of await loadConfigurations()) onConfigurationUpdated(config);
       })}>{configurations.find(c => c.version_id === version)?.name ?? "구성"} 통과 검증·반영</button>)}</details> : null}
     </> : <p>읽기만으로 평가가 실행되지는 않습니다. 저장된 실행을 선택하세요.</p>}

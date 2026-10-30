@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from ai_workshop.labs.rag.executions.agent_trace import AgentTrace
 from ai_workshop.labs.rag.generation.input_inspection import GenerationInputInspection
 from ai_workshop.labs.rag.highlighting.context import CandidateDiagnostic
 from ai_workshop.labs.rag.highlighting.domain import EvidenceSource
@@ -18,3 +19,4 @@ class SearchDiagnostics:
     min_semantic_score: float
     warning: str | None = None
     generation_input: GenerationInputInspection | None = None
+    agent_trace: AgentTrace | None = None

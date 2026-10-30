@@ -538,6 +538,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/rag/comparisons": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Comparisons */
+        get: operations["list_comparisons_api_v1_admin_rag_comparisons_get"];
+        put?: never;
+        /** Import Comparison */
+        post: operations["import_comparison_api_v1_admin_rag_comparisons_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/rag/comparisons/{comparison_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Detail */
+        get: operations["detail_api_v1_admin_rag_comparisons__comparison_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/rag/configuration-versions/{version_id}/codex-status": {
         parameters: {
             query?: never;
@@ -634,6 +669,23 @@ export interface paths {
         put?: never;
         /** Create Workspace Policy Version */
         post: operations["create_workspace_policy_version_api_v1_admin_rag_data_policies_workspaces__workspace_id__versions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/rag/deployment-setup-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Deployment Setup Options */
+        get: operations["get_deployment_setup_options_api_v1_admin_rag_deployment_setup_options_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2418,6 +2470,166 @@ export interface components {
             /** Updated At */
             updated_at: string | null;
         };
+        /** AgentContent */
+        AgentContent: {
+            /** Characters */
+            characters?: number | null;
+            /**
+             * Content Status
+             * @enum {string}
+             */
+            content_status: "complete" | "not_retained" | "disabled" | "omitted_size_limit" | "omitted_validation_failure" | "not_applicable";
+            /** Sha256 */
+            sha256?: string | null;
+            /** Text */
+            text?: string | null;
+        };
+        /** AgentEvidenceRef */
+        AgentEvidenceRef: {
+            /**
+             * Asset Version Id
+             * Format: uuid
+             */
+            asset_version_id: string;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /**
+             * Projection Id
+             * Format: uuid
+             */
+            projection_id: string;
+        };
+        /** AgentSpan */
+        AgentSpan: {
+            citation_reference_map?: components["schemas"]["CitationReferenceMap"] | null;
+            /** Delegation Mode */
+            delegation_mode?: ("as_tool" | "handoff") | null;
+            /** Duration Ms */
+            duration_ms?: number | null;
+            /** Ended At */
+            ended_at?: string | null;
+            /** Error Code */
+            error_code?: string | null;
+            /**
+             * Evidence Refs
+             * @default []
+             */
+            evidence_refs: components["schemas"]["AgentEvidenceRef"][];
+            /** From Agent */
+            from_agent?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * @default {
+             *       "content_status": "disabled"
+             *     }
+             */
+            input: components["schemas"]["AgentContent"];
+            /**
+             * Input Kind
+             * @default sdk_input
+             * @enum {string}
+             */
+            input_kind: "sdk_input" | "http_request" | "tool_arguments";
+            /** Input Tokens */
+            input_tokens?: number | null;
+            /**
+             * @default {
+             *       "content_status": "disabled"
+             *     }
+             */
+            instructions: components["schemas"]["AgentContent"];
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "agent" | "delegation" | "tool" | "model";
+            /** Model Name */
+            model_name?: string | null;
+            model_timing?: components["schemas"]["ModelCallTiming"] | null;
+            /** Name */
+            name: string;
+            /**
+             * @default {
+             *       "content_status": "disabled"
+             *     }
+             */
+            output: components["schemas"]["AgentContent"];
+            /** Output Tokens */
+            output_tokens?: number | null;
+            /** Parent Id */
+            parent_id: string | null;
+            /** Sequence */
+            sequence: number;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "running" | "completed" | "failed" | "cancelled";
+            /** To Agent */
+            to_agent?: string | null;
+        };
+        /** AgentTrace */
+        AgentTrace: {
+            /**
+             * Content Retention
+             * @default metadata_only
+             * @enum {string}
+             */
+            content_retention: "metadata_only" | "retained";
+            /**
+             * Observation Complete
+             * @default true
+             */
+            observation_complete: boolean;
+            /** Revision */
+            revision: number;
+            /** Root Span Id */
+            root_span_id: string | null;
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /**
+             * Runtime
+             * @default openai_agents
+             * @constant
+             */
+            runtime: "openai_agents";
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /**
+             * Spans
+             * @default []
+             */
+            spans: components["schemas"]["AgentSpan"][];
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
         /** @enum {string} */
         ai_workshop__labs__rag__evaluation__generative__AnswerStatus: "answered" | "insufficient_evidence" | "citation_validation_failed" | "not_requested";
         /**
@@ -2990,6 +3202,20 @@ export interface components {
              */
             sort_order: number;
         };
+        /**
+         * CitationReferenceMap
+         * @description Server-owned e1..eN identity order; never part of the model input.
+         */
+        CitationReferenceMap: {
+            /** Evidence Ids */
+            evidence_ids: string[];
+            /**
+             * Format
+             * @default rag-answer-v6
+             * @constant
+             */
+            format: "rag-answer-v6";
+        };
         /** ClaimCitation */
         ClaimCitation: {
             /** Calculations */
@@ -3170,6 +3396,303 @@ export interface components {
             /** Safe Error Code */
             safe_error_code: string | null;
         };
+        /** ComparisonAnalysis */
+        ComparisonAnalysis: {
+            /** Body */
+            body: string;
+            /** Title */
+            title: string;
+        };
+        /** ComparisonCitation */
+        ComparisonCitation: {
+            /** Claim Index */
+            claim_index: number;
+            /** Evidence Refs */
+            evidence_refs: string[];
+        };
+        /** ComparisonCriterion */
+        ComparisonCriterion: {
+            /** Explanation */
+            explanation: string;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "met" | "not_met" | "not_applicable" | "unreviewed";
+        };
+        /** ComparisonDetail */
+        ComparisonDetail: {
+            /** Content Sha256 */
+            content_sha256: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Record Kind
+             * @default imported_comparison
+             * @constant
+             */
+            record_kind: "imported_comparison";
+            report: components["schemas"]["ComparisonImport"];
+        };
+        /** ComparisonEvidence */
+        ComparisonEvidence: {
+            /**
+             * Asset Version Id
+             * Format: uuid
+             */
+            asset_version_id: string;
+            /** Bbox */
+            bbox: number[] | null;
+            /** Char End */
+            char_end: number;
+            /** Char Start */
+            char_start: number;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /**
+             * Element Id
+             * Format: uuid
+             */
+            element_id: string;
+            /**
+             * Evidence Id
+             * Format: uuid
+             */
+            evidence_id: string;
+            /**
+             * Index Build Id
+             * Format: uuid
+             */
+            index_build_id: string;
+            /** Ordinal */
+            ordinal: number;
+            /** Page */
+            page: number | null;
+            /**
+             * Projection Id
+             * Format: uuid
+             */
+            projection_id: string;
+            /** Ref */
+            ref: string;
+            /**
+             * Retrieval Chunk Id
+             * Format: uuid
+             */
+            retrieval_chunk_id: string;
+            /**
+             * Source Kind
+             * @enum {string}
+             */
+            source_kind: "normalized_text" | "pdf_page" | "docx_image";
+            /** Text */
+            text: string;
+            /** Title */
+            title: string;
+        };
+        /** ComparisonImport */
+        ComparisonImport: {
+            /** Actual Billed Total Usd */
+            actual_billed_total_usd: string | null;
+            /** Analysis */
+            analysis: components["schemas"]["ComparisonAnalysis"][];
+            /**
+             * Billing Status
+             * @enum {string}
+             */
+            billing_status: "not_reconciled" | "reconciled" | "not_applicable";
+            /**
+             * Completed At
+             * Format: date-time
+             */
+            completed_at: string;
+            /** Controls */
+            controls: string[];
+            /** Estimated Total Usd */
+            estimated_total_usd: string | null;
+            /** Evidence */
+            evidence: components["schemas"]["ComparisonEvidence"][];
+            /** Limitations */
+            limitations: string[];
+            /**
+             * Measurement Scope
+             * @constant
+             */
+            measurement_scope: "complete_nonstream_generation_response";
+            /** Question */
+            question: string;
+            /** Requests */
+            requests: components["schemas"]["ComparisonRequest"][];
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: 1;
+            /** Source Input Sha256 */
+            source_input_sha256: string;
+            /** Source Key */
+            source_key: string;
+            /** Source Ledger Sha256 */
+            source_ledger_sha256: string;
+            /** Source Result Sha256 */
+            source_result_sha256: string;
+            /** Title */
+            title: string;
+            /**
+             * Unique Question Count
+             * @constant
+             */
+            unique_question_count: 1;
+        };
+        /** ComparisonList */
+        ComparisonList: {
+            /** Items */
+            items: components["schemas"]["ComparisonSummary"][];
+        };
+        /** ComparisonNativeTiming */
+        ComparisonNativeTiming: {
+            /** Input Seconds */
+            input_seconds: number | null;
+            /** Load Seconds */
+            load_seconds: number | null;
+            /** Output Seconds */
+            output_seconds: number | null;
+            /** Total Seconds */
+            total_seconds: number | null;
+        };
+        /** ComparisonQuality */
+        ComparisonQuality: {
+            /** Baseline Answer Equal */
+            baseline_answer_equal: boolean | null;
+            /** Baseline Citations Equal */
+            baseline_citations_equal: boolean | null;
+            /** Citation Validator Passed */
+            citation_validator_passed: boolean;
+            /** Criteria */
+            criteria: components["schemas"]["ComparisonCriterion"][];
+            /** Review Summary */
+            review_summary: string;
+            /** Schema Valid */
+            schema_valid: boolean;
+            /**
+             * Semantic Review
+             * @enum {string}
+             */
+            semantic_review: "passed" | "failed" | "partial" | "unreviewed";
+        };
+        /** ComparisonRequest */
+        ComparisonRequest: {
+            /** Actual Billed Cost Usd */
+            actual_billed_cost_usd: string | null;
+            /** Answer */
+            answer: string;
+            /** Citations */
+            citations: components["schemas"]["ComparisonCitation"][];
+            /**
+             * Condition
+             * @enum {string}
+             */
+            condition: "first" | "repeat";
+            /**
+             * Cost Status
+             * @enum {string}
+             */
+            cost_status: "usage_estimate" | "not_applicable" | "unknown";
+            /** Duration Seconds */
+            duration_seconds: number;
+            /** Estimated Cost Usd */
+            estimated_cost_usd: string | null;
+            /** First Token Seconds */
+            first_token_seconds: number | null;
+            /** Model */
+            model: string;
+            native_timing: components["schemas"]["ComparisonNativeTiming"] | null;
+            /** Pricing Basis */
+            pricing_basis: string | null;
+            /** Provider */
+            provider: string;
+            quality: components["schemas"]["ComparisonQuality"];
+            /** Repetition */
+            repetition: number;
+            /** Sequence */
+            sequence: number;
+            usage: components["schemas"]["ComparisonUsage"];
+        };
+        /** ComparisonSummary */
+        ComparisonSummary: {
+            /**
+             * Billing Status
+             * @enum {string}
+             */
+            billing_status: "not_reconciled" | "reconciled" | "not_applicable";
+            /**
+             * Completed At
+             * Format: date-time
+             */
+            completed_at: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Estimated Total Usd */
+            estimated_total_usd: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Models */
+            models: string[];
+            /** Question */
+            question: string;
+            /**
+             * Record Kind
+             * @default imported_comparison
+             * @constant
+             */
+            record_kind: "imported_comparison";
+            /** Request Count */
+            request_count: number;
+            /** Source Key */
+            source_key: string;
+            /** Title */
+            title: string;
+            /**
+             * Unique Question Count
+             * @default 1
+             * @constant
+             */
+            unique_question_count: 1;
+        };
+        /** ComparisonUsage */
+        ComparisonUsage: {
+            /** Cache Write Tokens */
+            cache_write_tokens: number | null;
+            /** Cached Input Tokens */
+            cached_input_tokens: number | null;
+            /** Input Tokens */
+            input_tokens: number | null;
+            /** Output Tokens */
+            output_tokens: number | null;
+            /** Reasoning Tokens */
+            reasoning_tokens: number | null;
+        };
         /** CompatibilityLaneResponse */
         CompatibilityLaneResponse: {
             /** Device */
@@ -3205,6 +3728,49 @@ export interface components {
          * @enum {string}
          */
         ConflictState: "none" | "separate_sources";
+        /** ContextualizationObservation */
+        ContextualizationObservation: {
+            /**
+             * Content Retention
+             * @default metadata_only
+             * @enum {string}
+             */
+            content_retention: "metadata_only" | "retained";
+            /**
+             * @default {
+             *       "content_status": "disabled"
+             *     }
+             */
+            input: components["schemas"]["AgentContent"];
+            /**
+             * Input Kind
+             * @default http_request
+             * @constant
+             */
+            input_kind: "http_request";
+            /**
+             * @default {
+             *       "content_status": "disabled"
+             *     }
+             */
+            instructions: components["schemas"]["AgentContent"];
+            /**
+             * Observation Complete
+             * @default true
+             */
+            observation_complete: boolean;
+            /**
+             * @default {
+             *       "content_status": "disabled"
+             *     }
+             */
+            output: components["schemas"]["AgentContent"];
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+        };
         /** ConversationAttachmentResponse */
         ConversationAttachmentResponse: {
             document: components["schemas"]["DocumentResponse"] | null;
@@ -3531,6 +4097,16 @@ export interface components {
          * @enum {string}
          */
         DeploymentCapability: "structured_output" | "contextualization" | "token_accounting";
+        /** DeploymentEndpointSetupOption */
+        DeploymentEndpointSetupOption: {
+            /**
+             * Dialect
+             * @enum {string}
+             */
+            dialect: "openai" | "ollama" | "anthropic";
+            /** Reference */
+            reference: string;
+        };
         /**
          * DeploymentEnvironment
          * @enum {string}
@@ -3621,6 +4197,16 @@ export interface components {
             ready: boolean;
             /** Reason Codes */
             reason_codes: string[];
+        };
+        /** DeploymentSetupOptionsResponse */
+        DeploymentSetupOptionsResponse: {
+            /** Endpoints */
+            endpoints: components["schemas"]["DeploymentEndpointSetupOption"][];
+            environment: components["schemas"]["DeploymentEnvironment"];
+            /** Generation Presets */
+            generation_presets: components["schemas"]["GenerationSetupPreset"][];
+            /** Secret References */
+            secret_references: string[];
         };
         /** DeploymentVersionCreate */
         DeploymentVersionCreate: {
@@ -4550,6 +5136,7 @@ export interface components {
         };
         /** ExecutionDetailResponse */
         ExecutionDetailResponse: {
+            agent_trace?: components["schemas"]["AgentTrace"] | null;
             /** Answer Status */
             answer_status: string | null;
             /** Configuration Version Id */
@@ -4823,7 +5410,7 @@ export interface components {
          */
         ExperimentStatus: "planned" | "running" | "completed" | "failed" | "cancelled";
         /** @enum {string} */
-        ExternalGenerationDisclosureVersion: "external-generation-v1" | "codex-external-generation-v1";
+        ExternalGenerationDisclosureVersion: "external-generation-v1" | "codex-external-generation-v1" | "anthropic-generation-v1";
         /** ExternalTransferApprovalInput */
         ExternalTransferApprovalInput: {
             /**
@@ -4993,6 +5580,21 @@ export interface components {
             turn_id: string | null;
             /** Validation Token */
             validation_token: string | null;
+        };
+        /** GenerationSetupPreset */
+        GenerationSetupPreset: {
+            /** Config */
+            config: {
+                [key: string]: components["schemas"]["JsonValue-Output"];
+            };
+            /** Description */
+            description: string;
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Supported Providers */
+            supported_providers: components["schemas"]["ProviderKind"][];
         };
         /** GenerativeAcceptancePolicy */
         GenerativeAcceptancePolicy: {
@@ -5346,6 +5948,38 @@ export interface components {
             text: string;
             /** Warnings */
             warnings: string[];
+        };
+        /** HistoryMessageObservation */
+        HistoryMessageObservation: {
+            /** Conversation Turn Id */
+            conversation_turn_id?: string | null;
+            /** Position */
+            position: number;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "selected" | "message_limit" | "token_limit" | "older_than_token_limit";
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "assistant";
+            /** Selected */
+            selected: boolean;
+        };
+        /** HistorySelectionObservation */
+        HistorySelectionObservation: {
+            /** Input Message Count */
+            input_message_count: number;
+            /** Max History Messages */
+            max_history_messages: number;
+            /** Max History Tokens */
+            max_history_tokens: number;
+            /** Messages */
+            messages: components["schemas"]["HistoryMessageObservation"][];
+            /** Selected Message Count */
+            selected_message_count: number;
         };
         /** InstallationDataPolicyCreate */
         InstallationDataPolicyCreate: {
@@ -5934,6 +6568,54 @@ export interface components {
          * @enum {string}
          */
         MembershipRole: "owner" | "member";
+        /** ModelCallTiming */
+        ModelCallTiming: {
+            /**
+             * Api
+             * @default openai_chat_completions
+             * @enum {string}
+             */
+            api: "openai_chat_completions" | "ollama_chat";
+            /**
+             * Request Duration Ms
+             * @description Client HTTP elapsed time including response close.
+             */
+            request_duration_ms: number;
+            /**
+             * Response Body Ms
+             * @description Cumulative elapsed to body iterator completion, including automatic close.
+             */
+            response_body_ms?: number | null;
+            /**
+             * Response Headers Ms
+             * @description Cumulative elapsed from HTTP request start to headers; not first token time.
+             */
+            response_headers_ms?: number | null;
+            /**
+             * Response Mode
+             * @default non_streaming
+             * @constant
+             */
+            response_mode: "non_streaming";
+            /**
+             * Response Validation Ms
+             * @description Separate JSON, usage and response contract validation duration.
+             */
+            response_validation_ms?: number | null;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            server_timing?: components["schemas"]["OllamaServerTiming"] | null;
+            /**
+             * Server Timing Status
+             * @default not_exposed_by_non_streaming_api
+             * @enum {string}
+             */
+            server_timing_status: "not_exposed_by_non_streaming_api" | "available" | "missing" | "invalid";
+        };
         /** ModelCreate */
         ModelCreate: {
             /** Config */
@@ -6087,6 +6769,47 @@ export interface components {
              */
             validation_id: string;
         };
+        /** OllamaServerTiming */
+        OllamaServerTiming: {
+            /** Eval Ms */
+            eval_ms: number;
+            /**
+             * Load Ms
+             * @description Server preparation and loading, including scheduler wait.
+             */
+            load_ms: number;
+            /** Prompt Eval Ms */
+            prompt_eval_ms: number;
+            /**
+             * Source
+             * @default ollama_chat
+             * @constant
+             */
+            source: "ollama_chat";
+            /** Total Ms */
+            total_ms: number;
+        };
+        /**
+         * OperationTiming
+         * @description Inclusive elapsed totals; overlapping operations must not be added as wall time.
+         */
+        OperationTiming: {
+            /** Calls */
+            calls: number;
+            /** Duration Ms */
+            duration_ms: number;
+            /** Failures */
+            failures: number;
+            /** Items */
+            items: number;
+            /**
+             * Name
+             * @enum {string}
+             */
+            name: "keyword.normalize" | "keyword.offsets" | "embedding.model_load" | "embedding.tokenize" | "embedding.query" | "embedding.documents" | "embedding.result_reuse" | "retrieval.authorize" | "retrieval.bm25" | "retrieval.dense" | "retrieval.sources" | "selection.extractive" | "selection.context" | "retrieval.describe" | "retrieval.pit_open" | "retrieval.pit_close";
+            /** Reused Items */
+            reused_items: number;
+        };
         /** OriginalPreviewResponse */
         OriginalPreviewResponse: {
             /**
@@ -6224,7 +6947,7 @@ export interface components {
          * ProviderKind
          * @enum {string}
          */
-        ProviderKind: "local_transformers" | "local_openai_compatible" | "openai_responses" | "development_codex_exec";
+        ProviderKind: "local_transformers" | "local_openai_compatible" | "openai_responses" | "anthropic_messages" | "development_codex_exec";
         /**
          * PublicationAction
          * @enum {string}
@@ -6501,6 +7224,7 @@ export interface components {
         };
         /** SearchDiagnosticsResponse */
         SearchDiagnosticsResponse: {
+            agent_trace?: components["schemas"]["AgentTrace"] | null;
             /**
              * Candidate Scope
              * @default returned_hits
@@ -6744,10 +7468,14 @@ export interface components {
         ];
         /** StageObservation */
         StageObservation: {
+            contextualization?: components["schemas"]["ContextualizationObservation"] | null;
             /** Duration Ms */
             duration_ms?: number | null;
             /** Ended At */
             ended_at?: string | null;
+            history_selection?: components["schemas"]["HistorySelectionObservation"] | null;
+            /** Operations */
+            operations?: components["schemas"]["OperationTiming"][] | null;
             /** Reason */
             reason?: string | null;
             selection?: components["schemas"]["SelectionObservation"] | null;
@@ -9747,6 +10475,207 @@ export interface operations {
             };
         };
     };
+    list_comparisons_api_v1_admin_rag_comparisons_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComparisonList"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    import_comparison_api_v1_admin_rag_comparisons_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComparisonImport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComparisonDetail"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    detail_api_v1_admin_rag_comparisons__comparison_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                comparison_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComparisonDetail"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     codex_status_api_v1_admin_rag_configuration_versions__version_id__codex_status_get: {
         parameters: {
             query?: never;
@@ -10108,6 +11037,71 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkspaceDataPolicyResponse"];
+                };
+            };
+            /** @description Authentication required. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Permission denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Resource state conflict. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Request validation or domain error. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_deployment_setup_options_api_v1_admin_rag_deployment_setup_options_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeploymentSetupOptionsResponse"];
                 };
             };
             /** @description Authentication required. */
@@ -14773,6 +15767,15 @@ export interface operations {
                     "application/json": components["schemas"]["ConversationDetail"];
                 };
             };
+            /** @description Question accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationDetail"];
+                };
+            };
             /** @description Authentication required. */
             401: {
                 headers: {
@@ -14906,6 +15909,15 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationDetail"];
+                };
+            };
+            /** @description Question accepted */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };

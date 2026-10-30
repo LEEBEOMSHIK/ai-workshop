@@ -253,7 +253,33 @@ export function ConfigurationBuilder({
       </div>
       <form onSubmit={handleSubmit}>
         <fieldset disabled={saving}>
-          <legend>문서 처리 구성</legend>
+          <legend>1. 이름과 적용 범위</legend>
+          <label>
+            구성 이름
+            <input value={name} onChange={(event) => setName(event.target.value)} required />
+          </label>
+          <div className="workspace-options" role="group" aria-label="적용할 지식 공간">
+            {workspaces.map((workspace) => (
+              <label key={workspace.id}>
+                <input
+                  type="checkbox"
+                  value={workspace.id}
+                  checked={workspaceIds.includes(workspace.id)}
+                  onChange={(event) => {
+                    setExternalApproved(false);
+                    setWorkspaceIds((current) => event.target.checked
+                      ? [...current, workspace.id]
+                      : current.filter((id) => id !== workspace.id));
+                  }}
+                />
+                {workspace.name}
+              </label>
+            ))}
+          </div>
+          {workspaces.length === 0 ? <p role="status">선택할 수 있는 지식 공간이 없습니다.</p> : null}
+        </fieldset>
+        <fieldset disabled={saving}>
+          <legend>2. 문서 처리</legend>
           <label>
             문서 처리 프로파일
             <select
@@ -267,8 +293,10 @@ export function ConfigurationBuilder({
               ))}
             </select>
           </label>
-          <ReadOnlyComponent label="Parser" value={packageSummary.parser} />
-          <ReadOnlyComponent label="OCR" value={packageSummary.ocr} />
+          <details><summary>문서 처리 구성 요소</summary>
+            <ReadOnlyComponent label="Parser" value={packageSummary.parser} />
+            <ReadOnlyComponent label="OCR" value={packageSummary.ocr} />
+          </details>
           <DocumentProcessingDetails
             profile={documentProcessingProfiles.find(
               (profile) => profile.id === documentProcessingProfileId,
@@ -283,7 +311,7 @@ export function ConfigurationBuilder({
         </fieldset>
 
         <fieldset disabled={saving}>
-          <legend>색인 구성</legend>
+          <legend>3. 색인</legend>
           <label>
             색인 패키지
             <select
@@ -300,8 +328,10 @@ export function ConfigurationBuilder({
           <p className="control-help">
             임베딩 모델과 청킹 방식이 함께 고정되며, 변경하면 호환되는 새 색인이 필요합니다.
           </p>
-          <ReadOnlyComponent label="Chunker" value={packageSummary.chunker} />
-          <ReadOnlyComponent label="Embedding" value={packageSummary.embedding} />
+          <details><summary>색인 구성 요소</summary>
+            <ReadOnlyComponent label="Chunker" value={packageSummary.chunker} />
+            <ReadOnlyComponent label="Embedding" value={packageSummary.embedding} />
+          </details>
           {requiresNewIndex ? (
             <p className="index-warning" role="alert">
               임베딩 또는 Indexing Profile이 변경되어 호환되는 새 색인 버전이 필요합니다.
@@ -310,7 +340,7 @@ export function ConfigurationBuilder({
         </fieldset>
 
         <fieldset disabled={saving}>
-          <legend>검색 구성</legend>
+          <legend>4. 검색</legend>
           <label>
             Retrieval Profile
             <select
@@ -324,6 +354,7 @@ export function ConfigurationBuilder({
               ))}
             </select>
           </label>
+          <details><summary>검색 구성 요소</summary>
           <ReadOnlyComponent label="Sparse Retriever" value={packageSummary.sparseRetriever} />
           <ReadOnlyComponent
             label="Dense Retriever"
@@ -331,10 +362,11 @@ export function ConfigurationBuilder({
           />
           <ReadOnlyComponent label="Fusion" value={packageSummary.fusion} />
           <ReadOnlyComponent label="Reranker" value={packageSummary.reranker} />
+          </details>
         </fieldset>
 
         <fieldset disabled={saving}>
-          <legend>답변 구성</legend>
+          <legend>5. 답변</legend>
           <label>
             답변 방식
             <select
@@ -385,14 +417,15 @@ export function ConfigurationBuilder({
             </div>
           ) : null}
           <ReadOnlyComponent
-            label="Answer Policy"
-            value={`${answerMode} · complete provenance · separate sources`}
-          />
-          <ReadOnlyComponent
             label="LLM"
             value={generationDeployment
               ? `${generationDeployment.model_name} v${generationDeployment.model_version}`
               : packageSummary.llm}
+          />
+          <details><summary>답변 판정 세부 설정</summary>
+          <ReadOnlyComponent
+            label="Answer Policy"
+            value={`${answerMode} · complete provenance · separate sources`}
           />
           <label>
             최소 semantic score
@@ -416,36 +449,10 @@ export function ConfigurationBuilder({
               onChange={(event) => setMinKeywordCoverage(Number(event.target.value))}
             />
           </label>
+          </details>
           {answerMode === "generative" ? (
             <p className="control-help">후속질문 문맥과 인용 검증 정책이 Generation Profile 버전에 함께 고정됩니다.</p>
           ) : null}
-        </fieldset>
-
-        <fieldset disabled={saving}>
-          <legend>저장 정보</legend>
-          <label>
-            구성 이름
-            <input value={name} onChange={(event) => setName(event.target.value)} required />
-          </label>
-          <div className="workspace-options" role="group" aria-label="적용할 지식 공간">
-            {workspaces.map((workspace) => (
-              <label key={workspace.id}>
-                <input
-                  type="checkbox"
-                  value={workspace.id}
-                  checked={workspaceIds.includes(workspace.id)}
-                  onChange={(event) => {
-                    setExternalApproved(false);
-                    setWorkspaceIds((current) => event.target.checked
-                      ? [...current, workspace.id]
-                      : current.filter((id) => id !== workspace.id));
-                  }}
-                />
-                {workspace.name}
-              </label>
-            ))}
-          </div>
-          {workspaces.length === 0 ? <p role="status">선택할 수 있는 지식 공간이 없습니다.</p> : null}
         </fieldset>
 
         {answerMode === "generative"
@@ -546,6 +553,7 @@ function transferCategoryLabels(categories: string[]): string {
     question: "현재 질문",
     bounded_history: "제한된 이전 대화",
     evidence: "선별된 문서 근거",
+    service_instructions: "서비스 지침",
   };
   return categories.map((category) => labels[category] ?? category).join(", ");
 }
@@ -555,7 +563,7 @@ function externalApprovalLabel(
   workspaces: Workspace[],
   workspaceIds: string[],
 ): string {
-  const provider = deployment.provider === "development_codex_exec" ? "개발용 Codex CLI" : deployment.provider === "openai_responses"
+  const provider = deployment.provider === "anthropic_messages" ? "Claude · Anthropic Messages API" : deployment.provider === "development_codex_exec" ? "개발용 Codex CLI" : deployment.provider === "openai_responses"
     ? "OpenAI Responses API"
     : "로컬 OpenAI 호환 공급자";
   const workspaceNames = workspaceIds

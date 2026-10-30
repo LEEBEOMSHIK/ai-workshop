@@ -26,6 +26,7 @@ def resolve_evidence_budget(config: Mapping[str, object]) -> EvidenceBudget | No
         "rag-answer-v3",
         "rag-answer-v4",
         "rag-answer-v5",
+        "rag-answer-v6",
     }
     if value is None:
         if contextual_prompt:

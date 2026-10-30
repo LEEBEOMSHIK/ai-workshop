@@ -13,9 +13,12 @@ import { answerLabels, executionLabels } from "./ExecutionListPage";
 import styles from "./ExecutionMonitoring.module.css";
 import { ClaimCitationReview } from "../configurations/ClaimCitationReview";
 import { BudgetTrace } from "../conversation/BudgetTrace";
+import { AgentTracePanel } from "./AgentTracePanel";
+import { ExecutionConversationTurns } from "./ExecutionConversationTurns";
+import { ExecutionContextObservation } from "./ExecutionContextObservation";
 
 const score = (value: number | null | undefined) => value == null ? "미기록" : value.toFixed(4);
-const numericErrors: Record<string, string> = {
+const errorDescriptions: Record<string, string> = {
   calculation_operand_not_supported: "계산 피연산자가 해당 주장이나 요청의 원문과 일치하지 않습니다.",
   calculation_result_span_invalid: "계산 결과의 답변 내 위치가 유효하지 않습니다.",
   calculation_unit_not_supported: "허용되지 않은 단위 또는 계산입니다.",
@@ -23,34 +26,62 @@ const numericErrors: Record<string, string> = {
   calculation_limit_exceeded: "계산 검증의 안전한 처리 한도를 초과했습니다.",
   numeric_validation_binding_invalid: "저장된 계산 근거와 실행 기록이 일치하지 않습니다.",
   generation_schema_not_supported: "선택한 생성 서비스가 계산 근거 응답 형식을 지원하지 않습니다.",
+  orchestration_budget_exceeded: "설정한 에이전트 실행 예산 초과",
+  orchestration_not_supported: "현재 모델/설정에서 SDK 실행 미지원",
+  orchestration_invalid_delegation: "위임 형식/대상 검증 실패",
 };
 const reasons: Record<string, string> = { selected: "선택", budget_exceeded: "입력 예산 초과", below_threshold: "기준 점수 미달", conflict_context_budget_exceeded: "상충 근거 예산 초과" };
 
 export function ExecutionDetailPage({ id, kind = "execution" }: { id: string; kind?: "execution" | "legacy" }) {
+  // A new route identity must not display the preceding execution or its open evidence.
+  return <ExecutionDetailContent key={`${kind}:${id}`} id={id} kind={kind} />;
+}
+
+function ExecutionDetailContent({ id, kind }: { id: string; kind: "execution" | "legacy" }) {
   const [detail, setDetail] = useState<ExecutionDetail | null>(null);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [evidence, setEvidence] = useState<Evidence | null>(null);
+  const [fetchedAt, setFetchedAt] = useState<string | null>(null);
   const closeEvidence = useCallback(() => setEvidence(null), []);
   useEffect(() => {
     const controller = new AbortController();
     getExecutionDetail(id, kind, controller.signal).then(value => {
-      if (!controller.signal.aborted) { setDetail(value); setError(""); }
+      if (controller.signal.aborted) return;
+      if (value.id !== id || value.record_kind !== kind) throw new Error("Execution identity mismatch");
+      setDetail(value); setError(""); setFetchedAt(new Date().toISOString());
     }).catch(() => { if (!controller.signal.aborted) { setDetail(null); setError("실행을 열 수 없습니다. 삭제되었거나 현재 원문 접근 권한이 없을 수 있습니다."); } });
     return () => controller.abort();
   }, [id, kind, attempt]);
+  function refresh() {
+    setDetail(null); setError(""); setEvidence(null); setFetchedAt(null);
+    setAttempt(value => value + 1);
+  }
   const selection = detail?.stages.find(stage => stage.selection)?.selection;
+  const hasAgentFlow = Boolean(detail?.agent_trace?.spans.length);
   return <main className={styles.page}>
-    <Link href={routes.adminRagExecutions}>← 실행 목록</Link>
-    {error ? <p role="alert">{error} <button onClick={() => setAttempt(value => value + 1)}>다시 시도</button></p> : null}
+    <div className={styles.detailToolbar}><Link className={styles.detailNavigationLink} href={routes.adminRagExecutions}>← 실행 목록</Link>
+      <button type="button" onClick={refresh} disabled={!detail && !error}>실행 상태 새로고침</button></div>
+    {fetchedAt ? <p className={styles.hint}>마지막 조회 <time dateTime={fetchedAt}>{new Date(fetchedAt).toLocaleString("ko-KR")}</time> · 자동으로 갱신되지 않습니다.{detail?.status === "running" ? " 실행 중 최신 상태는 새로고침으로 확인하세요." : ""}</p> : null}
+    {error ? <p role="alert">{error} <button onClick={refresh}>다시 시도</button></p> : null}
     {!detail && !error ? <p role="status">실행 상세를 불러오고 있습니다…</p> : null}
     {detail ? <>
-      <header><p className={styles.eyebrow}>질문별 실행 상세</p><h1>{detail.query}</h1><p>{new Date(detail.created_at).toLocaleString("ko-KR")} · {duration(detail.duration_ms)}</p>
-        <div className={styles.badges}><span data-state={detail.status}>실행: {executionLabels[detail.status]}</span><span>답변: {answerLabels[detail.answer_status ?? ""] ?? "미기록"}</span><span>품질: {detail.quality_status === "unreviewed" ? "미검증" : detail.quality_status === "passed" ? "통과" : "실패"}</span></div>
-        {detail.error_code ? <p role="alert">{numericErrors[detail.error_code] ?? "실패 코드:"} <code>{detail.error_code}</code></p> : null}
+      <header><p className={styles.eyebrow}>질문별 실행 상세</p><h1>{detail.query}</h1><p><time dateTime={detail.created_at}>{new Date(detail.created_at).toLocaleString("ko-KR")}</time></p>
+        {!hasAgentFlow ? <section aria-label="실행 결과 요약" className={styles.outcomeSummary}>
+          <div data-state={detail.status}><span>실행</span><strong>{executionLabels[detail.status]}</strong></div>
+          <div><span>답변</span><strong>{answerLabels[detail.answer_status ?? ""] ?? "미기록"}</strong></div>
+          <div data-state={detail.quality_status}><span>품질</span><strong>{detail.quality_status === "unreviewed" ? "미검증" : detail.quality_status === "passed" ? "통과" : "실패"}</strong></div>
+          <div><span>전체 소요 시간</span><strong>{duration(detail.duration_ms)}</strong></div>
+        </section> : null}
+        {detail.error_code ? <p role="alert">{errorDescriptions[detail.error_code] ?? "실패 코드:"} <code>{detail.error_code}</code></p> : null}
         {detail.record_kind === "legacy" ? <p>이전 기록 · 상세 단계 미기록</p> : !detail.observation_complete ? <p>일부 관측 기록이 누락되었습니다.</p> : null}
-        {detail.conversation_id && detail.domain_slug ? <Link href={`${ragDomainChatPath(detail.domain_slug)}?conversation=${detail.conversation_id}`}>기존 대화 열기</Link> : null}
+        {detail.conversation_id && detail.domain_slug ? <Link className={styles.detailNavigationLink} href={`${ragDomainChatPath(detail.domain_slug)}?conversation=${detail.conversation_id}`}>기존 대화 열기</Link> : null}
       </header>
+      {detail.record_kind === "execution" && detail.kind === "conversation" && detail.conversation_id && detail.domain_slug
+        ? <ExecutionConversationTurns domainSlug={detail.domain_slug} conversationId={detail.conversation_id} executionId={detail.id} turnId={detail.turn_id} /> : null}
+      <AgentTracePanel trace={detail.agent_trace} view="history" outcome={{ status: detail.status,
+        answer_status: detail.answer_status, quality_status: detail.quality_status, duration_ms: detail.duration_ms,
+        observation_complete: detail.observation_complete }} />
       <section className={styles.card}><h2>생성 답변</h2>
         <p className={styles.answer}>{detail.generation?.text ?? (detail.answer_status === "insufficient_evidence" ? "답변할 근거가 부족합니다." : "저장된 생성 답변이 없습니다.")}</p>
         {detail.generation?.reason_codes?.map(code => <code key={code}>{code} </code>)}
@@ -68,7 +99,8 @@ export function ExecutionDetailPage({ id, kind = "execution" }: { id: string; ki
           <div className={styles.badges}>{detail.evidence.map(item => <button key={item.source.evidence_unit_id} onClick={() => setEvidence(item)}>{item.source.title} · {item.source.location.page ?? "—"}쪽 원문</button>)}</div>
         </details>
       </section>
-      <section><h2>처리 단계</h2><p className={styles.hint}>실패 표시와 단계별 소요 시간으로 중단 위치와 지연 구간을 확인합니다. 생략은 실행하지 않은 단계, 미기록은 관측 정보가 없는 단계입니다.</p><ExecutionStages stages={detail.stages} /></section>
+      <section><h2>처리 단계</h2><p className={styles.hint}>막대는 가장 오래 걸린 단계와의 시간 비교입니다. 생략은 미실행, 미기록은 관측 정보가 없는 상태입니다.</p><ExecutionStages stages={detail.stages} /></section>
+      <ExecutionContextObservation stages={detail.stages} />
       <details className={styles.card}><summary>검색 근거·유사도·선택 사유</summary>
         <p className={styles.hint}>반환된 검색 후보의 원점수입니다. 문맥 코사인과 검색 점수는 답변 정확도가 아닙니다.</p>
         {selection ? <><p>전체 {selection.candidate_count}개 · 기록 {selection.candidates?.length ?? 0}개{selection.truncated ? " · 기록 상한으로 일부 생략" : ""}</p><div className={styles.cards}>

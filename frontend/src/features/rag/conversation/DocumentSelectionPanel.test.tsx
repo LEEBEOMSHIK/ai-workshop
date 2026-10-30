@@ -62,6 +62,47 @@ it("places initial focus inside the modal and contains forward and reverse Tab n
   opener.remove();
 });
 
+it.each(["hidden", "aria-hidden", "inert", "display", "visibility"] as const)(
+  "keeps Tab boundaries on visible controls when the folder tree ancestor uses %s",
+  async (concealment) => {
+    const workspace = { id: workspaceId, name: "회사 규정", kind: "company", expires_at: null };
+    const folder = { id: "folder-1", metadata_revision: 1, name: "빈 허용 폴더", parent_id: null, has_children: false };
+    vi.stubGlobal("fetch", vi.fn(async (input) => {
+      const path = String(input);
+      if (path.endsWith("/library")) return Response.json({ domain_id: "domain-1", display_name: "자산운용", connection_version_id: "connection-1", selection_limit: 2, workspace_options: [workspace] });
+      const page = { workspace, ancestors: [], documents: [], next_document_cursor: null, next_folder_cursor: null };
+      if (path.includes("folder_id=folder-1")) return Response.json({ ...page, folder, folders: [] });
+      if (path.endsWith(`/workspaces/${workspaceId}`)) return Response.json({ ...page, folder: null, folders: [folder] });
+      throw new Error(`Unexpected path: ${path}`);
+    }));
+    const user = userEvent.setup();
+    render(<DocumentSelectionPanel slug="asset-management" currentDocuments={[]} workspaceIds={[workspaceId]} folderIds={[folder.id]} foldersByWorkspace={{ [workspaceId]: [folder] }} onApply={vi.fn()} onClose={vi.fn()} returnFocus={null} />);
+
+    const closeButton = screen.getByRole("button", { name: "닫기" });
+    expect(closeButton).toHaveFocus();
+    await screen.findByText("이 폴더에는 문서가 없습니다.");
+    const toggle = screen.getByRole("button", { name: "폴더 탐색기 접기" });
+    await user.click(toggle);
+    const tree = window.document.getElementById(toggle.getAttribute("aria-controls")!)!;
+    expect(tree).toHaveAttribute("hidden");
+    // Exercise equivalent ancestor visibility boundaries without replacing the real tree.
+    if (concealment !== "hidden") {
+      tree.removeAttribute("hidden");
+      if (concealment === "aria-hidden") tree.setAttribute("aria-hidden", "true");
+      else if (concealment === "inert") tree.setAttribute("inert", "");
+      else if (concealment === "display") tree.style.display = "none";
+      else tree.style.visibility = "hidden";
+    }
+    expect(screen.getByRole("button", { name: "선택 적용" })).toBeDisabled();
+
+    closeButton.focus();
+    await user.tab({ shift: true });
+    expect(toggle).toHaveFocus();
+    await user.tab();
+    expect(closeButton).toHaveFocus();
+  },
+);
+
 it("browses only existing domain documents, permits explicit last deselection, and restores focus on Escape", async () => {
   stubRootLibrary();
   const close = vi.fn();

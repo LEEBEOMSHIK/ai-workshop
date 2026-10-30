@@ -136,7 +136,7 @@ it("creates a session, sends diagnostics without client history, and cancels the
     if (path.endsWith("/folders") || path.endsWith("/attachments")) return json([]);
     if (path.endsWith("/cancel")) return json({...summary, revision: 3, turns: [{...turn, query: "새 질문", status: "cancelled"}]});
     if (path.endsWith("/start")) { sent = JSON.parse(String(init?.body)); return new Promise<Response>(() => {}); }
-    if (path.includes("/starts/")) return json({...summary, turns: [{...turn, status:"running", execution_terminated:false}]});
+    if (path.includes("/starts/")) return json({...summary, turns: [{...turn, request_id:sent?.request_id, status:"running", execution_terminated:false}]});
     if (path.endsWith("/conversations")) return json(init?.method === "POST" ? {...summary, turns: []} : []);
     return json({...summary, turns: [turn]});
   }));

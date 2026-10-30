@@ -22,6 +22,10 @@ class Repository:
             if row.owner_id == actor:
                 yield row
 
+    async def turn_ids(self, actor):
+        async for row in self.entries(actor):
+            yield row.turn.id
+
     async def find(self, actor, id, *, legacy=False):
         return next((r for r in self.rows if r.owner_id == actor and r.turn.id == id), None)
 

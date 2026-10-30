@@ -243,6 +243,18 @@ class SqlAlchemyDeploymentRepository:
         record = await self._session.get(ModelDeploymentVersionRecord, version_id)
         return None if record is None else _version_domain(record)
 
+    async def get_versions(
+        self, version_ids: tuple[UUID, ...]
+    ) -> dict[UUID, ModelDeploymentVersion]:
+        if not version_ids:
+            return {}
+        records = await self._session.scalars(
+            select(ModelDeploymentVersionRecord).where(
+                ModelDeploymentVersionRecord.id.in_(version_ids)
+            )
+        )
+        return {record.id: _version_domain(record) for record in records}
+
     async def add_health_check(
         self, health_check: DeploymentHealthCheck
     ) -> DeploymentHealthCheck:

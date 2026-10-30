@@ -3,7 +3,7 @@ from functools import partial
 from typing import Literal, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_workshop.config import Settings
@@ -207,6 +207,24 @@ class SqlAlchemyRagConfigurationRepository:
         )
         return _profile_to_domain(record, deployment_version_id)
 
+    async def find_profiles(self, profile_ids: tuple[UUID, ...]) -> dict[UUID, Profile]:
+        if not profile_ids:
+            return {}
+        rows = (
+            await self.session.execute(
+                select(ProfileRecord, ProfileDeploymentBindingRecord.deployment_version_id)
+                .outerjoin(
+                    ProfileDeploymentBindingRecord,
+                    ProfileDeploymentBindingRecord.profile_id == ProfileRecord.id,
+                )
+                .where(ProfileRecord.id.in_(profile_ids))
+            )
+        ).all()
+        return {
+            record.id: _profile_to_domain(record, deployment_id)
+            for record, deployment_id in rows
+        }
+
     async def get_deployment_version(
         self, deployment_version_id: UUID
     ) -> ModelDeploymentVersion | None:
@@ -215,6 +233,21 @@ class SqlAlchemyRagConfigurationRepository:
     async def get_model_definition(self, model_definition_id: UUID) -> ModelDefinition | None:
         record = await self.session.get(ModelDefinitionRecord, model_definition_id)
         return _model_to_domain(record) if record is not None else None
+
+    async def get_deployment_versions(
+        self, version_ids: tuple[UUID, ...]
+    ) -> dict[UUID, ModelDeploymentVersion]:
+        return await SqlAlchemyDeploymentRepository(self.session).get_versions(version_ids)
+
+    async def get_model_definitions(
+        self, model_ids: tuple[UUID, ...]
+    ) -> dict[UUID, ModelDefinition]:
+        if not model_ids:
+            return {}
+        records = await self.session.scalars(
+            select(ModelDefinitionRecord).where(ModelDefinitionRecord.id.in_(model_ids))
+        )
+        return {record.id: _model_to_domain(record) for record in records}
 
     async def lock_external_execution_policy(self) -> None:
         await SqlAlchemyDataPolicyRepository(self.session).lock_external_execution_policy()
@@ -388,9 +421,36 @@ class SqlAlchemyRagConfigurationRepository:
         return tuple(result)
 
     async def list_visible(self, actor_id: UUID) -> list[SavedRagConfiguration]:
-        records = list(
-            await self.session.scalars(
-                select(RagConfigurationRecord)
+        latest_version = (
+            select(func.max(RagConfigurationVersionRecord.version))
+            .where(RagConfigurationVersionRecord.configuration_id == RagConfigurationRecord.id)
+            .correlate(RagConfigurationRecord)
+            .scalar_subquery()
+        )
+        rows = (
+            await self.session.execute(
+                select(
+                    RagConfigurationRecord,
+                    RagConfigurationVersionRecord,
+                    AnswerPolicyVersionRecord,
+                    ProfileRecord,
+                )
+                .outerjoin(
+                    RagConfigurationVersionRecord,
+                    and_(
+                        RagConfigurationVersionRecord.configuration_id == RagConfigurationRecord.id,
+                        RagConfigurationVersionRecord.version == latest_version,
+                    ),
+                )
+                .outerjoin(
+                    AnswerPolicyVersionRecord,
+                    AnswerPolicyVersionRecord.id
+                    == RagConfigurationVersionRecord.answer_policy_version_id,
+                )
+                .outerjoin(
+                    ProfileRecord,
+                    ProfileRecord.id == RagConfigurationVersionRecord.retrieval_profile_id,
+                )
                 .where(
                     or_(
                         RagConfigurationRecord.is_system.is_(True),
@@ -403,8 +463,42 @@ class SqlAlchemyRagConfigurationRepository:
                     RagConfigurationRecord.id,
                 )
             )
+        ).all()
+        if not rows:
+            return []
+        version_ids = tuple(
+            version.id for _identity, version, _policy, _profile in rows if version is not None
         )
-        return [await self._latest(record) for record in records]
+        workspace_ids: dict[UUID, list[UUID]] = {}
+        if version_ids:
+            subscriptions = await self.session.execute(
+                select(
+                    RagConfigurationWorkspaceSubscriptionRecord.configuration_version_id,
+                    RagConfigurationWorkspaceSubscriptionRecord.workspace_id,
+                )
+                .where(
+                    RagConfigurationWorkspaceSubscriptionRecord.configuration_version_id.in_(
+                        version_ids
+                    )
+                )
+                .order_by(RagConfigurationWorkspaceSubscriptionRecord.workspace_id)
+            )
+            for version_id, workspace_id in subscriptions:
+                workspace_ids.setdefault(version_id, []).append(workspace_id)
+        result = []
+        for identity, version, policy, retrieval in rows:
+            if version is None:
+                raise RuntimeError("A Saved RAG Configuration identity has no version.")
+            result.append(
+                self._assemble_configuration(
+                    identity,
+                    version,
+                    policy,
+                    tuple(workspace_ids.get(version.id, ())),
+                    _profile_to_domain(retrieval) if retrieval is not None else None,
+                )
+            )
+        return result
 
     async def ready_processing_indexing_profile_ids(
         self,
@@ -752,14 +846,6 @@ class SqlAlchemyRagConfigurationRepository:
             AnswerPolicyVersionRecord,
             version.answer_policy_version_id,
         )
-        if policy is None or policy.configuration_id != identity.id:
-            raise RuntimeError("A Saved RAG Configuration has no immutable Answer Policy.")
-        if (
-            policy.mode not in {"extractive", "generative"}
-            or policy.require_complete_provenance is not True
-            or policy.conflict_mode != "separate_sources"
-        ):
-            raise RuntimeError("A Saved RAG Configuration has an invalid Answer Policy.")
         workspace_ids = tuple(
             await self.session.scalars(
                 select(RagConfigurationWorkspaceSubscriptionRecord.workspace_id)
@@ -770,6 +856,25 @@ class SqlAlchemyRagConfigurationRepository:
                 .order_by(RagConfigurationWorkspaceSubscriptionRecord.workspace_id)
             )
         )
+        retrieval = await self.find_profile(version.retrieval_profile_id)
+        return self._assemble_configuration(identity, version, policy, workspace_ids, retrieval)
+
+    @staticmethod
+    def _assemble_configuration(
+        identity: RagConfigurationRecord,
+        version: RagConfigurationVersionRecord,
+        policy: AnswerPolicyVersionRecord | None,
+        workspace_ids: tuple[UUID, ...],
+        retrieval: Profile | None,
+    ) -> SavedRagConfiguration:
+        if policy is None or policy.configuration_id != identity.id:
+            raise RuntimeError("A Saved RAG Configuration has no immutable Answer Policy.")
+        if (
+            policy.mode not in {"extractive", "generative"}
+            or policy.require_complete_provenance is not True
+            or policy.conflict_mode != "separate_sources"
+        ):
+            raise RuntimeError("A Saved RAG Configuration has an invalid Answer Policy.")
         answer_policy = AnswerPolicyVersion(
             id=policy.id,
             configuration_id=policy.configuration_id,
@@ -780,7 +885,6 @@ class SqlAlchemyRagConfigurationRepository:
             require_complete_provenance=True,
             conflict_mode="separate_sources",
         )
-        retrieval = await self.find_profile(version.retrieval_profile_id)
         if retrieval is None:
             raise RuntimeError("A Saved RAG Configuration retrieval profile is missing.")
         retrieval_indexing_id = _retrieval_indexing_profile_id(retrieval)

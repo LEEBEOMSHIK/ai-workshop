@@ -1,6 +1,14 @@
 # Workboard
 
-> 인계 검증·정리 완료(2026-10-31): **누적 변경538개 커밋·푸시 준비**. 백엔드 회귀1843·strict타입527소스, 프론트1415개/188파일·Node17개·타입/린트·OpenAPI와 독립 검토를 확인했다. Node 수집 오류와 타입 변수 충돌을 수정했고, 장시간 색인 묶음은 미완료로 구분했다. 승인 캐시4곳166파일(논리386.60MiB) 삭제, 새 검증 캐시 압축·원문해시 보존. 사용자 이미지·환경/DB/모델·미해결 진단·ASA 유지, 모델0. 이 문서를 포함한 커밋을 기존 origin/main으로 인계하며 푸시 후 SHA는 최종 보고에서 확인한다. [범위·검증·한계](docs/worklogs/2026-10-31-git-handoff.md).
+> 2026-11-04 Git 인계 범위는 벡터 저장소 오프라인 비교 도구, 공개 합성 입력, 회귀 테스트와 후보 조사 문서 등 23개 파일이다. 회귀 테스트 109개와 Ruff 검사, 문서 9개의 로컬 링크 188개를 확인했다. 실제 엔진 비교는 후속 작업이다.
+
+> 비교 조사 완료(2026-11-01): **Qdrant·Milvus·Weaviate·Chroma의 프로젝트 적합성**을 공식 문서/고정 버전 소스와 기존 환경 관측으로 비교했다. 현재 ES 유지, 전용 DB 첫 실측 Qdrant·다음 Weaviate 권고이며 품질·속도·RAM 우열은 미측정이다. Chroma local은 후속 ANN, Milvus Standalone은 현 자원 제약에서 후순위로 판단하고 Lite를 구분했다. 독립 검토 차단0·문서3개/로컬 링크102개·최근 완료5개·보존17파일 검사 통과. 설치·적용·설정 변경·엔진/모델 호출0. [비교 보고서](docs/worklogs/2026-11-01-vector-store-candidate-comparison.md).
+
+> 오프라인 준비 완료(2026-11-01): **ES·pgvector·Qdrant 비교 기준/도구**. 본래 메타데이터 읽기 조사, 후보 선정, 공개 합성 snapshot·exact 요청·반복 계획·검색 품질/시간/자원 관측 분석 CLI를 구현했다. 회귀109·독립91·strict Mypy7소스·Ruff·CLI 왕복·문서 검증 통과. 기존 `.env`/Compose/런타임 설정 해시 보존·제품 DB/ES쓰기0·모델0·설치0. 실제 세 엔진 비교/원래 자료 export/응답 변환·자원 자동 수집은 미실행·미구현이다. 다음은 메모리/아키텍처/pgvector 배포·승인 자료·실행기 계획 확정이다. [결과와 한계](docs/worklogs/2026-11-01-vector-store-comparison-preparation.md), [사용 방법](docs/runbooks/vector-store-comparison.md). 장시간 색인·복구 검증은 보류 유지.
+
+> 정리 완료(2026-11-01): 사용자 요청에 따라 중단한 색인·복구 안전장치 회귀 검사를 **보류·자동 재개 안 함**으로 분리했다. 원래 계획과 최신 SDK 기록을 대조한 다음 작업은 **벡터 저장소 비교 준비**다. 추가 조회 최적화를 다음 필수 작업으로 올리지 않는다. 문서 독립 검토·링크/공백·최근 완료5개 검사를 확인했으며, 이번 범위는 문서 상태 정리뿐이다. 코드·서비스·DB 변경과 모델/장시간 검사·벡터 비교 실행은 없다.
+
+> 인계 완료(2026-10-31): **누적 변경538개 커밋·푸시 완료(`b70869b`)**. 백엔드 회귀1843·strict타입527소스, 프론트1415개/188파일·Node17개·타입/린트·OpenAPI와 독립 검토를 확인했다. Node 수집 오류와 타입 변수 충돌을 수정했고, 장시간 색인 묶음은 미완료로 구분했다. 승인 캐시4곳166파일(논리386.60MiB) 삭제, 새 검증 캐시 압축·원문해시 보존. 사용자 이미지·환경/DB/모델·미해결 진단·ASA 유지, 모델0. `b70869b`의 본래 main·원격 origin/main SHA 일치를 10/31 최종 확인했다. [범위·검증·한계](docs/worklogs/2026-10-31-git-handoff.md).
 
 > 진단·기록 완료 / 개선 미해결(2026-10-31): **ISSUE49 Windows 메모리 점유**. nonpaged pool 약11.84GiB 중 VAD3태그 약9.76GiB 확인, 관리자538개 프로세스 조회·25.45초 커널 추적/손실0·독립 decoder13개 검증. 전체 누적 원인·단일 드라이버는 미확정. 별도20초 관측에서 ASA PostgreSQL 자식102개와 두 작업 프로세스의 새 DB 연결 반복 코드를 확인했다. **사용자 지시: ASA는 유지하고 조사 결과만 기록**. ASA/Windows/제품 동작 변경0, 원래 API/프론트 유지·제품1013소스/.env 불변·모델0. 조치 전 준비6.004/5.652초·health100/100/최대39.57ms를 보존했으며 메모리 감소 조치·개선 후 비교는 미실행이다. [상세·한계·다음 조건](docs/worklogs/2026-10-31-windows-memory-investigation.md).
 
@@ -109,30 +117,35 @@ foreach ($ollamaName in $ollamaRequired) {
 
 ## 다음 작업 순서
 
-- **최신 요청 구현·본래 전후 비교 완료:** [ISSUE48 응답성 개선](docs/worklogs/2026-10-31-backend-response-improvements.md). 전체 검사·권한을 유지한 offload/DB풀/조회 일괄화와 동시 HTTP·결과동등성 검증 완료. 다음 성능 검토는 Windows nonpaged pool약11.8GiB의 할당 주체/추세, 남은 전체해시/준비조회 비용 및 중복 setup-options다. 호스트 원인은 미해결이며 임의 종료·캐시삭제·드라이버 변경·재부팅하지 않았다. 기존 모델생성/답변 품질을 개선했다고 확대하지 않는다.
+**2026-11-01 진행 결과: 벡터 저장소 비교의 오프라인 준비 도구와 전용 네 후보의 비교 조사를 완료했다.** [네 후보 비교](docs/worklogs/2026-11-01-vector-store-candidate-comparison.md)는 ES 유지/Qdrant 첫 실측/Weaviate 다음 후보의 판단 근거이며 실제 성능 우열이나 채택 결정이 아니다. 다음 구현 단계는 실측용 배포·자료 계획과 실제 실행기 준비다. 사용자 요청에 따라 이번에는 조사만 하며 설치·적용하지 않는다. 추가 조회 최적화와 중단한 장시간 색인·복구 검증도 자동 재개하지 않는다.
 
-- **최신 사용자 요청 구현·본래 반영 완료:** [Claude 연결·고급 화면 정리](docs/worklogs/2026-10-31-claude-admin-workflows.md). 다음 운영 단계는 Claude workspace 범위 키/서버 참조·공급자 정책 준비와 공개 승인 자료의 실제 답변/인용 평가다. OpenAI를 선택한다면 **ISSUE47 최신 추론 모델의 reasoning/temperature 요청 호환성** 보완을 먼저/병행한다(실제 오류 미재현·미수정). 고급 OpenAI 폼의 schema1 정정과 이 sampling 문제를 혼동하지 않는다. 기존 비교용 키는 자동 이전하지 않았고, 기존 활성 Gemma·전체 기본값·답변은 유지된다. 통과한 정확한 후보 버전만 명시 적용하며 신규 모델 호출은 별도 범위다. 이번 호출0, 과거 실측 호출 범위 재사용0.
+원래 등록 순서는 **Agents SDK → 벡터 저장소 비교 → 로컬 LLM 파인튜닝 → Kubernetes**다. [벡터 저장소·파인튜닝 계획](docs/superpowers/plans/2026-10-04-rag-vector-store-and-local-llm-experiments.md#순서와-공통-경계), [Kubernetes 계획](docs/superpowers/plans/2026-10-08-kubernetes-learning.md#순서와-학습-방식)을 따른다. 프로젝트의 진행 순서이며 앞 단계의 모든 추가 품질 개선이 뒤 단계 준비의 기술적 선행 조건이라는 뜻은 아니다.
 
-- **이번 비교의 인용 검사 수정 완료:** [ISSUE-00045](http://127.0.0.1:5173/admin/system/issues?offset=0&issue=effae3f9-d742-4d23-8856-71d5b4c9e459)의 제한적 원문 관계 검증과 저장 Terra2개 재생·본래반영·기록을 마쳤다. [다음 품질 후보](docs/worklogs/2026-10-30-relative-day-citation.md#기록과-후속)는 Gemma의 신청일/접수일 혼동과 추가 정보 누락에 대한 원문 의미·답변 완전성 보강이다. 현재 숫자 검사만으로 이 의미 오류를 해결했다고 보지 않는다. 지원하지 않는 문법 확대와 모델 실측은 별도 범위이며, 기존4회 호출 범위는 종료했다.
-
-2026-10-30 사용자 우선순위: [SDK history 관측 보완](docs/worklogs/2026-10-30-sdk-history-observation.md)의 코드·본래DB·환경 확인을 마감했다. 다음 비교는 사용자 지정 Terra와 기존 Gemma의 동일 공개 질문·28근거·첫/반복 요청을 대상으로 준비한다. 이전 OpenAI Luna 비교와는 별도 실험으로 기록하고 품질 rubric·입력 동등성·토큰/비용·캐시 조건을 보존한다. 새 모델 호출은 아직0이며 기존 기본값은 유지한다. 아래의 과거 보류 문구로 이번 명시 요청을 차단하거나 소진된 호출 예산을 자동 재사용하지 않는다.
-
-2026-10-29 최신 사용자 요청의 [Pro 혜택 연결·OpenAI/Gemma 비교](docs/worklogs/2026-10-29-openai-gemma-comparison.md)는2+2회·retry0으로 완료했다. 해당 공개 질문에서 OpenAI는3.781/3.347초·규칙/인용2/2, Gemma는159.723/11.123초·기존답변/인용동일·기존규칙누락을 확인했다. 누적예상USD0.000667이며 실제청구대조는 Usage No data로 남는다. **다음 확인은 생성 재호출 없는 청구 집계 대조**이며, 일반 기본값 승격은 다양한 질문의 품질 평가 뒤 별도 판단한다. 기존기본값/서비스/DB정책유지·이번범위종료, 남은금액으로 자동추론하지 않는다. 아래 로컬런타임 병목 실험은 별도후속이다.
-
-2026-10-29 우선 후속: [명시6스레드 비교](docs/worklogs/2026-10-28-gemma-runtime-prefill-diagnosis.md)와 [서명 ARM 첫 비교](docs/worklogs/2026-10-28-gemma-signed-runtime-comparison.md)는미채택이다. [관측 보강 후 새승인1회진단](docs/worklogs/2026-10-29-gemma-timeout-observation.md)도360초timeout·응답0이나 입력3549/출력4·첫출력208초·출력1→4관측147초를 기록해 출력생성 지연까지 확인했다. **다음은 관측 프로세스 시작 비용·실제 제한초과 보완과 출력 단계의 계산/메모리 대기/형식 제약 비용을 분리하는 준비**다. 낮은 가용메모리·상주량 감소가 관측됐지만 원인비중은미확인이다. 입력/근거/출력규칙을 유지하며 관측off·메모리여유조건 비교 등 새모델실행은 별도범위가 필요하다. 이번1/1회·retry0·잔여0종료, 기본값변경0·기존정답0/2·ISSUE38 DB갱신미완료.
-
-1. **완료:** Gemma를 첫 실제 LLM으로 연결해 질문 → 검색 근거 → 실제 LLM 입력 → 생성 답변까지 검증했다. [사용자 완료 기준](docs/worklogs/2026-10-22-rag-first-llm-milestone.md)과 [실제 입력·출력](docs/worklogs/2026-10-21-rag-current-question.md)을 정본으로 삼는다. 답변의 규칙 누락과 시간 측정 결과는 보존하며 품질 통과로 바꾸지 않는다.
-2. **현재 범위에서 제외·추가 진행 중단:** 과거 취소·색인 별칭·첨부 복구, native 전환 경로, 추가 품질 튜닝·모델 비교. 일반 대화 활성화 보류는 2026-10-26 사용자의 연결 복구·실제 수용 요청 범위에서 해제해 연결4로 완료했다. 기존 상태와 구현 자료를 보존하고 과거 기록의 “다음 복구 작업” 문구로 자동 재개하지 않는다.
-3. **사용자 후속 완료:** [백그라운드 대화](docs/worklogs/2026-10-26-background-conversations.md)의 본래 구현에 이어 [일반 연결 복구·실제 수용](docs/worklogs/2026-10-26-conversation-live-connection.md)을 마쳤다. 공개 질문2건·Gemma2/2회·retry0에서 화면 이동·탭 종료 뒤 실행 지속/복귀 결과와 입력·답변·인용·28근거 동일을 확인했다. 첫 입력134.335초와 기존 정답0/2는 남는다. batch256은 첫 입력130.876→132.683초로 개선되지 않아 비채택했고 스레드 수만 명시하는 비교는 별도 첫 입력 속도 후보로 남긴다. 이번 목록 성능 한 차례 이후 자동으로 이어서 실행하지 않으며 실효값·장치 코어/런타임 확인과 새 호출 범위가 필요하다. 전역 기본값은 유지한다. 사용자 추가 요청의 [디자인 시스템 체계화·업무 화면 적용](docs/worklogs/2026-10-26-design-system-adoption.md)은 완료했고, 신규 화면은 [적용 목록](docs/guidelines/design-system-coverage.md)과 스타일 체크리스트를 따른다. 이어진 [나머지 업무 화면 점검·수정](docs/worklogs/2026-10-26-design-system-followup.md)도 완료했으며, [실행 목록 조회 개선·모바일 확인](docs/worklogs/2026-10-26-execution-list-mobile.md)은 동일응답으로 평균25.9% 단축했다. [검증 조회 일괄화](docs/worklogs/2026-10-26-execution-validation-batch.md)로 평가SQL63.5%를 줄이고 새 기준선에서 전체10.476→8.733초를 확인했다. 전체508건 응답과 기존 권한·숫자 증명을 보존했다. [원문 조회·위치 추출 개선](docs/worklogs/2026-10-26-execution-source-read.md)은 구현·독립336개·본래API 반영과 데이터보존을 마쳤다. 보완한 측정의 현재부하 전후평균16.037→14.031초로 기존8.7초와 직접 비교하지 않는다. 사용자 재로그인 후 상세/필터 확인·ISSUE42 저장과 재조회를 완료했다. 이어 [숫자 근거 조회 개선](docs/worklogs/2026-10-26-execution-numeric-read.md)으로 현재권한·정확위치 검증을 유지하며 평가SQL640→470회·동일시점 전체평균8.276→7.596초를 확인했다. 독립349개·본래API/자료보존·목록/필터/저장상세와 ISSUE42 저장·재조회 완료. CPU 직렬화 대안은 느려 미채택했다. [대화 원문 조회 후속](docs/worklogs/2026-10-26-execution-conversation-read.md)은 한 후보만 검증했으나 전체평균0.99%/72.9ms 감소가 표본변동보다 작아 미채택·원복했다. 사용자 요청대로 추가 목록/스레드 속도 개선은 보류하고 다음 등록 제품 작업인 SDK 대화 턴 실행 연결·실제 채택 문맥/문맥화 기록을 확인했다. 당시에는 다음 작업을 확인만 했고 이후10/27 SDK 보강은4번의 최신 기록을 따른다.320/375px 대표 화면을 확인했으며 전체 모바일/실기기/자료 없는 상세 수용은 별도다.
-4. 등록된 후속 순서는 **Agents SDK 구성·모니터링 → 벡터 저장소 비교 → 로컬 LLM 파인튜닝 비교 → Kubernetes**다. [관계 선택·저장 관측·자율 재위임](docs/worklogs/2026-10-27-rag-relations-handoffs.md)을 구현·독립 검증·본래 반영했다. 기존 대화의 마감 후속은 문맥2개·원문28개·정답15:00/인용2·화면 복귀·8단계완료를 확인했지만 불필요한 이전 날짜 예시 반복은 남는다. 자율 후보는 두 반복 모두 첫 근거 담당 뒤 위임 형식/대상 검증 실패, 실제 handoff0·답변/검토0으로 미수용이다. 확인된 역할 지침 충돌과 평가 저장 경합을 보강했고 독립972개·DB15pass1skip·타입/린트·본래API 검증을 통과했다. **다음은 위임 거절의 안전한 세부 사유 관측과 수정본의 실제 역할 이동·답변/인용 검증**이다. 이번 승인6회 중 후속2+자율2=4회·retry0, 예정 실행 종료·잔여2회 미사용이며 자동 재실행하지 않는다. 후보 비활성/미승격·기존 direct 연결4/전역 기본값 유지, 전체 품질 통과를 선언하지 않는다.
-
-| 후속 | 승인된 준비 범위와 다음 경계 |
+| 순서 | 작업과 현재 상태 |
 |---|---|
-| Agents SDK | 문맥·턴 연결·관계 보존 선택·대화/평가 저장 관측과 RAG 내 근거↔답변↔검토 SDK handoff를 구현했다. 기존 대화 후속의 정답·인용·복귀·저장은 실제 확인했으나 자율 후보는 첫 위임 검증에서 실패했다. 지침 충돌/평가 저장을 후속 보강했으며 수정본 실제 수용이 남는다. 기존 direct 연결/기본값 유지. [ADR-0050](docs/decisions/0050-rag-relations-and-autonomous-handoffs.md)·[최신 결과](docs/worklogs/2026-10-27-rag-relations-handoffs.md) |
-| 벡터 저장소 | Elasticsearch·전용 벡터 DB 후보1개·PostgreSQL/pgvector를 동일 청크/벡터·권한·BM25/RRF 조건으로 비교. 임의 이관하지 않는다. [비교 범위](docs/superpowers/plans/2026-10-04-rag-vector-store-and-local-llm-experiments.md) |
-| 로컬 LLM 파인튜닝 | 장치·라이선스·검토 데이터셋 준비 후 학습 전후를 같은 근거로 비교. 저장소 비교와 독립 실험이며 SDK/기존 복구 완료를 대체하지 않는다. 설치·학습 미착수. [계획](docs/superpowers/plans/2026-10-04-rag-vector-store-and-local-llm-experiments.md) |
-| Kubernetes | 현재 장치·Docker·OS·자원·본래 자료 연결 조사 후 배포/통신→설정/권한→복구→확장/업데이트→영속 저장소→Compose 비교. 순서는 프로젝트 우선순위이며 기술적 필수 의존성은 아니다. 개념/흐름도 준비는 병행 가능, 설치·새 DB/계정·이관·서버 전환 미착수. [계획](docs/superpowers/plans/2026-10-08-kubernetes-learning.md) |
-| 84일 학습 | [학습 문서8개](docs/learning/2026-10-12-ai-engineering-84-days/README.md)는 준비 산출물이다. 실제 진도는 해당 기록 기준이며 개발 작업으로 자동 완료하지 않는다. 교재·사용량 알림 예약은 이번 작업에서 변경하지 않는다. |
+| 1. Agents SDK | 실행·모니터링·문맥/턴 연결을 구현했고, 실제 근거 담당→답변 담당 단일 handoff를 두 반복에서 확인했다. 고정 평가의 history 생략·저장 완료·화면 복귀·원문 열기도 후속 실제 실행에서 확인했다. 기존 Gemma 의미 품질 문제, 검토 역할 방문·왕복 재위임 미관측, 후보 일반 기본값 비승격은 별도로 남는다. 전체 SDK 품질·운영 활성화 완료로 확대하지 않는다. [위임 검증](docs/worklogs/2026-10-27-delegation-rejection-verification.md#진행-기록), [관측 보완](docs/worklogs/2026-10-30-sdk-history-observation.md), [실제 생략·복귀 확인](docs/worklogs/2026-10-30-terra-gemma-new-question.md#이전-대화-단계와-화면-복귀) |
+| **2. 벡터 저장소 비교 — 오프라인 준비 완료 / 실제 비교 전** | Elasticsearch·pgvector·Qdrant 후보의 동일 입력/권한 fixture/BM25·RRF 계획과 exact 요청·검색 품질/시간/자원 분석을 구현했다. 회귀109·독립91·타입/린트 통과. 현재 PG에 vector 확장 없음, 여유 RAM1.5~1.9GiB, AMD64 방침/실제 ARM64 차이를 배포안에서 해소해야 한다. 설치·실제 corpus/질문 벡터 export·실행기/자원 수집·실평가는 남는다. [준비 결과](docs/worklogs/2026-11-01-vector-store-comparison-preparation.md), [실행 전 조건](docs/runbooks/vector-store-comparison.md#실제-비교를-시작하기-전) |
+| 3. 로컬 LLM 파인튜닝 | 장치·라이선스·검토 데이터셋을 준비한 뒤 학습 전후를 같은 질문·근거로 비교한다. 저장소 비교와 독립 실험이며 설치·학습은 미착수다. [계획](docs/superpowers/plans/2026-10-04-rag-vector-store-and-local-llm-experiments.md#작업-b-로컬-llm-파인튜닝rag-연결-비교) |
+| 4. Kubernetes | 현재 장치·Docker·OS·자원·본래 자료 연결을 확인한 뒤 배포/통신→설정/권한→복구→확장/업데이트→영속 저장소→Compose 비교를 진행한다. 개념 정리는 병행 가능하며 설치·새 DB/계정·이관·서버 전환은 미착수다. [계획](docs/superpowers/plans/2026-10-08-kubernetes-learning.md) |
+
+벡터 저장소 비교의 다음 작업은 다음과 같다.
+
+1. Qdrant·pgvector의 플랫폼별 digest/호환 배포·자원 예산·신규 산출물 위치/소유/보존과 복구안을 확정한다. 기존 PG 이미지/볼륨을 자동 교체하지 않는다.
+2. 승인 corpus·기존 문서/질문 벡터 전수 parity·현재 ACL·원문 추적·청크 정답을 준비한다. 기존22벡터와38개 evidence 평가 사례를 대규모/권한 부정 검증 완료로 취급하지 않는다.
+3. 실제 요청 실행/응답 변환·자원 수집을 준비하고 설치/쓰기가 필요한 구체적 범위를 확정한 뒤 exact 동등성→ANN 비교 순으로 실측한다. 현재 CLI는 오프라인 준비/수입 분석만 수행한다. [ADR-0055](docs/decisions/0055-vector-store-comparison-preparation.md).
+
+**보존 경계:** 기존 DB·계정·문서·기본 모델·활성 검색 연결을 유지한다. 후보 평가만으로 운영 검색을 자동 전환하거나 저장 정본을 이관하거나 ES를 제거하지 않으며, 채택·전환은 별도 단계에서 판단한다. 새 ES 쓰기가 필요한 검증은 기존 **ISSUE-00013 종료 게이트**를 충족해야 한다. 이 쓰기 조건을 읽기 전용 조사·설계 전체의 차단 조건으로 확대하지 않으며, 장시간 회귀 검증 보류가 운영 보호 조건을 해제하지도 않는다.
+
+### 완료된 최근 보완과 별도 후속
+
+- Gemma 첫 실제 LLM 연결은 [사용자 완료 기준](docs/worklogs/2026-10-22-rag-first-llm-milestone.md)으로 마감했고, 일반 대화 연결4의 [백그라운드 처리·복귀 실제 수용](docs/worklogs/2026-10-26-conversation-live-connection.md)도 완료했다. 기존 답변 품질 한계는 유지한다. 과거 취소·색인 별칭·첨부·native 복구는 별도 보류 범위이며 자동 재개하거나 다음 계획의 필수 선행 조건으로 되돌리지 않는다.
+- 백엔드 요청 차단 방지·DB 연결 재사용·조회 일괄화는 본래 전후 비교까지 완료했다. 남은 setup-options 중복 요청·준비 조회 비용은 추가 최적화 후보이며 현재 다음 필수 작업이 아니다. [ISSUE48 결과](docs/worklogs/2026-10-31-backend-response-improvements.md).
+- 관리자 모델 연결·RAG 설정 통합과 Claude 연결 코드는 본래 반영했다. Claude 키/서버 참조·실제 평가·활성화, OpenAI 요청 파라미터 호환성 ISSUE47은 관련 공급자를 실제 적용할 때 확인할 별도 후속이다. [통합 설정](docs/worklogs/2026-10-30-admin-model-setup.md), [Claude](docs/worklogs/2026-10-31-claude-admin-workflows.md).
+- Terra/Gemma 새 질문 비교와 history 생략 화면 확인은 2026-10-30에 완료했다. 원문 정의 기반 영업일 인용 보완도 별도로 완료했으며 Gemma 의미 오류까지 해결한 것은 아니다. 과거의 “비교 준비/호출0/첫 위임 실패” 메모로 완료한 검증을 자동 반복하지 않는다. [비교](docs/worklogs/2026-10-30-terra-gemma-new-question.md), [인용 보완](docs/worklogs/2026-10-30-relative-day-citation.md).
+- 기존 OpenAI 비교의 실제 청구 집계 대조, 추가 로컬 런타임 속도 실험·품질 보강은 별도 후속으로 유지한다. 소진·종료된 모델 호출 범위를 재사용하지 않는다. [OpenAI 비교·비용](docs/worklogs/2026-10-29-openai-gemma-comparison.md), [로컬 진단](docs/worklogs/2026-10-29-gemma-timeout-observation.md).
+- [84일 학습 문서8개](docs/learning/2026-10-12-ai-engineering-84-days/README.md)는 준비 산출물이며 실제 학습 진도와 다르다. 이번 정리에서 교재·사용량 알림 예약을 변경하지 않는다.
+
+이 절의 정리 전 상태는 커밋 `b70869b`의 WORKBOARD와 각 주제의 worklog에 보존된다. 날짜별 과거 “다음” 표현을 현재 착수 지시로 취급하지 않는다.
 
 ## 승인과 보존 경계
 
@@ -169,6 +182,8 @@ foreach ($ollamaName in $ollamaRequired) {
 
 | 분야 | 보존할 후속과 근거 |
 |---|---|
+| **보류: 색인·복구 안전장치 회귀 검증** | **2026-11-01 사용자 지시로 보류·자동 재개 안 함.** 10/31 커밋 검증 중 실행한 17파일 묶음으로, 697.45초 후 중단했다. 부분 출력800통과·13건너뜀·실패 표시0이며 최종 요약/JUnit이 없어 전체 통과가 아니다. 실제 재색인·모델 호출은 없었다. 현재 일반 대화·응답성 개선 완료나 다음 벡터 저장소 비교의 읽기·설계 준비를 막는 필수 작업으로 연결하지 않는다. 해당 native 색인·복구 경로 변경/운영 적용을 다시 검토할 때 검사 범위·장시간 원인을 확인하고 명시적으로 재개한다. 기존 운영 쓰기 게이트는 유지한다. [중단 범위·증거](docs/worklogs/2026-10-31-git-handoff.md#검증) |
+| 추가 조회 최적화 | setup-options 중복 호출과 남은 준비 조회 비용은 측정 후보로만 보존한다. 이번 사용자 요청에서 원래 계획 작업보다 앞선 필수 보완으로 두지 않는다. [후보·한계](docs/worklogs/2026-10-31-backend-response-improvements.md#한계와-다음-순서) |
 | 삭제·휴지통 수명주기 | 전체 participant inventory, 구 writer/파일 writer 종료, 잠금 순서·잔존 재검증·OCR writer·legacy/backfill·비Windows native 및 실제 삭제 API/UI 통합. 기반 구현과 운영 활성화는 구분한다. [임시 작업/삭제 경계](docs/worklogs/2026-09-20-jobs-and-rag-sandbox.md), [provenance](docs/worklogs/2026-09-14-asset-purge-provenance.md) |
 | 파일함·실제 화면 | 이름 변경/휴지통·복원, PDF/중첩 폴더/다중 버전의 실제 사용자 흐름과 뷰어 닫기 초점 Minor. 기존 이동·권한 구현을 반복하지 않는다. [서버](docs/worklogs/2026-09-13-explorer-movement-server.md), [UI](docs/worklogs/2026-09-13-explorer-movement-ui.md) |
 | 기술별 권한 | 공통 권한 기반과 기존 RAG 기술별 위임 개방은 구분한다. [기반 기록](docs/worklogs/2026-09-09-technology-permissions-foundation.md) |
@@ -182,15 +197,15 @@ foreach ($ollamaName in $ollamaRequired) {
 
 ## 최근 완료 작업
 
-1. [누적 변경 정리·Git 인계](docs/worklogs/2026-10-31-git-handoff.md)(2026-10-31): 538개 명시 선별, 회귀1843·타입527소스·프론트1415/Node17·OpenAPI와 독립 검토. 승인 캐시4곳166파일 삭제, 이력74개 보존 이관. 장시간 색인 전체 미완료·실모델/DB쓰기0·ASA 유지. 원격 반영은 최종 Git SHA로 확인한다.
+1. [벡터 저장소 오프라인 비교 준비](docs/worklogs/2026-11-01-vector-store-comparison-preparation.md)(2026-11-01): ES·pgvector·Qdrant 선정/환경 조사·snapshot/exact 요청/일정/검색 품질·시간·자원 분석 CLI. 회귀109·독립91·strict7·린트·CLI 왕복 통과. 후속 [전용 네 후보 비교 조사](docs/worklogs/2026-11-01-vector-store-candidate-comparison.md)는 Qdrant 첫 실측·Weaviate 다음 후보를 권고하며 성능 우열은 미측정. 기존 설정/자료/모델 유지, 설치·실검색0. 실측용 배포·원래 자료·실행기·자원 수집은 후속.
 
-2. [백엔드 응답성 개선](docs/worklogs/2026-10-31-backend-response-improvements.md)(2026-10-31): ISSUE48. 무결성 offload·HTTP DB풀·구성 일괄조회. 동일결과 SQL340→124, 준비9.2~9.4→5.7~5.8초, 본래동시health최대1.226→0.190초. 독립36·회귀/타입/린트·실제PG·124표162099행/.env/gate보존, 본래API반영·이력저장. 모델0, 호스트nonpaged원인별도.
+2. [누적 변경 정리·Git 인계](docs/worklogs/2026-10-31-git-handoff.md)(2026-10-31): 538개 명시 선별, 회귀1843·타입527소스·프론트1415/Node17·OpenAPI와 독립 검토. 승인 캐시4곳166파일 삭제, 이력74개 보존 이관. 장시간 색인 전체 미완료·실모델/DB쓰기0·ASA 유지. main·origin/main의 `b70869b` 일치를 확인했다.
 
-3. [Claude 연결·고급 관리 화면 정리](docs/worklogs/2026-10-31-claude-admin-workflows.md)(2026-10-31): ISSUE46 후속. native 공급자/정책·최신순 선택·작업별 관리/초안 보존. 서버558·독립189/62·프론트139/52·타입/린트, 본래320/375px와 migration0068/API 검증. 이력 전124표162091행·설정보존, 이력저장/재조회. 키/실제 Claude 답변평가·활성화 미실행, 모델0/추가 API비용0.
+3. [백엔드 응답성 개선](docs/worklogs/2026-10-31-backend-response-improvements.md)(2026-10-31): ISSUE48. 무결성 offload·HTTP DB풀·구성 일괄조회. 동일결과 SQL340→124, 준비9.2~9.4→5.7~5.8초, 본래동시health최대1.226→0.190초. 독립36·회귀/타입/린트·실제PG·124표162099행/.env/gate보존, 본래API반영·이력저장. 모델0, 호스트nonpaged원인별도.
 
-4. [관리자 모델 연결·RAG 설정 통합](docs/worklogs/2026-10-30-admin-model-setup.md)(2026-10-30): ISSUE46. 안전한 연결 옵션·등록·기존 구성 복사·정확 평가 수용·도메인 적용. 후속 공개 최신모델5개 콤보·고급 메뉴 구분까지 완료. 후속86/66·독립108/최종25·TS/lint·본래320/375px 통과, 실모델0·기본연결 유지. 서버 참조/실제 새 모델 평가는 별도이며 runtime 파라미터 호환 확인은 ISSUE47로 등록.
+4. [Claude 연결·고급 관리 화면 정리](docs/worklogs/2026-10-31-claude-admin-workflows.md)(2026-10-31): ISSUE46 후속. native 공급자/정책·최신순 선택·작업별 관리/초안 보존. 서버558·독립189/62·프론트139/52·타입/린트, 본래320/375px와 migration0068/API 검증. 이력 전124표162091행·설정보존, 이력저장/재조회. 키/실제 Claude 답변평가·활성화 미실행, 모델0/추가 API비용0.
 
-5. [로그인 AI Lab 보조 링크 정돈](docs/worklogs/2026-10-30-login-secondary-link.md)(2026-10-30): 전/후 공개 링크에 전용 표면·경계·가운데 정렬 적용, 본래 desktop·320/375px·47px/키보드/이동 확인. 독립6개·전체TS/변경lint 통과, 디자인문서 갱신. 인증·모델동작 보존, ISSUE40 DB이력은 로그인 대기.
+5. [관리자 모델 연결·RAG 설정 통합](docs/worklogs/2026-10-30-admin-model-setup.md)(2026-10-30): ISSUE46. 안전한 연결 옵션·등록·기존 구성 복사·정확 평가 수용·도메인 적용. 후속 공개 최신모델5개 콤보·고급 메뉴 구분까지 완료. 후속86/66·독립108/최종25·TS/lint·본래320/375px 통과, 실모델0·기본연결 유지. 서버 참조/실제 새 모델 평가는 별도이며 runtime 파라미터 호환 확인은 ISSUE47로 등록.
 
 ## 이력 보존과 정본
 

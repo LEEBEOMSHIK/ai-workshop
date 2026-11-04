@@ -1,0 +1,9 @@
+{
+  "k": 2,
+  "candidate_k": 3,
+  "rrf_k": 60,
+  "repeats": 20,
+  "warmups": 1,
+  "seed": 7,
+  "concurrency": 1
+}

@@ -1,5 +1,7 @@
 # 자산운용 문서 RAG AI 검색 설계
 
+벡터 저장소 비교의 오프라인 준비는 [ADR-0055](../../decisions/0055-vector-store-comparison-preparation.md)와 [준비/실행 조건](../../runbooks/vector-store-comparison.md)을 따른다. 공개 합성 snapshot으로 ES·pgvector·Qdrant exact 요청과 결과 분석을 준비하며 기존 검색 어댑터·설정·자료는 유지한다. 실제 후보 설치·live 권한 검증·검색 비교·기본값 변경은 별도 단계다.
+
 schema1/2의 원문 정의 기반 상대 영업일 검증은 [ADR-0035의 2026-10-30 후속](../../decisions/0035-rag-exact-value-canonicalization.md#2026-10-30-후속-원문-정의에-한정한-상대-영업일-지원)을 따른다. 같은 주장에 인용된 동일 출처의 연속 정의와 명시적인 표 대상·항목·값·기준점이 모두 일치하는 제한 문법에서만 `T+N`을 풀어 쓴 영업일 값을 지원한다. schema3 계산, 기존 어휘 정규화, 원문/주장/인용 ID와 과거 평가 결과는 유지한다. 일반 자연어 의미 정확성이나 질문 대상의 완전한 검증을 보장하지 않는다.
 
 원문 표의 단일 대상 열·항목·조건을 보존하는 선택과 완료 저장 관측의 정합성, 선택형 RAG 자율 재위임은 [ADR-0050](../../decisions/0050-rag-relations-and-autonomous-handoffs.md)을 따른다. version 2 handoff는 선택된 원문 묶음 안에서 근거·답변·검토 담당이 서로 요청하며 최종 인용 검증과 호출 사용자의 권한을 유지한다. 기존 활성 프로파일은 실제 평가 없이 바꾸지 않는다.

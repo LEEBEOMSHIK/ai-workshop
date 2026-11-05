@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import date, datetime
 from functools import lru_cache
 from importlib.resources import files
 from typing import TYPE_CHECKING, Annotated, Literal, Self
@@ -68,6 +68,44 @@ class TroubleshootingFields(_StrictFrozenModel):
     unresolved: tuple[str, ...] = ()
 
 
+class LearningSequence(_StrictFrozenModel):
+    series: str = Field(min_length=1)
+    # The storage query uses a PostgreSQL signed integer for ordering.
+    step: Annotated[int, Field(strict=True, ge=1, le=2147483647)] | None = None
+    performed_on: date | None = None
+    start_mode: Literal["base_model", "continued", "unknown"] = "unknown"
+    source_label: str | None = None
+    source_evidence: str | None = None
+    objective: str | None = None
+    outcome: str | None = None
+    remaining: str | None = None
+    outcome_status: Literal["improved", "no_improvement", "mixed", "not_evaluated"] = (
+        "not_evaluated"
+    )
+
+    @field_validator("source_label", "source_evidence", "objective", "outcome", "remaining")
+    @classmethod
+    def blank_metadata_is_absent(cls, value: str | None) -> str | None:
+        # Preserve supplied text, including line breaks, but do not treat blanks as evidence.
+        return value if value is not None and value.strip() else None
+
+    @model_validator(mode="after")
+    def require_explicit_source_and_observation(self) -> Self:
+        if self.start_mode == "continued" and self.source_label is None:
+            raise ValueError("continued training requires a source label")
+        if self.outcome_status != "not_evaluated" and self.outcome is None:
+            raise ValueError("an evaluated outcome requires an observation")
+        return self
+
+    @field_validator("series")
+    @classmethod
+    def trim_series(cls, value: str) -> str:
+        result = value.strip()
+        if not result:
+            raise ValueError("learning series must not be blank")
+        return result
+
+
 class ExperimentFields(_StrictFrozenModel):
     purpose: str | None = None
     hypothesis: str | None = None
@@ -82,6 +120,24 @@ class ExperimentFields(_StrictFrozenModel):
     next_steps: tuple[str, ...] = ()
     status: ExperimentStatus = ExperimentStatus.PLANNED
     troubleshooting: TroubleshootingFields | None = None
+    learning_sequence: LearningSequence | None = None
+
+    @model_validator(mode="after")
+    def planned_sequence_has_no_execution(self) -> Self:
+        sequence = self.learning_sequence
+        if (
+            self.status is ExperimentStatus.PLANNED
+            and sequence is not None
+            and (sequence.step is not None or sequence.performed_on is not None)
+        ):
+            raise ValueError("planned experiments cannot claim an execution step or date")
+        if (
+            self.status is ExperimentStatus.PLANNED
+            and sequence is not None
+            and sequence.outcome_status != "not_evaluated"
+        ):
+            raise ValueError("planned experiments cannot claim an evaluated outcome")
+        return self
 
 
 class LearningTopic(_StrictFrozenModel):
@@ -221,6 +277,8 @@ class LearningSummaryResponse(_StrictFrozenModel):
     created_at: datetime
     updated_at: datetime
     archived_at: datetime | None
+    experiment_status: ExperimentStatus | None = None
+    learning_sequence: LearningSequence | None = None
 
     @classmethod
     def from_summary(cls, summary: LearningSummary) -> LearningSummaryResponse:
@@ -233,6 +291,8 @@ class LearningSummaryResponse(_StrictFrozenModel):
             created_at=summary.created_at,
             updated_at=summary.updated_at,
             archived_at=summary.archived_at,
+            experiment_status=summary.experiment_status,
+            learning_sequence=summary.learning_sequence,
         )
 
 

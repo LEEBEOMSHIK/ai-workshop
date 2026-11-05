@@ -1,6 +1,8 @@
 "use client";
 
+import { PageArrow } from "../../../shared/ui/Pagination";
 import Link from "next/link";
+import { Disclosure, EmptyState, Notice } from "../../../shared/ui/Feedback";
 import { useEffect, useState } from "react";
 import { executionPath, routes } from "../../../shared/routing/routes";
 import { searchExecutions, type ExecutionSearchRequest, type ExecutionSearchResponse } from "./api";
@@ -32,7 +34,7 @@ export function ExecutionListPage({ initialFilters = {} }: { initialFilters?: Ex
   }
   return <main className={styles.page}>
     <header><p className={styles.eyebrow}>RAG 관리</p><h1>실행 모니터링</h1><p>대화와 비교 평가의 질문별 답변, 근거, 실패 단계와 처리 시간을 확인합니다.</p>
-      <details className={styles.guide}><summary>사용 방법</summary>
+      <Disclosure className={styles.guide} summary="사용 방법">
         <ol>
           <li>RAG 대화에서 질문하거나 비교 실험에서 생성형 평가를 실행한 뒤 이곳에서 기록을 조회합니다.</li>
           <li>질문 검색과 상태로 찾습니다. 추가 필터에서 실제 대화·평가, 기간, 실패 단계를 좁힐 수 있습니다.</li>
@@ -40,7 +42,7 @@ export function ExecutionListPage({ initialFilters = {} }: { initialFilters?: Ex
           <li>검색 근거·유사도·선택 사유를 펼쳐 후보가 선택되거나 제외된 이유를 보고 원문을 확인합니다.</li>
         </ol>
         <p>기록은 자동으로 새로고침되지 않습니다. 최신 상태는 목록의 조회 버튼으로 다시 불러오세요.</p>
-      </details>
+      </Disclosure>
     </header>
     <section className={styles.card} aria-label="저장된 모델 비교 안내">
       <h2><Link className={styles.detailNavigationLink} href={routes.adminRagComparisons}>저장된 모델 비교</Link></h2>
@@ -60,7 +62,7 @@ export function ExecutionListPage({ initialFilters = {} }: { initialFilters?: Ex
         <label>구성 버전 ID<input value={filters.configuration_version_id ?? ""} onChange={e => setFilters({ ...filters, configuration_version_id: e.target.value || null })} /></label>
       </div></details>
     </form>
-    {error ? <div role="alert">{error} <button onClick={() => load({ ...request })}>다시 시도</button></div> : null}
+    {error ? <Notice tone="danger" role="alert">{error} <button onClick={() => load({ ...request })}>다시 시도</button></Notice> : null}
     {busy ? <p role="status">실행 기록을 확인하고 있습니다…</p> : null}
     {!busy && result ? <>
       <section className={styles.stats} aria-label="필터 전체 통계">
@@ -75,9 +77,9 @@ export function ExecutionListPage({ initialFilters = {} }: { initialFilters?: Ex
           <p>문서 {row.document_count}개 · {duration(row.duration_ms)}{row.failed_stage ? ` · ${stageLabels[row.failed_stage]} 실패` : ""}</p>
           {row.record_kind === "legacy" ? <small>이전 기록 · 상세 단계 미기록</small> : !row.observation_complete ? <small>일부 관측 기록 누락</small> : null}
         </article>)}
-        {result.items.length === 0 ? <p>조건에 맞는 실행 기록이 없습니다.</p> : null}
+        {result.items.length === 0 ? <EmptyState title="조건에 맞는 실행 기록이 없습니다." /> : null}
       </section>
-      <nav className={styles.pagination} aria-label="실행 목록 페이지">{request.cursor ? <button onClick={() => load({ ...request, cursor: null })}>처음으로</button> : null}{result.next_cursor ? <button onClick={() => load({ ...request, cursor: result.next_cursor })}>다음 실행</button> : null}</nav>
+      <nav className={styles.pagination} aria-label="실행 목록 페이지">{request.cursor ? <button aria-label="처음으로" title="처음으로" onClick={() => load({ ...request, cursor: null })}><PageArrow direction="first" /></button> : null}{result.next_cursor ? <button aria-label="다음 실행" title="다음 실행" onClick={() => load({ ...request, cursor: result.next_cursor })}><PageArrow direction="next" /></button> : null}</nav>
     </> : null}
   </main>;
 }

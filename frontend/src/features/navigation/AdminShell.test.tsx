@@ -53,6 +53,7 @@ it("logs out once before navigating to login and keeps pending actions disabled"
  vi.stubGlobal("fetch",request);
  vi.stubGlobal("window",new Proxy(window,{get(target,key){return key==="location"?{replace}:Reflect.get(target,key);}}));
  const user=userEvent.setup();render(<AdminShell user={owner}/>);
+ await user.click(screen.getByRole("button",{name:"계정 및 화면 설정"}));
  await user.click(screen.getByRole("button",{name:"로그아웃"}));
  const pending=screen.getByRole("button",{name:"로그아웃 중…"});expect(pending).toBeDisabled();
  await user.click(pending);expect(request).toHaveBeenCalledTimes(1);expect(replace).not.toHaveBeenCalled();
@@ -62,6 +63,7 @@ it("logs out once before navigating to login and keeps pending actions disabled"
 it("shows logout failure without leaving administration",async()=>{
  vi.stubGlobal("fetch",vi.fn().mockResolvedValue(new Response(null,{status:500})));
  const user=userEvent.setup();render(<AdminShell user={owner}/>);
+ await user.click(screen.getByRole("button",{name:"계정 및 화면 설정"}));
  await user.click(screen.getByRole("button",{name:"로그아웃"}));
  expect(await screen.findByRole("alert")).toHaveTextContent("다시 시도");expect(screen.getByRole("button",{name:"로그아웃"})).toBeEnabled();
 });
@@ -69,7 +71,7 @@ it("wraps Tab and Shift+Tab within the open drawer",async()=>{
  mobile=true;const user=userEvent.setup();render(<AdminShell user={owner}/>);
  await user.click(screen.getByRole("button",{name:"메뉴 열기"}));
  const dialog=screen.getByRole("dialog");
- const first=within(dialog).getByRole("link",{name:"AI Workshop"});const last=within(dialog).getByRole("button",{name:"로그아웃"});
+ const first=within(dialog).getByRole("link",{name:"AI Workshop"});const last=within(dialog).getByRole("button",{name:"계정 및 화면 설정"});
  first.focus();await user.tab({shift:true});expect(last).toHaveFocus();
  await user.tab();expect(first).toHaveFocus();
 });

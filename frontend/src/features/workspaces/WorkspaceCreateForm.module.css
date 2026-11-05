@@ -18,29 +18,14 @@
   border: 0;
 }
 
-.form label { display: grid; align-content: start; gap: var(--space-2); min-width: 0; }
 .help { font-size: var(--font-size-caption); color: var(--color-text-muted); }
-.form :is(input, select) {
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  padding: 0.7rem;
-  background: var(--color-surface-input);
-  color: var(--color-text);
-  color-scheme: dark;
-  font: inherit;
-  font-size: var(--font-size-control);
-  min-height: var(--control-min-height);
-}
 .form button {
   width: fit-content;
   padding: 0.7rem 1rem;
-  border: 1px solid var(--color-accent-text);
+  border: 1px solid var(--color-primary);
   border-radius: var(--radius-control);
-  background: var(--color-accent-text);
-  color: var(--color-on-accent);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
   font: inherit;
   font-weight: 750;
   cursor: pointer;

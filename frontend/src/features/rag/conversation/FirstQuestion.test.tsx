@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 import { StrictMode } from "react";
 import { ConversationPage } from "./ConversationPage";
@@ -38,7 +38,7 @@ it("refreshes an accepted running first question without cancelling it or cleari
     expect(calls.filter(path=>path.endsWith("/cancel"))).toEqual([]);
     expect(calls.filter(path=>path.endsWith("/start"))).toHaveLength(1);
     expect(screen.getByRole("textbox",{name:"질문"})).toHaveValue("작성 중인 후속 질문");
-    expect(screen.getByRole("heading",{name:"서버 제목"})).toBeVisible();
+    expect(screen.getByRole("button",{name:"서버 제목", current: "page"})).toBeVisible();
   }finally{
     finished=true;
     // Finish the owned polling job before RTL unmounts the screen. A real delay
@@ -91,7 +91,7 @@ it.each(["cancel","unmount"])("F6 recovers outstanding acceptance after original
   expect(cancels).toEqual(leave === "cancel" ? [`/api/v1/rag/domains/example/conversations/accepted/turns/${posts[0].request_id}/cancel`] : []);
   expect(posts).toHaveLength(1);
   expect(screen.getByRole("textbox",{name:"질문"})).toHaveValue("교체 화면 질문");
-  expect(screen.queryByRole("heading",{name:"서버 제목"})).not.toBeInTheDocument();
+  expect(screen.queryByRole("button",{name:"서버 제목", current: "page"})).not.toBeInTheDocument();
   expect(new URL(location.href).searchParams.has("conversation")).toBe(false);
 });
 
@@ -125,7 +125,7 @@ it.each([
   expect(posts).toHaveLength(2);expect(posts[1]).toEqual(posts[0]);
   expect(posts[1]).toMatchObject({draft_id:"draft-one",draft_revision:3});
   expect(draftReads).toBe(beforeRetry);
-  expect(screen.getByRole("heading",{name:"서버 제목"})).toBeVisible();
+  expect(screen.getByRole("button",{name:"서버 제목", current: "page"})).toBeVisible();
 });
 
 it.each(["cancel", "unmount"])("F4 owns unchanged-question retry after transport409 through %s, lookup404 and late accepted-ID cancellation",async(leave)=>{
@@ -183,7 +183,7 @@ it.each(["cancel", "unmount"])("F4 owns unchanged-question retry after transport
   expect(posts[1]).toMatchObject({query:"첫 질문",draft_id:"draft-one",draft_revision:9});
   expect(posts[1].request_id).not.toBe(posts[0].request_id);
   expect(screen.getByRole("textbox",{name:"질문"})).toHaveValue("교체 화면 질문");
-  expect(screen.queryByRole("heading",{name:"서버 제목"})).not.toBeInTheDocument();
+  expect(screen.queryByRole("button",{name:"서버 제목", current: "page"})).not.toBeInTheDocument();
   expect(new URL(location.href).searchParams.has("conversation")).toBe(false);
 });
 
@@ -302,7 +302,7 @@ it.each([false,true])("F5 attributes deferred rejection abandon failure only to 
   expect(deletes).toBe(1);expect(rejectAbandon).toBeDefined();
   if(selected){
     fireEvent.click(screen.getByRole("button",{name:"서버 제목"}));
-    await screen.findByRole("heading",{name:"서버 제목"});
+    await screen.findByRole("button",{name:"서버 제목", current: "page"});
   }
   await act(async()=>rejectAbandon(new TypeError("synthetic abandon failure")));
   const failure=screen.queryByText("이전 첨부 초안의 포기를 확인하지 못했습니다. 원본 파일은 보존됩니다.");
@@ -318,12 +318,26 @@ it("visits and starts new screens without mutations, then accepts first question
     if(path.endsWith("/folders")||path.endsWith("/conversations"))return json([]);
     throw new Error(`Unexpected GET ${path}`);
   }));
-  render(<StrictMode><ConversationPage domain={domain} initialWorkspaceIds={["workspace"]}/></StrictMode>);
-  fireEvent.click(screen.getByRole("button",{name:"새 대화"}));
+  const page = <StrictMode><ConversationPage domain={domain} initialWorkspaceIds={["workspace"]}/></StrictMode>;
+  const firstVisit = render(page);
+  const rows = () => within(screen.getByRole("complementary",{name:"대화 목록"})).queryAllByRole("listitem");
+  const startNew = () => fireEvent.click(screen.getByRole("button",{name:"새 대화"}));
+  startNew();
+  fireEvent.change(screen.getByRole("textbox",{name:"질문"}),{target:{value:"전송하지 않은 초안"}});
+  startNew();
+  startNew();
+  fireEvent.change(screen.getByRole("textbox",{name:"질문"}),{target:{value:"나가기 전 미전송 초안"}});
+  expect(rows()).toHaveLength(0);
+  expect(new URL(location.href).searchParams.has("conversation")).toBe(false);
+  firstVisit.unmount();
+  render(page);
+  await screen.findByText("저장된 대화가 없습니다.");
+  expect(rows()).toHaveLength(0);
   expect(mutations).toHaveLength(0);
   fireEvent.change(screen.getByRole("textbox",{name:"질문"}),{target:{value:"첫 질문"}});
   fireEvent.click(screen.getByRole("button",{name:"질문 보내기"}));
-  await screen.findByRole("heading",{name:"서버 제목"});
+  await screen.findByRole("button",{name:"서버 제목", current: "page"});
+  expect(rows()).toHaveLength(1);
   expect(mutations).toHaveLength(1);
   expect(mutations[0].path).toBe("/api/v1/rag/domains/example/conversations/start");
   expect(mutations[0].body).not.toHaveProperty("expected_revision");
@@ -348,7 +362,7 @@ it("preserves the entire original start payload on explicit retry after response
   fireEvent.change(screen.getByRole("textbox",{name:"질문"}),{target:{value:"첫 질문"}});
   fireEvent.click(screen.getByRole("button",{name:"질문 보내기"}));
   fireEvent.click(await screen.findByRole("button",{name:"같은 질문 다시 시도"}));
-  await screen.findByRole("heading",{name:"서버 제목"});
+  await screen.findByRole("button",{name:"서버 제목", current: "page"});
   expect(requests).toHaveLength(2);expect(requests[1]).toEqual(requests[0]);
 });
 
@@ -406,7 +420,7 @@ it("discovers accepted server title and running turn while the original start PO
   render(<ConversationPage domain={domain} initialWorkspaceIds={["workspace"]}/>);
   fireEvent.change(screen.getByRole("textbox",{name:"질문"}),{target:{value:"첫 질문"}});
   fireEvent.click(screen.getByRole("button",{name:"질문 보내기"}));
-  await screen.findByRole("heading",{name:"서버 제목"});
+  await screen.findByRole("button",{name:"서버 제목", current: "page"});
   expect(lookups).toBeGreaterThan(0);expect(starts).toBe(1);
   expect(new URL(location.href).searchParams.get("conversation")).toBe("accepted");
   expect(screen.getByRole("button",{name:"질문 보내기"})).toBeDisabled();
@@ -441,7 +455,7 @@ it("creates only one draft for actual file selection, serializes reservations, r
   await waitFor(()=>expect(screen.getByRole("button",{name:"질문 보내기"})).toBeEnabled());
   expect(creates).toBe(1);expect(new URL(location.href).searchParams.get("draft")).toBe("draft-one");
   fireEvent.click(screen.getByRole("button",{name:"질문 보내기"}));
-  await screen.findByRole("heading",{name:"서버 제목"});
+  await screen.findByRole("button",{name:"서버 제목", current: "page"});
   expect(starts[0]).toMatchObject({draft_id:"draft-one",draft_revision:3});
   expect(new URL(location.href).searchParams.has("draft")).toBe(false);
   view.unmount();window.history.replaceState(null,"","/?draft=draft-one");
@@ -490,7 +504,7 @@ it("redirects a bound draft to its accepted conversation without a mutation",asy
     if(path.endsWith("/conversations/accepted"))return json(detail);return json([]);
   }));
   render(<ConversationPage domain={domain}/>);
-  await screen.findByRole("heading",{name:"서버 제목"});expect(new URL(location.href).searchParams.get("conversation")).toBe("accepted");expect(new URL(location.href).searchParams.has("draft")).toBe(false);expect(mutations).toHaveLength(0);
+  await screen.findByRole("button",{name:"서버 제목", current: "page"});expect(new URL(location.href).searchParams.get("conversation")).toBe("accepted");expect(new URL(location.href).searchParams.has("draft")).toBe(false);expect(mutations).toHaveLength(0);
 });
 
 it("shows legacy writer-busy reason, retries restoration explicitly and never writes a legacy turn",async()=>{
@@ -543,7 +557,7 @@ it("F1 ignores a failed abandon owned by an earlier new screen after another con
   fireEvent.click(screen.getByRole("button",{name:"새 대화"}));
   await waitFor(()=>expect(rejectAbandon).toBeDefined());
   fireEvent.click(screen.getByRole("button",{name:"서버 제목"}));
-  await screen.findByRole("heading",{name:"서버 제목"});
+  await screen.findByRole("button",{name:"서버 제목", current: "page"});
   fireEvent.change(screen.getByRole("textbox",{name:"질문"}),{target:{value:"현재 화면 질문"}});
   await act(async()=>rejectAbandon(new TypeError("synthetic abandon failure")));
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -590,7 +604,7 @@ it.each(["question","file"])("F1 ignores an old abandon failure after the new sc
   if(context==="question"){
     fireEvent.change(screen.getByRole("textbox",{name:"질문"}),{target:{value:"Replacement question"}});
     fireEvent.click(screen.getByRole("button",{name:"질문 보내기"}));
-    await screen.findByRole("heading",{name:"서버 제목"});
+    await screen.findByRole("button",{name:"서버 제목", current: "page"});
   }else{
     fireEvent.change(screen.getByLabelText("대화에 파일 첨부"),{target:{files:[new File(["synthetic"],"replacement.txt")]}});
     await waitFor(()=>expect(new URL(location.href).searchParams.get("draft")).toBe("new-draft"));
@@ -626,7 +640,7 @@ it("F2 detaches after actual start AbortSignal rejection without cancelling the 
   expect(posts).toHaveLength(1);expect(posts[0]).toMatchObject({query:"첫 질문",workspace_ids:["workspace"]});
   expect(cancels).toEqual([]);
   expect(screen.getByRole("textbox",{name:"질문"})).toHaveValue("교체 화면 질문");
-  expect(screen.queryByRole("heading",{name:"서버 제목"})).not.toBeInTheDocument();
+  expect(screen.queryByRole("button",{name:"서버 제목", current: "page"})).not.toBeInTheDocument();
   expect(new URL(location.href).searchParams.has("conversation")).toBe(false);
 },10000);
 
@@ -640,12 +654,12 @@ it.each([true,false])("F3 reconciles selected title, editor and first-turn redac
     return json([]);
   }));
   render(<ConversationPage domain={domain}/>);
-  await screen.findByRole("heading",{name:"서버 제목"});expect(screen.getByText("첫 질문")).toBeVisible();
-  if(openEditor){fireEvent.click(screen.getByRole("button",{name:"대화 이름 변경"}));fireEvent.change(screen.getByRole("textbox",{name:"대화 제목"}),{target:{value:"보존하면 안 되는 편집 캐시"}});}
+  await screen.findByRole("button",{name:"서버 제목", current: "page"});expect(screen.getByText("첫 질문")).toBeVisible();
+  if(openEditor){fireEvent.click(screen.getByRole("button",{name:"대화 관리"}));fireEvent.click(screen.getByRole("button",{name:"대화 이름 변경"}));fireEvent.change(screen.getByRole("textbox",{name:"대화 제목"}),{target:{value:"보존하면 안 되는 편집 캐시"}});}
   redacted=true;fireEvent.click(screen.getByRole("button",{name:"대화 목록 새로고침"}));
-  await screen.findByRole("heading",{name:"접근할 수 없는 대화"});
+  await screen.findByRole("button",{name:"접근할 수 없는 대화", current: "page"});
   await screen.findByText("현재 권한으로 이 대화 내용을 표시할 수 없습니다.");
-  if(!openEditor)fireEvent.click(screen.getByRole("button",{name:"대화 이름 변경"}));
+  if(!openEditor){fireEvent.click(screen.getByRole("button",{name:"대화 관리"}));fireEvent.click(screen.getByRole("button",{name:"대화 이름 변경"}));}
   expect(screen.getByRole("textbox",{name:"대화 제목"})).toHaveValue("접근할 수 없는 대화");
   expect(screen.queryByText("첫 질문")).not.toBeInTheDocument();
   expect(details).toBe(2);
@@ -662,12 +676,13 @@ it("F3 preserves an unchanged manual title and dirty editor on ordinary authorit
     return json([]);
   }));
   render(<ConversationPage domain={domain}/>);
-  await screen.findByRole("heading",{name:"Manual server title"});
+  await screen.findByRole("button",{name:"Manual server title", current: "page"});
+  fireEvent.click(screen.getByRole("button",{name:"대화 관리"}));
   fireEvent.click(screen.getByRole("button",{name:"대화 이름 변경"}));
   fireEvent.change(screen.getByRole("textbox",{name:"대화 제목"}),{target:{value:"Unsaved manual edit"}});
   fireEvent.click(screen.getByRole("button",{name:"대화 목록 새로고침"}));
   await waitFor(()=>expect(details).toBe(2));
-  expect(screen.getByRole("heading",{name:"Manual server title"})).toBeVisible();
+  expect(screen.getByRole("button",{name:"Manual server title", current: "page"})).toBeVisible();
   expect(screen.getByRole("textbox",{name:"대화 제목"})).toHaveValue("Unsaved manual edit");
   expect(screen.getByText("첫 질문")).toBeVisible();
 });
@@ -685,13 +700,13 @@ it("F3 fences delayed detail revalidation after switching to a new screen",async
     return json([]);
   }));
   render(<ConversationPage domain={domain} initialWorkspaceIds={["workspace"]}/>);
-  await screen.findByRole("heading",{name:"서버 제목"});
+  await screen.findByRole("button",{name:"서버 제목", current: "page"});
   fireEvent.click(screen.getByRole("button",{name:"대화 목록 새로고침"}));
   await waitFor(()=>expect(resolveDetail).toBeDefined());
   fireEvent.click(screen.getByRole("button",{name:"새 대화"}));
   fireEvent.change(screen.getByRole("textbox",{name:"질문"}),{target:{value:"Replacement question"}});
   await act(async()=>resolveDetail(json({...detail,title:"접근할 수 없는 대화",turns:[{...turn,query:"",redacted:true,request_scope:null}]})));
-  expect(screen.queryByRole("heading",{name:"접근할 수 없는 대화"})).not.toBeInTheDocument();
+  expect(screen.queryByRole("button",{name:"접근할 수 없는 대화", current: "page"})).not.toBeInTheDocument();
   expect(screen.queryByText("첫 질문")).not.toBeInTheDocument();
   expect(screen.getByRole("textbox",{name:"질문"})).toHaveValue("Replacement question");
   expect(new URL(location.href).searchParams.has("conversation")).toBe(false);

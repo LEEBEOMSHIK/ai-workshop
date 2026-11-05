@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 import type { Domain } from "../domains/api";
 import { ConversationPage } from "./ConversationPage";
@@ -29,11 +29,14 @@ afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); window.history.repl
 it("polls a restored running conversation without losing the next draft and stops at termination", async () => {
   window.history.replaceState(null, "", "/?conversation=session");
   let current = running;
+  const newer = {...running, id: "newer-session", title: "더 최근 질문", updated_at: "2026-10-27"};
+  const orderedTitles = () => within(screen.getByRole("complementary", {name: "대화 목록"}))
+    .getAllByRole("listitem").map(row => within(row).getAllByRole("button")[0].textContent);
   let reads = 0;
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
     const path = String(input);
     if (path.endsWith("/session")) { reads++; return Response.json(current); }
-    if (path.endsWith("/conversations")) return Response.json([current]);
+    if (path.endsWith("/conversations")) return Response.json([newer, current]);
     return Response.json([]);
   }));
   const view = render(<ConversationPage domain={domain} />);
@@ -41,6 +44,7 @@ it("polls a restored running conversation without losing the next draft and stop
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   // A fresh selection schedules its poll under this clock.
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "진행 중인 대화" })));
+  expect(orderedTitles()).toEqual([newer.title, running.title]);
   const question = screen.getByRole("textbox", { name: "질문" });
   fireEvent.change(question, { target: { value: "작성해 둔 다음 질문" } });
   expect(question).toBeEnabled();
@@ -49,6 +53,7 @@ it("polls a restored running conversation without losing the next draft and stop
   const before = reads;
   await act(async () => vi.advanceTimersByTimeAsync(2000));
   expect(reads).toBeGreaterThan(before);
+  expect(orderedTitles()).toEqual([newer.title, running.title]);
   expect(question).toHaveValue("작성해 둔 다음 질문");
   expect(screen.getByRole("button", { name: "질문 보내기" })).toBeEnabled();
   const stopped = reads;
@@ -86,7 +91,7 @@ it.each(["new", "unmount"])("keeps a first question in the background after %s w
   expect(cancellations).toEqual([]);
   if (leave === "new") {
     expect(screen.getByRole("textbox", { name: "질문" })).toHaveValue("다른 대화 초안");
-    expect(screen.queryByRole("heading", { name: running.title })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: running.title, current: "page" })).not.toBeInTheDocument();
     view.unmount();
   }
 });
@@ -111,7 +116,7 @@ it("discards a late status response after switching to a new conversation", asyn
   fireEvent.click(screen.getByRole("button", { name: "새 대화" }));
   fireEvent.change(screen.getByRole("textbox", { name: "질문" }), { target: { value: "새 화면 초안" } });
   await act(async () => resolvePoll(Response.json(finished)));
-  expect(screen.queryByRole("heading", { name: running.title })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: running.title, current: "page" })).not.toBeInTheDocument();
   expect(screen.getByRole("textbox", { name: "질문" })).toHaveValue("새 화면 초안");
   view.unmount();
 });

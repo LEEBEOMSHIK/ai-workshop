@@ -59,7 +59,7 @@ it("ignores attachment rows returned after selecting another conversation", asyn
   await screen.findByText("합성 질문");
   await waitFor(() => expect(resolveOld).toBeDefined());
   fireEvent.click(screen.getByRole("button", { name: "다른 저장 대화" }));
-  await screen.findByRole("heading", { name: "다른 저장 대화" });
+  await screen.findByRole("button", { name: "다른 저장 대화", current: "page" });
   await act(async () => { resolveOld!(json([attachment])); });
   expect(screen.queryByText(/synthetic.pdf/)).not.toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "PC 파일 첨부" })).not.toBeInTheDocument();

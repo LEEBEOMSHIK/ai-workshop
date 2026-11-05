@@ -1,4 +1,5 @@
 "use client";
+import { Pagination } from "../../shared/ui/Pagination";
 
 import { useEffect, useRef, useState } from "react";
 
@@ -358,11 +359,9 @@ function PreviewBody({ preview, page, pageUrl, pageError, wrap, onPage, onPageRe
   </div>;
   const pageCount = preview.page_count ?? 0;
   return <div className={styles.pdfPreview}>
-    <div className={styles.pageControls}>
-      <button type="button" disabled={page <= 1} onClick={() => onPage(page - 1)}>이전 페이지</button>
-      <span>{page} / {pageCount}</span>
-      <button type="button" disabled={page >= pageCount} onClick={() => onPage(page + 1)}>다음 페이지</button>
-    </div>
+    <Pagination label="PDF 페이지" position={`${page} / ${pageCount}`}
+      canGoBack={page > 1} canGoForward={page < pageCount}
+      onPrevious={() => onPage(page - 1)} onNext={() => onPage(page + 1)} />
     {pageError ? <div role="alert"><p>{pageError}</p><button type="button" onClick={onPageRetry}>PDF 페이지 다시 시도</button></div> : null}
     {!pageError && !pageUrl ? <p role="status">PDF 페이지를 불러오는 중…</p> : null}
     {/* Authenticated request-scoped blob URLs cannot use the Next image optimizer. */}

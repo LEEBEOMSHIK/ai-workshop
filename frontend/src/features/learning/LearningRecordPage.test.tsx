@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, vi } from "vitest";
 
@@ -11,6 +11,100 @@ afterEach(() => {
 });
 
 describe("LearningRecordPage", () => {
+  it("presents the purpose, question, target and actual answers together for a measured comparison", async () => {
+    const result = experimentRecord(2, "규정 인용하기");
+    const observations = [
+      "같은 질문의 실제 답변 비교",
+      "질문  근거가 무엇인가요?",
+      "학습 정답  정답에 포함된 인용 [e1]",
+      "학습 전(원본)  학습하기 전의 답변",
+      "학습 후(어댑터 적용)  학습한 뒤의 답변 [e1]",
+      "",
+      "인용을 확인했다.",
+      "평가 조건: 샘플링 없이 최대 48토큰으로 생성했다.",
+    ].join("\n");
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) !== "/api/v1/learning/records/record-1") return optionResponse(String(input));
+      return jsonResponse({ ...result, draft: { ...result.draft, experiment: {
+        ...result.draft.experiment, observations, conclusion: "기록된 결론",
+        environment: "실험용 CPU", procedure: "seed 11, 배치 2, SGD, 3스텝.",
+      } } });
+    }));
+    render(<LearningRecordPage recordId="record-1" />);
+    const purpose = await screen.findByText("서버 목적");
+    const comparisonHeading = screen.getByRole("heading", { name: "학습 전후 답변 비교" });
+    expect(purpose.compareDocumentPosition(comparisonHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText("근거가 무엇인가요?")).toBeVisible();
+    expect(screen.getByRole("article", { name: "학습 정답" })).toHaveTextContent("정답에 포함된 인용 [e1]");
+    expect(screen.getByRole("article", { name: "학습 전" })).toHaveTextContent("학습하기 전의 답변");
+    expect(screen.getByRole("article", { name: "학습 후" })).toHaveTextContent("학습한 뒤의 답변 [e1]");
+    expect(screen.getByText("기록된 결론")).toBeVisible();
+    expect(screen.getByText("인용을 확인했다.")).toBeInTheDocument();
+    const settings = screen.getByRole("list", { name: "기록된 설정값" });
+    expect(settings).toHaveTextContent(/Seed\s*11/);
+    expect(settings).toHaveTextContent(/배치 크기\s*2/);
+    expect(settings).toHaveTextContent(/응답 토큰 상한\s*48/);
+    expect(settings).not.toHaveTextContent("BF16");
+    expect(screen.getByText("샘플링 없이 최대 48토큰으로 생성했다.")).toBeVisible();
+    const environment = screen.getByText("실행 환경 자세히 보기");
+    const user = userEvent.setup();
+    await user.click(environment);
+    expect(screen.getByText("실험용 CPU")).toBeVisible();
+    await user.click(environment);
+    expect(environment.closest("details")).not.toHaveAttribute("open");
+  });
+
+  it("shows classification by the current title without version controls and reserves bullets for multiple entries", async () => {
+    const current = experimentRecord(2, "합성 기록");
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/v1/learning/records/record-1") {
+        return jsonResponse({ ...current, draft: { ...current.draft, experiment: {
+          ...current.draft.experiment, configurations: ["동일 조건 비교"], next_steps: ["자료 검수", "재측정"],
+        } } });
+      }
+      return optionResponse(path);
+    }));
+    render(<LearningRecordPage recordId="record-1" />);
+    const header = (await screen.findByRole("heading", { level: 1 })).closest("header");
+    expect(header).toHaveTextContent("구조화 실험");
+    expect(header).toHaveTextContent("RAG");
+    expect(header).toHaveTextContent("research");
+    expect(screen.queryByRole("heading", { name: "분류" })).not.toBeInTheDocument();
+    expect(screen.getByText("동일 조건 비교").closest("li")).toBeNull();
+    const steps = screen.getByText("자료 검수").closest("ul");
+    expect(steps).toBeInTheDocument();
+    expect(within(steps!).getAllByRole("listitem").map(item => item.textContent)).toEqual(["자료 검수", "재측정"]);
+
+    expect(header).not.toHaveTextContent("버전");
+    expect(screen.queryByRole("combobox", { name: "버전 보기" })).not.toBeInTheDocument();
+    expect(header).toHaveTextContent("실험 상태계획");
+  });
+
+  it("leads with the conclusion and places evaluation scope and limitations immediately after the method", async () => {
+    const result = experimentRecord(2, "합성 비교 실험");
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) !== "/api/v1/learning/records/record-1") return optionResponse(String(input));
+      return jsonResponse({...result, draft: {...result.draft, experiment: {
+        ...result.draft.experiment, conclusion: "검색 결과가 개선됨", limitations: "공개 예시만 사용함",
+        observations: "기존 관찰 메모를 그대로 표시한다.",
+        metrics: [{ name: "정답률", value: 80, unit: "%" }],
+      }}});
+    }));
+    render(<LearningRecordPage recordId="record-1" />);
+    const conclusion = await screen.findByText("검색 결과가 개선됨");
+    const body = screen.getByText("원문 본문");
+    const method = screen.getByRole("heading", { name: "실험 방법" }).closest("section")!;
+    const scope = screen.getByRole("heading", { name: "평가 범위와 한계" }).closest("section")!;
+    const observations = screen.getByRole("heading", { name: "관찰" }).closest("section")!;
+    expect(within(observations).getByText("기존 관찰 메모를 그대로 표시한다.")).toBeVisible();
+    expect(conclusion.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(method.nextElementSibling).toBe(scope);
+    expect(within(scope).getByText("공개 예시만 사용함")).toBeVisible();
+    expect(screen.getByRole("button", {name: "기록 편집"})).toBeVisible();
+    expect(screen.queryByRole("textbox", {name: "본문"})).not.toBeInTheDocument();
+  });
+
   it("preserves edited fields after 409 and rebases explicitly without automatic PUT", async () => {
     const puts: Array<Record<string, unknown>> = [];
     let detailReads = 0;
@@ -31,7 +125,7 @@ describe("LearningRecordPage", () => {
     const user = userEvent.setup();
     render(<LearningRecordPage recordId="record-1" />);
 
-    const editor = await screen.findByRole("region", { name: "기록 편집" });
+    const editor = await openEditor(user);
     const title = within(editor).getByRole("textbox", { name: "제목" });
     await user.clear(title);
     await user.type(title, "내 충돌 초안");
@@ -39,11 +133,11 @@ describe("LearningRecordPage", () => {
     await user.type(within(editor).getByRole("textbox", { name: "목적" }), "보존할 목적");
     await user.click(within(editor).getByRole("button", { name: "변경 저장" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("다른 revision");
+    expect(await screen.findByRole("alert")).toHaveTextContent("다른 변경 사항");
     expect(within(editor).getByRole("textbox", { name: "제목" })).toHaveValue("내 충돌 초안");
     expect(within(editor).getByRole("textbox", { name: "목적" })).toHaveValue("보존할 목적");
     expect(puts).toHaveLength(1);
-    await user.click(screen.getByRole("button", { name: "최신 버전 읽기" }));
+    await user.click(screen.getByRole("button", { name: "저장된 내용 확인" }));
     const latestSnapshot = await screen.findByRole("region", { name: "서버 최신 전체 내용" });
     expect(within(latestSnapshot).getByRole("textbox", { name: "제목" })).toHaveValue("최신 서버 제목");
     expect(within(latestSnapshot).getByRole("combobox", { name: "기록 종류" })).toHaveValue("experiment");
@@ -52,7 +146,7 @@ describe("LearningRecordPage", () => {
     expect(within(latestSnapshot).getByRole("link", { name: "RAG search" })).toHaveAttribute("href", "/workshop/rag/search");
     expect(within(editor).getByRole("textbox", { name: "제목" })).toHaveValue("내 충돌 초안");
     expect(puts).toHaveLength(1);
-    await user.click(screen.getByRole("button", { name: "revision 4로 재기준화" }));
+    await user.click(screen.getByRole("button", { name: "현재 내용을 기준으로 편집 계속" }));
     await user.click(within(editor).getByRole("button", { name: "변경 저장" }));
 
     await waitFor(() => expect(puts).toHaveLength(2));
@@ -75,15 +169,15 @@ describe("LearningRecordPage", () => {
     const user = userEvent.setup();
     render(<LearningRecordPage recordId="record-1" />);
 
-    const editor = await screen.findByRole("region", { name: "기록 편집" });
+    const editor = await openEditor(user);
     await user.type(within(editor).getByRole("textbox", { name: "제목" }), " 수정");
     await user.click(within(editor).getByRole("button", { name: "변경 저장" }));
-    await user.click(await screen.findByRole("button", { name: "최신 버전 읽기" }));
+    await user.click(await screen.findByRole("button", { name: "저장된 내용 확인" }));
     let latest = await screen.findByRole("region", { name: "서버 최신 전체 내용" });
     expect(within(latest).getByRole("textbox", { name: "제목" })).toHaveValue("최신 메모");
     expect(within(latest).getByRole("combobox", { name: "기록 종류" })).toHaveValue("note");
-    await user.click(screen.getByRole("button", { name: "최신 버전 읽기" }));
-    await screen.findByRole("heading", { name: "서버의 최신 revision 4" });
+    await user.click(screen.getByRole("button", { name: "저장된 내용 확인" }));
+    await screen.findByRole("heading", { name: "현재 저장된 내용" });
 
     latest = screen.getByRole("region", { name: "서버 최신 전체 내용" });
     expect(within(latest).getByRole("textbox", { name: "제목" })).toHaveValue("더 최신 실험");
@@ -119,7 +213,7 @@ describe("LearningRecordPage", () => {
     const user = userEvent.setup();
     render(<LearningRecordPage recordId="record-1" />);
 
-    const editor = await screen.findByRole("region", { name: "기록 편집" });
+    const editor = await openEditor(user);
     await user.clear(within(editor).getByRole("textbox", { name: "제목" }));
     await user.type(within(editor).getByRole("textbox", { name: "제목" }), "보존할 로컬 제목");
     await user.clear(within(editor).getByRole("textbox", { name: "본문" }));
@@ -127,9 +221,9 @@ describe("LearningRecordPage", () => {
     await user.clear(within(editor).getByRole("textbox", { name: "목적" }));
     await user.type(within(editor).getByRole("textbox", { name: "목적" }), "보존할 로컬 목적");
     await user.click(within(editor).getByRole("button", { name: "변경 저장" }));
-    await user.click(await screen.findByRole("button", { name: "최신 버전 읽기" }));
+    await user.click(await screen.findByRole("button", { name: "저장된 내용 확인" }));
     await screen.findByRole("region", { name: "서버 최신 전체 내용" });
-    await user.click(screen.getByRole("button", { name: "revision 3로 재기준화" }));
+    await user.click(screen.getByRole("button", { name: "현재 내용을 기준으로 편집 계속" }));
 
     expect(screen.getByRole("button", { name: "기록 복원" })).toBeVisible();
     expect(within(editor).getByRole("textbox", { name: "제목" })).toBeDisabled();
@@ -161,7 +255,8 @@ describe("LearningRecordPage", () => {
     const user = userEvent.setup();
     render(<LearningRecordPage recordId="record-1" />);
 
-    const kind = await screen.findByRole("combobox", { name: "기록 종류" });
+    await openEditor(user);
+    const kind = screen.getByRole("combobox", { name: "기록 종류" });
     await user.selectOptions(kind, "experiment");
     expect(kind).toHaveValue("note");
     expect(puts).toHaveLength(0);
@@ -174,11 +269,10 @@ describe("LearningRecordPage", () => {
     expect(puts[0]).toMatchObject({ expected_revision: 1, draft: { kind: "experiment", body: "원문 본문", references: [{ kind: "service", target: "rag.search", version: null }] } });
   });
 
-  it("loads historical revisions read-only and archives then restores only after successful responses", async () => {
+  it("archives and restores only after successful responses", async () => {
     const actions: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
-      if (path.endsWith("/revisions/1")) return jsonResponse({ ...noteRecord(), draft: { ...noteRecord().draft, body: "과거 본문" } });
       if (path.endsWith("/archive")) { actions.push("archive"); return jsonResponse({ ...noteRecord(), revision: 3, archived_at: "2026-09-07T02:00:00Z" }); }
       if (path.endsWith("/restore")) { actions.push("restore"); return jsonResponse({ ...noteRecord(), revision: 4, archived_at: null }); }
       if (path === "/api/v1/learning/records/record-1") return jsonResponse({ ...noteRecord(), revision: 2 });
@@ -187,89 +281,45 @@ describe("LearningRecordPage", () => {
     const user = userEvent.setup();
     render(<LearningRecordPage recordId="record-1" />);
 
-    await user.selectOptions(await screen.findByRole("combobox", { name: "revision 보기" }), "1");
-    expect(await screen.findByRole("textbox", { name: "본문" })).toHaveValue("과거 본문");
-    expect(screen.queryByRole("button", { name: "변경 저장" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "현재 revision으로 돌아가기" }));
-    await user.click(screen.getByRole("button", { name: "기록 보관" }));
+    await user.click(await screen.findByRole("button", { name: "기록 보관" }));
     expect(await screen.findByText("보관된 기록입니다. 복원한 뒤 편집할 수 있습니다.")).toBeVisible();
-    expect(screen.getByRole("textbox", { name: "제목" })).toBeDisabled();
+    expect(screen.queryByRole("textbox", { name: "제목" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "기록 복원" }));
     await waitFor(() => expect(actions).toEqual(["archive", "restore"]));
-    expect(screen.getByRole("textbox", { name: "제목" })).toBeEnabled();
+    expect(await screen.findByRole("button", { name: "기록 편집" })).toBeEnabled();
   });
 
-  it("keeps a dirty editing session and its navigation guard mounted while viewing history", async () => {
+  it("keeps a dirty editing session and its navigation guard mounted while reading saved content", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
-      if (path.endsWith("/revisions/1")) return jsonResponse({ ...noteRecord(), draft: { ...noteRecord().draft, title: "과거 메모", body: "과거 본문" } });
       if (path === "/api/v1/learning/records/record-1") return jsonResponse(experimentRecord(2, "현재 실험"));
       return optionResponse(path);
     }));
     const user = userEvent.setup();
     render(<LearningRecordPage recordId="record-1" />);
 
-    let editor = await screen.findByRole("region", { name: "기록 편집" });
+    let editor = await openEditor(user);
     await user.clear(within(editor).getByRole("textbox", { name: "제목" }));
     await user.type(within(editor).getByRole("textbox", { name: "제목" }), "보존할 제목");
     await user.clear(within(editor).getByRole("textbox", { name: "본문" }));
     await user.type(within(editor).getByRole("textbox", { name: "본문" }), "보존할 본문");
     await user.clear(within(editor).getByRole("textbox", { name: "목적" }));
     await user.type(within(editor).getByRole("textbox", { name: "목적" }), "보존할 목적");
-    await user.selectOptions(screen.getByRole("combobox", { name: "revision 보기" }), "1");
-    expect(await screen.findByRole("textbox", { name: "본문" })).toHaveValue("과거 본문");
+    await user.click(screen.getByRole("button", { name: "읽기 보기" }));
+    const reader = screen.getByRole("region", { name: "기록 읽기" });
+    expect(within(reader).getByText("원문 본문")).toBeVisible();
+    expect(within(reader).queryByText("보존할 본문")).not.toBeInTheDocument();
+    editor = await openEditor(user);
+    expect(within(editor).getByRole("textbox", { name: "본문" })).toHaveValue("보존할 본문");
     expect(screen.getByRole("link", { name: "학습 기록 목록" }).dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }))).toBe(false);
     expect(confirm).toHaveBeenCalledTimes(1);
-    await user.click(screen.getByRole("button", { name: "현재 revision으로 돌아가기" }));
 
     editor = screen.getByRole("region", { name: "기록 편집" });
     expect(within(editor).getByRole("textbox", { name: "제목" })).toHaveValue("보존할 제목");
     expect(within(editor).getByRole("textbox", { name: "본문" })).toHaveValue("보존할 본문");
     expect(within(editor).getByRole("textbox", { name: "목적" })).toHaveValue("보존할 목적");
     expect(within(editor).getByRole("region", { name: "본문 미리보기" })).toHaveTextContent("보존할 본문");
-  });
-
-  it("remounts the complete readonly history snapshot when the selected revision changes", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-      const path = String(input);
-      if (path.endsWith("/revisions/1")) return jsonResponse({ ...noteRecord(), revision: 1, draft: { ...noteRecord().draft, title: "revision 1 메모", body: "revision 1 본문" } });
-      if (path.endsWith("/revisions/2")) return jsonResponse({ ...experimentRecord(2, "revision 2 실험"), draft: { ...experimentRecord(2, "revision 2 실험").draft, body: "revision 2 본문", experiment: { ...experimentRecord(2, "revision 2 실험").draft.experiment, purpose: "revision 2 목적" } } });
-      if (path === "/api/v1/learning/records/record-1") return jsonResponse(experimentRecord(3, "현재 실험"));
-      return optionResponse(path);
-    }));
-    const user = userEvent.setup();
-    render(<LearningRecordPage recordId="record-1" />);
-
-    const revisions = await screen.findByRole("combobox", { name: "revision 보기" });
-    await user.selectOptions(revisions, "1");
-    expect(await screen.findByRole("textbox", { name: "제목" })).toHaveValue("revision 1 메모");
-    expect(screen.getByRole("combobox", { name: "기록 종류" })).toHaveValue("note");
-    await user.selectOptions(revisions, "2");
-
-    expect(await screen.findByRole("textbox", { name: "제목" })).toHaveValue("revision 2 실험");
-    expect(screen.getByRole("combobox", { name: "기록 종류" })).toHaveValue("experiment");
-    expect(screen.getByRole("textbox", { name: "목적" })).toHaveValue("revision 2 목적");
-    expect(screen.getByRole("textbox", { name: "본문" })).toHaveValue("revision 2 본문");
-  });
-
-  it("invalidates a pending historical response when current revision is selected", async () => {
-    const history = deferred<Response>();
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-      const path = String(input);
-      if (path.endsWith("/revisions/1")) return history.promise;
-      if (path === "/api/v1/learning/records/record-1") return jsonResponse({ ...noteRecord(), revision: 2 });
-      return optionResponse(path);
-    }));
-    render(<LearningRecordPage recordId="record-1" />);
-
-    const revisions = await screen.findByRole("combobox", { name: "revision 보기" });
-    fireEvent.change(revisions, { target: { value: "1" } });
-    fireEvent.change(revisions, { target: { value: "2" } });
-    await act(async () => history.resolve(jsonResponse({ ...noteRecord(), draft: { ...noteRecord().draft, body: "늦은 과거 본문" } })));
-
-    await waitFor(() => expect(screen.queryByDisplayValue("늦은 과거 본문")).not.toBeInTheDocument());
-    expect(within(screen.getByRole("region", { name: "기록 편집" })).getByRole("textbox", { name: "본문" })).toHaveValue("원문 본문");
   });
 
   it("keeps a dirty editor and skips archive when discard is cancelled", async () => {
@@ -284,7 +334,7 @@ describe("LearningRecordPage", () => {
     const user = userEvent.setup();
     render(<LearningRecordPage recordId="record-1" />);
 
-    const editor = await screen.findByRole("region", { name: "기록 편집" });
+    const editor = await openEditor(user);
     await user.clear(within(editor).getByRole("textbox", { name: "본문" }));
     await user.type(within(editor).getByRole("textbox", { name: "본문" }), "실시간 초안 본문");
     expect(within(editor).getByRole("region", { name: "본문 미리보기" })).toHaveTextContent("실시간 초안 본문");
@@ -310,7 +360,7 @@ describe("LearningRecordPage", () => {
     const user = userEvent.setup();
     render(<LearningRecordPage recordId="record-1" />);
 
-    const editor = await screen.findByRole("region", { name: "기록 편집" });
+    const editor = await openEditor(user);
     await user.type(within(editor).getByRole("textbox", { name: "제목" }), " 수정");
     await user.click(within(editor).getByRole("button", { name: "변경 저장" }));
 
@@ -361,11 +411,11 @@ describe("LearningRecordPage", () => {
     const user = userEvent.setup();
     render(<LearningRecordPage recordId="record-1" />);
 
-    const editor = await screen.findByRole("region", { name: "기록 편집" });
+    const editor = await openEditor(user);
     await user.clear(within(editor).getByRole("textbox", { name: "제목" }));
     await user.type(within(editor).getByRole("textbox", { name: "제목" }), "보존할 로컬 초안");
     await user.click(screen.getByRole("button", { name: "기록 보관" }));
-    await user.click(await screen.findByRole("button", { name: "최신 버전 읽기" }));
+    await user.click(await screen.findByRole("button", { name: "저장된 내용 확인" }));
     await screen.findByRole("region", { name: "서버 최신 전체 내용" });
     await user.click(screen.getByRole("button", { name: "최신 상태 적용" }));
 
@@ -408,16 +458,14 @@ describe("LearningRecordPage", () => {
     render(<LearningRecordPage recordId="record-1" />);
 
     await user.click(await screen.findByRole("button", { name: "기록 보관" }));
-    await user.click(await screen.findByRole("button", { name: "최신 버전 읽기" }));
+    await user.click(await screen.findByRole("button", { name: "저장된 내용 확인" }));
     await screen.findByRole("region", { name: "서버 최신 전체 내용" });
     await user.click(screen.getByRole("button", { name: "최신 상태 적용" }));
 
-    let editor = screen.getByRole("region", { name: "기록 편집" });
-    expect(within(editor).getByRole("combobox", { name: "기록 종류" })).toHaveValue("experiment");
-    expect(within(editor).getByRole("textbox", { name: "본문" })).toHaveValue("최신 서버 본문");
-    expect(within(editor).getByRole("textbox", { name: "목적" })).toHaveValue("서버 목적");
+    expect(screen.getByText("최신 서버 본문")).toBeVisible();
+    expect(screen.getByText("서버 목적")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "기록 복원" }));
-    editor = await screen.findByRole("region", { name: "기록 편집" });
+    const editor = await openEditor(user);
     await user.type(within(editor).getByRole("textbox", { name: "제목" }), " 수정");
     await user.click(within(editor).getByRole("button", { name: "변경 저장" }));
 
@@ -439,6 +487,8 @@ describe("LearningRecordPage", () => {
     const { container } = render(<LearningRecordPage recordId="record-1" />);
 
     expect(await screen.findByText("접근할 수 없는 참조 1개")).toBeVisible();
+    expect(screen.queryByText("rag.search")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "RAG search" })).not.toBeInTheDocument();
     expect(container.querySelector("script")).toBeNull();
     expect(container.querySelector("img")).toBeNull();
     expect(container.querySelector("a[href='https://invalid.test/x']")).toBeNull();
@@ -465,7 +515,8 @@ describe("LearningRecordPage", () => {
     const user = userEvent.setup();
     render(<LearningRecordPage recordId="record-1" />);
 
-    await user.clear(await screen.findByRole("textbox", { name: "제목" }));
+    await openEditor(user);
+    await user.clear(screen.getByRole("textbox", { name: "제목" }));
     await user.type(screen.getByRole("textbox", { name: "제목" }), "정리된 초안");
     await user.click(screen.getByRole("button", { name: "변경 저장" }));
     expect(puts).toHaveLength(0);
@@ -517,16 +568,16 @@ describe("LearningRecordPage", () => {
     const user = userEvent.setup();
     const view = render(<LearningRecordPage recordId="record-a" />);
 
-    const editor = await screen.findByRole("region", { name: "기록 편집" });
+    const editor = await openEditor(user);
     await user.type(within(editor).getByRole("textbox", { name: "제목" }), " 수정");
     await user.click(within(editor).getByRole("button", { name: "변경 저장" }));
-    await user.click(await screen.findByRole("button", { name: "최신 버전 읽기" }));
+    await user.click(await screen.findByRole("button", { name: "저장된 내용 확인" }));
     view.rerender(<LearningRecordPage recordId="record-b" />);
     expect(await screen.findByRole("heading", { name: "새 기록", level: 1 })).toBeVisible();
     await act(async () => oldLatest.resolve(jsonResponse({ ...noteRecord(), id: "record-a", revision: 8, draft: { ...noteRecord().draft, title: "늦은 최신 기록" } })));
 
     await waitFor(() => expect(screen.queryByText("늦은 최신 기록")).not.toBeInTheDocument());
-    expect(screen.queryByRole("heading", { name: "revision 충돌" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "다른 변경 사항이 있습니다" })).not.toBeInTheDocument();
   });
 
   it.each([
@@ -553,6 +604,11 @@ describe("LearningRecordPage", () => {
     expect(mutations).toBe(1);
   });
 });
+
+async function openEditor(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("button", { name: "기록 편집" }));
+  return screen.findByRole("region", { name: "기록 편집" });
+}
 
 function noteRecord() {
   return { id: "record-1", revision: 1, created_at: "2026-09-07T01:02:03Z", updated_at: "2026-09-07T01:02:03Z", archived_at: null, draft: { title: "기존 메모", body: "원문 본문", kind: "note", topic_keys: ["rag"], domain_labels: ["research"], experiment: null, references: [{ kind: "service", target: "rag.search", version: null }] }, reference_views: [{ status: "available", label: "RAG search", href: "/workshop/rag/search", key: { kind: "service", target: "rag.search", version: null } }], dataset_reference_view: null, unavailable_reference_count: 0 };

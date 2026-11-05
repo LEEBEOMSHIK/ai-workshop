@@ -40,7 +40,7 @@ it.each([false, true])("retains only same-screen POST input after GET completes 
   render(<ConversationPage domain={domain} initialWorkspaceIds={["workspace"]} />);
   fireEvent.change(screen.getByRole("textbox", { name: "질문" }), { target: { value: "합성 질문" } });
   fireEvent.click(screen.getByRole("button", { name: "질문 보내기" }));
-  await screen.findByRole("heading", { name: "합성 대화" });
+  await screen.findByRole("button", { name: "합성 대화", current: "page" });
   fireEvent.click(screen.getByText(/검색 근거·유사도/));
   fireEvent.click(screen.getByText("LLM 입력 확인"));
   expect(screen.getByText(/이 결과에는 최종 요청 본문 기록이 없습니다/)).toBeVisible();

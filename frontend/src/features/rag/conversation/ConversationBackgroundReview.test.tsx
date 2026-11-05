@@ -48,12 +48,13 @@ it.each(["rename", "cancel"])("does not overwrite a newer %s result with an in-f
   await act(async () => vi.advanceTimersByTimeAsync(2000));
   expect(resolvePoll).toBeDefined();
   if (operation === "rename") {
+    fireEvent.click(screen.getByRole("button", { name: "대화 관리" }));
     fireEvent.click(screen.getByRole("button", { name: "대화 이름 변경" }));
     fireEvent.change(screen.getByRole("textbox", { name: "대화 제목" }), { target: { value: newer.title } });
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "제목 저장" })));
   } else await act(async () => fireEvent.click(screen.getByRole("button", { name: "답변 취소" })));
   await act(async () => resolvePoll(Response.json(running)));
-  if (operation === "rename") expect(screen.getByRole("heading", { name: newer.title })).toBeVisible();
+  if (operation === "rename") expect(screen.getByRole("button", { name: newer.title, current: "page" })).toBeVisible();
   else expect(screen.queryByRole("button", { name: "답변 취소" })).not.toBeInTheDocument();
   view.unmount();
 });
@@ -74,6 +75,7 @@ it("clears the dirty title and rejects an equally revisioned late first POST aft
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   fireEvent.change(screen.getByRole("textbox", { name: "질문" }), { target: { value: "공개 합성 질문" } });
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "질문 보내기" })));
+  fireEvent.click(screen.getByRole("button", { name: "대화 관리" }));
   fireEvent.click(screen.getByRole("button", { name: "대화 이름 변경" }));
   fireEvent.change(screen.getByRole("textbox", { name: "대화 제목" }), { target: { value: "공개 합성 편집 캐시" } });
   await act(async () => vi.advanceTimersByTimeAsync(2000));
@@ -81,7 +83,7 @@ it("clears the dirty title and rejects an equally revisioned late first POST aft
   const staleTitleRetained = retainedEditor instanceof HTMLInputElement && retainedEditor.value === "공개 합성 편집 캐시";
   await act(async () => resolvePost(Response.json(running, { status: 202 })));
   expect(staleTitleRetained).toBe(false);
-  expect(screen.getByRole("heading", { name: redacted.title })).toBeVisible();
+  expect(screen.getByRole("button", { name: redacted.title, current: "page" })).toBeVisible();
   expect(screen.queryByText("공개 합성 질문")).not.toBeInTheDocument();
   view.unmount();
 });

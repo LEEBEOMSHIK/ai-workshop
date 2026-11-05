@@ -124,6 +124,8 @@ def test_learning_create_detail_list_and_topics_contract() -> None:
                 "created_at": created.json()["created_at"],
                 "updated_at": created.json()["updated_at"],
                 "archived_at": None,
+                "experiment_status": None,
+                "learning_sequence": None,
             }
         ],
         "next_cursor": None,
@@ -305,9 +307,7 @@ def test_historical_revoked_dataset_reference_hides_all_target_metadata() -> Non
     )
 
     with TestClient(app) as client:
-        response = client.get(
-            f"/api/v1/learning/records/{record.id}/revisions/1"
-        )
+        response = client.get(f"/api/v1/learning/records/{record.id}/revisions/1")
 
     assert response.status_code == 200
     payload = response.json()
@@ -414,10 +414,68 @@ def test_list_uses_runtime_default_and_accepts_only_configured_boundaries() -> N
         lower_boundary = client.get("/api/v1/learning/records?limit=1")
         upper_boundary = client.get("/api/v1/learning/records?limit=2")
         excessive = client.get("/api/v1/learning/records?limit=3")
+        newest = client.get("/api/v1/learning/records?sort=learning_latest")
 
     assert runtime_default.status_code == 200
     assert lower_boundary.status_code == 200
     assert upper_boundary.status_code == 200
-    assert repository.list_limits == [2, 1, 2]
+    assert newest.status_code == 200
+    assert repository.list_limits == [2, 1, 2, 2]
     assert excessive.status_code == 422
     assert excessive.json()["error"]["code"] == "learning_invalid_input"
+
+
+def test_lineage_summary_roundtrip_and_invalid_claims_are_rejected() -> None:
+    actor_id = uuid4()
+    repository = MemoryLearningRepository()
+    app = create_app()
+    app.dependency_overrides[get_current_user] = lambda: user(actor_id)
+    app.dependency_overrides[get_learning_service] = lambda: learning_service(repository)
+    sequence = {
+        "series": "Synthetic flow",
+        "step": 2,
+        "performed_on": "2026-11-05",
+        "start_mode": "continued",
+        "source_label": "First synthetic candidate",
+        "source_evidence": "Checked input artifact identifier",
+        "objective": "Improve synthetic answers",
+        "outcome_status": "mixed",
+        "outcome": "One training case improved; unused cases did not.",
+        "remaining": "Generalization unproven",
+    }
+    draft = {
+        "title": "Synthetic execution",
+        "body": "Original synthetic answers preserved.",
+        "kind": "experiment",
+        "experiment": {"status": "completed", "learning_sequence": sequence},
+    }
+    with TestClient(app) as client:
+        created = client.post("/api/v1/learning/records", json=draft)
+        assert created.status_code == 201
+        record_id = created.json()["id"]
+        detail = client.get(f"/api/v1/learning/records/{record_id}")
+        listed = client.get("/api/v1/learning/records?sort=learning_latest")
+        assert detail.json()["draft"]["body"] == draft["body"]
+        assert detail.json()["draft"]["experiment"]["learning_sequence"] == sequence
+        assert listed.json()["items"][0]["learning_sequence"] == sequence
+        for invalid_sequence in [
+            {**sequence, "source_label": " "},
+            {**sequence, "outcome": None},
+        ]:
+            rejected = client.put(
+                f"/api/v1/learning/records/{record_id}",
+                json={
+                    "expected_revision": 1,
+                    "draft": {
+                        **draft,
+                        "experiment": {
+                            "status": "completed",
+                            "learning_sequence": invalid_sequence,
+                        },
+                    },
+                },
+            )
+            assert rejected.status_code == 422
+        assert client.get(f"/api/v1/learning/records/{record_id}").json() == detail.json()
+        app.dependency_overrides[get_current_user] = lambda: user(uuid4())
+        assert client.get("/api/v1/learning/records?sort=learning_latest").json()["items"] == []

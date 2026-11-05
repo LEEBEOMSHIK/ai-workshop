@@ -4,17 +4,24 @@ import Link from "next/link";
 import {
   type FormEvent,
   type KeyboardEvent,
+  type ReactNode,
+  type RefObject,
+  useCallback,
   useEffect,
+  useId,
+  useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
+import { createPortal } from "react-dom";
+import { Button } from "../../../shared/ui/Button";
 
 import { ApiError } from "../../../shared/api/client";
-import { loginPath, ragDomainChatPath, routes } from "../../../shared/routing/routes";
+import { loginPath, ragDomainChatPath, ragDomainFilesPath, routes } from "../../../shared/routing/routes";
 import type { DocumentSummary } from "../../assets/api";
 import { LibraryViewer } from "../../assets/LibraryViewer";
 import type { Domain } from "../domains/api";
-import { DomainNavigation } from "../domains/DomainNavigation";
 import { getDomainLibraryDocument } from "../domains/library-api";
 import {
   type Evidence,
@@ -34,7 +41,32 @@ import { PendingStart } from "./pending-start";
 import { mergeGenerationInput } from "./merge-generation-input";
 import { blocksNextTurn, isTerminationUnconfirmed } from "./turn-state";
 import { ConversationAttachments } from "./ConversationAttachments";
+import styles from "./ConversationPage.module.css";
 const authenticationExpiredMessage = "로그인이 만료되었습니다. 다시 로그인한 뒤 질문을 보내 주세요.";
+
+const compactSessionsQuery = "(max-width: 52rem)";
+const sessionDate = new Intl.DateTimeFormat("ko-KR", { dateStyle: "short", timeStyle: "short" });
+
+function sessionListTitle(item: ConversationSummary) {
+  if (item.title_origin === "manual") return item.title === "새 대화" ? "새 대화 (저장된 대화)" : item.title;
+  const legacyDate = (item.title_origin === "legacy" || !item.title_origin)
+    && /^새 대화 (\d{4}-\d{2}-\d{2} \d{2}:\d{2})$/.exec(item.title);
+  if (legacyDate) return `질문 기록 · ${legacyDate[1]}`;
+  if (item.title !== "새 대화") return item.title;
+  return `질문 기록 · ${sessionDate.format(new Date(item.created_at))}`;
+}
+
+function recentFirst(a: ConversationSummary, b: ConversationSummary) {
+  return Date.parse(b.updated_at) - Date.parse(a.updated_at);
+}
+function hasCompactSessions() {
+  return window.matchMedia?.(compactSessionsQuery).matches ?? false;
+}
+function subscribeCompactSessions(onChange: () => void) {
+  const media = window.matchMedia?.(compactSessionsQuery);
+  media?.addEventListener("change", onChange);
+  return () => media?.removeEventListener("change", onChange);
+}
 
 export function ConversationPage({ domain, initialSelection = null, initialWorkspaceIds = [], canMonitor = false }: { canMonitor?: boolean; domain: Domain; initialSelection?: Selection; initialWorkspaceIds?: string[] }) {
   const preview = domain.generation_execution_preview;
@@ -42,7 +74,92 @@ export function ConversationPage({ domain, initialSelection = null, initialWorks
   return <ConversationSession canMonitor={canMonitor} key={sessionKey} domain={domain} initialSelection={initialSelection} initialWorkspaceIds={initialWorkspaceIds} />;
 }
 
+function SessionActionsPopover({ id, trigger, view, onClose, children }: {
+  id: string;
+  trigger: RefObject<HTMLButtonElement | null>;
+  view: "actions" | "rename" | "delete";
+  onClose: (restoreFocus?: boolean) => void;
+  children: ReactNode;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    const anchor = trigger.current;
+    if (!panel || !anchor) return;
+    const list = anchor.closest("ul");
+    const viewport = window.visualViewport;
+    function position() {
+      if (!anchor || !panel) return;
+      const button = anchor.getBoundingClientRect();
+      const clip = list?.getBoundingClientRect();
+      if (clip?.height && (button.bottom <= clip.top || button.top >= clip.bottom)) {
+        onClose(panel.contains(document.activeElement));
+        return;
+      }
+      const edge = 8;
+      const left = (viewport?.offsetLeft ?? 0) + edge;
+      const top = (viewport?.offsetTop ?? 0) + edge;
+      const right = left + (viewport?.width ?? window.innerWidth) - edge * 2;
+      const bottom = top + (viewport?.height ?? window.innerHeight) - edge * 2;
+      panel.style.maxWidth = `${right - left}px`;
+      panel.style.maxHeight = `${bottom - top}px`;
+      const size = panel.getBoundingClientRect();
+      const below = button.bottom + edge;
+      const preferredTop = below + size.height <= bottom ? below : button.top - edge - size.height;
+      panel.style.left = `${Math.max(left, Math.min(button.right - size.width, right - size.width))}px`;
+      panel.style.top = `${Math.max(top, Math.min(preferredTop, bottom - size.height))}px`;
+    }
+    function dismissOutside(event: Event) {
+      if (event.target instanceof Node && !panel?.contains(event.target) && !anchor?.contains(event.target)) onClose(false);
+    }
+    position();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(position) : null;
+    observer?.observe(panel);
+    observer?.observe(anchor);
+    window.addEventListener("resize", position);
+    window.addEventListener("scroll", position, true);
+    viewport?.addEventListener("resize", position);
+    viewport?.addEventListener("scroll", position);
+    document.addEventListener("pointerdown", dismissOutside);
+    document.addEventListener("focusin", dismissOutside);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", position);
+      window.removeEventListener("scroll", position, true);
+      viewport?.removeEventListener("resize", position);
+      viewport?.removeEventListener("scroll", position);
+      document.removeEventListener("pointerdown", dismissOutside);
+      document.removeEventListener("focusin", dismissOutside);
+    };
+  }, [onClose, trigger]);
+  useLayoutEffect(() => {
+    const first = panelRef.current?.querySelector<HTMLElement>("[data-initial-focus], button:not(:disabled)");
+    first?.focus({preventScroll: true});
+  }, [view]);
+  return createPortal(<div ref={panelRef} id={id} role="group" aria-label="선택한 대화 관리" className={styles.sessionActions}
+    onKeyDown={event => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      } else if (event.key === "Tab") {
+        const stops = event.currentTarget.querySelectorAll("input, button:not(:disabled)");
+        if (event.target === stops[event.shiftKey ? 0 : stops.length - 1]) {
+          if (event.shiftKey) event.preventDefault();
+          onClose();
+        }
+      }
+    }}>
+    {children}
+  </div>, document.body);
+}
+
 function ConversationSession({ domain, initialSelection, initialWorkspaceIds, canMonitor }: { canMonitor: boolean; domain: Domain; initialSelection: Selection; initialWorkspaceIds: string[] }) {
+  const compact = useSyncExternalStore(subscribeCompactSessions, hasCompactSessions, () => false);
+  const [desktopListOpen, setDesktopListOpen] = useState(true);
+  const [mobileListOpen, setMobileListOpen] = useState(false);
+  const listOpen = compact ? mobileListOpen : desktopListOpen;
+  const sessionListId = useId();
+  const listToggle = useRef<HTMLButtonElement>(null);
   const [selection, setSelection] = useState<Selection>(initialSelection);
   const selectionRef = useRef(selection);
   function updateSelection(value: Selection) { selectionRef.current = value; setSelection(value); }
@@ -62,6 +179,9 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
   const [sessionError, setSessionError] = useState("");
   const [editingTitle, setEditingTitle] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [sessionActionsOpen, setSessionActionsOpen] = useState(false);
+  const sessionActionsId = useId();
+  const sessionActionsTrigger = useRef<HTMLButtonElement>(null);
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -106,11 +226,32 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
   const composing = useRef(false);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const readingPositions = useRef(new Map<string, {query: string; scrollTop: number}>());
+  const restorePosition = useRef<{id: string; scrollTop: number} | null>(null);
   const stickToBottom = useRef(true);
   const returnFocus = useRef<HTMLElement | null>(null);
   const attachmentButtonRef = useRef<HTMLButtonElement>(null);
   const [selectionReturnFocus, setSelectionReturnFocus] = useState<HTMLElement | null>(null);
   const originalReturnFocus = useRef<HTMLElement | null>(null);
+
+  function rememberCurrentConversation() {
+    const current = sessionRef.current;
+    if (!current?.turns.length || current.turns.some(turn => turn.redacted)
+      || readingPositions.current.has(current.id)) return;
+    readingPositions.current.set(current.id, {
+      query: questionRef.current?.value ?? "",
+      scrollTop: transcriptRef.current?.scrollTop ?? 0,
+    });
+  }
+
+  useLayoutEffect(() => {
+    const saved = restorePosition.current;
+    const element = transcriptRef.current;
+    if (sessionLoading || !saved || saved.id !== session?.id || !element) return;
+    element.scrollTop = saved.scrollTop;
+    stickToBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+    restorePosition.current = null;
+  }, [session?.id, sessionLoading]);
 
   useEffect(() => {
     const textarea = questionRef.current;
@@ -174,7 +315,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
   useEffect(() => {
     const controller = new AbortController();
     void listConversations(domain.slug, controller.signal).then(rows => {
-      if (!controller.signal.aborted) setSessions(current => [...rows, ...current.filter(item => !rows.some(row => row.id === item.id))]);
+      if (!controller.signal.aborted) setSessions(current => [...rows, ...current.filter(item => !rows.some(row => row.id === item.id))].sort(recentFirst));
     }).catch(() => {
       if (!controller.signal.aborted) setSessionError("대화 목록을 불러오지 못했습니다.");
     });
@@ -225,6 +366,7 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
         if (caught instanceof ApiError && [401, 403, 404, 410].includes(caught.status)) {
           // Do not retain a private result after authority or ownership is lost.
           requestGeneration.current += 1; setEditingTitle(null);
+          readingPositions.current.clear();
           sessionRef.current = null; setSession(null); setSessions([]); setTranscript([]);
           setSelectedEvidence(null); setSelectedOriginal(null); setKnownDocuments([]);
           updateSelection(null); setWorkspaceIds([]); setFolderIds([]); setScopeMode("workspace");
@@ -294,7 +436,13 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
   function saveSession(detail: ConversationDetail) {
     sessionRef.current = detail;
     setSession(detail);
-    setSessions(current => [detail, ...current.filter(item => item.id !== detail.id)]);
+    setSessions(current => {
+      const index = current.findIndex(item => item.id === detail.id);
+      if (index < 0) return [...current, detail].sort(recentFirst);
+      const next = current.slice();
+      next[index] = detail;
+      return current[index].updated_at === detail.updated_at ? next : next.sort(recentFirst);
+    });
   }
 
   function updateUrl(id: string | null, draftId: string | null = null) {
@@ -351,6 +499,9 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
   }
 
   async function selectSession(id: string) {
+    setSessionActionsOpen(false);
+    rememberCurrentConversation();
+    restorePosition.current = null;
     pendingStart.current?.detach();
     screenGeneration.current += 1; setScreenKey(screenGeneration.current);
     creatingDraft.current = null; updateDraft(null); updateAttachmentBusy(false); submitting.current = false;
@@ -413,14 +564,33 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
           updateSelection(selectionFromDocuments(documents)); setKnownDocuments(documents);
         }
       } else { updateSelection(null); setWorkspaceIds([]); setFolderIds([]); setScopeMode("workspace"); }
-    } catch { if (requestGeneration.current === generation) { setSessionError("대화 또는 선택 문서를 불러오지 못했습니다. 접근 권한과 연결 상태를 확인해 주세요."); setRequiresScopeRevision(true); } }
+      const saved = readingPositions.current.get(id);
+      if (saved && detail.id === id && !detail.turns.some(turn => turn.redacted)) {
+        setQuery(current => current || saved.query);
+        restorePosition.current = {id, scrollTop: saved.scrollTop};
+      }
+      readingPositions.current.delete(id);
+    } catch { if (requestGeneration.current === generation) { readingPositions.current.delete(id); setSessionError("대화 또는 선택 문서를 불러오지 못했습니다. 접근 권한과 연결 상태를 확인해 주세요."); setRequiresScopeRevision(true); } }
     finally { if (requestGeneration.current === generation) setSessionLoading(false); }
   }
+
+  const closeSessionActions = useCallback((restoreFocus = true) => {
+    setSessionActionsOpen(false);
+    setEditingTitle(null);
+    setConfirmDelete(false);
+    if (restoreFocus) sessionActionsTrigger.current?.focus({preventScroll: true});
+  }, []);
 
   async function editTitle() {
     if (!session || !editingTitle?.trim()) return;
     const generation = requestGeneration.current;
-    try { const detail = await renameConversation(domain.slug, session, editingTitle.trim()); if (requestGeneration.current === generation) { saveSession(detail); setEditingTitle(null); } }
+    try {
+      const detail = await renameConversation(domain.slug, session, editingTitle.trim());
+      if (requestGeneration.current === generation) {
+        saveSession(detail);
+        closeSessionActions(document.getElementById(sessionActionsId)?.contains(document.activeElement) ?? false);
+      }
+    }
     catch { if (requestGeneration.current === generation) setSessionError("대화 제목을 저장하지 못했습니다. 대화를 다시 열어 최신 상태를 확인해 주세요."); }
   }
 
@@ -432,7 +602,8 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
         ? await getConversation(domain.slug, session.id) : session;
       await deleteConversation(domain.slug, current);
       setSessions(current => current.filter(item => item.id !== session.id));
-      if (requestGeneration.current === generation) startNewConversation();
+      if (requestGeneration.current === generation) { startNewConversation(); listToggle.current?.focus(); }
+      readingPositions.current.delete(session.id);
     } catch { if (requestGeneration.current === generation) setSessionError("대화를 삭제하지 못했습니다. 대화를 다시 열어 최신 상태를 확인해 주세요."); }
   }
 
@@ -619,6 +790,9 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
   }
 
   function startNewConversation({abandon = true}: {abandon?: boolean} = {}) {
+    setSessionActionsOpen(false);
+    rememberCurrentConversation();
+    restorePosition.current = null;
     const owner = screenGeneration.current + 1;
     const requestOwner = requestGeneration.current + 1;
     const leavingDraft = draftRef.current;
@@ -695,31 +869,102 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
     queueMicrotask(() => originalReturnFocus.current?.focus());
   }
 
+  const newConversationButton = (
+    <button type="button" className={styles.newConversation}
+      disabled={requiresDomainReentry || requiresScopeRevision}
+      onClick={() => {
+        setMobileListOpen(false);
+        startNewConversation();
+        questionRef.current?.focus();
+      }}>
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 4l4 4M10 10l7-7a2.8 2.8 0 0 1 4 4l-7 7-5 1z" />
+      </svg>
+      새 대화
+    </button>
+  );
+
   return (
-    <main className="conversation-shell">
+    <main className={`conversation-shell ${styles.shell}`}>
       <header className="conversation-header">
-        <div>
-          <p className="eyebrow">도메인 대화</p>
-          <h1>{domain.display_name}</h1>
-          <p>{domain.description}</p>
-        </div>
+        <button ref={listToggle} type="button" aria-label="대화 목록" aria-controls={sessionListId} aria-expanded={listOpen}
+          title={listOpen ? "대화 목록 접기" : "대화 목록 열기"}
+          onClick={() => compact ? setMobileListOpen(!listOpen) : setDesktopListOpen(!listOpen)}>
+          <span aria-hidden="true">{listOpen ? "◂" : "▸"}</span> 대화 목록
+        </button>
+        <h1>{domain.display_name}</h1>
         <div className="conversation-header-actions">
-          <DomainNavigation slug={domain.slug} displayName={domain.display_name} current="chat" />
-          <button
-            type="button"
-            className="secondary-button"
-            disabled={requiresDomainReentry || requiresScopeRevision}
-            onClick={() => startNewConversation()}
-          >새 대화</button>
-          <Link href={routes.workshopRagSearch}>도메인 변경</Link>
+          {!listOpen && newConversationButton}
+          <details className={styles.domainMenu}>
+            <summary>도메인 메뉴</summary>
+            <nav aria-label={`${domain.display_name} 도메인 메뉴`}>
+              {domain.description && <p>{domain.description}</p>}
+              <Link className={styles.menuLink} href={ragDomainFilesPath(domain.slug)}>파일함</Link>
+              <Link className={styles.menuLink} href={routes.workshopRagSearch}>도메인 변경</Link>
+            </nav>
+          </details>
         </div>
       </header>
 
-      <div className="conversation-layout">
-      <aside className="conversation-sidebar" aria-label="대화 목록">
-        <details open><summary>내 대화</summary><button type="button" onClick={() => void refreshSessions()}>대화 목록 새로고침</button>
-        {sessions.length === 0 ? <p>저장된 대화가 없습니다.</p> : <ul>{sessions.map(item => <li key={item.id}><button type="button" aria-current={session?.id === item.id ? "page" : undefined} onClick={() => void selectSession(item.id)}>{item.title}</button></li>)}</ul>}
-      </details></aside>
+      <div className={`conversation-layout ${styles.layout}`} data-list-open={listOpen}>
+      <aside id={sessionListId} hidden={!listOpen} className="conversation-sidebar" aria-label="대화 목록">
+        {listOpen && newConversationButton}
+        <div className={styles.listHeading}>
+          <strong>최근 대화</strong>
+          <button type="button" aria-label="대화 목록 새로고침" title="대화 목록 새로고침" onClick={() => void refreshSessions()}>↻</button>
+        </div>
+        {sessions.length === 0 ? <p>저장된 대화가 없습니다.</p> : (
+          <ul>{sessions.map(item => (
+            <li className={styles.sessionRow} key={item.id}>
+              <button type="button" className={styles.sessionTitle} title={sessionListTitle(item)} aria-current={session?.id === item.id ? "page" : undefined}
+              onClick={() => {
+                if (compact) {
+                  setMobileListOpen(false);
+                  listToggle.current?.focus();
+                }
+                void selectSession(item.id);
+              }}>{sessionListTitle(item)}</button>
+              {session?.id === item.id && <>
+                <button ref={sessionActionsTrigger} type="button" className={styles.sessionMore} title="대화 관리"
+                  aria-label="대화 관리" aria-expanded={sessionActionsOpen} aria-controls={sessionActionsOpen ? sessionActionsId : undefined}
+                  onClick={() => sessionActionsOpen ? closeSessionActions() : setSessionActionsOpen(true)}>⋯</button>
+                {listOpen && sessionActionsOpen && (
+                  <SessionActionsPopover id={sessionActionsId} trigger={sessionActionsTrigger} onClose={closeSessionActions}
+                    view={editingTitle !== null ? "rename" : confirmDelete ? "delete" : "actions"}>
+                    {editingTitle !== null ? (
+                      <form onSubmit={event => { event.preventDefault(); void editTitle(); }}>
+                        <label>대화 제목<input data-initial-focus value={editingTitle} maxLength={180} onChange={event => setEditingTitle(event.target.value)} /></label>
+                        <div className={styles.popoverButtons}>
+                          <Button onClick={() => closeSessionActions()}>취소</Button>
+                          <Button variant="primary" type="submit" disabled={!editingTitle.trim()}>제목 저장</Button>
+                        </div>
+                      </form>
+                    ) : confirmDelete ? (
+                      <div role="alert">
+                        <p>이 대화를 삭제할까요?</p>
+                        <div className={styles.popoverButtons}>
+                          <Button onClick={() => closeSessionActions()}>유지</Button>
+                          <Button variant="danger" onClick={() => void removeSession()}>삭제 확인</Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <button type="button" aria-label="대화 이름 변경" disabled={searching} onClick={() => setEditingTitle(session.title)}>
+                          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m15 5 4 4M4 20l4-1 12-12a2.8 2.8 0 0 0-4-4L4 15z" /></svg>이름 변경
+                        </button>
+                        <button type="button" className={styles.removeAction} aria-label="대화 삭제" onClick={() => setConfirmDelete(true)}>
+                          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7m4-7v7" /></svg>삭제
+                        </button>
+                      </>
+                    )}
+                  </SessionActionsPopover>
+                )}
+              </>}
+            </li>
+          ))}</ul>
+        )}
+      </aside>
       <div className="conversation-main" onDragEnter={event => {
         if (!event.dataTransfer.types.includes("Files")) return;
         event.preventDefault(); dragDepth.current += 1; setDraggingFiles(true);
@@ -741,12 +986,6 @@ function ConversationSession({ domain, initialSelection, initialWorkspaceIds, ca
       {draft ? <p role="status">미전송 첨부 초안 · {draft.state === "open" ? "원본 파일 보존" : draft.state}</p> : null}
       {draft?.state === "open" ? <button type="button" onClick={() => { pendingStart.current?.cancel(); startNewConversation(); }}>첨부 초안 취소</button> : null}
       {sessionLoading ? <p role="status">대화를 불러오는 중…</p> : null}
-      {session ? <div className="conversation-session-heading"><h2>{session.title}</h2>
-        <button type="button" aria-label="대화 이름 변경" disabled={searching} onClick={() => setEditingTitle(session.title)}>이름 변경</button>
-        <button type="button" aria-label="대화 삭제" onClick={() => setConfirmDelete(true)}>삭제</button>
-        {editingTitle !== null ? <div><label>대화 제목<input value={editingTitle} maxLength={180} onChange={event => setEditingTitle(event.target.value)} /></label><button type="button" disabled={!editingTitle.trim()} onClick={() => void editTitle()}>제목 저장</button><button type="button" onClick={() => setEditingTitle(null)}>취소</button></div> : null}
-        {confirmDelete ? <div role="alert"><p>이 대화를 삭제할까요?</p><button type="button" onClick={() => void removeSession()}>삭제 확인</button><button type="button" onClick={() => setConfirmDelete(false)}>유지</button></div> : null}
-      </div> : null}
       <details className="conversation-processing"><summary>모델 및 처리 안내</summary><ProcessingDisclosure domain={domain} /></details>
 
       {!domain.ready || !domain.connection_version ? (

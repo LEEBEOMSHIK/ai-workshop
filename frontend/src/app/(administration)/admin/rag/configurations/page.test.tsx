@@ -31,14 +31,14 @@ describe("RagConfigurationsRoute", () => {
       if (path === "/api/v1/rag/profiles/document_processing") throw new ApiError("Synthetic failure", 503, "unavailable");
       return [];
     });
-    const result = await RagConfigurationsRoute();
+    const result = await RagConfigurationsRoute({});
     expect(result.type).toBe(ServerRouteFailure);
     expect(result.props.failure).toEqual({ status: 503, code: "unavailable" });
   });
   it("does not read the cookie or load data when the owner guard rejects", async () => {
     const rejection = new Error("Synthetic owner rejection");
     vi.mocked(requireOwner).mockRejectedValue(rejection);
-    await expect(RagConfigurationsRoute()).rejects.toBe(rejection);
+    await expect(RagConfigurationsRoute({})).rejects.toBe(rejection);
     expect(incomingCookieHeader).not.toHaveBeenCalled();
     expect(serverApiRequest).not.toHaveBeenCalled();
   });
@@ -50,7 +50,7 @@ describe("RagConfigurationsRoute", () => {
     };
     vi.mocked(incomingCookieHeader).mockResolvedValue("synthetic-session");
     vi.mocked(serverApiRequest).mockImplementation(async (path) => path === "/api/v1/rag/profiles/document_processing" ? [processing] : []);
-    const result = await RagConfigurationsRoute();
+    const result = await RagConfigurationsRoute({});
     expect(requireOwner).toHaveBeenCalledWith(routes.adminRagConfigurations);
     expect(vi.mocked(requireOwner).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(incomingCookieHeader).mock.invocationCallOrder[0]);
     expect(serverApiRequest).toHaveBeenCalledWith("/api/v1/rag/profiles/document_processing", {}, "synthetic-session");
@@ -69,7 +69,7 @@ describe("RagConfigurationsRoute", () => {
     );
     vi.mocked(serverApiRequest).mockResolvedValue([]);
 
-    await RagConfigurationsRoute();
+    await RagConfigurationsRoute({});
 
     expect(requireOwner).toHaveBeenCalledWith(routes.adminRagConfigurations);
     expect(serverApiRequest).toHaveBeenCalledWith(

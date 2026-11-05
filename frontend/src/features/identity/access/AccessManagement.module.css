@@ -362,7 +362,7 @@
   display: grid;
   place-items: center;
   padding: 1rem;
-  background: rgb(0 0 0 / 72%);
+  background: var(--color-backdrop);
 }
 
 .dialog {
@@ -373,7 +373,7 @@
   border: 1px solid var(--access-dialog-border);
   border-radius: 0.9rem;
   background: var(--access-inset-surface);
-  box-shadow: 0 1.5rem 5rem rgb(0 0 0 / 50%);
+  box-shadow: var(--shadow-overlay);
 }
 
 .dialog h2 {

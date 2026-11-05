@@ -2,18 +2,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import UUID
 
-from sqlalchemy import and_, insert, or_, select, update
+from sqlalchemy import and_, case, func, insert, literal, or_, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ai_workshop.platform.learning.domain import LearningRecord, RecordKind
+from ai_workshop.platform.learning.domain import ExperimentStatus, LearningRecord, RecordKind
 from ai_workshop.platform.learning.models import (
     LearningRecordRevisionRow,
     LearningRecordRow,
 )
-from ai_workshop.platform.learning.schemas import LearningDraft
+from ai_workshop.platform.learning.schemas import LearningDraft, LearningSequence
 from ai_workshop.shared.errors import AppError
 
 
@@ -22,12 +22,22 @@ class LearningListFilters:
     topic_key: str | None = None
     kind: RecordKind | None = None
     archived: bool | None = None
+    sort: Literal["updated", "learning_order", "learning_latest"] = "updated"
+
+
+@dataclass(frozen=True, slots=True)
+class LearningOrderPosition:
+    series: str | None
+    phase: int
+    step: int
+    created_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
 class LearningCursor:
     updated_at: datetime
     record_id: UUID
+    learning_order: LearningOrderPosition | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +50,8 @@ class LearningSummary:
     created_at: datetime
     updated_at: datetime
     archived_at: datetime | None
+    experiment_status: ExperimentStatus | None = None
+    learning_sequence: LearningSequence | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,8 +150,7 @@ class SqlAlchemyLearningRepository:
                     LearningRecordRevisionRow,
                     and_(
                         LearningRecordRevisionRow.record_id == LearningRecordRow.id,
-                        LearningRecordRevisionRow.revision
-                        == LearningRecordRow.current_revision,
+                        LearningRecordRevisionRow.revision == LearningRecordRow.current_revision,
                     ),
                 )
                 .where(
@@ -167,6 +178,7 @@ class SqlAlchemyLearningRepository:
                     LearningRecordRow.id == record_id,
                     LearningRecordRow.owner_id == actor_id,
                     LearningRecordRevisionRow.revision == revision,
+                    LearningRecordRow.current_revision == revision,
                 )
             )
         ).one_or_none()
@@ -216,11 +228,36 @@ class SqlAlchemyLearningRepository:
     ) -> LearningPage:
         if limit < 1:
             raise ValueError("limit must be positive")
-        statement = select(LearningRecordRow).where(LearningRecordRow.owner_id == actor_id)
-        if filters.topic_key is not None:
-            statement = statement.where(
-                LearningRecordRow.topic_keys.contains([filters.topic_key])
+        experiment = LearningRecordRevisionRow.draft["experiment"]
+        series = experiment["learning_sequence"]["series"].as_string()
+        step = experiment["learning_sequence"]["step"].as_integer()
+        status = case(
+            (
+                func.jsonb_typeof(experiment) == "object",
+                func.coalesce(experiment["status"].as_string(), ExperimentStatus.PLANNED.value),
+            ),
+            else_=None,
+        )
+        missing_series = case((series.is_(None), 1), else_=0)
+        series_key = func.coalesce(series, "")
+        phase = case((status == ExperimentStatus.PLANNED.value, 2), (step.is_not(None), 0), else_=1)
+        learning_sort = filters.sort in ("learning_order", "learning_latest")
+        # Use an ascending tuple key for both directions; persisted cursor steps stay positive.
+        direction = -1 if filters.sort == "learning_latest" else 1
+        step_key = func.coalesce(step, 0) * direction
+        statement = (
+            select(LearningRecordRow, LearningRecordRevisionRow)
+            .join(
+                LearningRecordRevisionRow,
+                and_(
+                    LearningRecordRevisionRow.record_id == LearningRecordRow.id,
+                    LearningRecordRevisionRow.revision == LearningRecordRow.current_revision,
+                ),
             )
+            .where(LearningRecordRow.owner_id == actor_id)
+        )
+        if filters.topic_key is not None:
+            statement = statement.where(LearningRecordRow.topic_keys.contains([filters.topic_key]))
         if filters.kind is not None:
             statement = statement.where(LearningRecordRow.kind == filters.kind.value)
         if filters.archived is True:
@@ -228,41 +265,95 @@ class SqlAlchemyLearningRepository:
         elif filters.archived is False:
             statement = statement.where(LearningRecordRow.archived_at.is_(None))
         if cursor is not None:
-            statement = statement.where(
-                or_(
-                    LearningRecordRow.updated_at < cursor.updated_at,
-                    and_(
-                        LearningRecordRow.updated_at == cursor.updated_at,
-                        LearningRecordRow.id < cursor.record_id,
-                    ),
+            if learning_sort:
+                position = cursor.learning_order
+                if position is None:
+                    raise ValueError("learning order cursor position is required")
+                statement = statement.where(
+                    tuple_(
+                        missing_series,
+                        series_key,
+                        phase,
+                        step_key,
+                        LearningRecordRow.created_at,
+                        LearningRecordRow.id,
+                    )
+                    > tuple_(
+                        literal(int(position.series is None)),
+                        literal(position.series or ""),
+                        literal(position.phase),
+                        literal(position.step * direction),
+                        literal(position.created_at),
+                        literal(cursor.record_id),
+                    )
                 )
+            else:
+                statement = statement.where(
+                    or_(
+                        LearningRecordRow.updated_at < cursor.updated_at,
+                        and_(
+                            LearningRecordRow.updated_at == cursor.updated_at,
+                            LearningRecordRow.id < cursor.record_id,
+                        ),
+                    )
+                )
+        if learning_sort:
+            statement = statement.order_by(
+                missing_series,
+                series_key,
+                phase,
+                step_key,
+                LearningRecordRow.created_at,
+                LearningRecordRow.id,
             )
-        rows = (
-            await self.session.scalars(
-                statement.order_by(
-                    LearningRecordRow.updated_at.desc(),
-                    LearningRecordRow.id.desc(),
-                ).limit(limit + 1)
+        else:
+            statement = statement.order_by(
+                LearningRecordRow.updated_at.desc(),
+                LearningRecordRow.id.desc(),
             )
-        ).all()
+        rows = (await self.session.execute(statement.limit(limit + 1))).all()
         has_more = len(rows) > limit
         visible_rows = rows[:limit]
-        items = tuple(
-            LearningSummary(
-                id=row.id,
-                title=row.title,
-                kind=RecordKind(row.kind),
-                topic_keys=tuple(row.topic_keys),
-                revision=row.current_revision,
-                created_at=row.created_at,
-                updated_at=row.updated_at,
-                archived_at=row.archived_at,
+        summaries: list[LearningSummary] = []
+        for row, revision in visible_rows:
+            draft = LearningDraft.model_validate(revision.draft)
+            fields = draft.experiment
+            summaries.append(
+                LearningSummary(
+                    id=row.id,
+                    title=row.title,
+                    kind=RecordKind(row.kind),
+                    topic_keys=tuple(row.topic_keys),
+                    revision=row.current_revision,
+                    created_at=row.created_at,
+                    updated_at=row.updated_at,
+                    archived_at=row.archived_at,
+                    experiment_status=fields.status if fields is not None else None,
+                    learning_sequence=fields.learning_sequence if fields is not None else None,
+                )
             )
-            for row in visible_rows
-        )
+        items = tuple(summaries)
         next_cursor = None
         if has_more and visible_rows:
-            last = visible_rows[-1]
-            next_cursor = LearningCursor(updated_at=last.updated_at, record_id=last.id)
+            last = items[-1]
+            sequence = last.learning_sequence
+            order_position = None
+            if learning_sort:
+                order_position = LearningOrderPosition(
+                    series=sequence.series if sequence is not None else None,
+                    phase=(
+                        2
+                        if last.experiment_status is ExperimentStatus.PLANNED
+                        else 0
+                        if sequence is not None and sequence.step is not None
+                        else 1
+                    ),
+                    step=sequence.step or 0 if sequence is not None else 0,
+                    created_at=last.created_at,
+                )
+            next_cursor = LearningCursor(
+                updated_at=last.updated_at,
+                record_id=last.id,
+                learning_order=order_position,
+            )
         return LearningPage(items=items, next_cursor=next_cursor)
-

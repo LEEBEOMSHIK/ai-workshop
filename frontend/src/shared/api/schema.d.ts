@@ -5373,6 +5373,7 @@ export interface components {
             environment?: string | null;
             /** Hypothesis */
             hypothesis?: string | null;
+            learning_sequence?: components["schemas"]["LearningSequence"] | null;
             /** Limitations */
             limitations?: string | null;
             /**
@@ -6470,6 +6471,37 @@ export interface components {
             /** Expected Revision */
             expected_revision: number;
         };
+        /** LearningSequence */
+        LearningSequence: {
+            /** Objective */
+            objective?: string | null;
+            /** Outcome */
+            outcome?: string | null;
+            /**
+             * Outcome Status
+             * @default not_evaluated
+             * @enum {string}
+             */
+            outcome_status: "improved" | "no_improvement" | "mixed" | "not_evaluated";
+            /** Performed On */
+            performed_on?: string | null;
+            /** Remaining */
+            remaining?: string | null;
+            /** Series */
+            series: string;
+            /** Source Evidence */
+            source_evidence?: string | null;
+            /** Source Label */
+            source_label?: string | null;
+            /**
+             * Start Mode
+             * @default unknown
+             * @enum {string}
+             */
+            start_mode: "base_model" | "continued" | "unknown";
+            /** Step */
+            step?: number | null;
+        };
         /** LearningSummaryResponse */
         LearningSummaryResponse: {
             /** Archived At */
@@ -6479,12 +6511,14 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            experiment_status?: components["schemas"]["ExperimentStatus"] | null;
             /**
              * Id
              * Format: uuid
              */
             id: string;
             kind: components["schemas"]["RecordKind"];
+            learning_sequence?: components["schemas"]["LearningSequence"] | null;
             /** Revision */
             revision: number;
             /** Title */
@@ -13333,6 +13367,7 @@ export interface operations {
                 cursor?: string | null;
                 kind?: components["schemas"]["RecordKind"] | null;
                 limit?: number | null;
+                sort?: "updated" | "learning_order" | "learning_latest";
                 topic_key?: string | null;
             };
             header?: never;

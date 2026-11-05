@@ -1,3 +1,4 @@
+import { PageArrow } from "../../../shared/ui/Pagination";
 import { useRef, useState } from "react";
 import type { AuthoringCase, AuthoringEvidence, AuthoringPreview } from "./api";
 
@@ -42,8 +43,8 @@ export function EvaluationCaseEditor({ value, index, evidence, documents, onChan
           <details><summary>근거 기술 식별자</summary><p>{unit.id} · projection {unit.projection_id} · build {unit.index_build_id}</p></details>
         </article>;
       })}
-      <button type="button" disabled={page === 0} onClick={() => setPage((current) => current - 1)}>이전 근거</button>
-      <button type="button" disabled={(page + 1) * 10 >= evidence.length} onClick={() => setPage((current) => current + 1)}>다음 근거</button>
+      <button type="button" aria-label="이전 근거" title="이전 근거" disabled={page === 0} onClick={() => setPage((current) => current - 1)}><PageArrow direction="previous" /></button>
+      <button type="button" aria-label="다음 근거" title="다음 근거" disabled={(page + 1) * 10 >= evidence.length} onClick={() => setPage((current) => current + 1)}><PageArrow direction="next" /></button>
       {value.expected_highlight ? <p>기대 하이라이트 지정됨: {value.expected_highlight.spans.map((span) => span.join("–")).join(", ")}</p> : <p>정답 근거와 기대 하이라이트를 직접 지정해야 합니다.</p>}
     </> : <p>선택된 전체 자료에 정답 근거가 없다는 수동 판정입니다. 기대 근거와 하이라이트는 비웁니다.</p>}
     {error ? <p role="alert">{error}</p> : null}<button type="button" onClick={onRemove}>사례 {index + 1} 삭제</button>

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Button } from "../../src/shared/ui/Button";
+import { Button, ButtonLink } from "../../src/shared/ui/Button";
 import { ChoiceGroup } from "../../src/shared/ui/ChoiceGroup";
 import { WorkspaceCreateForm } from "../../src/features/workspaces/WorkspaceCreateForm";
 import { IssueManagement } from "../../src/features/issue-history/IssueManagement";
@@ -92,9 +92,14 @@ function Samples() {
         <div style={{ display: "flex", flexWrap: "wrap", gap: ".5rem", marginBottom: "1rem" }}>
           <Button variant="primary" onClick={() => setClicks(v => v + 1)}>기본 실행</Button>
           <Button variant="secondary">보조 동작</Button>
+          <ButtonLink href="#common">간편 설정 링크</ButtonLink>
           <Button variant="quiet">조용한 동작</Button>
           <Button variant="danger">삭제 예시</Button>
           <Button disabled>비활성 · 입력 유지</Button>
+          <Button aria-disabled="true">접근성 비활성</Button>
+        </div>
+        <div className="conversation-sidebar">
+          <button type="button" aria-current="page">선택된 대화 예시</button>
         </div>
         <p role="status">합성 기본 버튼 클릭 {clicks}회</p>
         <ChoiceGroup variant="segmented" legend="자료 준비 방식" value={choice} onChange={setChoice}

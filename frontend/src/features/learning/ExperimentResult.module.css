@@ -1,0 +1,63 @@
+.root {
+  container: experiment-result / inline-size;
+  min-inline-size: 0;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.summary, .citationChanges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.summary { margin: var(--space-2) 0 var(--space-4); }
+.citationChanges { margin-block-start: var(--space-2); }
+
+.question {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  margin-block-end: var(--space-4);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-selected);
+}
+.question > svg { flex: none; inline-size: 1.35rem; block-size: 1.35rem; margin-block-start: .2rem; color: var(--color-accent-text); }
+.question small, .answerHeader small {
+  display: block;
+  color: var(--color-accent-text);
+  font-size: var(--font-size-small);
+  font-weight: 700;
+  line-height: var(--line-height-heading);
+  letter-spacing: .065em;
+}
+.question p { margin: var(--space-1) 0 0; font-size: var(--font-size-heading); font-weight: 650; line-height: var(--line-height-heading); white-space: pre-wrap; }
+
+.answers { display: grid; gap: var(--space-2); min-inline-size: 0; }
+.answer {
+  min-inline-size: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+}
+.reference { border-inline-start: .22rem solid var(--color-accent); }
+.answerHeader { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-2); }
+.answerHeader small { color: var(--color-text-subtle); }
+.reference .answerHeader small { color: var(--color-accent-text); }
+.answerHeader h3, .conclusion h3 { margin: 0; font-size: var(--font-size-ui); line-height: var(--line-height-heading); }
+.answerText { margin: var(--space-2) 0; white-space: pre-wrap; }
+.reference .answerText { font-weight: 600; }
+.rowMeta { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-3); margin: 0; color: var(--color-text-muted); font-size: var(--font-size-caption); }
+.rowMeta > span { min-inline-size: 0; max-inline-size: 100%; }
+.conclusion { margin-block-start: var(--space-5); padding-block-start: var(--space-4); border-block-start: 1px solid var(--color-border-subtle); }
+.conclusion h3 { margin-block-end: var(--space-2); }
+.conclusion details { margin-block-start: var(--space-2); }
+.settings.settings { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: 0; list-style: none; }
+.settings.settings > li { margin: 0; padding: var(--space-1) var(--space-2); background: var(--color-surface-raised); border-radius: var(--radius-small); color: var(--color-text-muted); font-size: var(--font-size-caption); }
+.settings strong { color: var(--color-text); font-variant-numeric: tabular-nums; }
+
+@container experiment-result (max-width: 34rem) {
+  .question, .answer { padding: var(--space-3); }
+}

@@ -1,0 +1,40 @@
+/* Fallback for native actions without a component-specific hover. Tint the
+   existing surface so gradients, status colours and selected fills survive.
+   Unlayered component shadows (including pixel artwork) take precedence. */
+@layer native-interactions {
+  :where(details > summary:first-of-type) {
+    box-sizing: border-box;
+    min-block-size: var(--control-min-height);
+    align-content: center;
+    cursor: pointer;
+  }
+
+  @media (any-hover: hover) {
+    :where(button, input:is([type="button"], [type="submit"], [type="reset"])):enabled:where(:not([aria-disabled="true"])):hover,
+    :where(details > summary:first-of-type, nav a[href], a[role="button"][href]):where(:not([aria-disabled="true"])):hover {
+      box-shadow: inset 0 0 0 100vmax var(--button-hover-wash, color-mix(in srgb, var(--color-accent) 16%, transparent));
+      cursor: pointer;
+    }
+  }
+
+  :where(button, details > summary:first-of-type, input:is([type="button"], [type="submit"], [type="reset"])):focus-visible {
+    outline: var(--focus-width) solid var(--focus-color);
+    outline-offset: var(--focus-offset);
+  }
+}
+
+/* On a light surface lowering the opacity of the whole control also fades its
+   label. Keep the label legible and communicate unavailability with a neutral
+   fill and a softer boundary. Native checkboxes and radios retain their marks. */
+:root[data-theme="light"] :is(button, select, textarea, input:not([type="checkbox"], [type="radio"], [type="range"])):disabled,
+:root[data-theme="light"] :is(button, a, [role="link"], [role="button"])[aria-disabled="true"] {
+  opacity: 1;
+  color: var(--color-text-subtle);
+  background: var(--color-surface-raised);
+  border-color: var(--color-border);
+}
+
+:root[data-theme="light"] :is(input, textarea)::placeholder {
+  color: var(--color-text-subtle);
+  opacity: 1;
+}

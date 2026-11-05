@@ -1,4 +1,5 @@
 import { Button } from "../../shared/ui/Button";
+import { SelectField, TextField } from "../../shared/ui/Fields";
 import { useId, useRef, useState, type FormEvent } from "react";
 import { ApiError } from "../../shared/api/client";
 import { createWorkspace, type WorkspaceCreate, type WorkspaceSummary } from "./api";
@@ -49,12 +50,13 @@ export function WorkspaceCreateForm({ canCreateCompany, onCreated }: {
     <h2>새 지식 공간 만들기</h2>
     <p>이름과 유형을 선택한 뒤 ‘공간 만들기’를 눌러 저장합니다. 개인 공간은 사용자당 하나이며, 전사 공간은 소유자만 만들 수 있습니다.</p>
     <fieldset disabled={saving}>
-      <label>공간 이름<input value={name} onChange={(event) => { setName(event.target.value); edited(); }} required maxLength={180} /></label>
-      <label>새 공간 유형<select value={kind} onChange={(event) => { setKind(event.target.value as WorkspaceCreate["kind"]); edited(); }}>
-        {canCreateCompany ? <option value="company">전사</option> : null}
-        <option value="personal">개인</option><option value="temporary">임시</option>
-      </select></label>
-      {kind === "temporary" ? <div><label>만료 일시<input type="datetime-local" value={expiry} aria-describedby={expiryHelpId} onChange={(event) => { setExpiry(event.target.value); edited(); }} required /></label>
+      <TextField label="공간 이름" value={name} onChange={(event) => { setName(event.target.value); edited(); }} required maxLength={180} />
+      <SelectField label="새 공간 유형" value={kind} onChange={(event) => { setKind(event.target.value as WorkspaceCreate["kind"]); edited(); }}>
+        {canCreateCompany ? <option value="company" data-icon="company">전사</option> : null}
+        <option value="personal" data-icon="personal">개인</option>
+        <option value="temporary" data-icon="temporary">임시</option>
+      </SelectField>
+      {kind === "temporary" ? <div><TextField label="만료 일시" type="datetime-local" value={expiry} aria-describedby={expiryHelpId} onChange={(event) => { setExpiry(event.target.value); edited(); }} required />
         <p id={expiryHelpId} className={styles.help}>현재 기기의 현지 시각 기준으로 미래 일시를 지정해 주세요.</p></div> : null}
     </fieldset>
     <Button variant="primary" type="submit" disabled={saving}>{saving ? "생성 중…" : "공간 만들기"}</Button>

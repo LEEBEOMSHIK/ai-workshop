@@ -11,6 +11,51 @@ const turn = {id: "turn-1", request_id: "request-1", sequence: 1, status: "faile
 const json = (value: unknown) => new Response(JSON.stringify(value), {headers: {"content-type": "application/json"}});
 afterEach(() => { vi.unstubAllGlobals(); window.history.replaceState(null, "", "/"); });
 
+it("keeps the current conversation and unsent question while hiding and reopening the session list", async () => {
+  window.history.replaceState(null, "", "/?conversation=session-1");
+  const fetchMock = vi.fn(async (url: RequestInfo | URL) => {
+    const path = String(url);
+    if (path.endsWith("/folders") || path.endsWith("/attachments")) return json([]);
+    if (path.endsWith("/conversations")) return json([summary]);
+    return json({...summary, turns: [turn]});
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  render(<ConversationPage domain={domain} />);
+  await screen.findByText("이전 질문");
+  fireEvent.change(screen.getByRole("textbox", {name: "질문"}), {target: {value: "작성 중인 후속 질문"}});
+  const list = () => screen.queryByRole("complementary", {name: "대화 목록"});
+  const toggle = () => screen.getByRole("button", {name: "대화 목록"});
+
+  expect(list()).toBeVisible();
+  fireEvent.click(toggle());
+  expect(toggle()).toHaveAttribute("aria-expanded", "false");
+  expect(list()).toBeNull();
+  fireEvent.click(toggle());
+  expect(toggle()).toHaveAttribute("aria-expanded", "true");
+  expect(list()).toBeVisible();
+  expect(screen.getByRole("textbox", {name: "질문"})).toHaveValue("작성 중인 후속 질문");
+  expect(screen.getByText("이전 질문")).toBeVisible();
+  expect(new URL(window.location.href).searchParams.get("conversation")).toBe(summary.id);
+});
+
+it("opens the session list on a narrow screen and returns keyboard focus after selecting a conversation", async () => {
+  vi.stubGlobal("matchMedia", () => ({matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn()}));
+  vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL) => {
+    const path = String(url);
+    if (path.endsWith("/folders") || path.endsWith("/attachments")) return json([]);
+    if (path.endsWith("/conversations")) return json([summary]);
+    return json({...summary, turns: [turn]});
+  }));
+  render(<ConversationPage domain={domain} />);
+  const toggle = screen.getByRole("button", {name: "대화 목록"});
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
+  fireEvent.click(toggle);
+  fireEvent.click(await screen.findByRole("button", {name: summary.title}));
+  expect(await screen.findByText("이전 질문")).toBeVisible();
+  expect(screen.queryByRole("complementary", {name: "대화 목록"})).toBeNull();
+  expect(toggle).toHaveFocus();
+});
+
 it("keeps an existing session draft after turn authentication expires and only resends explicitly with the same request ID", async () => {
   window.history.replaceState(null, "", "/workshop/rag/domains/example/chat?conversation=session-1");
   const requests: Record<string, unknown>[] = [];
@@ -47,6 +92,72 @@ it("keeps an existing session draft after turn authentication expires and only r
   expect(await screen.findByText("로그인 후 답변")).toBeVisible();
 });
 
+it("restores each saved session's own unsent question and reading position on return", async () => {
+  const other = {...summary, id: "session-2", title: "다른 대화"};
+  window.history.replaceState(null, "", "/?conversation=session-1");
+  vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL) => {
+    const path = String(url);
+    if (path.endsWith("/folders") || path.endsWith("/attachments")) return json([]);
+    if (path.endsWith("/conversations")) return json([summary, other]);
+    if (path.endsWith("/session-1")) return json({...summary, turns: [turn]});
+    if (path.endsWith("/session-2")) return json({...other, turns: [{...turn, query: "두 번째 세션 질문"}]});
+    throw new Error(`Unexpected request: ${path}`);
+  }));
+  render(<ConversationPage domain={domain} />);
+  await screen.findByText("이전 질문");
+  const question = () => screen.getByRole("textbox", {name: "질문"});
+  const transcript = () => screen.getByLabelText("현재 대화");
+  const switchTo = (title: string) => fireEvent.click(screen.getByRole("button", {name: title}));
+  fireEvent.change(question(), {target: {value: "첫 세션 초안"}});
+  fireEvent.scroll(transcript(), {target: {scrollTop: 120}});
+  switchTo(other.title);
+  await screen.findByText("두 번째 세션 질문");
+  expect(question()).toHaveValue("");
+  fireEvent.change(question(), {target: {value: "두 번째 세션 초안"}});
+  fireEvent.scroll(transcript(), {target: {scrollTop: 45}});
+  switchTo(summary.title);
+  await screen.findByText("이전 질문");
+  expect(question()).toHaveValue("첫 세션 초안");
+  await waitFor(() => expect(transcript().scrollTop).toBe(120));
+  switchTo(other.title);
+  await screen.findByText("두 번째 세션 질문");
+  expect(question()).toHaveValue("두 번째 세션 초안");
+  await waitFor(() => expect(transcript().scrollTop).toBe(45));
+});
+
+it.each([
+  {origin: "legacy", label: /^질문 기록 ·/},
+  {origin: "auto", label: /^질문 기록 ·/},
+  {origin: "manual", label: "새 대화 (저장된 대화)"},
+])("keeps the new-chat action distinct from a $origin saved chat with the same title", async ({origin, label}) => {
+  const saved = {...summary, title: "새 대화", title_origin: origin};
+  vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL) => {
+    const path = String(url);
+    if (path.endsWith("/folders") || path.endsWith("/attachments")) return json([]);
+    if (path.endsWith("/conversations")) return json([saved]);
+    if (path.endsWith("/session-1")) return json({...saved, turns: [turn]});
+    throw new Error(`Unexpected request: ${path}`);
+  }));
+  render(<ConversationPage domain={domain} />);
+  const sidebar = within(screen.getByRole("complementary", {name: "대화 목록"}));
+  const savedChat = await sidebar.findByRole("button", {name: label});
+  const startChat = sidebar.getByRole("button", {name: "새 대화"});
+  fireEvent.click(savedChat);
+  expect(await screen.findByText(turn.query)).toBeVisible();
+  expect(new URL(window.location.href).searchParams.get("conversation")).toBe(saved.id);
+
+  fireEvent.click(startChat);
+  expect(screen.queryByText(turn.query)).not.toBeInTheDocument();
+  expect(new URL(window.location.href).searchParams.has("conversation")).toBe(false);
+  fireEvent.click(savedChat);
+  expect(await screen.findByText(turn.query)).toBeVisible();
+  fireEvent.click(screen.getByRole("button", {name: "대화 목록"}));
+  expect(screen.queryByRole("complementary", {name: "대화 목록"})).toBeNull();
+  fireEvent.click(screen.getByRole("button", {name: "새 대화"}));
+  expect(screen.queryByText(turn.query)).not.toBeInTheDocument();
+  expect(new URL(window.location.href).searchParams.has("conversation")).toBe(false);
+});
+
 it("restores the URL-selected server conversation and preserves it on new chat", async () => {
   window.history.replaceState(null, "", "/?conversation=session-1");
   vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL) => {
@@ -64,26 +175,62 @@ it("restores the URL-selected server conversation and preserves it on new chat",
 
 it("renames and deletes the selected session using the current server revision", async () => {
   window.history.replaceState(null, "", "/?conversation=session-1");
+  const other = {...summary, title: "다른 저장된 대화", id: "session-2"};
   const mutations: Array<{path: string; init: RequestInit}> = [];
   vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
     const path = String(url);
     if (path.endsWith("/folders") || path.endsWith("/attachments")) return json([]);
-    if (path.endsWith("/conversations")) return json([summary]);
+    if (path.endsWith("/conversations")) return json([summary, other]);
     if (init?.method === "PATCH") { mutations.push({path, init}); return json({...summary, title: "새 제목", revision: 2, turns: [turn]}); }
     if (init?.method === "DELETE") { mutations.push({path, init}); return new Response(null, {status: 204}); }
     return json({...summary, turns: [turn]});
   }));
   render(<ConversationPage domain={domain} />);
   await screen.findByText("이전 질문");
-  fireEvent.click(screen.getByRole("button", {name: "대화 이름 변경"}));
-  fireEvent.change(screen.getByRole("textbox", {name: "대화 제목"}), {target: {value: "새 제목"}});
-  fireEvent.click(screen.getByRole("button", {name: "제목 저장"}));
-  await screen.findByRole("button", {name: "새 제목"});
+  const sidebar = within(screen.getByRole("complementary", {name: "대화 목록"}));
+  expect(screen.queryByRole("heading", {name: summary.title})).not.toBeInTheDocument();
+  expect(sidebar.getByRole("button", {name: summary.title, current: "page"})).toBeVisible();
+  expect(sidebar.getByRole("button", {name: other.title})).not.toHaveAttribute("aria-current");
+  expect(sidebar.getAllByRole("button", {name: "대화 관리"})).toHaveLength(1);
+  expect(screen.queryByRole("button", {name: "대화 이름 변경"})).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", {name: "대화 삭제"})).not.toBeInTheDocument();
+  const activeRow = within(sidebar.getByRole("button", {name: summary.title, current: "page"}).closest("li")!);
+  const popup = () => within(screen.getByRole("group", {name: "선택한 대화 관리"}));
+  fireEvent.click(activeRow.getByRole("button", {name: "대화 관리"}));
+  expect(popup().getByRole("button", {name: "대화 이름 변경"})).toHaveFocus();
+  expect(activeRow.queryByRole("group")).not.toBeInTheDocument();
+  const trigger = activeRow.getByRole("button", {name: "대화 관리"});
+  const panel = screen.getByRole("group", {name: "선택한 대화 관리"});
+  const anchorBounds = vi.spyOn(trigger, "getBoundingClientRect").mockReturnValue(new DOMRect(150, window.innerHeight - 44, 44, 44));
+  vi.spyOn(panel, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 220, 110));
+  fireEvent.scroll(sidebar.getByRole("list"));
+  expect(Number.parseFloat(panel.style.top) + 110).toBeLessThan(window.innerHeight - 44);
+  expect(Number.parseFloat(panel.style.left)).toBeGreaterThanOrEqual(0);
+  anchorBounds.mockReturnValue(new DOMRect(150, 20, 44, 44));
+  fireEvent.scroll(sidebar.getByRole("list"));
+  expect(Number.parseFloat(panel.style.top)).toBeGreaterThanOrEqual(64);
+  fireEvent.pointerDown(screen.getByRole("textbox", {name: "질문"}));
+  expect(screen.queryByRole("group", {name: "선택한 대화 관리"})).not.toBeInTheDocument();
+  fireEvent.click(activeRow.getByRole("button", {name: "대화 관리"}));
+  fireEvent.click(popup().getByRole("button", {name: "대화 이름 변경"}));
+  expect(popup().getByRole("textbox", {name: "대화 제목"})).toHaveFocus();
+  fireEvent.change(popup().getByRole("textbox", {name: "대화 제목"}), {target: {value: "새 제목"}});
+  fireEvent.click(popup().getByRole("button", {name: "제목 저장"}));
+  await sidebar.findByRole("button", {name: "새 제목", current: "page"});
   expect(JSON.parse(String(mutations[0].init.body))).toEqual({title: "새 제목", expected_revision: 1});
-  fireEvent.click(screen.getByRole("button", {name: "대화 삭제"}));
-  fireEvent.click(screen.getByRole("button", {name: "삭제 확인"}));
+  fireEvent.click(activeRow.getByRole("button", {name: "대화 관리"}));
+  fireEvent.click(popup().getByRole("button", {name: "대화 삭제"}));
+  expect(popup().getByRole("button", {name: "유지"})).toHaveFocus();
+  fireEvent.keyDown(popup().getByRole("button", {name: "유지"}), {key: "Escape"});
+  expect(screen.queryByRole("button", {name: "삭제 확인"})).not.toBeInTheDocument();
+  expect(activeRow.getByRole("button", {name: "대화 관리"})).toHaveFocus();
+  expect(mutations).toHaveLength(1);
+  fireEvent.click(activeRow.getByRole("button", {name: "대화 관리"}));
+  fireEvent.click(popup().getByRole("button", {name: "대화 삭제"}));
+  fireEvent.click(popup().getByRole("button", {name: "삭제 확인"}));
   await waitFor(() => expect(screen.queryByText("이전 질문")).not.toBeInTheDocument());
-  expect(mutations[1].path).toContain("expected_revision=2");
+  expect(mutations[1].path).toMatch(/session-1\?expected_revision=2$/);
+  expect(sidebar.getByRole("button", {name: other.title})).toBeVisible();
   expect(new URL(window.location.href).searchParams.has("conversation")).toBe(false);
 });
 

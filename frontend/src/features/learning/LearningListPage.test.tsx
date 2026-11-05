@@ -11,6 +11,84 @@ afterEach(() => {
 });
 
 describe("LearningListPage", () => {
+  it("requests five records initially and sends the selected page size to the API", async () => {
+    const paths: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("topics")) return jsonResponse(topics());
+      if (path.includes("evaluation-runs")) return jsonResponse([]);
+      paths.push(path);
+      return jsonResponse({ items: [summary(`페이지 크기 ${new URL(path, "http://test").searchParams.get("limit")}`)], next_cursor: null });
+    }));
+    const user = userEvent.setup(); render(<LearningListPage />);
+    expect(await screen.findByText("페이지 크기 5")).toBeVisible();
+    const size = screen.getByRole("combobox", { name: "페이지당 표시" });
+    expect(size).toHaveValue("5");
+    await user.selectOptions(size, "10");
+    expect(await screen.findByText("페이지 크기 10")).toBeVisible();
+    await user.selectOptions(size, "20");
+    expect(await screen.findByText("페이지 크기 20")).toBeVisible();
+    expect(paths.map(path => new URL(path, "http://test").searchParams.get("limit"))).toEqual(["5", "10", "20"]);
+  });
+
+  it("resets the cursor on size change while preserving filters and sort across later pages", async () => {
+    const paths: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("topics")) return jsonResponse(topics());
+      if (path.includes("evaluation-runs")) return jsonResponse([]);
+      paths.push(path);
+      const query = new URL(path, "http://test").searchParams;
+      return jsonResponse({ items: [summary(`결과 ${query.get("limit")} - ${query.get("cursor") ?? "첫 페이지"}`)], next_cursor: query.has("cursor") ? null : "page-two" });
+    }));
+    const user = userEvent.setup(); render(<LearningListPage />);
+    await screen.findByText("결과 5 - 첫 페이지");
+    await user.selectOptions(screen.getByRole("combobox", { name: "주제 필터" }), "fine-tuning");
+    await user.selectOptions(screen.getByRole("combobox", { name: "종류 필터" }), "experiment");
+    await user.selectOptions(screen.getByRole("combobox", { name: "보관 상태" }), "true");
+    await user.selectOptions(screen.getByRole("combobox", { name: "정렬" }), "updated");
+    await waitFor(() => expect(screen.getByRole("button", { name: "다음 페이지" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "다음 페이지" }));
+    await screen.findByText("결과 5 - page-two");
+    await user.selectOptions(screen.getByRole("combobox", { name: "페이지당 표시" }), "10");
+    await screen.findByText("결과 10 - 첫 페이지");
+    expect(screen.getByRole("button", { name: "이전 페이지" })).toBeDisabled();
+    expect(Object.fromEntries(new URL(paths.at(-1)!, "http://test").searchParams)).toEqual({ sort: "updated", limit: "10", topic_key: "fine-tuning", kind: "experiment", archived: "true" });
+    await user.click(screen.getByRole("button", { name: "다음 페이지" }));
+    await screen.findByText("결과 10 - page-two");
+    expect(new URL(paths.at(-1)!, "http://test").searchParams.get("limit")).toBe("10");
+    await user.click(screen.getByRole("button", { name: "이전 페이지" }));
+    await screen.findByText("결과 10 - 첫 페이지");
+    expect(new URL(paths.at(-1)!, "http://test").searchParams.has("cursor")).toBe(false);
+    await user.selectOptions(screen.getByRole("combobox", { name: "정렬" }), "learning_order");
+    await waitFor(() => expect(new URL(paths.at(-1)!, "http://test").searchParams.get("sort")).toBe("learning_order"));
+    expect(new URL(paths.at(-1)!, "http://test").searchParams.get("limit")).toBe("10");
+    await user.selectOptions(screen.getByRole("combobox", { name: "주제 필터" }), "rag");
+    await waitFor(() => expect(new URL(paths.at(-1)!, "http://test").searchParams.get("topic_key")).toBe("rag"));
+    expect(new URL(paths.at(-1)!, "http://test").searchParams.get("limit")).toBe("10");
+  });
+
+  it("ignores an older page-size response after the new size has loaded", async () => {
+    const oldPage = deferred<Response>(); const paths: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("topics")) return jsonResponse(topics());
+      if (path.includes("evaluation-runs")) return jsonResponse([]);
+      paths.push(path);
+      if (new URL(path, "http://test").searchParams.get("limit") === "5") return oldPage.promise;
+      return jsonResponse({ items: [summary("선택한 크기의 결과")], next_cursor: null });
+    }));
+    const user = userEvent.setup(); render(<LearningListPage />);
+    await waitFor(() => expect(paths).toHaveLength(1));
+    await user.selectOptions(screen.getByRole("combobox", { name: "페이지당 표시" }), "20");
+    await screen.findByText("선택한 크기의 결과");
+    await act(async () => oldPage.resolve(jsonResponse({ items: [summary("늦은 이전 크기의 결과")], next_cursor: "stale-page" })));
+    expect(screen.queryByText("늦은 이전 크기의 결과")).not.toBeInTheDocument();
+    expect(screen.getByText("선택한 크기의 결과")).toBeVisible();
+    expect(screen.getByRole("button", { name: "다음 페이지" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "페이지당 표시" })).toHaveValue("20");
+  });
+
   it("creates a free note without experiment data or draft storage", async () => {
     const created = record({ draft: draft({ title: "새 메모", body: "첫 줄\n둘째 줄" }) });
     const requests: Array<{ path: string; init?: RequestInit }> = [];

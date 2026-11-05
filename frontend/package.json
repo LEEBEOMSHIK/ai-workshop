@@ -17,6 +17,7 @@
     "test": "vitest",
     "test:runtime": "node --experimental-test-module-mocks --test tests/local-python-runtime.test.mjs tests/openapi-runtime-selection.test.mjs",
     "test:styles": "node --test tests/ui-style/design-tokens.test.mjs",
+    "test:button-states": "node tests/ui-style/button-hover-browser.mjs",
     "test:office": "playwright test --config playwright.office.config.ts",
     "typecheck": "tsc --noEmit --pretty false"
   },

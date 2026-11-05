@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { ApiError } from "../../shared/api/client";
+import { SelectField, TextAreaField, TextField } from "../../shared/ui/Fields";
 import type {
   EvaluationRun,
   ExperimentFields,
@@ -19,6 +20,8 @@ import {
   emptyExperiment,
   emptyTroubleshooting,
   experimentStatusOptions,
+  learningOutcomeOptions,
+  learningStartOptions,
   recordKindOptions,
 } from "./registry";
 import { useUnsavedChanges } from "./useUnsavedChanges";
@@ -104,6 +107,19 @@ export function LearningEditor({
       setError("지표 값은 비워 둘 수 없습니다. 값을 입력하거나 지표를 삭제해 주세요.");
       return;
     }
+    if (draft.experiment?.learning_sequence && !draft.experiment.learning_sequence.series.trim()) {
+      setError("학습 흐름 이름을 입력하거나 흐름 연결을 해제해 주세요.");
+      return;
+    }
+    const progress = draft.experiment?.learning_sequence;
+    if (progress?.start_mode === "continued" && !progress.source_label?.trim()) {
+      setError("이어 학습한 출발점의 모델 또는 학습 결과를 입력해 주세요.");
+      return;
+    }
+    if (progress?.outcome_status && progress.outcome_status !== "not_evaluated" && !progress.outcome?.trim()) {
+      setError("판정의 근거가 되는 결과 요약을 입력하거나 미평가로 변경해 주세요.");
+      return;
+    }
     if (
       unavailableReferenceCount > 0 &&
       !window.confirm(`접근할 수 없는 참조 ${unavailableReferenceCount}개가 저장 시 제거됩니다. 계속할까요?`)
@@ -111,7 +127,10 @@ export function LearningEditor({
     setPending(true);
     setError(null);
     try {
-      await onSubmit(draft);
+      const sequence = draft.experiment?.learning_sequence;
+      await onSubmit(sequence && draft.experiment
+        ? { ...draft, experiment: { ...draft.experiment, learning_sequence: { ...sequence, series: sequence.series.trim() } } }
+        : draft);
       setDirty(false);
       onDirtyChange?.(false);
       allowSuccessfulNavigation();
@@ -131,21 +150,12 @@ export function LearningEditor({
   return (
     <form className={styles.editor} onSubmit={submit}>
       <div className={styles.formGrid}>
-        <label>
-          제목
-          <input required disabled={disabled || pending || externallyPending} value={draft.title} onChange={(event) => change({ ...draft, title: event.target.value })} />
-        </label>
-        <label>
-          기록 종류
-          <select disabled={disabled || pending || externallyPending} value={draft.kind} onChange={(event) => handleKind(event.target.value as LearningDraft["kind"])}>
-            {recordKindOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-        </label>
+        <TextField label="제목" required disabled={disabled || pending || externallyPending} value={draft.title} onChange={(event) => change({ ...draft, title: event.target.value })} />
+        <SelectField label="기록 종류" disabled={disabled || pending || externallyPending} value={draft.kind} onChange={(event) => handleKind(event.target.value as LearningDraft["kind"])}>
+            {recordKindOptions.map((option) => <option key={option.value} value={option.value} data-icon={option.value}>{option.label}</option>)}
+        </SelectField>
       </div>
-      <label>
-        본문
-        <textarea required rows={9} disabled={disabled || pending || externallyPending} value={draft.body} onChange={(event) => change({ ...draft, body: event.target.value })} />
-      </label>
+      <TextAreaField label="본문" required rows={9} disabled={disabled || pending || externallyPending} value={draft.body} onChange={(event) => change({ ...draft, body: event.target.value })} />
 
       <fieldset disabled={disabled || pending || externallyPending}>
         <legend>기술 주제</legend>
@@ -228,15 +238,21 @@ function ExperimentEditor({
     <section className={styles.experiment} aria-label="구조화 실험">
       <h2>구조화 실험</h2>
       <div className={styles.formGrid}>
-        <label>실험 상태<select disabled={disabled} value={value.status} onChange={(event) => onChange({ ...value, status: event.target.value as ExperimentFields["status"] })}>{experimentStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        <label>실험 상태<select disabled={disabled} value={value.status} onChange={(event) => {
+          const status = event.target.value as ExperimentFields["status"];
+          onChange({ ...value, status, ...(status === "planned" && value.learning_sequence ? { learning_sequence: { ...value.learning_sequence, step: null, performed_on: null, outcome_status: "not_evaluated", outcome: null, remaining: null } } : {}) });
+        }}>{experimentStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
         <label>목적<textarea disabled={disabled} value={value.purpose ?? ""} onChange={(event) => setText("purpose", event.target.value)} /></label>
+      </div>
+      <SequenceEditor value={value} onChange={onChange} disabled={disabled} />
+      <div className={styles.formGrid}>
         <label>가설<textarea disabled={disabled} value={value.hypothesis ?? ""} onChange={(event) => setText("hypothesis", event.target.value)} /></label>
         <ReferenceSelect label="데이터 snapshot" disabled={disabled} options={referenceOptions} value={value.dataset_snapshot ?? null} view={datasetReferenceView} onChange={(dataset_snapshot) => onChange({ ...value, dataset_snapshot })} />
         <ListField label="비교 구성" disabled={disabled} value={value.configurations} onChange={(configurations) => onChange({ ...value, configurations })} />
         <label>실행 환경<textarea disabled={disabled} value={value.environment ?? ""} onChange={(event) => setText("environment", event.target.value)} /></label>
         <label>절차<textarea disabled={disabled} value={value.procedure ?? ""} onChange={(event) => setText("procedure", event.target.value)} /></label>
         <label>관찰<textarea disabled={disabled} value={value.observations ?? ""} onChange={(event) => setText("observations", event.target.value)} /></label>
-        <label>한계<textarea disabled={disabled} value={value.limitations ?? ""} onChange={(event) => setText("limitations", event.target.value)} /></label>
+        <label>평가 범위와 한계<textarea disabled={disabled} value={value.limitations ?? ""} onChange={(event) => setText("limitations", event.target.value)} /></label>
         <label>결론<textarea disabled={disabled} value={value.conclusion ?? ""} onChange={(event) => setText("conclusion", event.target.value)} /></label>
         <ListField label="다음 작업" disabled={disabled} value={value.next_steps} onChange={(next_steps) => onChange({ ...value, next_steps })} />
       </div>
@@ -248,6 +264,34 @@ function ExperimentEditor({
       </details>
     </section>
   );
+}
+
+function SequenceEditor({ value, onChange, disabled }: { value: ExperimentFields; onChange: (value: ExperimentFields) => void; disabled: boolean }) {
+  const sequence = value.learning_sequence;
+  const planned = value.status === "planned";
+  return <fieldset disabled={disabled}>
+    <legend>학습 순서</legend>
+    <label className={styles.inlineToggle}><input type="checkbox" checked={Boolean(sequence)} onChange={event => onChange({ ...value, learning_sequence: event.target.checked ? { series: "", step: null, performed_on: null, start_mode: "unknown", outcome_status: "not_evaluated" } : null })} />학습 흐름에 연결</label>
+    <p className={styles.sequenceHint}>같은 학습 흐름의 기록에 동일한 이름을 사용하세요. 실제 실행한 차수와 날짜만 입력하며, 수정일로 순서를 추정하지 않습니다.</p>
+    {sequence && <div className={styles.formGrid}>
+      <TextField label="학습 흐름 이름" required value={sequence.series} onChange={event => onChange({ ...value, learning_sequence: { ...sequence, series: event.target.value } })} />
+      <TextField label="학습 차수" type="number" min={1} max={2147483647} step={1} disabled={planned} value={sequence.step ?? ""} onChange={event => onChange({ ...value, learning_sequence: { ...sequence, step: event.target.value === "" ? null : Number(event.target.value) } })} />
+      <TextField label="실제 실행일" type="date" disabled={planned} value={sequence.performed_on ?? ""} onChange={event => onChange({ ...value, learning_sequence: { ...sequence, performed_on: event.target.value || null } })} />
+      <SelectField label="학습 출발 방식" value={sequence.start_mode ?? "unknown"} onChange={event => onChange({ ...value, learning_sequence: { ...sequence, start_mode: event.target.value as NonNullable<typeof sequence.start_mode> } })}>
+        {learningStartOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </SelectField>
+      <TextField label="출발 모델·학습 결과" required={sequence.start_mode === "continued"} value={sequence.source_label ?? ""} onChange={event => onChange({ ...value, learning_sequence: { ...sequence, source_label: event.target.value || null } })} />
+      <TextAreaField label="출발점 확인 근거" rows={2} value={sequence.source_evidence ?? ""} onChange={event => onChange({ ...value, learning_sequence: { ...sequence, source_evidence: event.target.value || null } })} />
+      <TextAreaField label="개선 목표 요약" rows={2} value={sequence.objective ?? ""} onChange={event => onChange({ ...value, learning_sequence: { ...sequence, objective: event.target.value || null } })} />
+      <SelectField label="결과 판정" disabled={planned} value={sequence.outcome_status ?? "not_evaluated"} onChange={event => onChange({ ...value, learning_sequence: { ...sequence, outcome_status: event.target.value as NonNullable<typeof sequence.outcome_status> } })}>
+        {learningOutcomeOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </SelectField>
+      <TextAreaField label="확인된 결과 요약" rows={2} disabled={planned} required={sequence.outcome_status !== undefined && sequence.outcome_status !== "not_evaluated"} value={sequence.outcome ?? ""} onChange={event => onChange({ ...value, learning_sequence: { ...sequence, outcome: event.target.value || null } })} />
+      <TextAreaField label="남은 문제 요약" rows={2} disabled={planned} value={sequence.remaining ?? ""} onChange={event => onChange({ ...value, learning_sequence: { ...sequence, remaining: event.target.value || null } })} />
+    </div>}
+    {sequence && <p className={styles.sequenceHint}>{planned ? "계획에는 실행 차수와 날짜를 기록하지 않습니다." : "차수나 실행일을 모르면 비워 두세요. 미기록으로 표시됩니다."}</p>}
+    {sequence && <p className={styles.sequenceHint}>출발점은 실행 기록으로 확인한 내용만 입력하세요. 차수나 참조 순서로 추정하지 않습니다. 결과 요약은 실제 평가 범위와 개선되지 않은 부분을 함께 적습니다.</p>}
+  </fieldset>;
 }
 
 function MetricEditor({ value, onChange, onValidityChange, disabled }: { value: ExperimentFields["metrics"]; onChange: (value: ExperimentFields["metrics"]) => void; onValidityChange: (invalid: boolean) => void; disabled: boolean }) {

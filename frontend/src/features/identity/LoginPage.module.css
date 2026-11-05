@@ -11,7 +11,6 @@
   color: var(--login-text);
   background: var(--login-bg);
   overflow-wrap: anywhere;
-  color-scheme: dark;
 }
 
 .page > header a:hover { color: var(--login-accent); }
@@ -96,14 +95,14 @@
   background: var(--color-surface-hover);
   color: var(--color-accent-text);
 }
-.form button, .card .primaryLink, .card .primaryLink:visited {
+.form button:where(:not([class])), .card .primaryLink, .card .primaryLink:visited {
   display: block;
   min-height: var(--control-min-height);
   padding: 0.8rem 1rem;
-  border: 1px solid var(--login-accent);
+  border: 1px solid var(--color-primary);
   border-radius: var(--radius-control);
-  color: var(--login-bg);
-  background: var(--login-accent);
+  color: var(--color-on-primary);
+  background: var(--color-primary);
   font: inherit;
   font-size: var(--font-size-control);
   font-weight: 750;
@@ -111,7 +110,7 @@
   text-decoration: none;
   cursor: pointer;
 }
-.form button:hover:not(:disabled), .card .primaryLink:hover { background: var(--color-accent-text, var(--color-accent)); }
+.form button:where(:not([class])):hover:not(:disabled), .card .primaryLink:hover { --button-hover-wash: transparent; background: var(--color-primary-hover); color: var(--color-on-primary); }
 .form button:disabled { opacity: 0.6; cursor: wait; }
 .card :focus-visible { outline: var(--focus-width) solid var(--focus-color); outline-offset: var(--focus-offset); }
 .error { margin: 0; padding: 0.75rem; border: 1px solid var(--color-danger-border); border-radius: var(--radius-control); color: var(--color-danger); background: var(--color-danger-surface); font-size: var(--font-size-caption); line-height: 1.6; }

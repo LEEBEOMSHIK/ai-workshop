@@ -1,9 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { learningRecordPath } from "../../shared/routing/routes";
+import { Pagination } from "../../shared/ui/Pagination";
+import { SelectField } from "../../shared/ui/Fields";
 import {
   createRecord,
   listEvaluationOptions,
@@ -18,7 +19,8 @@ import {
 } from "./api";
 import styles from "./Learning.module.css";
 import { LearningEditor } from "./LearningEditor";
-import { emptyExperiment, recordKindOptions } from "./registry";
+import { LearningSequenceList } from "./LearningSequence";
+import { defaultLearningPageSize, emptyExperiment, learningPageSizeOptions, recordKindOptions, type LearningPageSize } from "./registry";
 
 interface LearningListPageProps {
   onCreated?: (record: LearningRecord) => void;
@@ -33,6 +35,8 @@ export function LearningListPage({ onCreated = defaultCreated }: LearningListPag
   const [topicKey, setTopicKey] = useState("");
   const [kind, setKind] = useState<RecordKind | "">("");
   const [archived, setArchived] = useState<ArchivedFilter>("false");
+  const [sort, setSort] = useState<"learning_latest" | "learning_order" | "updated">("learning_latest");
+  const [pageSize, setPageSize] = useState<LearningPageSize>(defaultLearningPageSize);
   const [cursor, setCursor] = useState<string | undefined>();
   const [cursorStack, setCursorStack] = useState<Array<string | undefined>>([]);
   const [newKind, setNewKind] = useState<RecordKind | null>(null);
@@ -61,6 +65,8 @@ export function LearningListPage({ onCreated = defaultCreated }: LearningListPag
     setLoading(true);
     setError(null);
     listRecords({
+      sort,
+      limit: pageSize,
       ...(topicKey ? { topicKey } : {}),
       ...(kind ? { kind } : {}),
       ...(archived === "all" ? {} : { archived: archived === "true" }),
@@ -78,7 +84,7 @@ export function LearningListPage({ onCreated = defaultCreated }: LearningListPag
         if (currentRequest === requestId.current) setLoading(false);
       });
     return () => controller.abort();
-  }, [archived, cursor, kind, topicKey]);
+  }, [archived, cursor, kind, pageSize, sort, topicKey]);
 
   useEffect(() => {
     let dispose: (() => void) | undefined;
@@ -139,31 +145,41 @@ export function LearningListPage({ onCreated = defaultCreated }: LearningListPag
       ) : null}
 
       <section className={styles.panel} aria-labelledby="records-heading">
-        <div className={styles.sectionHeading}><h2 id="records-heading">내 기록</h2></div>
+        <div className={styles.sectionHeading}><h2 id="records-heading">내 기록</h2>
+          <SelectField label="정렬" value={sort} onChange={(event) => resetFilter(() => setSort(event.target.value as typeof sort))}>
+            <option value="learning_latest">학습 흐름별 최신순</option><option value="learning_order">학습 흐름별 처음부터</option><option value="updated">최근 수정순</option>
+          </SelectField>
+        </div>
+        <p className={styles.sequenceHint}>{sort === "updated"
+          ? "최근 수정한 기록부터 표시합니다. 학습 차수와 실행일은 각 기록에서 확인할 수 있습니다."
+          : `${sort === "learning_latest" ? "각 흐름에서 최신 학습부터" : "각 흐름에서 처음 학습부터"} 표시합니다. 출발점과 결과는 기록된 내용을 사용하며, 관련 계획은 따로 구분합니다.`}</p>
         <div className={styles.filters}>
           <label>주제 필터<select value={topicKey} onChange={(event) => resetFilter(() => setTopicKey(event.target.value))}><option value="">모든 주제</option>{topics.map((topic) => <option key={topic.key} value={topic.key}>{topic.label}</option>)}</select></label>
           <label>종류 필터<select value={kind} onChange={(event) => resetFilter(() => setKind(event.target.value as RecordKind | ""))}><option value="">모든 종류</option>{recordKindOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
           <label>보관 상태<select value={archived} onChange={(event) => resetFilter(() => setArchived(event.target.value as ArchivedFilter))}><option value="false">현재 기록</option><option value="true">보관 기록</option><option value="all">전체</option></select></label>
+          <SelectField label="페이지당 표시" value={pageSize} onChange={(event) => {
+            const option = learningPageSizeOptions.find(item => item.value === Number(event.target.value));
+            if (option) resetFilter(() => setPageSize(option.value));
+          }}>{learningPageSizeOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</SelectField>
         </div>
         {error ? <div className={styles.error} role="alert"><p>{error}</p><button type="button" onClick={load}>다시 시도</button></div> : null}
         {loading ? <p role="status">학습 기록을 불러오는 중…</p> : null}
         {!loading && !error && summaries.length === 0 ? <p className={styles.empty}>조건에 맞는 학습 기록이 없습니다.</p> : null}
         {!loading && !error && summaries.length > 0 ? (
-          <div className={styles.cards}>
-            {summaries.map((record) => (
-              <article className={styles.card} key={record.id}>
-                <div className={styles.cardMeta}><span>{kindLabel(record.kind)}</span><span>{record.archived_at ? "보관됨" : "편집 가능"}</span></div>
-                <h3><Link href={learningRecordPath(record.id)}>{record.title}</Link></h3>
-                <p>{record.topic_keys.map((key) => topics.find((topic) => topic.key === key)?.label).filter(Boolean).join(" · ") || "주제 미지정"}</p>
-                <time dateTime={record.updated_at}>수정 {formatDate(record.updated_at)}</time>
-              </article>
-            ))}
-          </div>
+          <LearningSequenceList records={summaries} topics={topics} ordered={sort !== "updated"} />
         ) : null}
-        <nav className={styles.pagination} aria-label="학습 기록 페이지">
-          <button type="button" disabled={cursorStack.length === 0 || loading} onClick={() => { const previous = cursorStack.at(-1); setCursorStack((stack) => stack.slice(0, -1)); setCursor(previous); }}>이전 페이지</button>
-          <button type="button" disabled={!result?.next_cursor || loading} onClick={() => { setCursorStack((stack) => [...stack, cursor]); setCursor(result?.next_cursor ?? undefined); }}>다음 페이지</button>
-        </nav>
+        <Pagination label="학습 기록 페이지" position={`${cursorStack.length + 1}페이지`}
+          canGoBack={!loading && cursorStack.length > 0} canGoForward={!loading && Boolean(result?.next_cursor)}
+          onPrevious={() => {
+            const previous = cursorStack.at(-1);
+            setCursorStack(stack => stack.slice(0, -1));
+            setCursor(previous);
+          }}
+          onNext={() => {
+            setCursorStack(stack => [...stack, cursor]);
+            setCursor(result?.next_cursor ?? undefined);
+          }}
+        />
       </section>
     </main>
   );
@@ -172,7 +188,5 @@ export function LearningListPage({ onCreated = defaultCreated }: LearningListPag
 function newDraft(kind: RecordKind): LearningDraft {
   return { title: "", body: "", kind, topic_keys: [], domain_labels: [], experiment: kind === "experiment" ? emptyExperiment() : null, references: [] };
 }
-function kindLabel(kind: RecordKind): string { return recordKindOptions.find((option) => option.value === kind)?.label ?? kind; }
-function formatDate(value: string): string { return new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }
 function errorMessage(error: unknown, fallback: string): string { return error instanceof Error && error.message ? error.message : fallback; }
 function defaultCreated(record: LearningRecord) { window.location.assign(learningRecordPath(record.id)); }

@@ -6,7 +6,7 @@
   --study-link: var(--color-accent);
   --study-visited: var(--color-link-visited);
   --study-hover: var(--color-accent);
-  --study-focus: var(--color-warning);
+  --study-focus: var(--focus-color);
   --study-border: var(--color-border);
   --study-surface: var(--color-surface);
   --study-control-surface: var(--color-surface-raised);
@@ -26,7 +26,7 @@
   min-height: calc(100dvh - var(--application-header-height, 0rem));
   padding: clamp(1.25rem, 4vw, 4rem);
   color: var(--study-text);
-  background: radial-gradient(circle at 90% 0, rgb(85 217 201 / 12%), transparent 28rem), var(--color-background);
+  background: radial-gradient(circle at 90% 0, color-mix(in srgb, var(--color-primary) 12%, transparent), transparent 28rem), var(--color-background);
 }
 
 .header,
@@ -83,7 +83,6 @@
 
 .controls,
 .actions,
-.pager,
 .topics {
   display: flex;
   flex-wrap: wrap;
@@ -102,7 +101,6 @@
 
 .list button,
 .actions button,
-.pager button,
 .controls button,
 .controls select {
   padding: 0.7rem 0.9rem;
@@ -126,8 +124,7 @@
 }
 
 .list button:disabled,
-.actions button:disabled,
-.pager button:disabled {
+.actions button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
 }
@@ -247,6 +244,10 @@
 
 .catalogPager a,
 .catalogPager span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--control-min-height);
   box-shadow: none;
   padding: 0.5rem 0.8rem;
   min-height: var(--control-min-height);
@@ -256,6 +257,9 @@
   overflow-wrap: anywhere;
   text-decoration: none;
 }
+
+.catalogPager .pageArrow, .catalogPager [aria-disabled] { border-radius: var(--radius-pill); }
+.pageNumber { font-variant-numeric: tabular-nums; }
 
 .catalogPager a[aria-current] {
   color: var(--study-text);
@@ -294,8 +298,8 @@
   overflow-wrap: anywhere;
 }
 
-.categoryTrigger:hover,
-.categoryPanel button:hover {
+.categoryTrigger:hover:not(:disabled),
+.categoryPanel button:hover:not(:disabled) {
   background: var(--study-control-hover);
   border-color: var(--study-accent);
 }
@@ -406,6 +410,12 @@
   color: var(--study-text);
   border-color: var(--study-accent);
   background: var(--study-control-hover);
+}
+
+.catalogPager a[href]:hover, .shell .categoryOption[href]:hover {
+  background: color-mix(in srgb, var(--study-accent) 12%, var(--study-control-hover));
+  border-color: var(--study-accent);
+  color: var(--study-text);
 }
 
 .studyCardItem {

@@ -77,9 +77,10 @@
 }
 
 .panel .primaryAction {
-  color: var(--color-on-accent);
-  background: var(--color-accent-text);
+  color: var(--color-on-primary);
+  background: var(--color-primary);
 }
+.panel .primaryAction:hover:enabled { background: var(--color-primary-hover); }
 
 .panel .secondaryAction {
   color: var(--color-accent-text);

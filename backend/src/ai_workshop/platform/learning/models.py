@@ -11,6 +11,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
@@ -58,6 +59,7 @@ class LearningRecordRow(Base):
 class LearningRecordRevisionRow(Base):
     __tablename__ = "learning_record_revisions"
     __table_args__ = (
+        UniqueConstraint("record_id", name="uq_learning_current_draft"),
         CheckConstraint(
             "revision > 0",
             name="ck_learning_record_revisions_revision_positive",

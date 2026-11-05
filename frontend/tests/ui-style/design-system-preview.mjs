@@ -1,4 +1,4 @@
-// Synthetic preview server only. Browser interaction belongs to the root reviewer.
+// The standalone preview and browser checks share one backend-free fixture.
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -9,11 +9,10 @@ const require = createRequire(resolve(frontend, "package.json"));
 const vitestRequire = createRequire(require.resolve("vitest/package.json"));
 const { createServer } = await import(pathToFileURL(vitestRequire.resolve("vite")).href);
 const navigation = "\0synthetic-next-navigation";
-const server = await createServer({
+const previewOptions = {
   root: frontend, configFile: false, logLevel: "error",
   resolve: { alias: [{ find: /^next\/link$/, replacement: resolve(here, "link.fixture.tsx") }] },
   oxc: { jsx: { runtime: "automatic" } },
-  server: { host: "127.0.0.1", port: Number(process.env.UI_STYLE_PORT ?? 18191), strictPort: true },
   plugins: [{
     name: "independent-synthetic-design-preview",
     resolveId(id) { if (id === "next/navigation") return navigation; },
@@ -40,16 +39,18 @@ const server = await createServer({
       });
     },
   }],
-});
-await server.listen();
-console.log(`Synthetic preview: http://127.0.0.1:${server.httpServer.address().port}/__design_system__/`);
-console.log("No browser launched. No backend proxy. Stop this owned preview with Ctrl+C.");
-let closing = false;
-async function close() {
-  if (closing) return;
-  closing = true;
-  await server.close();
-  process.exit(0);
+};
+
+export function createPreviewServer(port = 0) {
+  return createServer({...previewOptions, server: {host: "127.0.0.1", port, strictPort: true}});
 }
-process.on("SIGINT", close);
-process.on("SIGTERM", close);
+
+if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
+  const server = await createPreviewServer(Number(process.env.UI_STYLE_PORT ?? 18191));
+  await server.listen();
+  console.log(`Synthetic preview: http://127.0.0.1:${server.httpServer.address().port}/__design_system__/`);
+  console.log("No browser launched. No backend proxy. Stop this owned preview with Ctrl+C.");
+  const close = async () => { await server.close(); process.exit(0); };
+  process.once("SIGINT", close);
+  process.once("SIGTERM", close);
+}

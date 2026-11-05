@@ -19,6 +19,7 @@ from ai_workshop.platform.learning.references import (
 from ai_workshop.platform.learning.repository import (
     LearningCursor,
     LearningListFilters,
+    LearningOrderPosition,
     LearningRepository,
     LearningSummary,
 )
@@ -68,14 +69,25 @@ class LearningCursorCodec:
         filters: LearningListFilters,
         cursor: LearningCursor,
     ) -> str:
+        position: dict[str, object] = {
+            "record_id": str(cursor.record_id),
+            "updated_at": cursor.updated_at.isoformat(),
+        }
+        if filters.sort in ("learning_order", "learning_latest"):
+            order = cursor.learning_order
+            if order is None:
+                raise _invalid_input()
+            position["learning_order"] = {
+                "series": order.series,
+                "phase": order.phase,
+                "step": order.step,
+                "created_at": order.created_at.isoformat(),
+            }
         payload = json.dumps(
             {
                 "actor": str(actor_id),
                 "filters": _filter_payload(filters),
-                "position": {
-                    "record_id": str(cursor.record_id),
-                    "updated_at": cursor.updated_at.isoformat(),
-                },
+                "position": position,
                 "version": 1,
             },
             ensure_ascii=True,
@@ -85,9 +97,7 @@ class LearningCursorCodec:
         signature = hmac.digest(self._signing_key, payload, "sha256")
         encoded = f"{_base64_encode(payload)}.{_base64_encode(signature)}"
         if len(encoded) > self._max_length:
-            raise AppError(
-                "learning_invalid_input", "The learning request is invalid.", 422
-            )
+            raise AppError("learning_invalid_input", "The learning request is invalid.", 422)
         return encoded
 
     def decode(
@@ -121,6 +131,20 @@ class LearningCursorCodec:
             if updated_at.tzinfo is None:
                 raise ValueError("cursor timestamp must include a timezone")
             record_id = UUID(position["record_id"])
+            learning_order = None
+            if filters.sort in ("learning_order", "learning_latest"):
+                order = position["learning_order"]
+                series, phase, step = order["series"], order["phase"], order["step"]
+                if series is not None and (not isinstance(series, str) or not series.strip()):
+                    raise ValueError("invalid series")
+                if type(phase) is not int or phase not in (0, 1, 2):
+                    raise ValueError("invalid phase")
+                if type(step) is not int or not 0 <= step <= 2147483647:
+                    raise ValueError("invalid step")
+                created_at = datetime.fromisoformat(order["created_at"])
+                if created_at.tzinfo is None:
+                    raise ValueError("cursor timestamp must include a timezone")
+                learning_order = LearningOrderPosition(series, phase, step, created_at)
         except (
             ValueError,
             KeyError,
@@ -130,7 +154,9 @@ class LearningCursorCodec:
             binascii.Error,
         ) as exc:
             raise _invalid_input() from exc
-        return LearningCursor(updated_at=updated_at, record_id=record_id)
+        return LearningCursor(
+            updated_at=updated_at, record_id=record_id, learning_order=learning_order
+        )
 
 
 def _base64_encode(value: bytes) -> str:
@@ -143,11 +169,15 @@ def _base64_decode(value: str) -> bytes:
 
 
 def _filter_payload(filters: LearningListFilters) -> dict[str, object]:
-    return {
+    result: dict[str, object] = {
         "archived": filters.archived,
         "kind": filters.kind.value if filters.kind is not None else None,
         "topic_key": filters.topic_key,
     }
+    # Keep the original default payload to accept already issued updated-order cursors.
+    if filters.sort != "updated":
+        result["sort"] = filters.sort
+    return result
 
 
 class LearningService:
@@ -173,9 +203,7 @@ class LearningService:
     async def create(self, actor_id: UUID, draft: LearningDraft) -> LearningRecordView:
         self._validate_draft(draft)
         resolved_references = await self._require_available_references(actor_id, draft)
-        record = await self.repository.create(
-            LearningRecord.create(owner_id=actor_id, draft=draft)
-        )
+        record = await self.repository.create(LearningRecord.create(owner_id=actor_id, draft=draft))
         await self.commit()
         return self._available_write_view(record, resolved_references)
 
@@ -267,6 +295,12 @@ class LearningService:
             raise _invalid_input()
         if len(draft.body) > self.limits.body_max_chars:
             raise _invalid_input()
+        if (
+            draft.experiment is not None
+            and draft.experiment.learning_sequence is not None
+            and len(draft.experiment.learning_sequence.series) > self.limits.title_max_chars
+        ):
+            raise _invalid_input()
         reference_count = len(draft.references)
         if draft.experiment is not None and draft.experiment.dataset_snapshot is not None:
             reference_count += 1
@@ -338,9 +372,7 @@ class LearningService:
             unavailable_reference_count=0,
         )
 
-    async def _to_view(
-        self, actor_id: UUID, record: LearningRecord
-    ) -> LearningRecordView:
+    async def _to_view(self, actor_id: UUID, record: LearningRecord) -> LearningRecordView:
         reference_views: list[ReferenceView] = []
         visible_references = []
         unavailable_count = 0
@@ -355,9 +387,7 @@ class LearningService:
         dataset_view = None
         experiment = record.draft.experiment
         if experiment is not None and experiment.dataset_snapshot is not None:
-            dataset_view = await self.resolver.resolve(
-                actor_id, experiment.dataset_snapshot
-            )
+            dataset_view = await self.resolver.resolve(actor_id, experiment.dataset_snapshot)
             if dataset_view.status is ReferenceStatus.UNAVAILABLE:
                 unavailable_count += 1
                 experiment = experiment.model_copy(update={"dataset_snapshot": None})

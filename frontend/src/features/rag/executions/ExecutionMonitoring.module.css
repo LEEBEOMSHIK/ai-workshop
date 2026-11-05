@@ -7,7 +7,7 @@
   --monitor-border: var(--color-border-control);
   --monitor-danger: var(--color-danger);
   max-width: var(--content-max-width); width: 100%; margin: 0 auto; padding: var(--page-padding);
-  display: grid; gap: 1.25rem; min-width: 0; overflow-wrap: anywhere; color-scheme: dark;
+  display: grid; gap: 1.25rem; min-width: 0; overflow-wrap: anywhere;
 }
 .page h1 { font-size: var(--font-size-title); line-height: 1.25; margin: var(--space-2) 0 var(--space-3); }
 .page h2 { font-size: var(--font-size-heading); margin: 0 0 var(--space-3); line-height: var(--line-height-heading); }
@@ -62,6 +62,9 @@
 .outcomeSummary strong { display: flex; align-items: center; gap: var(--space-2); font-size: 1.15rem; line-height: var(--line-height-heading); }
 .outcomeSummary [data-state] strong::before { content: ""; flex-shrink: 0; width: .5rem; height: .5rem; border: 2px solid currentColor; border-radius: 50%; }
 .outcomeSummary [data-state="completed"] strong, .outcomeSummary [data-state="passed"] strong { color: var(--color-success); }
+.outcomeSummary :is([data-state="completed"], [data-state="passed"]) strong::before {
+  background: var(--gradient-growth);
+}
 .outcomeSummary [data-state="running"] strong { color: var(--color-info); }
 .outcomeSummary [data-state="cancelled"] strong, .outcomeSummary [data-state="interrupted"] strong { color: var(--color-warning); }
 .outcomeSummary [data-state="failed"] strong { color: var(--monitor-danger); }

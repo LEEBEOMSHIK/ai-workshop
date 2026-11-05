@@ -1,0 +1,262 @@
+.shell:global(.conversation-shell):has(.layout) {
+  --reading-width: 58rem;
+  padding: 0;
+  gap: 0;
+  background: var(--color-background);
+}
+
+.shell:has(.layout) > :global(.conversation-header) {
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.shell:global(.conversation-shell):has(.layout) header h1 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--font-size-heading);
+}
+
+.shell > header > button {
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.domainMenu { position: relative; }
+.domainMenu summary {
+  display: list-item;
+  min-height: var(--control-min-height);
+  align-content: center;
+  padding-inline: var(--space-2);
+  font-size: var(--font-size-caption);
+  cursor: pointer;
+}
+.domainMenu nav {
+  position: absolute;
+  inset: 100% 0 auto auto;
+  z-index: 5;
+  display: grid;
+  gap: var(--space-2);
+  width: min(16rem, 80vw);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-panel);
+}
+.domainMenu nav p {
+  margin: 0;
+  padding: var(--space-2);
+  color: var(--color-text-muted);
+  line-height: var(--line-height-ui);
+}
+.domainMenu nav .menuLink {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--control-min-height);
+  padding-inline: var(--space-2);
+  color: var(--color-text);
+  font-weight: 500;
+  border-radius: var(--radius-control);
+}
+.menuLink::after { content: "›" / ""; color: var(--color-text-muted); }
+.menuLink:is(:hover, :focus-visible) { background: var(--color-surface-hover); }
+
+.shell .layout {
+  display: grid;
+  grid-template-columns: minmax(12rem, 15rem) minmax(0, 1fr);
+  gap: 0;
+}
+.shell .layout[data-list-open="false"] { grid-template-columns: minmax(0, 1fr); }
+.layout > :global(.conversation-sidebar) {
+  max-height: none;
+  min-width: 0;
+  padding: var(--space-3);
+  background: var(--color-surface);
+}
+.layout > :global(.conversation-sidebar):not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.shell .layout :global(.conversation-sidebar) ul {
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-1);
+}
+.shell:global(.conversation-shell) button.newConversation {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-weight: 650;
+}
+.shell:global(.conversation-shell) button.newConversation:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+  color: var(--color-on-primary);
+}
+.layout .listHeading {
+  flex: none;
+  border-top: 1px solid var(--color-border);
+  margin-top: var(--space-3);
+}
+.listHeading { display: flex; align-items: center; justify-content: space-between; }
+.listHeading strong { padding-left: var(--space-3); font-size: var(--font-size-caption); color: var(--color-text-muted); }
+.layout .listHeading button { width: auto; font-size: var(--font-size-ui); text-align: center; }
+.layout :global(.conversation-sidebar) ul { gap: var(--space-1); margin-block: var(--space-2); }
+.sessionRow {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-width: 0;
+  border-radius: var(--radius-control);
+}
+.sessionRow:hover { background: var(--color-surface-hover); }
+.sessionRow:has([aria-current="page"]) { background: var(--color-surface-selected); }
+.sessionRow:has([aria-current="page"])::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: var(--space-1);
+  inset-block-start: 50%;
+  transform: translateY(-50%);
+  width: .375rem;
+  height: .375rem;
+  border-radius: 50%;
+  background: var(--color-accent);
+  pointer-events: none;
+}
+.sessionRow:has([aria-current="page"]):hover { background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface-selected)); }
+.shell .layout .sessionRow > button.sessionTitle {
+  display: block;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  font-size: var(--font-size-control);
+}
+.shell .layout .sessionRow > .sessionTitle[aria-current="page"] { color: var(--color-text); font-weight: 650; }
+.shell .layout .sessionRow > .sessionTitle:focus-visible { outline: var(--focus-width) solid var(--focus-color); }
+.layout .sessionRow > button.sessionMore {
+  display: inline-grid;
+  place-items: center;
+  width: var(--control-min-height);
+  padding: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-ui);
+  line-height: 1;
+}
+@media (hover: hover) and (pointer: fine) {
+  .sessionRow:not(:hover, :focus-within) > .sessionMore:not([aria-expanded="true"]) { opacity: 0; }
+}
+.sessionActions {
+  position: fixed;
+  z-index: 30;
+  box-sizing: border-box;
+  width: min(15rem, calc(100vw - 1rem));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-1);
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-overlay);
+  color: var(--color-text);
+  font-family: var(--font-family-ui);
+  font-size: var(--font-size-control);
+}
+.sessionActions > button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--control-min-height);
+  padding-inline: var(--space-3);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-control);
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.sessionActions:has(> button) { width: min(10rem, calc(100vw - 1rem)); }
+.sessionActions > button svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
+.sessionActions > button.removeAction { color: var(--color-danger); }
+.sessionActions > button:hover:not(:disabled) { background: var(--color-surface-hover); }
+.sessionActions > button:disabled { opacity: .55; cursor: not-allowed; }
+.sessionActions :is(button, input):focus-visible { outline: var(--focus-width) solid var(--focus-color); outline-offset: -2px; }
+.sessionActions :is(form, [role="alert"]) { display: grid; gap: var(--space-3); padding: var(--space-2); }
+.sessionActions p { margin: 0; }
+.sessionActions label { display: grid; gap: var(--space-1); }
+.sessionActions input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--control-min-height);
+  min-width: 0;
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  padding-inline: var(--space-2);
+  background: var(--color-surface-input);
+  color: inherit;
+  font: inherit;
+}
+.popoverButtons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); }
+
+.layout > :global(.conversation-main) {
+  padding: var(--space-3) clamp(.75rem, 2vw, 2rem);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.layout :global(.conversation-main) > :is(:global(.conversation-processing), :global(.conversation-transcript), :global(.conversation-composer)) {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--reading-width);
+  margin-inline: auto;
+  padding-inline: var(--space-1);
+}
+.layout :global(.conversation-main) > :global(.conversation-transcript) {
+  min-height: 6rem;
+  padding-block: var(--space-3);
+  scroll-behavior: auto;
+}
+.layout :global(.assistant-message) {
+  max-width: 100%;
+  min-width: 0;
+  padding: var(--space-2) 0;
+  border: 0;
+  background: transparent;
+}
+
+/* Leave a readable single column when a session list would crowd the response. */
+@media (max-width: 52rem) {
+  .shell .layout {
+    display: flex;
+    flex-direction: column;
+  }
+  .layout > :global(.conversation-sidebar) {
+    flex: none;
+    max-height: 28dvh;
+    padding-block: var(--space-1);
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .layout :global(.conversation-sidebar) ul { grid-template-columns: minmax(0, 1fr); }
+  .shell:has(.layout) > :global(.conversation-header) { padding: var(--space-1) var(--space-2); }
+}

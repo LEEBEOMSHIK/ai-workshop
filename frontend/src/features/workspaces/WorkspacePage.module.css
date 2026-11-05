@@ -33,10 +33,10 @@
 .header button {
   flex: 0 0 auto;
   padding: 0.72rem 1rem;
-  border: 1px solid var(--color-accent);
+  border: 1px solid var(--color-primary);
   border-radius: var(--radius-control);
-  background: var(--color-accent);
-  color: var(--color-on-accent);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
   font: inherit;
   font-weight: 750;
   cursor: pointer;
@@ -57,7 +57,8 @@
 .empty { margin: 0; padding: 2rem 1rem; border: 1px dashed var(--file-border); border-radius: var(--radius-control); color: var(--file-muted); }
 .open { margin-left: auto; flex-shrink: 0; color: var(--file-accent); font-size: var(--font-size-caption); }
 .shell :focus-visible { outline: var(--focus-width) solid var(--focus-color); outline-offset: var(--focus-offset); }
-.row:hover, .sidebar button:hover { border-color: var(--file-accent); }
+.row:hover, .sidebar button:hover:not(:disabled) { border-color: var(--file-accent); }
+.row:hover { background: var(--color-surface-hover); }
 .group { display: grid; gap: 0.65rem; }
 .group > h2 { margin: 0; color: var(--color-text-muted); font-size: 0.86rem; letter-spacing: 0.05em; }
 .row {

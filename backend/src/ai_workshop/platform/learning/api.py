@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
@@ -27,8 +27,7 @@ async def list_learning_topics(
     _user: Annotated[User, Depends(get_current_user)],
 ) -> tuple[LearningTopicResponse, ...]:
     return tuple(
-        LearningTopicResponse(key=topic.key, label=topic.label)
-        for topic in load_learning_topics()
+        LearningTopicResponse(key=topic.key, label=topic.label) for topic in load_learning_topics()
     )
 
 
@@ -50,11 +49,12 @@ async def list_learning_records(
     archived: bool | None = None,
     cursor: str | None = None,
     limit: int | None = None,
+    sort: Literal["updated", "learning_order", "learning_latest"] = "updated",
 ) -> LearningListResponse:
     return LearningListResponse.from_view(
         await service.list_for(
             user.id,
-            LearningListFilters(topic_key=topic_key, kind=kind, archived=archived),
+            LearningListFilters(topic_key=topic_key, kind=kind, archived=archived, sort=sort),
             cursor,
             limit if limit is not None else service.default_page_limit,
         )

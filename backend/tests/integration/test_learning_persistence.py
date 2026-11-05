@@ -14,7 +14,7 @@ from ai_workshop.platform.learning.repository import (
     LearningListFilters,
     SqlAlchemyLearningRepository,
 )
-from ai_workshop.platform.learning.schemas import ExperimentFields, LearningDraft
+from ai_workshop.platform.learning.schemas import ExperimentFields, LearningDraft, LearningSequence
 from ai_workshop.shared.db import create_session_factory
 from ai_workshop.shared.errors import AppError
 from alembic import command
@@ -80,7 +80,7 @@ def migrated_learning_database(
     monkeypatch: pytest.MonkeyPatch,
 ):
     with isolated_learning_database(monkeypatch) as database:
-        command.upgrade(database.config, "0024_learning_records")
+        command.upgrade(database.config, "0069_learning_current_only")
         yield database
 
 
@@ -117,9 +117,7 @@ async def test_owner_isolation_revision_round_trip_and_archive_restore(
             repository = SqlAlchemyLearningRepository(session)
             revision_1 = await repository.get_revision_owned(original.id, 1, owner_a)
             current = await repository.get_owned(original.id, owner_a)
-            assert revision_1 == original
-            assert revision_1 is not None
-            assert revision_1.draft.body == "private body for note v1"
+            assert revision_1 is None
             assert current is not None
             assert current.revision == 2
             assert current.draft.kind is RecordKind.EXPERIMENT
@@ -144,17 +142,7 @@ async def test_owner_isolation_revision_round_trip_and_archive_restore(
                 await repository.get_revision_owned(original.id, revision, owner_a)
                 for revision in range(1, 5)
             ]
-            assert [item.revision for item in revisions if item is not None] == [1, 2, 3, 4]
-            assert [item.archived_at is not None for item in revisions if item is not None] == [
-                False,
-                False,
-                True,
-                False,
-            ]
-            assert revisions[0] is not None
-            assert revisions[0].draft.kind is RecordKind.NOTE
-            assert revisions[1] is not None
-            assert revisions[1].draft.kind is RecordKind.EXPERIMENT
+            assert revisions == [None, None, None, restored]
     finally:
         await engine.dispose()
 
@@ -202,14 +190,17 @@ async def test_concurrent_compare_and_swap_has_one_winner(
             assert current is not None
             assert current.revision == 2
             assert current.draft.title in {"winner a", "winner b"}
-            assert await repository.get_revision_owned(original.id, 1, owner_id) == original
-            assert await session.scalar(
-                text(
-                    "SELECT count(*) FROM learning_record_revisions "
-                    "WHERE record_id = :record_id"
-                ),
-                {"record_id": original.id},
-            ) == 2
+            assert await repository.get_revision_owned(original.id, 1, owner_id) is None
+            assert (
+                await session.scalar(
+                    text(
+                        "SELECT count(*) FROM learning_record_revisions "
+                        "WHERE record_id = :record_id"
+                    ),
+                    {"record_id": original.id},
+                )
+                == 1
+            )
     finally:
         await engine.dispose()
 
@@ -230,19 +221,10 @@ async def test_revision_insert_failure_rolls_back_current_pointer_even_if_caught
             await session.execute(
                 text(
                     """
-                    INSERT INTO learning_record_revisions (
-                        record_id, revision, draft, archived_at, created_at, updated_at
-                    ) VALUES (
-                        :record_id, 2, CAST(:draft AS jsonb), NULL, :created_at, :updated_at
-                    )
+                    ALTER TABLE learning_record_revisions ADD CONSTRAINT fail_test_draft
+                    CHECK (draft->>'title' <> 'must not commit')
                     """
                 ),
-                {
-                    "record_id": original.id,
-                    "draft": original.draft.model_dump_json(),
-                    "created_at": original.created_at,
-                    "updated_at": original.updated_at + timedelta(seconds=1),
-                },
             )
 
         async with sessions.begin() as session:
@@ -255,10 +237,13 @@ async def test_revision_insert_failure_rolls_back_current_pointer_even_if_caught
         async with sessions.begin() as session:
             repository = SqlAlchemyLearningRepository(session)
             assert await repository.get_owned(original.id, owner_id) == original
-            assert await session.scalar(
-                text("SELECT current_revision FROM learning_records WHERE id = :record_id"),
-                {"record_id": original.id},
-            ) == 1
+            assert (
+                await session.scalar(
+                    text("SELECT current_revision FROM learning_records WHERE id = :record_id"),
+                    {"record_id": original.id},
+                )
+                == 1
+            )
     finally:
         await engine.dispose()
 
@@ -335,8 +320,7 @@ async def test_list_filters_and_stable_keyset_cursor_exclude_body(
             assert [item.id for item in notes.items] == tied_ids[:2]
             assert all(item.id != foreign_active_rag_note.id for item in notes.items)
             assert all(
-                not hasattr(item, "body") and not hasattr(item, "draft")
-                for item in notes.items
+                not hasattr(item, "body") and not hasattr(item, "draft") for item in notes.items
             )
             assert notes.next_cursor == LearningCursor(updated_at=tied_at, record_id=tied_ids[1])
 
@@ -357,9 +341,7 @@ async def test_list_filters_and_stable_keyset_cursor_exclude_body(
                 limit=10,
             )
             assert [item.id for item in archived_page.items] == [tied_ids[3]]
-            assert all(
-                item.id != foreign_archived_rag_note.id for item in archived_page.items
-            )
+            assert all(item.id != foreign_archived_rag_note.id for item in archived_page.items)
             experiment_page = await repository.list_owned(
                 owner_a,
                 LearningListFilters(kind=RecordKind.EXPERIMENT, archived=False),
@@ -367,9 +349,7 @@ async def test_list_filters_and_stable_keyset_cursor_exclude_body(
                 limit=10,
             )
             assert [item.id for item in experiment_page.items] == [experiment.id]
-            assert all(
-                item.id != foreign_active_experiment.id for item in experiment_page.items
-            )
+            assert all(item.id != foreign_active_experiment.id for item in experiment_page.items)
     finally:
         await engine.dispose()
 
@@ -382,3 +362,141 @@ def create_engine_from_url(database_url: str):
         pool_pre_ping=True,
         connect_args={"connect_timeout": 5},
     )
+
+
+@pytest.mark.parametrize("sort", ["learning_order", "learning_latest"])
+async def test_learning_order_metadata_pagination_and_legacy_defaults(
+    migrated_learning_database, sort
+):
+    engine = create_engine_from_url(migrated_learning_database.database_url)
+    sessions = create_session_factory(engine)
+    owner, outsider = uuid4(), uuid4()
+    now = datetime.now(UTC)
+
+    def sequenced(title, step=None, *, series="가상 학습 흐름", planned=False, actor=owner):
+        return LearningRecord(
+            id=uuid4(),
+            owner_id=actor,
+            revision=1,
+            created_at=now,
+            updated_at=now,
+            draft=LearningDraft(
+                title=title,
+                body="Public synthetic experiment.",
+                kind="experiment",
+                topic_keys=("fine-tuning",),
+                experiment=ExperimentFields(
+                    status="planned" if planned else "completed",
+                    learning_sequence=LearningSequence(
+                        series=series,
+                        step=step,
+                        performed_on=None if planned else now.date(),
+                        start_mode="unknown" if planned else "base_model",
+                        objective="Synthetic goal",
+                        outcome_status="not_evaluated" if planned else "mixed",
+                        outcome=None if planned else "One example improved; others did not.",
+                        remaining=None if planned else "Further evaluation needed.",
+                    ),
+                ),
+            ),
+        )
+
+    first = sequenced("First execution", 1)
+    second = sequenced("Second execution", 2)
+    tied = sequenced("Also second", 2)
+    third = sequenced("Third execution", 3)
+    plan = sequenced("Followup plan", planned=True)
+    unknown = sequenced("Execution without number")
+    other = sequenced("Other flow", 1, series="다른 흐름")
+    legacy = _record(owner, "Legacy planned", kind=RecordKind.EXPERIMENT, topics=("fine-tuning",))
+    note = _record(owner, "Unnumbered note")
+    foreign = sequenced("Foreign", 1, actor=outsider)
+    archived = sequenced("Archived", 4).archive(expected_revision=1)
+    try:
+        async with sessions.begin() as session:
+            await _add_owner(session, owner)
+            await _add_owner(session, outsider)
+            repository = SqlAlchemyLearningRepository(session)
+            for record in [
+                third,
+                plan,
+                second,
+                first,
+                tied,
+                unknown,
+                other,
+                legacy,
+                note,
+                foreign,
+                archived,
+            ]:
+                await repository.create(record)
+            # Legacy JSON omitted the default status and sequence entirely.
+            await session.execute(
+                text(
+                    "UPDATE learning_record_revisions SET draft = "
+                    "jsonb_set(draft, '{experiment}', '{}'::jsonb) WHERE record_id = :id"
+                ),
+                {"id": legacy.id},
+            )
+        async with sessions.begin() as session:
+            repository = SqlAlchemyLearningRepository(session)
+            current = await repository.get_owned(first.id, owner)
+            assert current is not None
+            await repository.save_revision(
+                current.revise(
+                    current.draft.model_copy(update={"body": "Edited synthetic content."}),
+                    expected_revision=1,
+                ),
+                expected_revision=1,
+            )
+        async with sessions.begin() as session:
+            repository = SqlAlchemyLearningRepository(session)
+            filters = LearningListFilters(archived=False, sort=sort)
+            seen = []
+            cursor = None
+            for _ in range(12):
+                page = await repository.list_owned(owner, filters, cursor, 1)
+                seen.extend(page.items)
+                cursor = page.next_cursor
+                if cursor is None:
+                    break
+            tied_ids = sorted([second.id, tied.id])
+            execution_ids = (
+                [first.id, *tied_ids, third.id]
+                if sort == "learning_order"
+                else [third.id, *tied_ids, first.id]
+            )
+            assert [item.id for item in seen] == [
+                *execution_ids,
+                unknown.id,
+                plan.id,
+                other.id,
+                note.id,
+                legacy.id,
+            ]
+            expected_first = first if sort == "learning_order" else third
+            assert seen[0].learning_sequence == expected_first.draft.experiment.learning_sequence
+            assert seen[0].experiment_status.value == "completed"
+            assert seen[-1].experiment_status.value == "planned"
+            assert seen[-1].learning_sequence is None
+            filtered = await repository.list_owned(
+                owner,
+                LearningListFilters(
+                    archived=False,
+                    topic_key="fine-tuning",
+                    kind=RecordKind.EXPERIMENT,
+                    sort=sort,
+                ),
+                None,
+                20,
+            )
+            assert note.id not in [item.id for item in filtered.items]
+            assert foreign.id not in [item.id for item in filtered.items]
+            assert archived.id not in [item.id for item in filtered.items]
+            updated = await repository.list_owned(
+                owner, LearningListFilters(archived=False), None, 20
+            )
+            assert updated.items[0].id == first.id
+    finally:
+        await engine.dispose()

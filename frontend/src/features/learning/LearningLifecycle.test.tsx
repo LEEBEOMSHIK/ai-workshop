@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, vi } from "vitest";
 
@@ -13,9 +13,8 @@ afterEach(() => {
 });
 
 describe("private Learning component/API lifecycle", () => {
-  it("creates, refetches, explicitly rebases, converts, reads history, archives, and restores", async () => {
+  it("creates, refetches, explicitly rebases, converts, archives, and restores", async () => {
     const recordId = "11111111-1111-4111-8111-111111111111";
-    const revisions = new Map<number, LearningRecord>();
     const requests: Array<{ method: string; path: string; body: unknown }> = [];
     let current: LearningRecord | null = null;
     let conflictPending = true;
@@ -41,21 +40,12 @@ describe("private Learning component/API lifecycle", () => {
       }
       if (path === "/api/v1/learning/records" && method === "POST") {
         current = record(recordId, 1, body as LearningDraft, null);
-        revisions.set(1, current);
+
         return jsonResponse(current, 201);
       }
       if (path === `/api/v1/learning/records/${recordId}` && method === "GET") {
         if (!current) throw new Error("record must be created before detail reads");
         return jsonResponse(current);
-      }
-      if (
-        path.startsWith(`/api/v1/learning/records/${recordId}/revisions/`) &&
-        method === "GET"
-      ) {
-        const revision = Number(path.split("/").at(-1));
-        const historical = revisions.get(revision);
-        if (!historical) throw new Error(`missing synthetic revision ${revision}`);
-        return jsonResponse(historical);
       }
       if (path === `/api/v1/learning/records/${recordId}` && method === "PUT") {
         const payload = body as { expected_revision: number; draft: LearningDraft };
@@ -68,14 +58,14 @@ describe("private Learning component/API lifecycle", () => {
             { ...current.draft, title: "서버의 revision 2 메모" },
             null,
           );
-          revisions.set(2, current);
+
           return errorResponse(409, "learning_revision_conflict");
         }
         if (!current || payload.expected_revision !== current.revision) {
           return errorResponse(409, "learning_revision_conflict");
         }
         current = record(recordId, current.revision + 1, payload.draft, null);
-        revisions.set(current.revision, current);
+
         return jsonResponse(current);
       }
       if (path === `/api/v1/learning/records/${recordId}/archive` && method === "POST") {
@@ -89,7 +79,7 @@ describe("private Learning component/API lifecycle", () => {
           current.draft,
           "2026-09-07T04:00:00Z",
         );
-        revisions.set(current.revision, current);
+
         return jsonResponse(current);
       }
       if (path === `/api/v1/learning/records/${recordId}/restore` && method === "POST") {
@@ -98,7 +88,7 @@ describe("private Learning component/API lifecycle", () => {
           return errorResponse(409, "learning_revision_conflict");
         }
         current = record(recordId, current.revision + 1, current.draft, null);
-        revisions.set(current.revision, current);
+
         return jsonResponse(current);
       }
       throw new Error(`Unexpected request: ${method} ${path}`);
@@ -119,6 +109,11 @@ describe("private Learning component/API lifecycle", () => {
 
     render(<LearningRecordPage recordId={recordId} />);
     expect(await screen.findByRole("heading", { name: "통합 메모", level: 1 })).toBeVisible();
+    expect(screen.queryByRole("combobox", { name: "버전 보기" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/버전 1/)).not.toBeInTheDocument();
+    expect(screen.getByText("보존할 원문")).toBeVisible();
+    expect(screen.queryByRole("textbox", { name: "본문" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "기록 편집" }));
     let editor = screen.getByRole("region", { name: "기록 편집" });
     expect(within(editor).getByRole("textbox", { name: "본문" })).toHaveValue("보존할 원문");
 
@@ -133,43 +128,31 @@ describe("private Learning component/API lifecycle", () => {
     await user.type(within(editor).getByRole("textbox", { name: "목적" }), "전환 확인");
     await user.click(within(editor).getByRole("button", { name: "변경 저장" }));
 
-    expect(await screen.findByRole("heading", { name: "revision 충돌" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "다른 변경 사항이 있습니다" })).toBeVisible();
     editor = screen.getByRole("region", { name: "기록 편집" });
     expect(within(editor).getByRole("combobox", { name: "기록 종류" })).toHaveValue("experiment");
     expect(within(editor).getByRole("textbox", { name: "목적" })).toHaveValue("전환 확인");
     expect(mutationRequests(requests, "PUT")).toHaveLength(1);
 
-    await user.click(screen.getByRole("button", { name: "최신 버전 읽기" }));
-    expect(await screen.findByRole("heading", { name: "서버의 최신 revision 2" })).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "revision 2로 재기준화" }));
+    await user.click(screen.getByRole("button", { name: "저장된 내용 확인" }));
+    expect(await screen.findByRole("heading", { name: "현재 저장된 내용" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "현재 내용을 기준으로 편집 계속" }));
     expect(mutationRequests(requests, "PUT")).toHaveLength(1);
     editor = screen.getByRole("region", { name: "기록 편집" });
     expect(within(editor).getByRole("textbox", { name: "목적" })).toHaveValue("전환 확인");
 
     await user.click(within(editor).getByRole("button", { name: "변경 저장" }));
-    await waitFor(() => expect(screen.getByText(/현재 revision 3/)).toBeVisible());
+    await screen.findByRole("region", { name: "기록 읽기" });
+    expect(within(screen.getByRole("region", { name: "기록 읽기" })).getByText("전환 확인")).toBeVisible();
     expect(mutationRequests(requests, "PUT")).toHaveLength(2);
-
-    fireEvent.change(screen.getByRole("combobox", { name: "revision 보기" }), {
-      target: { value: "1" },
-    });
-    const historyHeading = await screen.findByRole("heading", { name: "revision 1" });
-    const history = historyHeading.closest("article");
-    expect(history).not.toBeNull();
-    expect(within(history as HTMLElement).getByRole("textbox", { name: "본문" })).toHaveValue(
-      "보존할 원문",
-    );
-    expect(within(history as HTMLElement).getByRole("textbox", { name: "본문" })).toBeDisabled();
-    expect(within(history as HTMLElement).getByRole("combobox", { name: "기록 종류" })).toHaveValue(
-      "note",
-    );
-    await user.click(within(history as HTMLElement).getByRole("button", { name: "현재 revision으로 돌아가기" }));
 
     await user.click(screen.getByRole("button", { name: "기록 보관" }));
     expect(await screen.findByRole("button", { name: "기록 복원" })).toBeVisible();
     expect(screen.getByText("보관된 기록입니다. 복원한 뒤 편집할 수 있습니다.")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "기록 복원" }));
     expect(await screen.findByRole("button", { name: "기록 보관" })).toBeVisible();
+    expect(screen.getByText("전환 확인")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "기록 편집" }));
     editor = screen.getByRole("region", { name: "기록 편집" });
     expect(within(editor).getByRole("textbox", { name: "목적" })).toHaveValue("전환 확인");
     expect(within(editor).getByRole("textbox", { name: "목적" })).toBeEnabled();
@@ -204,12 +187,11 @@ describe("private Learning component/API lifecycle", () => {
     expect(mutations[3]?.body).toEqual({ expected_revision: 3 });
     expect(mutations[4]?.body).toEqual({ expected_revision: 4 });
     expect(current).toMatchObject({ revision: 5, archived_at: null });
-    expect(revisions.get(1)?.draft).toMatchObject({ kind: "note", body: "보존할 원문" });
-    expect(revisions.get(3)?.draft).toMatchObject({
+    expect(current).toMatchObject({ draft: {
       kind: "experiment",
       body: "보존할 원문",
       experiment: { purpose: "전환 확인" },
-    });
+    } });
   }, 20_000);
 });
 

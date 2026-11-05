@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { routes } from "../../../shared/routing/routes";
-import buttonStyles from "../../../shared/ui/Button.module.css";
+import { ButtonLink } from "../../../shared/ui/Button";
 import { ChoiceGroup } from "../../../shared/ui/ChoiceGroup";
 import styles from "./ConfigurationStudioComparison.module.css";
 import adminStyles from "./ConfigurationAdmin.module.css";
@@ -102,7 +102,7 @@ export function ConfigurationStudioPage({ initialData, initialTab, initialRunId,
         <p className="eyebrow">RAG CONFIGURATION STUDIO</p>
         <h1>RAG 구성 스튜디오</h1>
         <p>서버에 등록된 불변 프로파일을 조합하고, 저장된 정확한 버전만 비교합니다.</p>
-        <Link className={`${buttonStyles.button} ${buttonStyles.secondary}`} href={routes.adminRagSetup}>모델 연결·RAG 간편 설정</Link>
+        <ButtonLink href={routes.adminRagSetup}>모델 연결·RAG 간편 설정</ButtonLink>
       </header>
 
       <div className="studio-tabs" role="tablist" aria-label="RAG 구성 스튜디오">

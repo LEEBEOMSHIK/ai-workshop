@@ -120,10 +120,10 @@
   height: fit-content;
   min-height: var(--control-min-height);
   padding: 0.7rem 0.9rem;
-  border: 1px solid var(--color-accent-text);
+  border: 1px solid var(--color-primary);
   border-radius: var(--radius-control);
-  color: var(--color-on-accent);
-  background: var(--color-accent-text);
+  color: var(--color-on-primary);
+  background: var(--color-primary);
   font: inherit;
   font-size: var(--font-size-control);
   font-weight: 750;
@@ -193,10 +193,10 @@
   align-items: center;
   min-height: var(--control-min-height);
   padding: 0.7rem 0.9rem;
-  border: 1px solid var(--color-accent-text);
+  border: 1px solid var(--color-primary);
   border-radius: var(--radius-control);
-  background: var(--color-accent-text);
-  color: var(--color-on-accent);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
   font-weight: 750;
   text-decoration: none;
 }
@@ -223,6 +223,7 @@
 .admin .taskCards button, .admin .guidance .actionLink {
   color: var(--color-text); background: var(--color-surface); border-color: var(--color-border-control); font-weight: 650;
 }
+.admin .guidance .actionLink:hover { background: var(--color-surface-hover); border-color: var(--color-accent); }
 .taskContent { display: grid; gap: var(--space-5); }
 .registryDetails > summary { font-weight: 650; }
 .registryDetails[open] > summary { margin-bottom: var(--space-4); }

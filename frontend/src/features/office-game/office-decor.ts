@@ -80,7 +80,7 @@ export function createOfficeDecoration(scene: Phaser.Scene, item: PlacedDecorati
       r("#806747",0,0,w,h-18);r("#eadbbc",5,5,w-10,h-28);
       r("#375e5b",10,10,w-20,30);text("관리자 모집 중",22,31,18,"#fff4d8");
       text("기능 준비 중",41,65,16,"#315954");
-      text("클릭 / 가까이에서 E",22,83,12,"#59695b");
+      text("클릭 / 가까이에서 E",22,83,12,"#4f5e51");
       break;
     case "knowledge-board":
       shadow();r("#806747",0,0,w,h-18);r("#e9e7cc",6,6,w-12,h-30);

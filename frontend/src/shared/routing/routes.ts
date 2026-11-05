@@ -9,6 +9,7 @@ export const routes = {
   workshopRagSearch: "/workshop/rag/search",
   workshopLearning: "/workshop/learning",
   workshopFlows: "/workshop/flows",
+  workshopDesignSystem: "/workshop/design-system",
   adminRagExecutions: "/admin/rag/executions",
   adminRagComparisons: "/admin/rag/comparisons",
   adminRagDomains: "/admin/rag/domains",

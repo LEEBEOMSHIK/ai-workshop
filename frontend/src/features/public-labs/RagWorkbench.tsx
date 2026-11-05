@@ -38,6 +38,6 @@ export function RagWorkbench({ slug }: { slug: string }) {
     </g>}
     <path fill="#385b47" d="M256 39h4v28h-4zM244 37h13v10h-13zM260 29h15v12h-15z" /><path fill="#7ba169" d="M245 35h11v5h-11zm17-8h12v5h-12z" /><path fill="#bd9462" d="M249 59h21l-3 18h-15z" />
     <path fill={art.accent} d="M137 116h115v17H137z" />
-    <text x="143" y="128" fontFamily="monospace" fontSize="8" fill="#193d41">{art.label}</text>
+    <text x="143" y="128" fontFamily="monospace" fontSize="8" fill="#102f32">{art.label}</text>
   </svg>;
 }

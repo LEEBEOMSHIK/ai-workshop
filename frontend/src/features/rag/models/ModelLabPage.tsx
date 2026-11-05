@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { routes } from "../../../shared/routing/routes";
-import buttonStyles from "../../../shared/ui/Button.module.css";
+import { ButtonLink } from "../../../shared/ui/Button";
 
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 
@@ -199,7 +198,7 @@ export function ModelLabPage({
     <header className="model-lab-header">
       <div><p className="eyebrow">RAG MODEL REGISTRY</p><Title className="model-lab-title">모델 레지스트리</Title>
       <p>변경할 수 없는 모델·프로파일 버전을 등록하고, 저장 구성에서 연결을 확인합니다.</p></div>
-      {!embedded ? <Link className={`${buttonStyles.button} ${buttonStyles.secondary}`} href={routes.adminRagSetup}>모델 연결·RAG 간편 설정</Link> : null}
+      {!embedded ? <ButtonLink href={routes.adminRagSetup}>모델 연결·RAG 간편 설정</ButtonLink> : null}
     </header>
     {embedded ? <>{modelRegistry}{profileRegistry}</> : <>
       {administrationLoading ? <p role="status">실행 배포와 정책을 불러오는 중…</p> : null}

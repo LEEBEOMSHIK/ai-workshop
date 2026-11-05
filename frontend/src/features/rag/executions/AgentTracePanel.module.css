@@ -38,7 +38,7 @@
 .agentHeader { position: relative; min-width: 0; }
 .diagramLinear > .agentCard { flex: 1 1 0; max-width: none; }
 .panel .agentButton { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-2); width: 100%; min-width: 0; max-width: 100%; min-height: var(--control-min-height); padding: var(--space-4); border: 1px solid var(--color-border-control); border-radius: var(--radius-panel); background: var(--color-surface); color: var(--color-text); font: inherit; text-align: center; line-height: var(--line-height-heading); overflow-wrap: anywhere; cursor: pointer; }
-.panel .agentButton:hover { border-color: var(--color-accent); }
+.panel .agentButton:enabled:hover { border-color: var(--color-accent); }
 .panel .agentButton[aria-pressed="true"] { border: 2px solid var(--color-accent); padding: calc(var(--space-4) - 1px); background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface)); }
 .agentIdentity { display: flex; justify-content: center; align-items: flex-start; gap: var(--space-2); }
 .agentAvatar { display: grid; place-items: center; width: 4.5rem; height: 4.5rem; border: 1px solid var(--color-accent); border-radius: 50%; background: color-mix(in srgb, var(--color-accent) 12%, var(--color-background)); color: var(--color-accent); }
@@ -69,7 +69,7 @@
 .verticalFlow .connection { flex: initial; padding-block: var(--space-2); }
 .verticalFlow .horizontalArrow { display: none; }
 .verticalFlow .verticalArrow { display: block; }
-.panel .agentTooltip { position: absolute; visibility: hidden; z-index: 10; box-sizing: border-box; min-width: 0; width: 100%; max-width: calc(100vw - var(--space-6)); overflow-y: auto; padding: var(--space-3); border: 1px solid var(--color-accent); border-radius: var(--radius-control); background: var(--color-background); color: var(--color-text); box-shadow: 0 var(--space-2) var(--space-6) var(--color-background); font-size: var(--font-size-caption); overflow-wrap: anywhere; }
+.panel .agentTooltip { position: absolute; visibility: hidden; z-index: 10; box-sizing: border-box; min-width: 0; width: 100%; max-width: calc(100vw - var(--space-6)); overflow-y: auto; padding: var(--space-3); border: 1px solid var(--color-accent); border-radius: var(--radius-control); background: var(--color-background); color: var(--color-text); box-shadow: var(--shadow-panel); font-size: var(--font-size-caption); overflow-wrap: anywhere; }
 .panel .agentTooltip p { margin-block: var(--space-1); font-size: var(--font-size-caption); }
 .observation { min-width: 0; margin-block: var(--space-3); padding: var(--space-3); border-inline-start: 2px solid var(--color-accent); background: var(--color-surface); font-size: var(--font-size-caption); }
 .panel .agentTooltip .observation { margin-block: var(--space-2); padding: 0; border: 0; }
@@ -79,7 +79,7 @@
 .panel .callList { display: grid; gap: var(--space-2); list-style: none; margin: 0; padding: 0; }
 .callList li { min-width: 0; }
 .panel .callButton { display: grid; gap: var(--space-1); min-width: 0; width: 100%; max-width: 100%; min-height: var(--control-min-height); padding: var(--space-3); border: 1px solid var(--color-border-control); border-radius: var(--radius-control); background: var(--color-background); color: var(--color-text); font: inherit; font-size: var(--font-size-caption); text-align: left; overflow-wrap: anywhere; cursor: pointer; }
-.panel .callButton:hover, .panel .callButton[aria-pressed="true"] { border-color: var(--color-accent); }
+.panel .callButton:enabled:hover, .panel .callButton[aria-pressed="true"] { border-color: var(--color-accent); }
 .panel .callButton[aria-pressed="true"] { background: color-mix(in srgb, var(--color-accent) 9%, var(--color-background)); }
 .callKind { color: var(--color-accent); font-size: var(--font-size-caption); }
 .panel .noCalls { padding: var(--space-3); margin: 0; font-size: var(--font-size-caption); color: var(--color-text-muted); }
@@ -92,7 +92,7 @@
 .panel .children.compressed { margin-inline-start: 0; padding-inline-start: 0; border-inline-start: 0; }
 .compressed > .node::before { display: none; }
 .panel .node button { display: grid; gap: var(--space-2); text-align: left; width: 100%; max-width: 100%; min-height: var(--control-min-height); padding: var(--space-3); border: 1px solid var(--color-border-control); border-radius: var(--radius-control); color: var(--color-text); background: var(--color-background); font: inherit; line-height: var(--line-height-heading); cursor: pointer; overflow-wrap: anywhere; }
-.panel .node button:hover { border-color: var(--color-accent); }
+.panel .node button:enabled:hover { border-color: var(--color-accent); }
 .panel .node button[aria-pressed="true"] { border-color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 9%, var(--color-background)); }
 .nodeTitle { display: flex; align-items: flex-start; gap: var(--space-2); min-width: 0; }
 .nodeTitle .kindIcon { margin-top: var(--space-1); }

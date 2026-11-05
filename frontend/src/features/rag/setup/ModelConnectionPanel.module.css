@@ -38,7 +38,7 @@
 .field :disabled { opacity: .65; }
 .field input:focus-visible, .field select:focus-visible, .field textarea:focus-visible,
 .advanced summary:focus-visible, .check input:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--focus-color);
   outline-offset: 3px;
 }
 

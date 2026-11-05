@@ -33,7 +33,6 @@ from ai_workshop.shared.errors import AppError
 class MemoryLearningRepository(LearningRepository):
     def __init__(self, *records: LearningRecord) -> None:
         self.records = {record.id: record for record in records}
-        self.revisions = {(record.id, record.revision): record for record in records}
         self.create_calls = 0
         self.list_cursor: LearningCursor | None = None
         self.list_limits: list[int] = []
@@ -41,24 +40,19 @@ class MemoryLearningRepository(LearningRepository):
     async def create(self, record: LearningRecord) -> LearningRecord:
         self.create_calls += 1
         self.records[record.id] = record
-        self.revisions[(record.id, record.revision)] = record
         return record
 
-    async def get_owned(
-        self, record_id: UUID, actor_id: UUID
-    ) -> LearningRecord | None:
+    async def get_owned(self, record_id: UUID, actor_id: UUID) -> LearningRecord | None:
         record = self.records.get(record_id)
         return record if record is not None and record.owner_id == actor_id else None
 
     async def get_revision_owned(
         self, record_id: UUID, revision: int, actor_id: UUID
     ) -> LearningRecord | None:
-        record = self.revisions.get((record_id, revision))
-        return record if record is not None and record.owner_id == actor_id else None
+        record = await self.get_owned(record_id, actor_id)
+        return record if record is not None and record.revision == revision else None
 
-    async def save_revision(
-        self, record: LearningRecord, expected_revision: int
-    ) -> LearningRecord:
+    async def save_revision(self, record: LearningRecord, expected_revision: int) -> LearningRecord:
         current = self.records.get(record.id)
         if current is None or current.revision != expected_revision:
             raise AppError(
@@ -67,7 +61,6 @@ class MemoryLearningRepository(LearningRepository):
                 409,
             )
         self.records[record.id] = record
-        self.revisions[(record.id, record.revision)] = record
         return record
 
     async def list_owned(
@@ -90,6 +83,12 @@ class MemoryLearningRepository(LearningRepository):
                 created_at=record.created_at,
                 updated_at=record.updated_at,
                 archived_at=record.archived_at,
+                experiment_status=record.draft.experiment.status
+                if record.draft.experiment
+                else None,
+                learning_sequence=(
+                    record.draft.experiment.learning_sequence if record.draft.experiment else None
+                ),
             )
             for record in self.records.values()
             if record.owner_id == actor_id
@@ -384,9 +383,7 @@ async def test_mutations_persist_before_committing(operation: str) -> None:
     repository = EventRepository(initial)
     service = service_for(repository, MutableReferenceResolver(), commit=commit)
     if operation == "create":
-        await service.create(
-            actor_id, LearningDraft(title="Created", body="Body", kind="note")
-        )
+        await service.create(actor_id, LearningDraft(title="Created", body="Body", kind="note"))
     elif operation == "update":
         await service.update(
             actor_id,
@@ -431,14 +428,10 @@ async def test_repository_failure_prevents_commit_for_every_mutation(
     async def commit() -> None:
         events.append("commit")
 
-    service = service_for(
-        FailingRepository(initial), MutableReferenceResolver(), commit=commit
-    )
+    service = service_for(FailingRepository(initial), MutableReferenceResolver(), commit=commit)
     with pytest.raises(RuntimeError, match="persistence failed"):
         if operation == "create":
-            await service.create(
-                actor_id, LearningDraft(title="Created", body="Body", kind="note")
-            )
+            await service.create(actor_id, LearningDraft(title="Created", body="Body", kind="note"))
         elif operation == "update":
             await service.update(
                 actor_id,
@@ -465,9 +458,7 @@ async def test_commit_failure_is_surfaced_instead_of_reporting_success() -> None
     service = service_for(repository, resolver, commit=fail_commit)
 
     with pytest.raises(RuntimeError, match="commit failed"):
-        await service.create(
-            uuid4(), LearningDraft(title="Title", body="Body", kind="note")
-        )
+        await service.create(uuid4(), LearningDraft(title="Title", body="Body", kind="note"))
 
 
 @pytest.mark.asyncio

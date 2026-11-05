@@ -39,6 +39,7 @@ export const areaMenus: Record<Area, { label: string; items: readonly MenuItem[]
     { label: "RAG 대화", href: routes.workshopRagSearch, prefixes: [routes.workshopRagSearch, "/workshop/rag/sources"], domainChat: true },
     { label: "학습 기록", href: routes.workshopLearning, prefixes: [routes.workshopLearning] },
     { label: "흐름도", href: routes.workshopFlows, prefixes: [routes.workshopFlows] },
+    { label: "디자인 시스템", href: routes.workshopDesignSystem, prefixes: [routes.workshopDesignSystem] },
   ] },
   admin: { label: "관리자 운영", items: adminMenuGroups.flatMap(group => group.items) },
 };
@@ -47,10 +48,14 @@ export function isWithinPath(pathname: string | null, prefix: string): boolean {
   return pathname !== null && (pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
+export function isDomainChatPath(pathname: string | null): boolean {
+  return pathname !== null && /^\/workshop\/rag\/domains\/[^/]+\/chat(?:\/|$)/.test(pathname);
+}
+
 export function isCurrentMenu(pathname: string | null, item: MenuItem): boolean {
   if(item.exact)return pathname===item.href;
   return item.prefixes.some((prefix) => isWithinPath(pathname, prefix))
-    || Boolean(item.domainChat && pathname && /^\/workshop\/rag\/domains\/[^/]+\/chat(?:\/|$)/.test(pathname))
+    || Boolean(item.domainChat && isDomainChatPath(pathname))
     || Boolean(item.domainFiles && pathname && /^\/workshop\/rag\/domains\/[^/]+\/files(?:\/|$)/.test(pathname));
 }
 

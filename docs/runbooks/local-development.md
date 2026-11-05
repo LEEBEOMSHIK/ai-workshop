@@ -962,11 +962,13 @@ pnpm --dir frontend test --run src/features/learning 'src/app/(workspace)/worksh
 
 DB lifecycle은 실제 API·서비스·SQL 저장과 RAG 참조 권한을 검증한다. 프론트 lifecycle은
 실제 컴포넌트와 HTTP mock을 연결한 검사이며 실제 브라우저 E2E가 아니다. migration 적용 후
-`/workshop/learning`에서 메모 저장→재조회→실험 전환→이력→보관→복원을 별도로 확인한다.
+`/workshop/learning`에서 메모 저장→재조회→실험 전환→보관→복원을 별도로 확인한다.
 
-학습 기록은 로그인 사용자별 비공개 데이터다. 보관·복원과 revision 조회만 제공하고 영구 삭제,
-공개 게시, 모델 호출·훈련을 실행하지 않는다. API 응답은 접근 불가 참조를 편집용 draft에서 제외하되
-저장 이력은 보존한다. 이 draft를 다시 저장하면 해당 연결이 빠지므로 UI의 확인 안내를 따라야 한다.
+현재 저장 정책은 `0069_learning_current_only`에서 적용한다. 이전 행은 삭제되고 수정·보관·복원 때도
+하나의 비공개 본문만 보존한다. 적용 전후에 현재 포인터로 조회한 행의 수와 내용이 일치하는지 확인한다.
+동시 편집 충돌 방지를 위한 내부 번호는 계속 증가한다. 삭제된 본문은 downgrade로 복원되지 않는다.
+API는 접근 불가 참조를 편집용 draft에서 제외한다. 이 draft를 다시 저장하면 해당 연결이 빠지므로
+UI의 확인 안내를 따라야 한다.
 
 ## 6. 테스트와 품질 검사
 

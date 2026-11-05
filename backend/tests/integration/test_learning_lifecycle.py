@@ -35,6 +35,8 @@ from ai_workshop.platform.identity.domain import User, UserRole
 from ai_workshop.platform.learning.models import LearningRecordRevisionRow, LearningRecordRow
 from ai_workshop.platform.learning.references import ReferenceStatus
 from ai_workshop.platform.learning.schemas import ReferenceKey
+from ai_workshop.platform.workspaces.domain import MembershipRole, WorkspaceKind
+from ai_workshop.platform.workspaces.models import WorkspaceMembershipRecord, WorkspaceRecord
 from ai_workshop.shared.db import create_session_factory, get_session
 from ai_workshop.shared.errors import AppError
 from alembic import command
@@ -140,7 +142,7 @@ def migrated_learning_database(
     monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[IsolatedLearningDatabase]:
     with isolated_learning_database(monkeypatch) as database:
-        command.upgrade(database.config, "0024_learning_records")
+        command.upgrade(database.config, "0069_learning_current_only")
         yield database
 
 
@@ -170,6 +172,18 @@ async def test_http_service_sql_lifecycle_is_owner_only_and_rechecks_real_refere
                     owner_a.id,
                     load_evaluation_dataset(EVALUATION_FIXTURE.read_bytes()),
                 )
+                # Evaluation references recheck access to every workspace in the fixture.
+                for workspace_id in {
+                    wid for case in dataset.cases for wid in case.permission_scenario.workspace_ids
+                }:
+                    session.add(WorkspaceRecord(
+                        id=workspace_id, name="Learning fixture", kind=WorkspaceKind.COMPANY,
+                        created_by=owner_a.id,
+                    ))
+                    await session.flush()
+                    session.add(WorkspaceMembershipRecord(
+                        workspace_id=workspace_id, user_id=owner_a.id, role=MembershipRole.OWNER,
+                    ))
                 configuration = await session.get(
                     RagConfigurationVersionRecord,
                     BM25_BASELINE_CONFIGURATION_VERSION_ID,
@@ -436,9 +450,7 @@ async def test_http_service_sql_lifecycle_is_owner_only_and_rechecks_real_refere
                 assert final_detail.json()["revision"] == 4
                 assert final_detail.json()["draft"]["body"] == "revision 2 실험 본문"
                 assert [item["id"] for item in final_list.json()["items"]] == [str(record_id)]
-                assert revision_1.json()["draft"]["kind"] == "note"
-                assert revision_1.json()["draft"]["body"] == "revision 1 원문"
-                assert revision_2.json()["draft"]["kind"] == "experiment"
+                assert revision_1.status_code == revision_2.status_code == 404
 
             async with sessions.begin() as session:
                 await session.execute(
@@ -455,16 +467,18 @@ async def test_http_service_sql_lifecycle_is_owner_only_and_rechecks_real_refere
                 experiment_history_after_revocation = await client.get(
                     f"/api/v1/learning/records/{record_id}/revisions/2"
                 )
+                assert current_after_revocation.status_code == 200
+                assert current_after_revocation.json()["unavailable_reference_count"] == 1
+                for response in (history_after_revocation, experiment_history_after_revocation):
+                    assert response.status_code == 404
                 for response in (
                     current_after_revocation,
                     history_after_revocation,
                     experiment_history_after_revocation,
                 ):
-                    assert response.status_code == 200
                     assert str(target_id) not in response.text
                     assert target_title not in response.text
                     assert target_body not in response.text
-                    assert response.json()["unavailable_reference_count"] == 1
                 assert (
                     current_after_revocation.json()["draft"]["experiment"]["dataset_snapshot"]
                     is None
@@ -475,7 +489,7 @@ async def test_http_service_sql_lifecycle_is_owner_only_and_rechecks_real_refere
                     "href": None,
                     "key": None,
                 }
-                assert history_after_revocation.json()["draft"]["references"] == [
+                assert current_after_revocation.json()["draft"]["references"] == [
                     evaluation_reference
                 ]
 
@@ -491,15 +505,9 @@ async def test_http_service_sql_lifecycle_is_owner_only_and_rechecks_real_refere
                 assert current is not None
                 assert current.owner_id == owner_a.id
                 assert current.current_revision == 4
-                assert [item.revision for item in revisions] == [1, 2, 3, 4]
-                assert [item.archived_at is not None for item in revisions] == [
-                    False,
-                    False,
-                    True,
-                    False,
-                ]
-                assert revisions[0].draft["body"] == "revision 1 원문"
-                assert revisions[1].draft["body"] == "revision 2 실험 본문"
+                assert [item.revision for item in revisions] == [4]
+                assert revisions[0].archived_at is None
+                assert revisions[0].draft["body"] == "revision 2 실험 본문"
                 persisted_payload = str([item.draft for item in revisions])
                 assert stale_title not in persisted_payload
                 assert stale_body not in persisted_payload

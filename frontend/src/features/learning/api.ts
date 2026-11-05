@@ -16,6 +16,7 @@ export type ReferenceView = components["schemas"]["ReferenceViewResponse"];
 export type TroubleshootingFields = components["schemas"]["TroubleshootingFields"];
 
 export interface LearningListFilters {
+  sort?: "learning_latest" | "learning_order" | "updated";
   topicKey?: string;
   kind?: RecordKind;
   archived?: boolean;
@@ -32,6 +33,7 @@ export function listRecords(
   signal?: AbortSignal,
 ): Promise<LearningList> {
   const query = new URLSearchParams();
+  if (filters.sort) query.set("sort", filters.sort);
   if (filters.topicKey) query.set("topic_key", filters.topicKey);
   if (filters.kind) query.set("kind", filters.kind);
   if (filters.archived !== undefined) query.set("archived", String(filters.archived));
@@ -43,17 +45,6 @@ export function listRecords(
 
 export function getRecord(recordId: string, signal?: AbortSignal): Promise<LearningRecord> {
   return apiRequest<LearningRecord>(`/api/v1/learning/records/${encodeURIComponent(recordId)}`, { signal });
-}
-
-export function getRevision(
-  recordId: string,
-  revision: number,
-  signal?: AbortSignal,
-): Promise<LearningRecord> {
-  return apiRequest<LearningRecord>(
-    `/api/v1/learning/records/${encodeURIComponent(recordId)}/revisions/${revision}`,
-    { signal },
-  );
 }
 
 export function createRecord(draft: LearningDraft): Promise<LearningRecord> {

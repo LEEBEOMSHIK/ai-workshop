@@ -4,7 +4,7 @@ import { PublicStudyList } from "../../../../../features/publishing/PublicStudie
 
 export const dynamic = "force-dynamic";
 
-export default async function PublicStudiesRoute({ searchParams }: { searchParams?: Promise<CatalogSearchParams> } = {}) {
+export default async function PublicStudiesRoute({ searchParams }: { searchParams?: Promise<CatalogSearchParams> }) {
   const query = normalizeCatalogQuery(await searchParams);
   const result = await loadStudyList(query);
   return <PublicStudyList result={result} query={query} />;

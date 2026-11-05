@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { PublicNavigation } from "../navigation/PublicNavigation";
 import { routes } from "../../shared/routing/routes";
+import { PageArrow } from "../../shared/ui/Pagination";
 import { catalogPages, catalogPath, studyCatalogPath, type CatalogQuery } from "./catalog-query";
 import { CategoryPicker } from "./CategoryPicker";
 import { StudyBody } from "./StudyBody";
@@ -54,9 +55,13 @@ export function PublicStudyList({ result, query }: { result: PublicStudyListResu
             </ul>
           )}
           {catalog && catalog.total_pages > 0 && <nav className={styles.catalogPager} aria-label="연구 기록 페이지">
-            {catalog.page > 1 ? <Link href={catalogPath({ ...currentQuery, page: catalog.page - 1 })} prefetch={false} aria-label="이전 페이지">← 이전</Link> : <span aria-label="이전 페이지" aria-disabled="true">← 이전</span>}
-            {catalogPages(catalog.page, catalog.total_pages).map((page) => typeof page === "number" ? <Link key={page} href={catalogPath({ ...currentQuery, page })} prefetch={false} aria-label={`${page}페이지`} aria-current={page === catalog.page ? "page" : undefined}>{page}</Link> : <span key={page} aria-hidden="true">…</span>)}
-            {catalog.page < catalog.total_pages ? <Link href={catalogPath({ ...currentQuery, page: catalog.page + 1 })} prefetch={false} aria-label="다음 페이지">다음 →</Link> : <span aria-label="다음 페이지" aria-disabled="true">다음 →</span>}
+            {catalog.page > 1
+              ? <Link className={styles.pageArrow} href={catalogPath({ ...currentQuery, page: catalog.page - 1 })} prefetch={false} aria-label="이전 페이지" title="이전 페이지"><PageArrow direction="previous" /></Link>
+              : <span role="link" aria-label="이전 페이지" aria-disabled="true"><PageArrow direction="previous" /></span>}
+            {catalogPages(catalog.page, catalog.total_pages).map((page) => typeof page === "number" ? <Link key={page} className={styles.pageNumber} href={catalogPath({ ...currentQuery, page })} prefetch={false} aria-label={`${page}페이지`} aria-current={page === catalog.page ? "page" : undefined}>{page}</Link> : <span key={page} aria-hidden="true">…</span>)}
+            {catalog.page < catalog.total_pages
+              ? <Link className={styles.pageArrow} href={catalogPath({ ...currentQuery, page: catalog.page + 1 })} prefetch={false} aria-label="다음 페이지" title="다음 페이지"><PageArrow direction="next" /></Link>
+              : <span role="link" aria-label="다음 페이지" aria-disabled="true"><PageArrow direction="next" /></span>}
           </nav>}
         </div>
       </main>

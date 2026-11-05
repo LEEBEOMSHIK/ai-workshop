@@ -1,0 +1,132 @@
+.root {
+  container: training-flow / inline-size;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.root .flow {
+  --flow-gap: var(--space-5);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--flow-gap);
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.flow > .card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+  margin: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-control);
+  line-height: var(--line-height-ui);
+  white-space: normal;
+}
+.input { --stage-ink: var(--color-info); --stage-fill: var(--color-info-surface); }
+.training { --stage-ink: var(--color-accent-text); --stage-fill: var(--color-surface-selected); }
+.flow > .target {
+  --stage-ink: var(--color-success);
+  --stage-fill: var(--color-success-surface);
+  border-color: var(--color-success-border);
+  box-shadow: var(--shadow-panel);
+}
+
+/* Connect at the icon baseline even when individual card bodies differ in length. */
+.flow > .card:not(:last-child)::before,
+.flow > .card:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  inset-block-start: calc(var(--space-4) + 1rem);
+  pointer-events: none;
+}
+.flow > .card:not(:last-child)::before {
+  inset-inline-start: 100%;
+  inline-size: var(--flow-gap);
+  border-block-start: 1px solid var(--color-border-control);
+}
+.flow > .card:not(:last-child)::after {
+  inset-inline-start: calc(100% + var(--flow-gap) - .6rem);
+  inline-size: .32rem;
+  block-size: .32rem;
+  border-block-start: 1px solid var(--color-border-control);
+  border-inline-end: 1px solid var(--color-border-control);
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.cardHeader { display: flex; align-items: center; gap: var(--space-3); }
+.cardHeader .icon {
+  box-sizing: content-box;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  inline-size: 1.125rem;
+  block-size: 1.125rem;
+  padding: var(--space-2);
+  border-radius: var(--radius-control);
+  background: var(--stage-fill);
+  color: var(--stage-ink);
+}
+.icon > svg, .icon::before { inline-size: 100%; block-size: 100%; }
+.input .icon::before, .training .icon::before {
+  content: "";
+  background: currentColor;
+  mask: var(--stage-symbol) center / contain no-repeat;
+}
+.input .icon { --stage-symbol: url("/icons/select/note.svg"); }
+.training .icon { --stage-symbol: url("/icons/select/experiment.svg"); }
+.step {
+  display: block;
+  color: var(--stage-ink);
+  font-size: var(--font-size-small);
+  font-weight: 700;
+  line-height: var(--line-height-heading);
+  letter-spacing: .07em;
+  font-variant-numeric: tabular-nums;
+}
+.card .sectionTitle { margin: 0; font-size: var(--font-size-heading); line-height: var(--line-height-heading); }
+.fields { display: grid; align-content: start; gap: var(--space-4); min-inline-size: 0; margin-block-start: var(--space-4); }
+.fields p { margin: 0; }
+.fields .fieldLabel {
+  display: block;
+  margin-block-end: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+}
+.fields small { color: var(--color-text-muted); font-size: var(--font-size-caption); }
+.rule, .answer {
+  margin: 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-small);
+  background: var(--stage-fill);
+}
+.rule mark, .rule strong { background: transparent; color: var(--stage-ink); font-weight: 700; }
+.question { margin: 0; font-weight: 550; }
+.answer { font-size: var(--font-size-ui); font-weight: 650; }
+.evidence { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-2); color: var(--color-text-muted); font-size: var(--font-size-caption); }
+.card .actions { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.card .actions > li { display: grid; grid-template-columns: 1rem minmax(0, 1fr); align-items: start; gap: var(--space-2); margin: 0; white-space: normal; }
+.actions svg { inline-size: 1rem; block-size: 1rem; margin-block-start: .26em; color: var(--stage-ink); }
+.card .facts {
+  margin: 0;
+  padding-block-start: var(--space-3);
+  border-block-start: 1px solid var(--color-border-subtle);
+  font-size: var(--font-size-caption);
+}
+.card .facts > div { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0 var(--space-2); border: 0; padding-block: var(--space-1); }
+.facts dt { color: var(--color-text-muted); }
+.card .facts dd { margin: 0; color: var(--color-text); font-weight: 600; white-space: normal; }
+.original { margin-block-start: var(--space-3); }
+
+@container training-flow (max-width: 46rem) {
+  .root .flow { grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
+  .flow > .card:not(:last-child)::before { inset: 100% auto auto var(--space-8); inline-size: 0; block-size: var(--space-3); border: 0; border-inline-start: 1px solid var(--color-border-control); }
+  .flow > .card:not(:last-child)::after { content: none; }
+}

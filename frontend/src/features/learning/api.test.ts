@@ -4,7 +4,6 @@ import {
   archiveRecord,
   createRecord,
   getRecord,
-  getRevision,
   listEvaluationOptions,
   listRecords,
   listTopics,
@@ -43,7 +42,6 @@ describe("learning API adapter", () => {
 
     await createRecord(draft);
     await getRecord("record/id");
-    await getRevision("record/id", 2);
     await updateRecord("record/id", 2, draft);
     await archiveRecord("record/id", 3);
     await restoreRecord("record/id", 4);
@@ -53,7 +51,6 @@ describe("learning API adapter", () => {
     expect(fetch.mock.calls.map(([path]) => path)).toEqual([
       "/api/v1/learning/records",
       "/api/v1/learning/records/record%2Fid",
-      "/api/v1/learning/records/record%2Fid/revisions/2",
       "/api/v1/learning/records/record%2Fid",
       "/api/v1/learning/records/record%2Fid/archive",
       "/api/v1/learning/records/record%2Fid/restore",
@@ -61,8 +58,8 @@ describe("learning API adapter", () => {
       "/api/v1/rag/evaluation-runs?limit=20",
     ]);
     expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual(draft);
-    expect(JSON.parse(String(fetch.mock.calls[3]?.[1]?.body))).toEqual({ expected_revision: 2, draft });
-    expect(JSON.parse(String(fetch.mock.calls[4]?.[1]?.body))).toEqual({ expected_revision: 3 });
+    expect(JSON.parse(String(fetch.mock.calls[2]?.[1]?.body))).toEqual({ expected_revision: 2, draft });
+    expect(JSON.parse(String(fetch.mock.calls[3]?.[1]?.body))).toEqual({ expected_revision: 3 });
   });
 });
 

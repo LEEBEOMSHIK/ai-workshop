@@ -1,5 +1,6 @@
 /* Two explicit classes outrank feature descendant button rules without !important. */
 .button.button {
+  --button-hover-wash: transparent;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -22,12 +23,20 @@
   overflow-wrap: anywhere;
   cursor: pointer;
 }
-.button.primary { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-on-accent); }
+.button.primary { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-on-primary); }
 .button.quiet { background: transparent; border-color: transparent; color: var(--color-accent); }
 .button.danger { background: var(--color-danger-surface); border-color: var(--color-danger-border); color: var(--color-danger); }
 .button.secondary { background: var(--color-surface-raised); }
-.button.button:hover:not(:disabled) { background: var(--color-surface-hover); }
-.button.primary:hover:not(:disabled) { background: var(--color-accent-strong); }
-.button.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--color-danger) 18%, var(--color-surface)); }
+@media (any-hover: hover) {
+  .button.button:is(:enabled, a[href]):hover:where(:not([aria-disabled="true"])) {
+    background: var(--color-surface-hover);
+    border-color: var(--color-accent);
+  }
+  .button.primary:is(:enabled, a[href]):hover:where(:not([aria-disabled="true"])) { background: var(--color-primary-hover); }
+  .button.danger:is(:enabled, a[href]):hover:where(:not([aria-disabled="true"])) {
+    background: color-mix(in srgb, var(--color-danger) 18%, var(--color-surface));
+    border-color: var(--color-danger);
+  }
+}
 .button.button:focus-visible { outline: var(--focus-width) solid var(--focus-color); outline-offset: var(--focus-offset); }
 .button.button:disabled { opacity: .5; cursor: not-allowed; }

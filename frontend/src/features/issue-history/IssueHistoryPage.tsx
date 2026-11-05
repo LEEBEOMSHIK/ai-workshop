@@ -1,12 +1,15 @@
 "use client";
+import { PageArrow } from "../../shared/ui/Pagination";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { EmptyState, StatusBadge } from "../../shared/ui/Feedback";
 import type { Category, IssueDetail, IssueList } from "./types";
 import type { IssueFilters } from "./api";
 import { IssueManagement } from "./IssueManagement";
 import { CategorySelect, categoryPath } from "./CategorySelect";
 import styles from "./IssueHistoryPage.module.css";
 export const statuses = { open: "진행 중", implemented: "구현됨 · 검증 남음", verified: "검증 완료" } as const;
+const statusTone = { open: "warning", implemented: "info", verified: "success" } as const;
 export function IssueHistoryPage({ list, categories, selected, filters, legacy }: {
     list: IssueList;
     categories: Category[];
@@ -31,9 +34,9 @@ export function IssueHistoryPage({ list, categories, selected, filters, legacy }
  <label>처리 상태<select name="status" defaultValue={filters.status}><option value="">전체 상태</option>{Object.entries(statuses).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
  <CategorySelect key={`${filters.parent_category_id ?? ""}:${filters.category_id ?? ""}`} categories={categories} initialParent={filters.parent_category_id} initialChild={filters.category_id} mode="filter"/><button type="submit">검색</button><a href="/admin/system/issues">필터 초기화</a></form>
  <p className={styles.resultCount} role="status">조건에 맞는 문제 {list.total}개 · 전체 {total}개</p>
- {!list.items.length && <p className={styles.empty}>{total ? "조건에 맞는 문제가 없습니다." : "등록된 문제 이력이 없습니다."}</p>}
- <div className={styles.layout}><div><ul className={styles.issueList} aria-label="문제 목록">{list.items.map(issue => <li key={issue.id}><a className={styles.issueButton} aria-current={selected?.id === issue.id ? "true" : undefined} href={href({ issue: issue.id })}><span className={styles.issueId}>{issue.issue_key}</span><strong>{issue.title}</strong><span className={styles.issueMeta}><span className={`${styles.badge} ${styles[issue.status]}`}>{statuses[issue.status]}</span>{category(issue.category_id)}</span></a></li>)}</ul><nav className={styles.actions} aria-label="문제 목록 페이지">{(filters.offset ?? 0) > 0 && <a href={href({ offset: Math.max(0, (filters.offset ?? 0) - 20) })}>이전</a>}{(filters.offset ?? 0) + 20 < list.total && <a href={href({ offset: (filters.offset ?? 0) + 20 })}>다음</a>}</nav></div>
- {selected && <section className={styles.detail} aria-label="문제 상세"><header className={styles.detailHeader}><p className={styles.issueId}>{selected.issue_key} · {category(selected.category_id)}</p>{(selected.legacy_keys ?? []).length > 0 && <p className={styles.issueId}>이전 번호: {selected.legacy_keys?.join(", ")}</p>}<h2>{selected.title}</h2><span className={`${styles.badge} ${styles[selected.status]}`}>{statuses[selected.status]}</span></header>
+ {!list.items.length && <EmptyState title={total ? "조건에 맞는 문제가 없습니다." : "등록된 문제 이력이 없습니다."} />}
+ <div className={styles.layout}><div><ul className={styles.issueList} aria-label="문제 목록">{list.items.map(issue => <li key={issue.id}><a className={styles.issueButton} aria-current={selected?.id === issue.id ? "true" : undefined} href={href({ issue: issue.id })}><span className={styles.issueId}>{issue.issue_key}</span><strong>{issue.title}</strong><span className={styles.issueMeta}><StatusBadge tone={statusTone[issue.status]}>{statuses[issue.status]}</StatusBadge>{category(issue.category_id)}</span></a></li>)}</ul><nav className={styles.actions} aria-label="문제 목록 페이지">{(filters.offset ?? 0) > 0 && <a aria-label="이전" title="이전" href={href({ offset: Math.max(0, (filters.offset ?? 0) - 20) })}><PageArrow direction="previous" /></a>}{(filters.offset ?? 0) + 20 < list.total && <a aria-label="다음" title="다음" href={href({ offset: (filters.offset ?? 0) + 20 })}><PageArrow direction="next" /></a>}</nav></div>
+ {selected && <section className={styles.detail} aria-label="문제 상세"><header className={styles.detailHeader}><p className={styles.issueId}>{selected.issue_key} · {category(selected.category_id)}</p>{(selected.legacy_keys ?? []).length > 0 && <p className={styles.issueId}>이전 번호: {selected.legacy_keys?.join(", ")}</p>}<h2>{selected.title}</h2><StatusBadge tone={statusTone[selected.status]}>{statuses[selected.status]}</StatusBadge></header>
  <section><h3>증상</h3><p>{selected.symptom}</p></section><section><h3>원인</h3><p>{selected.cause}</p></section><section><h3>수정 내용과 방향</h3><p>{selected.resolution}</p></section>
  <div className={styles.checks}><section><h3>검증 기록</h3><TextList items={selected.verification ?? []}/></section><section className={styles.remaining}><h3>남은 작업</h3><TextList items={selected.remaining ?? []}/></section></div>
  <section><h3>진행 이력</h3><ol className={styles.timeline}>{selected.events.map(event => <li key={event.id}><time>{event.event_date}</time><p>{event.description}</p></li>)}</ol></section>

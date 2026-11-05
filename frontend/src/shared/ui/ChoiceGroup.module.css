@@ -69,7 +69,6 @@
   margin: 0;
   padding: 0;
   accent-color: var(--color-accent);
-  color-scheme: dark;
   cursor: inherit;
 }
 
@@ -80,6 +79,12 @@
 .choice:has(.radio:disabled) {
   opacity: .5;
   cursor: not-allowed;
+}
+
+:global(:root[data-theme="light"]) .group .choice:has(.radio:disabled) {
+  opacity: 1;
+  color: var(--color-text-subtle);
+  background: var(--color-surface-raised);
 }
 
 .group .radio:focus-visible {
@@ -160,12 +165,13 @@
 
 .segmented .choice:has(.radio:checked)::before { opacity: 1; }
 
-.segmented .choice:not(:has(.radio:disabled)):hover {
-  background: color-mix(in srgb, var(--color-accent) 18%, var(--color-surface));
-}
-
-.segmented .choice:has(.radio:checked):not(:has(.radio:disabled)):hover {
-  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface-selected));
+@media (any-hover: hover) {
+  .group .choice:has(.radio:enabled):hover {
+    background: var(--color-surface-hover);
+  }
+  .segmented .choice:has(.radio:checked:enabled):hover {
+    background: color-mix(in srgb, var(--color-accent) 12%, var(--color-surface-selected));
+  }
 }
 
 .segmented .choice:has(.radio:focus-visible) {

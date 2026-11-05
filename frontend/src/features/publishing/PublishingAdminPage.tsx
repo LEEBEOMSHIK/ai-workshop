@@ -1,4 +1,5 @@
 "use client";
+import { Pagination } from "../../shared/ui/Pagination";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -318,11 +319,9 @@ export function PublishingAdminPage({ api = publishingAdminApi }: { api?: Publis
             ))}
           </ul>
           {!loading && filteredItems.length === 0 ? <p>이 페이지에 해당하는 기록이 없습니다.</p> : null}
-          <div className={styles.pager}>
-            <button type="button" aria-label="이전 페이지" disabled={page === 0 || busy || retryCommand !== null} onClick={() => changePage(page - 1)}>이전</button>
-            <span>{page + 1}페이지 · 페이지당 20개</span>
-            <button type="button" aria-label="다음 페이지" disabled={items.length < pageSize || busy || retryCommand !== null} onClick={() => changePage(page + 1)}>다음</button>
-          </div>
+          <Pagination label="공개 연구 목록 페이지" position={`${page + 1}페이지 · 페이지당 ${pageSize}개`}
+            canGoBack={page > 0 && !busy && retryCommand === null} canGoForward={items.length >= pageSize && !busy && retryCommand === null}
+            onPrevious={() => changePage(page - 1)} onNext={() => changePage(page + 1)} />
         </aside>
 
         <section className={styles.panel} aria-label="공개 연구 편집기">

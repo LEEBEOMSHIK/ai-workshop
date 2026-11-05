@@ -23,7 +23,7 @@ import {
 
 export default async function RagConfigurationsRoute({ searchParams }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
-} = {}) {
+}) {
   const query = await searchParams;
   const result = await captureServerRoute(async () => {
     await requireOwner(routes.adminRagConfigurations);

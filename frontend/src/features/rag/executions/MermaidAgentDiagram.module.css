@@ -22,14 +22,19 @@
 .canvas > svg:active { cursor: grabbing; }
 .canvas :global(g.node) { cursor: grab; outline: none; }
 .canvas :global(g.node):active { cursor: grabbing; }
-.canvas :global(g.node) > rect { rx: 10px; stroke-width: 1.5px; }
+.canvas :global(g.node) > rect { rx: 10px; stroke-width: 1.5px; fill: var(--color-surface) !important; stroke: var(--color-secondary) !important; }
+/* Mermaid embeds literal colours in its SVG. Use live tokens without
+   replacing nodes, so switching themes preserves pan, zoom and keyboard focus. */
+.canvas :global(g.node) text, .canvas :global(g.node) tspan { fill: var(--color-text) !important; }
+.canvas marker path { fill: var(--color-secondary) !important; stroke: var(--color-secondary) !important; }
 .canvas :global(g.node[data-kind="delegation"]) > rect { stroke-dasharray: 5 3; }
 .canvas :global(g.node[data-kind="model"]) > rect { stroke: var(--color-text-muted) !important; }
 .canvas :global(g.node[data-state="failed"]) > rect { stroke: var(--color-danger) !important; }
 .canvas :global(g.node[data-state="cancelled"]) > rect { stroke: var(--color-warning) !important; }
+.canvas :global(g.node[role="button"]:hover) > rect { stroke-width: 3px !important; }
 .canvas :global(g.node[aria-pressed="true"]) > rect, .canvas :global(g.node):focus > rect { stroke: var(--color-accent) !important; stroke-width: 3.5px !important; }
 .canvas :global(g.node):focus { filter: drop-shadow(0 0 3px var(--color-accent)); }
-.canvas :global(.edgePaths path) { stroke-width: 1.6px; }
+.canvas :global(.edgePaths path) { stroke-width: 1.6px; stroke: var(--color-secondary) !important; }
 .footer { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3) var(--space-4); }
 .footer details { max-width: 32rem; }
 .footer summary { min-height: var(--control-min-height); padding-block: var(--space-2); cursor: pointer; }

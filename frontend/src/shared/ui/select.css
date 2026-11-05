@@ -1,0 +1,94 @@
+@media (any-hover: hover) {
+  select:where(:not([multiple], [size])):enabled:hover:where(:not([aria-invalid="true"])) { border-color: var(--color-accent); }
+}
+
+@supports (appearance: base-select) {
+  select:where(:not([multiple], [size])),
+  select:where(:not([multiple], [size]))::picker(select) {
+    appearance: base-select;
+  }
+  select:where(:not([multiple], [size]))::picker-icon {
+    content: "";
+    width: 1rem;
+    height: 1rem;
+    align-self: center;
+    background: var(--color-text-muted);
+    mask: url("/icons/select/chevron.svg") center / contain no-repeat;
+    rotate: 0deg;
+    transition: rotate 150ms ease-out;
+  }
+  select:where(:not([multiple], [size])):open::picker-icon {
+    rotate: 180deg;
+    background: var(--color-accent-text);
+  }
+  select:where(:not([multiple], [size]))::picker(select) {
+    margin-block: var(--space-1);
+    padding: var(--space-1);
+    background: var(--color-surface-raised);
+    color: var(--color-text);
+    border: 1px solid var(--color-border-control);
+    border-radius: var(--radius-control);
+    box-shadow: var(--shadow-overlay);
+    opacity: 0;
+    scale: .985;
+    transition: opacity 150ms ease-out, scale 150ms ease-out,
+      overlay 150ms allow-discrete, display 150ms allow-discrete;
+  }
+  select:where(:not([multiple], [size])):open::picker(select) {
+    opacity: 1;
+    scale: 1;
+  }
+  @starting-style {
+    select:where(:not([multiple], [size])):open::picker(select) { opacity: 0; scale: .985; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    select:where(:not([multiple], [size]))::picker-icon, select:where(:not([multiple], [size]))::picker(select) { transition: none; }
+  }
+  select:where(:not([multiple], [size])) option:where(:not([hidden])) {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    min-height: var(--control-min-height);
+    border-radius: var(--radius-small);
+    background: transparent;
+    color: var(--color-text);
+    font: inherit;
+  }
+  select:where(:not([multiple], [size])) option::checkmark { display: none; }
+  select:where(:not([multiple], [size])) option::before {
+    content: "";
+    flex: 0 0 1.125rem;
+    height: 1.125rem;
+    background: var(--color-text-muted);
+    mask: var(--option-icon, url("/icons/select/note.svg")) center / contain no-repeat;
+  }
+  select:where(:not([multiple], [size])) option[data-icon="company"] { --option-icon: url("/icons/select/company.svg"); }
+  select:where(:not([multiple], [size])) option[data-icon="personal"] { --option-icon: url("/icons/select/personal.svg"); }
+  select:where(:not([multiple], [size])) option[data-icon="temporary"] { --option-icon: url("/icons/select/temporary.svg"); }
+  select:where(:not([multiple], [size])) option[data-icon="experiment"] { --option-icon: url("/icons/select/experiment.svg"); }
+  select:where(:not([multiple], [size])) option:where(:enabled:hover) { background: var(--color-surface-hover); }
+  select:where(:not([multiple], [size])) option:checked { background: var(--color-surface-selected); color: var(--color-accent-text); font-weight: 650; }
+  select:where(:not([multiple], [size])) option:checked::before { background: currentColor; }
+  select:where(:not([multiple], [size])) option:checked::after {
+    content: "";
+    width: .4rem;
+    height: .75rem;
+    flex-shrink: 0;
+    margin-inline: auto var(--space-1);
+    border: solid currentColor;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+  select:where(:not([multiple], [size])) option:focus-visible { outline: 2px solid var(--focus-color); outline-offset: -2px; }
+  select:where(:not([multiple], [size])) option:disabled { opacity: .55; }
+  :root[data-theme="light"] select:where(:not([multiple], [size])) option:disabled {
+    opacity: 1;
+    color: var(--color-text-subtle);
+    background: var(--color-surface-raised);
+  }
+  @media (forced-colors: active) {
+    select:where(:not([multiple], [size]))::picker-icon { background: ButtonText; forced-color-adjust: none; }
+    select:where(:not([multiple], [size])) option:checked { outline: 2px solid Highlight; outline-offset: -2px; }
+  }
+}

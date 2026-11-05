@@ -109,7 +109,7 @@ it("the focus boundary excludes collapsed group links and hidden footer controls
   const dialog = screen.getByRole("dialog", { name: "관리자 메뉴" });
   dialog.querySelectorAll("details").forEach(group => { group.open = false; });
   within(dialog).getByRole("navigation", { name: "영역 이동" }).hidden = true;
-  within(dialog).getByRole("button", { name: "로그아웃" }).parentElement!.hidden = true;
+  within(dialog).getByRole("button", { name: "계정 및 화면 설정" }).parentElement!.hidden = true;
   const first = within(dialog).getByRole("link", { name: "AI Workshop" });
   const last = within(dialog).getByText("시스템 관리");
   first.focus();

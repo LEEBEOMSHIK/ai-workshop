@@ -1,10 +1,10 @@
 .page {
-  --lab-bg: #070b10;
-  --lab-line: #29454c;
-  --lab-text: #eef5f6;
-  --lab-muted: #9cabb3;
-  --lab-cyan: #55d9c9;
-  --lab-amber: #f5c86d;
+  --lab-bg: var(--color-background);
+  --lab-line: var(--color-border);
+  --lab-text: var(--color-text);
+  --lab-muted: var(--color-text-muted);
+  --lab-cyan: var(--color-secondary);
+  --lab-amber: var(--color-warning);
   --lab-copper: #c58a58;
   --layer-room: 1;
   --layer-equipment: 2;
@@ -14,8 +14,8 @@
   overflow-x: clip;
   color: var(--lab-text);
   background:
-    radial-gradient(circle at 82% 14%, rgb(85 217 201 / 15%), transparent 24rem),
-    radial-gradient(circle at 10% 72%, rgb(197 138 88 / 12%), transparent 26rem),
+    radial-gradient(circle at 82% 14%, color-mix(in srgb, var(--color-primary) 15%, transparent), transparent 24rem),
+    radial-gradient(circle at 10% 72%, color-mix(in srgb, var(--color-highlight) 12%, transparent), transparent 26rem),
     var(--lab-bg);
 }
 
@@ -59,10 +59,10 @@
   display: flex;
   width: 100%;
   padding: 0.8rem clamp(1rem, 6vw, 6rem);
-  border-block: 1px solid rgb(85 217 201 / 18%);
+  border-block: 1px solid color-mix(in srgb, var(--color-primary) 18%, transparent);
   align-items: center;
   gap: 0.85rem;
-  background: rgb(10 19 25 / 86%);
+  background: color-mix(in srgb, var(--color-surface) 86%, transparent);
 }
 
 .statusHud p {
@@ -81,10 +81,17 @@
   margin-top: 1.75rem;
   padding: 0.85rem 1.1rem;
   border-radius: 0.7rem;
-  color: #07100f;
-  background: var(--lab-cyan);
+  color: var(--color-on-primary);
+  background: var(--color-primary);
   font-weight: 800;
   text-decoration: none;
+}
+
+.hero > a[href]:hover,
+.entranceLink[href]:hover,
+.labLink[href]:hover {
+  color: var(--color-on-primary);
+  background: var(--color-primary-hover);
 }
 
 .hero > a:focus-visible,
@@ -92,15 +99,15 @@
 .labLink:focus-visible,
 .characterButton:focus-visible,
 .closeButton:focus-visible {
-  outline: 3px solid var(--lab-amber);
+  outline: 3px solid var(--focus-color);
   outline-offset: 4px;
 }
 
 .entrancePage {
   background:
-    radial-gradient(circle at 72% 26%, rgb(85 217 201 / 18%), transparent 22rem),
-    radial-gradient(circle at 18% 78%, rgb(245 200 109 / 10%), transparent 24rem),
-    #070b10;
+    radial-gradient(circle at 72% 26%, color-mix(in srgb, var(--color-primary) 18%, transparent), transparent 22rem),
+    radial-gradient(circle at 18% 78%, color-mix(in srgb, var(--color-secondary) 10%, transparent), transparent 24rem),
+    var(--color-background);
 }
 
 .entranceHero {
@@ -119,11 +126,21 @@
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(rgb(85 217 201 / 4%) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(85 217 201 / 4%) 1px, transparent 1px);
+    linear-gradient(color-mix(in srgb, var(--color-primary) 4%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--color-primary) 4%, transparent) 1px, transparent 1px);
   background-size: 4rem 4rem;
   content: "";
   mask-image: linear-gradient(90deg, transparent, black 32%, black);
+}
+
+/* The illustrated rooms have a fixed pixel-art backdrop in either theme. */
+.entranceScene, .scene, .ragWorkroom {
+  --lab-text: #f5f8ff;
+  --lab-muted: #c3c9df;
+  --lab-cyan: #00d4ff;
+  --lab-amber: #f2cb82;
+  --lab-line: #363d5b;
+  color: var(--lab-text);
 }
 
 .entranceCopy,
@@ -242,10 +259,10 @@
 .entranceEmpty {
   margin: 0;
   padding: 1.25rem;
-  border: 1px solid rgb(85 217 201 / 24%);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, transparent);
   border-radius: 0.8rem;
-  color: var(--lab-muted);
-  background: rgb(7 15 20 / 82%);
+  color: var(--color-text-muted);
+  background: color-mix(in srgb, var(--color-surface) 82%, transparent);
   text-align: center;
 }
 
@@ -262,7 +279,7 @@
 
 .entranceAgent h2 {
   margin-bottom: 0.5rem;
-  color: #dce8ea;
+  color: var(--lab-text);
   font-size: clamp(0.85rem, 1.4vw, 1rem);
 }
 
@@ -286,13 +303,13 @@
 }
 
 .entranceAgent .characterButton:hover {
-  border-color: rgb(85 217 201 / 34%);
-  background: rgb(13 27 34 / 58%);
+  border-color: color-mix(in srgb, var(--color-primary) 34%, transparent);
+  background: color-mix(in srgb, var(--color-surface) 58%, transparent);
 }
 
 .ragLabPage {
   padding-bottom: clamp(2rem, 5vw, 5rem);
-  background: radial-gradient(ellipse at 50% 0, #304f52, transparent 65%), #172e39;
+  background: radial-gradient(ellipse at 50% 0, var(--color-surface-selected), transparent 65%), var(--color-background);
 }
 
 .ragLabHeader {
@@ -370,6 +387,7 @@
   box-shadow: inset 0 0 0 3px #63827a, 6px 9px #354f4033;
 }
 .commandCopy h2 { margin: .4rem 0 .7rem; font-size: clamp(1.3rem, 2.4vw, 2rem); color: #f0dfb5; }
+.commandCopy .eyebrow { color: #75ecf8; }
 .commandCopy > p:not(.eyebrow) { max-width: 44rem; margin: 0; color: #d1ddc9; line-height: 1.7; font-size: .8rem; }
 .commandCopy .agentBoundaryNote { margin-top: .65rem; padding-left: .7rem; border-left: 2px solid #b6c193; font-size: .7rem; color: #b9cbbb; }
 .commandAgent { display: grid; justify-items: center; }
@@ -391,9 +409,9 @@
   background: #e5dbc0; border-left: 4px solid #627e71; box-shadow: 3px 3px #3b574726;
 }
 .stationHeader p, .stationHeader h3 { margin: 0; }
-.stationHeader p { color: #607567; font: 700 8px/1.5 monospace; letter-spacing: .05em; }
+.stationHeader p { color: #455c4c; font: 700 8px/1.5 monospace; letter-spacing: .05em; }
 .stationHeader h3 { margin-top: .2rem; color: #2c514c; font-size: .8rem; }
-.stationOrder { color: #9c8457; font: 800 1.4rem/1 monospace; }
+.stationOrder { color: #695632; font: 800 1.4rem/1 monospace; }
 .benchArt { position: absolute; top: 3.5rem; left: 0; width: 100%; max-height: 13rem; overflow: visible; filter: drop-shadow(3px 5px 1px #344b3420); }
 .pixelPerson { display: block; width: 72px; height: 96px; image-rendering: pixelated; flex: none; }
 .workerStation .character {
@@ -415,7 +433,7 @@
   box-shadow: 2px 3px #203c3933; color: #c5d4bd; font-size: 8px;
 }
 .ragWorkroom .identity strong { font-size: 11px; color: #fae7b9; }
-.ragWorkroom .identity .role { color: #a3c2ad; font-size: 8px; }
+.ragWorkroom .identity .role { color: #baddc2; font-size: 8px; }
 .commandAgent .characterVisual { flex-direction: column; align-items: center; }
 .commandAgent .identity { align-items: center; justify-items: center; margin-top: -.4rem; }
 .commandAgent .pixelPerson { width: 66px; height: 88px; }
@@ -426,8 +444,8 @@
 .workroomThreshold > span { color: #e4cf9c; font: 800 11px/1.5 monospace; letter-spacing: 3px; }
 .workroomThreshold p { color: #c9d4bc; font-size: 10px; margin: 5px 0 0; }
 .ragHeaderActions { display: grid; justify-items: end; gap: 1rem; }
-.returnToOffice { font-size: .78rem; color: #bed7ce; text-decoration: none; }
-.returnToOffice:hover { color: #f5dca3; }
+.returnToOffice { display: inline-flex; align-items: center; min-height: var(--control-min-height); font-size: .78rem; color: var(--color-text-muted); text-decoration: none; }
+.returnToOffice:hover { color: var(--color-secondary); }
 @keyframes studio-work { 0%, 80%, 100% { transform: translateY(0); } 40%, 60% { transform: translateY(-2px); } }
 
 .ragCapabilityDeck {
@@ -440,9 +458,9 @@
 
 .ragCapabilityDeck article {
   padding: 1.25rem;
-  border: 1px solid rgb(85 217 201 / 20%);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 20%, transparent);
   border-radius: 0.9rem;
-  background: rgb(10 18 24 / 86%);
+  background: color-mix(in srgb, var(--color-surface) 86%, transparent);
 }
 
 .ragCapabilityDeck h2 {
@@ -951,14 +969,14 @@
 }
 
 .dialogLayer {
-  --lab-text: #eef5f6;
-  --lab-cyan: #55d9c9;
-  --lab-amber: #f5c86d;
+  --lab-text: var(--color-text);
+  --lab-cyan: var(--color-secondary);
+  --lab-amber: var(--color-warning);
   --layer-dialog: 20;
   position: fixed;
   z-index: var(--layer-dialog);
   inset: 0;
-  background: rgb(3 7 10 / 62%);
+  background: var(--color-backdrop);
 }
 
 .dialog {
@@ -970,10 +988,10 @@
   width: min(calc(100vw - 2.5rem), 34rem);
   max-height: min(calc(100dvh - 2.5rem), 34rem);
   padding: clamp(1.5rem, 4vw, 2.5rem);
-  border: 1px solid #3b686b;
+  border: 1px solid var(--color-border-control);
   border-radius: 1.25rem;
-  background: #101820;
-  box-shadow: 0 2rem 7rem rgb(0 0 0 / 55%);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-overlay);
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   overscroll-behavior: contain;
 }
@@ -987,8 +1005,8 @@
   display: block;
   width: 1rem;
   height: 1rem;
-  border: 0 solid #3b686b;
-  background: #101820;
+  border: 0 solid var(--color-border-control);
+  background: var(--color-surface);
   content: "";
 }
 
@@ -1030,29 +1048,36 @@
 .dialogCopy {
   min-height: 0;
   overflow-y: auto;
-  color: #afbbc4;
+  color: var(--color-text-muted);
   line-height: 1.7;
   overscroll-behavior: contain;
 }
 
 .dialogCopy a {
-  color: #8ee6dc;
+  color: var(--color-accent);
   font-weight: 750;
   overflow-wrap: anywhere;
   text-decoration: none;
 }
 
 .dialogCopy a:visited {
-  color: #f5c86d;
+  color: var(--color-warning);
+}
+
+.dialogCopy li > a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-min-height);
+  max-width: 100%;
 }
 
 .dialogCopy a:hover {
-  color: #d7fff9;
+  color: var(--color-text);
 }
 
 .dialogCopy a:focus-visible {
   border-radius: 0.2rem;
-  outline: 3px solid var(--lab-amber);
+  outline: 3px solid var(--focus-color);
   outline-offset: 4px;
 }
 
@@ -1083,13 +1108,13 @@
   top: 1rem;
   right: 1rem;
   display: grid;
-  width: 2.5rem;
-  height: 2.5rem;
+  width: var(--control-min-height);
+  height: var(--control-min-height);
   padding: 0;
-  border: 1px solid #40515d;
+  border: 1px solid var(--color-border-control);
   border-radius: 50%;
   color: var(--lab-text);
-  background: #19232c;
+  background: var(--color-surface-raised);
   cursor: pointer;
   font-size: 1.5rem;
   place-items: center;
@@ -1319,7 +1344,7 @@
     display: flex;
     align-items: flex-end;
     padding-top: 20dvh;
-    background: rgb(3 7 10 / 72%);
+    background: var(--color-backdrop);
   }
 
   .dialog {

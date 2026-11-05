@@ -11,7 +11,7 @@
 .categories a {font-weight:700;color:var(--flow-muted);}
 .categories a[aria-current] {color:var(--color-accent-text);background:var(--flow-surface);}
 .flowChoices a {border-color:var(--color-border-subtle);}
-.selector a:hover {background:var(--flow-surface);}
+.selector a[href]:hover {background:var(--color-surface-hover);border-color:var(--color-accent-text);}
 .flowChoices a[aria-current] {border-color:var(--color-accent-text);color:var(--color-accent-text);background:color-mix(in srgb,var(--color-accent-text) 7%,transparent);}
 .reader {min-width:0;container-type:inline-size;container-name:flow-reader;}
 .architecture {min-width:0;}
@@ -87,13 +87,14 @@
 .start,.result {border-radius:1.25rem;}
 .decision {border-style:dashed;}
 .node[aria-pressed="true"] {border-color:var(--color-accent-text);box-shadow:0 0 0 1px var(--color-accent-text);background:color-mix(in srgb,var(--color-accent-text) 9%,var(--flow-surface));}
+.node[aria-pressed="true"]:hover:not(:disabled) {background:var(--color-surface-hover);}
 .edges {list-style:none;padding:.25rem 0 0 .75rem;margin:0;display:flex;flex-wrap:wrap;gap:.2rem .65rem;}
 .edges li {display:flex;align-items:flex-start;gap:.25rem;min-width:0;max-width:100%;}
 .arrow {color:var(--color-accent-text);font-size: var(--font-size-caption);line-height:1.8;}
 .edges button {background:transparent;border:0;padding:.15rem .2rem;color:var(--flow-muted);text-align:left;font:inherit;font-size: var(--font-size-small);cursor:pointer;overflow-wrap:anywhere;}
 .edges button span,.edges button small {display:block;line-height:1.5;}
 .edges button small {font-size:.65rem;}
-.edges button:hover {color:var(--color-accent-text);}
+.edges button:enabled:hover {color:var(--color-accent-text);}
 .end {font-size:.65rem;margin:.3rem .7rem;color:var(--flow-muted);}
 .detail {position:sticky;top:1rem;min-width:0;padding:1rem;border:1px solid var(--color-border-subtle);border-radius:var(--flow-radius);background:var(--flow-surface);}
 .detail:focus-visible {outline: var(--focus-width) solid var(--focus-color);outline-offset: var(--focus-offset);}

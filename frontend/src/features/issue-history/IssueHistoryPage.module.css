@@ -20,15 +20,11 @@
 .layout { display: grid; grid-template-columns: minmax(16rem, .8fr) minmax(0, 2fr); gap: var(--space-4); align-items: start; }
 .issueList { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--space-2); }
 .issueButton { display: grid; gap: .65rem; width: 100%; text-align: left; color: var(--color-text); border: 1px solid var(--color-border); border-radius: var(--radius-panel); padding: 1rem; background: var(--color-surface); cursor: pointer; font: inherit; }
+.issueButton[aria-current="true"] { background: var(--color-surface-selected); border-color: var(--color-info-border); box-shadow: inset 3px 0 var(--color-info); }
 .issueButton:hover { background: var(--color-surface-hover); }
-.issueButton[aria-pressed="true"] { background: var(--color-surface-selected); border-color: var(--color-info-border); box-shadow: inset 3px 0 var(--color-info); }
 .issueButton strong { font-size: var(--font-size-control); line-height: 1.5; }
 .issueId { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-small); }
 .issueMeta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-size: var(--font-size-small); color: var(--color-text-muted); }
-.badge { display: inline-block; border-radius: .3rem; padding: .2rem .45rem; font-size: var(--font-size-small); font-weight: 500; }
-.open { color: var(--color-warning); background: var(--color-warning-surface); }
-.implemented { color: var(--color-info); background: var(--color-info-surface); }
-.verified { color: var(--color-success); background: var(--color-success-surface); }
 .detail { min-width: 0; border: 1px solid var(--color-border); border-radius: var(--radius-panel); background: var(--color-surface); padding: clamp(1rem, 2.5vw, 1.65rem); }
 .detailHeader { padding-bottom: 1.2rem; border-bottom: 1px solid var(--color-border); }
 .detail h2 { font-size: 1.3rem; margin: .5rem 0 .75rem; line-height: 1.5; }
@@ -47,7 +43,6 @@
 .commits { display: flex; flex-wrap: wrap; gap: var(--space-2); list-style: none; padding: 0; margin: 0; }
 .commits code { display: inline-block; padding: .3rem .5rem; background: var(--color-surface-raised); border-radius: .3rem; font-size: var(--font-size-caption); }
 .muted { color: var(--color-text-muted); }
-.empty { border: 1px dashed var(--color-border-control); border-radius: var(--radius-panel); padding: 3rem 1rem; text-align: center; color: var(--color-text-muted); }
 .page :is(button, input, select, a):focus-visible { outline: var(--focus-width) solid var(--focus-color); outline-offset: var(--focus-offset); }
 @media (max-width: 800px) { .heading { flex-direction: column; } .layout { grid-template-columns: 1fr; } .issueList { max-height: 19rem; overflow-y: auto; padding: 3px; } .checks { grid-template-columns: 1fr; gap: 0; } }
 @media (max-width: 480px) { .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .filters label { width: 100%; } }
@@ -58,7 +53,6 @@
   .checks { grid-template-columns: minmax(0, 1fr); gap: 0; }
 }
 .actions {display:flex; gap:var(--space-4); margin:1rem 0;}
-.issueButton[aria-current="true"] {background:var(--color-surface-selected); border-color:var(--color-info-border);}
 .management {margin-bottom:1.5rem; border:1px solid var(--color-border-control); padding:1rem; border-radius: var(--radius-panel);}
 .editor {margin:.75rem 0; border:1px solid var(--color-border); border-radius: var(--radius-control); padding:.8rem;}
 .editor summary {cursor:pointer; font-weight:600;}

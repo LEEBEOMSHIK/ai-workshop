@@ -1,5 +1,7 @@
 @import "../shared/ui/tokens.css";
 @import "../shared/ui/links.css";
+@import "../shared/ui/interactions.css";
+@import "../shared/ui/select.css";
 
 :root {
   color: var(--color-text);
@@ -22,7 +24,7 @@ body {
   min-height: 100vh;
   padding: clamp(2rem, 5vw, 5rem);
   background:
-    radial-gradient(circle at 92% 2%, rgb(123 214 255 / 14%), transparent 30rem),
+    radial-gradient(circle at 92% 2%, color-mix(in srgb, var(--color-secondary) 14%, transparent), transparent 30rem),
     var(--color-background);
 }
 
@@ -198,7 +200,7 @@ body {
   min-height: calc(100vh - 4rem);
   padding: clamp(1.5rem, 4vw, 4rem);
   background:
-    radial-gradient(circle at 88% 4%, rgb(85 217 201 / 16%), transparent 30rem),
+    radial-gradient(circle at 88% 4%, color-mix(in srgb, var(--color-primary) 16%, transparent), transparent 30rem),
     var(--color-background);
 }
 
@@ -251,8 +253,8 @@ body {
 }
 
 .domain-navigation a[aria-current="page"] {
-  color: var(--color-on-accent);
-  background: var(--color-accent-strong);
+  color: var(--color-on-primary);
+  background: var(--color-primary);
 }
 
 .domain-picker-actions a {
@@ -282,7 +284,7 @@ body {
 .conversation-unavailable {
   border: 1px solid var(--color-border);
   border-radius: 1rem;
-  background: rgb(16 23 31 / 94%);
+  background: color-mix(in srgb, var(--color-surface) 94%, transparent);
 }
 
 .domain-card {
@@ -470,8 +472,8 @@ body {
   padding: 0.72rem 0.95rem;
   border: 0;
   border-radius: 0.6rem;
-  color: var(--color-on-accent);
-  background: var(--color-accent-strong);
+  color: var(--color-on-primary);
+  background: var(--color-primary);
   font-weight: 750;
   cursor: pointer;
 }
@@ -667,11 +669,16 @@ body {
 
 .conversation-citations button,
 .conversation-evidence button {
-  padding: 0.45rem 0.65rem;
-  border: 1px solid var(--color-success-border);
+  padding: var(--space-2);
+  border: 0;
   color: var(--color-accent);
-  background: var(--color-surface-selected);
-  font-size: 0.78rem;
+  background: transparent;
+}
+@media (any-hover: hover) {
+  .conversation-citations button:enabled:hover,
+  .conversation-evidence button:enabled:hover {
+    background: var(--color-surface-hover);
+  }
 }
 
 .conversation-evidence {
@@ -750,7 +757,7 @@ body {
   width: min(52rem, 58vw);
   border-left: 1px solid var(--color-border-control);
   background: var(--color-background);
-  box-shadow: -1rem 0 3rem rgb(0 0 0 / 42%);
+  box-shadow: var(--shadow-overlay);
   overflow-y: auto;
 }
 
@@ -846,7 +853,7 @@ textarea {
   overflow: hidden;
   padding: clamp(3rem, 7vw, 7rem);
   background:
-    linear-gradient(145deg, rgb(9 14 20 / 96%), rgb(11 18 25 / 88%)),
+    linear-gradient(145deg, color-mix(in srgb, var(--color-background) 96%, transparent), color-mix(in srgb, var(--color-surface-input) 88%, transparent)),
     radial-gradient(circle at 70% 10%, var(--color-surface-selected), transparent 42%);
 }
 
@@ -863,7 +870,7 @@ textarea {
   height: 18rem;
   top: -7rem;
   right: 8%;
-  background: #1ba79c;
+  background: var(--color-primary);
   filter: blur(100px);
 }
 
@@ -872,7 +879,7 @@ textarea {
   height: 13rem;
   bottom: 5%;
   left: -5rem;
-  background: #c07840;
+  background: var(--color-secondary);
   filter: blur(110px);
 }
 
@@ -952,13 +959,13 @@ h1 {
   padding: 1.6rem;
   border: 1px solid var(--color-border);
   border-radius: 1.1rem;
-  background: rgb(16 23 31 / 76%);
+  background: color-mix(in srgb, var(--color-surface) 76%, transparent);
   backdrop-filter: blur(18px);
 }
 
 .lab-card-primary {
   border-color: var(--color-success-border);
-  background: linear-gradient(150deg, rgb(22 49 51 / 82%), rgb(16 23 31 / 80%));
+  background: linear-gradient(150deg, color-mix(in srgb, var(--color-surface-selected) 82%, transparent), color-mix(in srgb, var(--color-surface) 80%, transparent));
 }
 
 .lab-card h2 {
@@ -1038,7 +1045,7 @@ h1 {
 }
 
 .lab-card-actions a {
-  color: var(--ink-strong);
+  color: var(--color-accent-text);
   font-size: 0.85rem;
   font-weight: 700;
   border-radius: var(--radius-control);
@@ -1060,7 +1067,7 @@ h1 {
   place-items: center;
   padding: 1.25rem;
   background:
-    radial-gradient(circle at 80% 10%, rgb(42 118 111 / 38%), transparent 38%),
+    radial-gradient(circle at 80% 10%, color-mix(in srgb, var(--color-primary) 38%, transparent), transparent 38%),
     var(--color-background);
 }
 
@@ -1069,8 +1076,8 @@ h1 {
   padding: clamp(2rem, 6vw, 3.5rem);
   border: 1px solid var(--color-border);
   border-radius: 1.25rem;
-  background: rgb(16 23 31 / 88%);
-  box-shadow: 0 2rem 7rem rgb(0 0 0 / 35%);
+  background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+  box-shadow: var(--shadow-overlay);
 }
 
 .auth-title {
@@ -1110,8 +1117,8 @@ h1 {
 }
 
 .auth-form input:focus {
-  border-color: var(--color-accent-strong);
-  box-shadow: 0 0 0 3px rgb(85 217 201 / 12%);
+  border-color: var(--focus-color);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus-color) 18%, transparent);
 }
 
 .auth-form button,
@@ -1121,8 +1128,8 @@ h1 {
   padding: 0.9rem 1rem;
   border: 0;
   border-radius: 0.7rem;
-  color: var(--color-on-accent);
-  background: var(--color-accent-strong);
+  color: var(--color-on-primary);
+  background: var(--color-primary);
   font-weight: 750;
   text-decoration: none;
   cursor: pointer;
@@ -1264,8 +1271,8 @@ h1 {
   padding: 0.8rem 1rem;
   border: 0;
   border-radius: 0.65rem;
-  color: var(--color-on-accent);
-  background: var(--color-accent-strong);
+  color: var(--color-on-primary);
+  background: var(--color-primary);
   font-weight: 750;
   cursor: pointer;
 }
@@ -1516,8 +1523,8 @@ h1 {
   padding: 0.8rem;
   border: 0;
   border-radius: 0.6rem;
-  color: var(--color-on-accent);
-  background: var(--color-accent-strong);
+  color: var(--color-on-primary);
+  background: var(--color-primary);
   font-weight: 750;
   cursor: pointer;
 }
@@ -1533,7 +1540,7 @@ h1 {
   min-height: 100vh;
   padding: clamp(2rem, 5vw, 5rem);
   background:
-    radial-gradient(circle at 88% 2%, rgb(85 217 201 / 18%), transparent 28rem),
+    radial-gradient(circle at 88% 2%, color-mix(in srgb, var(--color-primary) 18%, transparent), transparent 28rem),
     var(--color-background);
 }
 
@@ -1579,9 +1586,9 @@ h1 {
 }
 
 .studio-tabs button[aria-selected="true"] {
-  border-color: var(--color-accent-strong);
-  color: var(--color-on-accent);
-  background: var(--color-accent-strong);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+  background: var(--color-primary);
 }
 
 .studio-tabs button:focus-visible,
@@ -1610,7 +1617,7 @@ h1 {
   padding: clamp(1rem, 2.5vw, 1.8rem);
   border: 1px solid var(--color-border);
   border-radius: 1rem;
-  background: rgb(16 23 31 / 94%);
+  background: color-mix(in srgb, var(--color-surface) 94%, transparent);
 }
 
 .section-heading-row {
@@ -1705,7 +1712,7 @@ h1 {
   padding: clamp(1rem, 2.5vw, 1.8rem);
   border: 1px solid var(--color-border);
   border-radius: 1rem;
-  background: rgb(16 23 31 / 94%);
+  background: color-mix(in srgb, var(--color-surface) 94%, transparent);
 }
 
 .deployment-grid,
@@ -1816,10 +1823,10 @@ h1 {
 .policy-card button {
   justify-self: start;
   padding: 0.7rem 0.9rem;
-  border: 1px solid var(--color-accent-strong);
+  border: 1px solid var(--color-primary);
   border-radius: 0.6rem;
-  color: var(--color-on-accent);
-  background: var(--color-accent-strong);
+  color: var(--color-on-primary);
+  background: var(--color-primary);
   font-weight: 750;
 }
 
@@ -1841,7 +1848,7 @@ h1 {
 }
 
 .technical-identifiers summary:focus-visible {
-  outline: 2px solid var(--color-accent-text);
+  outline: 2px solid var(--focus-color);
   outline-offset: 0.25rem;
 }
 
@@ -1940,7 +1947,7 @@ h1 {
   padding: 0.75rem;
   border-left: 3px solid var(--color-warning);
   color: var(--color-warning);
-  background: rgb(245 200 109 / 8%);
+  background: color-mix(in srgb, var(--color-warning) 8%, transparent);
 }
 
 .workspace-options {
@@ -1966,9 +1973,9 @@ h1 {
 .builder-actions button:not(.secondary-button),
 .comparison-actions button:not(.secondary-button),
 .candidate-result button:not(:disabled) {
-  border-color: var(--color-accent-strong);
-  color: var(--color-on-accent);
-  background: var(--color-accent-strong);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+  background: var(--color-primary);
 }
 
 .configuration-studio-shell button:disabled,
@@ -2094,7 +2101,7 @@ h1 {
   min-height: 100vh;
   padding: clamp(2rem, 5vw, 5rem);
   background:
-    radial-gradient(circle at 82% 5%, rgb(29 99 93 / 24%), transparent 28rem),
+    radial-gradient(circle at 82% 5%, color-mix(in srgb, var(--color-primary) 24%, transparent), transparent 28rem),
     var(--color-background);
 }
 
@@ -2113,7 +2120,7 @@ h1 {
 
 .search-header > p:not(.eyebrow),
 .source-viewer-header > p:not(.eyebrow) {
-  color: var(--color-text-subtle);
+  color: var(--color-text-muted);
   line-height: 1.65;
 }
 
@@ -2131,7 +2138,7 @@ h1 {
   padding: clamp(1.2rem, 3vw, 2rem);
   border: 1px solid var(--color-border);
   border-radius: 1rem;
-  background: rgb(16 23 31 / 92%);
+  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
 }
 
 .search-controls fieldset {
@@ -2184,7 +2191,7 @@ h1 {
 .search-controls button:focus-visible,
 .source-link:focus-visible,
 .source-viewer-shell button:focus-visible {
-  outline: 3px solid rgb(85 217 201 / 42%);
+  outline: var(--focus-width) solid var(--focus-color);
   outline-offset: 2px;
 }
 
@@ -2194,8 +2201,8 @@ h1 {
   padding: 0.85rem 1.15rem;
   border: 0;
   border-radius: 0.65rem;
-  color: var(--color-on-accent);
-  background: var(--color-accent-strong);
+  color: var(--color-on-primary);
+  background: var(--color-primary);
   font-weight: 750;
   cursor: pointer;
 }
@@ -2287,7 +2294,7 @@ h1 {
   padding: clamp(1rem, 2vw, 1.5rem);
   border: 1px solid var(--color-surface-raised);
   border-radius: 1rem;
-  background: rgb(12 18 24 / 68%);
+  background: var(--color-backdrop);
 }
 
 .conversation-results > .secondary-button {
@@ -2441,7 +2448,7 @@ h1 {
 .match-badge.semantic {
   border: 1px dashed currentColor;
   color: var(--color-warning);
-  background: repeating-linear-gradient(-45deg, var(--color-warning-surface), var(--color-warning-surface) 4px, var(--color-warning-surface) 4px, var(--color-warning-surface) 8px);
+  background: repeating-linear-gradient(-45deg, var(--color-warning-surface) 0 4px, color-mix(in srgb, var(--color-warning) 10%, var(--color-warning-surface)) 4px 8px);
 }
 
 .provenance-warning {
@@ -2462,7 +2469,9 @@ h1 {
   border-radius: var(--radius-control);
   background: var(--color-surface);
 }
-.source-link:hover { background: var(--color-surface-hover); }
+@media (any-hover: hover) {
+  .source-link:where(:not(:disabled)):hover { background: var(--color-surface-hover); }
+}
 
 .source-viewer-header {
   margin-bottom: 1.5rem;
@@ -2486,7 +2495,7 @@ h1 {
 mark.keyword-highlight {
   padding: 0.08rem;
   color: inherit;
-  background: rgb(85 217 201 / 18%);
+  background: color-mix(in srgb, var(--color-highlight-keyword) 18%, transparent);
   text-decoration: underline solid 3px;
   text-decoration-color: var(--color-accent-strong);
   text-underline-offset: 0.18rem;
@@ -2495,7 +2504,7 @@ mark.keyword-highlight {
 mark.context-highlight {
   padding: 0.08rem;
   color: inherit;
-  background: rgb(120 150 240 / 22%);
+  background: color-mix(in srgb, var(--color-highlight-context) 22%, transparent);
   border-bottom: 2px dotted var(--color-highlight-context);
 }
 
@@ -2503,7 +2512,7 @@ mark.semantic-highlight {
   padding: 0.08rem;
   border-bottom: 2px dashed var(--color-highlight-semantic);
   color: inherit;
-  background: repeating-linear-gradient(-45deg, rgb(192 120 64 / 20%), rgb(192 120 64 / 20%) 3px, transparent 3px, transparent 6px);
+  background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--color-highlight-semantic) 20%, transparent), color-mix(in srgb, var(--color-highlight-semantic) 20%, transparent) 3px, transparent 3px, transparent 6px);
 }
 
 .pdf-page {
@@ -2529,7 +2538,7 @@ mark.semantic-highlight {
 
 .pdf-highlight {
   position: absolute;
-  background: rgb(85 217 201 / 20%);
+  background: color-mix(in srgb, var(--color-highlight-keyword) 20%, transparent);
 }
 
 .pdf-highlight.keyword-highlight {
@@ -2538,12 +2547,12 @@ mark.semantic-highlight {
 
 .pdf-highlight.context-highlight {
   border: 3px dotted var(--color-highlight-context-border);
-  background: rgb(120 150 240 / 22%);
+  background: color-mix(in srgb, var(--color-highlight-context) 22%, transparent);
 }
 
 .pdf-highlight.semantic-highlight {
   border: 3px dashed var(--color-highlight-semantic-border);
-  background: repeating-linear-gradient(-45deg, rgb(192 120 64 / 28%), rgb(192 120 64 / 28%) 4px, transparent 4px, transparent 8px);
+  background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--color-highlight-semantic) 28%, transparent), color-mix(in srgb, var(--color-highlight-semantic) 28%, transparent) 4px, transparent 4px, transparent 8px);
 }
 
 @media (max-width: 680px) {
@@ -2627,7 +2636,9 @@ mark.semantic-highlight {
 .conversation-add-menu { position: relative; }
 .conversation-add-menu > [role="group"] { position: absolute; bottom: calc(100% + .6rem); left: 0; z-index: 12; display: grid; gap: .25rem; width: 15rem; padding: .5rem; border: 1px solid var(--color-border-control); border-radius: .8rem; background: var(--color-surface-raised); box-shadow: 0 .75rem 2rem var(--color-overlay); }
 .conversation-add-menu > [role="group"] button { text-align: left; background: transparent; color: var(--color-text); border: 0; padding: .7rem; }
-.conversation-add-menu > [role="group"] button:hover { background: var(--color-surface-hover); }
+@media (any-hover: hover) {
+  .conversation-add-menu > [role="group"] button:enabled:hover { background: var(--color-surface-hover); }
+}
 .conversation-add-menu > [role="group"] small { padding: .4rem .7rem; color: var(--color-text-muted); font-size: .72rem; }
 .conversation-attachments { border: 1px solid var(--color-border-subtle); padding: .65rem; border-radius: .65rem; }
 .conversation-attachments ul { list-style: none; padding: 0; }
@@ -2688,7 +2699,7 @@ mark.semantic-highlight {
 .conversation-composer .conversation-error { max-height: 5rem; overflow: auto; }
 .conversation-composer .conversation-attachments ul { margin: 0; display: flex; flex-wrap: wrap; gap: .4rem; }
 .conversation-composer .conversation-attachments li { border: 1px solid var(--color-border-control); border-radius: .6rem; padding: .35rem .5rem; }
-.conversation-drop-overlay { position: absolute; inset: .5rem; z-index: 15; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: .75rem; border: 2px dashed var(--color-accent-strong); border-radius: 1rem; background: rgb(16 35 40 / 95%); pointer-events: none; }
+.conversation-drop-overlay { position: absolute; inset: .5rem; z-index: 15; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: .75rem; border: 2px dashed var(--color-accent-strong); border-radius: 1rem; background: color-mix(in srgb, var(--color-surface-selected) 95%, transparent); pointer-events: none; }
 .conversation-drop-overlay strong { font-size: 1.25rem; }
 .conversation-drop-overlay span { color: var(--color-text-muted); }
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -2864,9 +2875,11 @@ mark.semantic-highlight {
   line-height: 1.5;
 }
 
-.workspace-area .conversation-sidebar button:hover:not(:disabled) {
-  background: var(--color-surface-hover);
-  color: var(--color-text);
+@media (any-hover: hover) {
+  .workspace-area .conversation-sidebar button:hover:not(:disabled) {
+    background: var(--color-surface-hover);
+    color: var(--color-text);
+  }
 }
 
 .workspace-area .conversation-sidebar button[aria-current="page"] {
@@ -2885,4 +2898,22 @@ mark.semantic-highlight {
 
 .conversation-shell a {
   color: var(--color-accent);
+}
+
+/* Older global action classes still appear in the domain picker and admin
+   tools. Keep the active tab and primary actions recognisable on hover. */
+@media (any-hover: hover) {
+  :is(.domain-navigation, .domain-card-actions, .domain-picker-actions, .lab-card-actions, .area-navigation) a[href]:hover {
+    background-color: var(--color-surface-hover);
+    color: var(--color-text);
+  }
+  .domain-navigation a[href][aria-current="page"]:hover,
+  a.primary-link[href]:hover,
+  :is(.upload-control, .version-form, .policy-card) button:enabled:hover,
+  .studio-tabs button[aria-selected="true"]:enabled:hover,
+  :is(.builder-actions, .comparison-actions, .candidate-result, .search-controls) button:not(.secondary-button):enabled:hover {
+    --button-hover-wash: transparent;
+    background-color: var(--color-primary-hover);
+    color: var(--color-on-primary);
+  }
 }

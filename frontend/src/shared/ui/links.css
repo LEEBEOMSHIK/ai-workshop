@@ -1,22 +1,19 @@
-/* A quiet surface makes text links identifiable without an underline.
-   Structural navigation/cards keep their feature-owned geometry and surfaces. */
+/* Text links use a directional cue. Named navigation and cards own their styling. */
 :where(a[href]) {
   text-decoration: none;
 }
 
 :where(a[href]:not([class])) {
-  padding-inline: var(--space-1);
-  border-radius: var(--radius-small);
-  background: var(--color-surface-selected);
-  box-shadow: inset 0 0 0 1px var(--color-border-control);
-  color: var(--color-accent-text);
-  box-decoration-break: clone;
-  -webkit-box-decoration-break: clone;
+  color: var(--color-secondary);
   overflow-wrap: anywhere;
 }
 
+:where(a[href]:not([class]):not(:has(img, svg)))::after {
+  content: "\00a0›" / "";
+}
+
 :where(a[href]:not([class])):hover {
-  background: var(--color-surface-hover);
+  color: var(--color-text);
 }
 
 :where(main > a[href], header > a[href], footer > a[href], nav a[href], p > a[href]:only-child):not([class]) {

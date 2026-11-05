@@ -31,6 +31,7 @@ it.each([
   fetch.mockReturnValue(new Promise((resolve) => { complete = resolve; }));
   const user = userEvent.setup();
   render(<Navigation user={owner} />);
+  await user.click(screen.getByRole("button", { name: "계정 및 화면 설정" }));
 
   await user.click(screen.getByRole("button", { name: "로그아웃" }));
   const pending = screen.getByRole("button", { name: "로그아웃 중…" });
@@ -52,10 +53,11 @@ it.each(["http", "network"])("keeps the user on the current page after %s failur
   else fetch.mockRejectedValueOnce(new TypeError("Network unavailable"));
   const user = userEvent.setup();
   render(<WorkspaceNavigation user={{ ...owner, role: "member" }} />);
+  await user.click(screen.getByRole("button", { name: "계정 및 화면 설정" }));
   await user.click(screen.getByRole("button", { name: "로그아웃" }));
 
   expect(screen.getByRole("alert")).toHaveTextContent(/로그아웃.*다시/);
-  expect(screen.getByText("Owner")).toBeVisible();
+  expect(within(screen.getByRole("region", {name:"계정 및 화면 설정"})).getByText("Owner")).toBeVisible();
   expect(replace).not.toHaveBeenCalled();
   expect(screen.getByRole("button", { name: "로그아웃" })).toBeEnabled();
   fetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
@@ -70,7 +72,7 @@ it("separates fixed area links from the current workspace menu", () => {
   expect(within(areas).getAllByRole("link").map((link) => link.textContent)).toEqual(["AI Lab", "비공개 작업소", "관리자"]);
   expect(within(areas).getByRole("link", { name: "AI Lab" })).toHaveAttribute("href", "/labs");
   expect(within(areas).getByRole("link", { name: "비공개 작업소" })).toHaveAttribute("aria-current", "location");
-  expect(within(screen.getByRole("navigation", { name: "비공개 작업소" })).getAllByRole("link").map((link) => link.textContent)).toEqual(["파일함", "RAG 대화", "학습 기록", "흐름도"]);
+  expect(within(screen.getByRole("navigation", { name: "비공개 작업소" })).getAllByRole("link").map((link) => link.textContent)).toEqual(["파일함", "RAG 대화", "학습 기록", "흐름도", "디자인 시스템"]);
 });
 
 it("keeps only administration menus in the lower row with exact page selection", () => {
@@ -84,13 +86,16 @@ it("keeps only administration menus in the lower row with exact page selection",
   expect(screen.getByRole("link", { name: "AI Workshop" })).toBeVisible();
 });
 
-it("labels only the stored owner role as 마스터 without changing member labels", () => {
+it("labels only the stored owner role as 마스터 without changing member labels", async () => {
+  const user = userEvent.setup();
   const { rerender } = render(<AdminNavigation user={owner} />);
+  await user.click(screen.getByRole("button", {name:"계정 및 화면 설정"}));
   expect(screen.getByText("마스터")).toBeVisible();
 
   rerender(<WorkspaceNavigation user={{ ...owner, role: "member" }} />);
+  await user.click(screen.getByRole("button", {name:"계정 및 화면 설정"}));
   expect(screen.queryByText("마스터")).not.toBeInTheDocument();
-  expect(screen.getByText("Owner")).toBeVisible();
+  expect(within(screen.getByRole("region", {name:"계정 및 화면 설정"})).getByText("Owner")).toBeVisible();
 });
 
 it.each([
@@ -133,13 +138,11 @@ it.each(["/workshop-other/workspaces", "/admin-other/rag/models", "/labs-other",
   }
 });
 
-it("keeps grouped menu, area links and account reachable in sidebar keyboard order", async () => {
+it("tabs directly from the brand into workspace destinations, then area links and account", async () => {
   const user = userEvent.setup();
   render(<WorkspaceNavigation user={owner} />);
   await user.tab();
   expect(screen.getByRole("link", { name: "AI Workshop" })).toHaveFocus();
-  await user.tab();
-  expect(screen.getByText("비공개 작업소", {selector:"summary"})).toHaveFocus();
   await user.tab();
   expect(screen.getByRole("link", { name: "파일함" })).toHaveFocus();
   await user.tab();
@@ -149,11 +152,17 @@ it("keeps grouped menu, area links and account reachable in sidebar keyboard ord
   await user.tab();
   expect(screen.getByRole("link", { name: "흐름도" })).toHaveFocus();
   await user.tab();
+  expect(screen.getByRole("link", { name: "디자인 시스템" })).toHaveFocus();
+  await user.tab();
   expect(screen.getByRole("link", { name: "AI Lab" })).toHaveFocus();
   await user.tab();
   expect(screen.getByRole("link", { name: "비공개 작업소" })).toHaveFocus();
   await user.tab();
   expect(screen.getByRole("link", { name: "관리자" })).toHaveFocus();
   await user.tab();
-  expect(screen.getByRole("button", { name: "로그아웃" })).toHaveFocus();
+  expect(screen.getByRole("button", { name: "작업소 메뉴 접기" })).toHaveFocus();
+  await user.tab();
+  expect(screen.getByRole("button", { name: "계정 및 화면 설정" })).toHaveFocus();
+  await user.tab();
+  expect(screen.getByRole("separator", { name: "작업소 메뉴 너비" })).toHaveFocus();
 });

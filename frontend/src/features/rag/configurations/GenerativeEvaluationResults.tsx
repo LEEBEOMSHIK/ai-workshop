@@ -1,3 +1,4 @@
+import { PageArrow } from "../../../shared/ui/Pagination";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { GenerativeRun } from "./generative-api";
 import styles from "./GenerativeEvaluation.module.css";
@@ -66,7 +67,7 @@ export function GenerativeEvaluationResults({ run, caseId, onSelect, renderAttem
         const labels = filters.slice(1).filter(value => items.some(item => matches(item, value)));
         return <li key={id}><button type="button" aria-pressed={selectedId === id} onClick={() => select(id)}><strong title={query}>{query}</strong><span>{labels.join(" · ") || "검토 결과 확인"}</span></button></li>;
       })}</ul>
-      {pageCount > 1 ? <nav className={styles.pagination} aria-label="질문 페이지"><button type="button" aria-label="이전 질문 페이지" disabled={page === 0} onClick={() => { onSelect(visible[(page - 1) * 5][0]); setRepetition(0); setHistoryOpen(false); }}>이전</button><span>{page + 1} / {pageCount} 페이지</span><button type="button" aria-label="다음 질문 페이지" disabled={page + 1 === pageCount} onClick={() => { onSelect(visible[(page + 1) * 5][0]); setRepetition(0); setHistoryOpen(false); }}>다음</button></nav> : null}
+      {pageCount > 1 ? <nav className={styles.pagination} aria-label="질문 페이지"><button type="button" aria-label="이전 질문 페이지" title="이전 질문 페이지" disabled={page === 0} onClick={() => { onSelect(visible[(page - 1) * 5][0]); setRepetition(0); setHistoryOpen(false); }}><PageArrow direction="previous" /></button><span>{page + 1} / {pageCount} 페이지</span><button type="button" aria-label="다음 질문 페이지" title="다음 질문 페이지" disabled={page + 1 === pageCount} onClick={() => { onSelect(visible[(page + 1) * 5][0]); setRepetition(0); setHistoryOpen(false); }}><PageArrow direction="next" /></button></nav> : null}
       {!visible.length ? <p>검색 조건에 맞는 질문이 없습니다.</p> : null}
     </aside>
     <section className={styles.questionDetail} aria-label="선택 질문 비교">

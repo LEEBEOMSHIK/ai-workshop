@@ -8,7 +8,7 @@
   --directory-hover: var(--color-surface-hover);
   min-height: 100%;
   color: var(--directory-text);
-  background: radial-gradient(circle at 90% 0, rgb(85 217 201 / 12%), transparent 28rem), var(--color-background);
+  background: radial-gradient(circle at 90% 0, color-mix(in srgb, var(--color-primary) 12%, transparent), transparent 28rem), var(--color-background);
 }
 
 .content {
@@ -34,6 +34,17 @@
   color: var(--directory-accent);
   font-size: 0.8rem;
   letter-spacing: 0.12em;
+}
+
+.intro .eyebrow::before {
+  content: "";
+  display: inline-block;
+  width: var(--space-6);
+  height: var(--space-1);
+  margin-inline-end: var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--gradient-brand);
+  vertical-align: middle;
 }
 
 .section {

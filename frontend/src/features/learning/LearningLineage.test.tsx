@@ -52,7 +52,8 @@ describe("learning origin and measured progress", () => {
     await screen.findByText("3차 학습");
     expect(screen.getByRole("combobox", { name: "정렬" })).toHaveValue("learning_latest");
     expect(paths.some(path => path.includes("sort=learning_latest"))).toBe(true);
-    expect(within(screen.getByRole("list", { name: "학습 기록 흐름" })).getAllByRole("link").map(link => link.textContent)).toEqual(["실험 third", "실험 second", "실험 first"]);
+    const links = within(screen.getByRole("list", { name: "학습 기록 흐름" })).getAllByRole("link");
+    ["실험 third", "실험 second", "실험 first"].forEach((title, index) => expect(links[index]).toHaveAccessibleName(title));
   });
 
   it("shows explicit origin, objective, qualified outcome and remaining problems on cards", () => {

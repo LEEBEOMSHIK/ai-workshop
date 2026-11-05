@@ -45,7 +45,7 @@ describe("explicit learning sequence", () => {
     expect(screen.getAllByText("실행 2026. 1. 3.")).toHaveLength(2);
     expect(paths.some(path => path.includes("sort=learning_latest"))).toBe(true);
     const links = within(screen.getByRole("list", { name: "학습 기록 흐름" })).getAllByRole("link");
-    expect(links.map(link => link.textContent)).toEqual(["기록 first", "기록 fourth", "기록 plan"]);
+    ["기록 first", "기록 fourth", "기록 plan"].forEach((title, index) => expect(links[index]).toHaveAccessibleName(title));
     expect(screen.getByText("관련 계획 · 실행 차수에 포함하지 않음")).toBeVisible();
   });
 

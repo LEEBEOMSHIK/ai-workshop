@@ -83,6 +83,7 @@ export default function DesignSystemPage() {
       }} />
       <p><code>features/learning/LearningSequence.tsx</code>의 실제 컴포넌트를 사용합니다. 출발점 미기록은 ‘미확인’, 평가 미기록은 ‘미평가’로 표시하며 차수나 문구에서 추정하지 않습니다.</p>
       <p>기술 주제는 제목 바로 아래에서 공통 <code>StatusBadge</code>의 중립 스타일로 구분합니다. 분류 표시는 버튼이 아니며, 수행 상태와 분리합니다.</p>
+      <p>학습 목록에서는 제목·분류·결과·여백을 포함한 카드 전체가 하나의 상세 링크입니다. 카드 표면 전체에 hover와 키보드 포커스를 표시하며, Tab으로 선택한 뒤 Enter로 이동할 수 있습니다. 링크 이름은 기록 제목으로 읽고 카드 내부에 다른 조작을 중첩하지 않습니다.</p>
       <p>긴 학습 목록은 공통 <code>SelectField</code>로 페이지당 5·10·20개를 선택합니다. 기본은 5개이며, 개수를 바꾸면 다른 필터와 정렬을 유지한 채 첫 페이지로 돌아갑니다.</p>
     </section>
   </main>;

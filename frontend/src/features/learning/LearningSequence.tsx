@@ -54,7 +54,7 @@ export function LearningSequenceList({ records, topics, ordered }: { records: Le
         {startsPlans && <p className={styles.planHeading}>관련 계획 · 실행 차수에 포함하지 않음</p>}
         <article className={styles.row} data-continues={continues || undefined} data-planned={planned || undefined}>
           <div className={styles.marker} aria-hidden="true">{!planned && sequence?.step && String(sequence.step).length <= 3 ? sequence.step : <SequenceIcon planned={planned} />}</div>
-          <div className={styles.content}>
+          <Link className={styles.content} href={learningRecordPath(record.id)} aria-labelledby={`learning-card-title-${record.id}`}>
             <div className={styles.rowMeta}>
               <div className={styles.states}>
                 {isExperiment ? <strong className={styles.stepLabel}>{stepLabel(sequence, status)}</strong> : <span>자유 메모</span>}
@@ -66,13 +66,13 @@ export function LearningSequenceList({ records, topics, ordered }: { records: Le
                 : "실행일 미기록"}</span>}
             </div>
             {!ordered && sequence?.series && <p className={styles.rowSeries}>{sequence.series}</p>}
-            <TitleHeading className={styles.title}><Link className={styles.titleLink} href={learningRecordPath(record.id)}>{record.title}</Link></TitleHeading>
+            <TitleHeading className={styles.title} id={`learning-card-title-${record.id}`}>{record.title}</TitleHeading>
             <LearningRecordClassification topicKeys={record.topic_keys} topics={topics} kind={record.kind} />
             {isExperiment && <LearningProgress value={sequence} planned={planned} />}
             <div className={styles.footer}>
               <time dateTime={record.updated_at}>수정 {new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(record.updated_at))}</time>
             </div>
-          </div>
+          </Link>
         </article>
       </li>;
     })}

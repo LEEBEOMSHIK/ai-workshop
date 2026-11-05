@@ -115,9 +115,10 @@ export function LearningListPage({ onCreated = defaultCreated }: LearningListPag
         <p>메모와 실험·문제 해결 과정을 비공개로 남기고, 실제 서비스와 평가를 참조합니다.</p>
         <p>학습 기록을 저장해도 모델 학습, 외부 전송 또는 공개가 실행되지는 않습니다.</p>
         <div className={styles.actions}>
-          <button type="button" onClick={() => beginNew("note")}>새 메모</button>
-          <button type="button" onClick={() => beginNew("experiment")}>새 실험</button>
+          <button type="button" aria-describedby="new-note-help" onClick={() => beginNew("note")}>새 메모</button>
+          <button type="button" aria-describedby="new-experiment-help" onClick={() => beginNew("experiment")}>새 실험</button>
         </div>
+        <p className={styles.sequenceHint}><span id="new-note-help">메모는 아이디어·질문을 자유롭게 기록합니다.</span>{" "}<span id="new-experiment-help">실험은 목적·가설·절차·결과를 항목별로 기록합니다.</span></p>
       </header>
 
       {newKind && draftSeed ? (

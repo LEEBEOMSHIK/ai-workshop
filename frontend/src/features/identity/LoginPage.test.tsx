@@ -4,6 +4,7 @@ import { beforeEach, vi } from "vitest";
 
 import { routes } from "../../shared/routing/routes";
 import { LoginPage } from "./LoginPage";
+import { LoginLayout } from "./LoginLayout";
 
 const replace = vi.fn();
 
@@ -15,6 +16,13 @@ vi.mock("next/navigation", () => ({
 beforeEach(() => replace.mockClear());
 
 describe("LoginPage", () => {
+  it("keeps only the standalone brand header for server errors", async () => {
+    render(<LoginLayout><main role="alert">서버 오류</main></LoginLayout>);
+    expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "AI Workshop 홈" })).toHaveAttribute("href", routes.home);
+    expect(screen.getByRole("alert")).toHaveTextContent("서버 오류");
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+  });
   it("announces a failed login after exposing the pending state", async () => {
     let rejectLogin!: (reason: Error) => void;
     const pending = new Promise<never>((_resolve, reject) => { rejectLogin = reject; });
@@ -51,6 +59,9 @@ describe("LoginPage", () => {
     await user.click(screen.getByRole("button", { name: "작업소 입장" }));
 
     expect(replace).toHaveBeenCalledWith(routes.workshopHome);
+    expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "AI Workshop 홈" })).toBeVisible();
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
   });
 
   it("returns to the requested protected page after a successful login", async () => {
@@ -70,7 +81,9 @@ describe("LoginPage", () => {
     expect(
       screen.getByRole("link", { name: "로그인 없이 AI Lab 둘러보기" }),
     ).toHaveAttribute("href", routes.labs);
-    expect(screen.getByRole("navigation", { name: "공개 전시실" })).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "공개 전시실" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "AI Workshop 홈" })).toHaveAttribute("href", routes.home);
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
 
     await user.type(screen.getByLabelText("이메일"), "owner@example.test");
     await user.type(screen.getByLabelText("비밀번호"), "correct-password");

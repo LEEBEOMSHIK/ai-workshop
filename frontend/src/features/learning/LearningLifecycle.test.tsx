@@ -98,7 +98,7 @@ describe("private Learning component/API lifecycle", () => {
     const user = userEvent.setup();
     const listView = render(<LearningListPage onCreated={onCreated} />);
 
-    await user.click(screen.getByRole("button", { name: "새 메모" }));
+    await user.click(screen.getByRole("button", { name: "새 기록" }));
     await user.type(screen.getByRole("textbox", { name: "제목" }), "통합 메모");
     await user.type(screen.getByRole("textbox", { name: "본문" }), "보존할 원문");
     await user.click(screen.getByRole("button", { name: "기록 저장" }));
@@ -117,20 +117,14 @@ describe("private Learning component/API lifecycle", () => {
     let editor = screen.getByRole("region", { name: "기록 편집" });
     expect(within(editor).getByRole("textbox", { name: "본문" })).toHaveValue("보존할 원문");
 
-    await user.selectOptions(
-      within(editor).getByRole("combobox", { name: "기록 종류" }),
-      "experiment",
-    );
-    expect(confirm).toHaveBeenCalledTimes(1);
-    expect(confirm).toHaveBeenCalledWith(
-      "자유 메모를 구조화 실험으로 전환할까요? 원문과 참조는 그대로 유지됩니다.",
-    );
+    await user.click(within(editor).getByRole("checkbox", { name: "실험 항목 추가" }));
+    expect(confirm).not.toHaveBeenCalled();
     await user.type(within(editor).getByRole("textbox", { name: "목적" }), "전환 확인");
     await user.click(within(editor).getByRole("button", { name: "변경 저장" }));
 
     expect(await screen.findByRole("heading", { name: "다른 변경 사항이 있습니다" })).toBeVisible();
     editor = screen.getByRole("region", { name: "기록 편집" });
-    expect(within(editor).getByRole("combobox", { name: "기록 종류" })).toHaveValue("experiment");
+    expect(within(editor).getByRole("checkbox", { name: "실험 항목 추가" })).toBeChecked();
     expect(within(editor).getByRole("textbox", { name: "목적" })).toHaveValue("전환 확인");
     expect(mutationRequests(requests, "PUT")).toHaveLength(1);
 

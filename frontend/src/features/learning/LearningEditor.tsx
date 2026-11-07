@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 
 import { ApiError } from "../../shared/api/client";
 import { SelectField, TextAreaField, TextField } from "../../shared/ui/Fields";
+import { CheckboxField } from "../../shared/ui/CheckboxField";
+import { Button } from "../../shared/ui/Button";
 import type {
   EvaluationRun,
   ExperimentFields,
@@ -22,9 +24,9 @@ import {
   experimentStatusOptions,
   learningOutcomeOptions,
   learningStartOptions,
-  recordKindOptions,
 } from "./registry";
 import { useUnsavedChanges } from "./useUnsavedChanges";
+import { DomainCategoryPicker } from "./DomainCategoryPicker";
 
 interface ReferenceOption {
   key: ReferenceKey;
@@ -64,8 +66,9 @@ export function LearningEditor({
   onSaved,
   onSubmit,
 }: LearningEditorProps) {
+  const experimentHelpId = useId();
   const [draft, setDraft] = useState(initialDraft);
-  const [domainText, setDomainText] = useState(initialDraft.domain_labels.join(", "));
+  const [savedExperiment, setSavedExperiment] = useState(initialDraft.experiment);
   const [dirty, setDirty] = useState(false);
   const [pending, setPending] = useState(false);
   const [hasInvalidMetric, setHasInvalidMetric] = useState(false);
@@ -85,15 +88,10 @@ export function LearningEditor({
   };
 
   const handleKind = (kind: LearningDraft["kind"]) => {
-    if (draft.kind === "note" && kind === "experiment") {
-      if (!window.confirm("자유 메모를 구조화 실험으로 전환할까요? 원문과 참조는 그대로 유지됩니다.")) {
-        return;
-      }
-      change({ ...draft, kind, experiment: emptyExperiment() });
-      return;
+    if (kind === "note") {
+      setSavedExperiment(draft.experiment);
     }
-    if (kind === "note") setHasInvalidMetric(false);
-    change({ ...draft, kind, experiment: kind === "experiment" ? draft.experiment ?? emptyExperiment() : null });
+    change({ ...draft, kind, experiment: kind === "experiment" ? savedExperiment ?? emptyExperiment() : null });
   };
 
   const submit = async (event: React.FormEvent) => {
@@ -103,7 +101,7 @@ export function LearningEditor({
       setError("제목과 본문은 공백만으로 저장할 수 없습니다.");
       return;
     }
-    if (hasInvalidMetric) {
+    if (draft.kind === "experiment" && hasInvalidMetric) {
       setError("지표 값은 비워 둘 수 없습니다. 값을 입력하거나 지표를 삭제해 주세요.");
       return;
     }
@@ -149,56 +147,40 @@ export function LearningEditor({
 
   return (
     <form className={styles.editor} onSubmit={submit}>
-      <div className={styles.formGrid}>
-        <TextField label="제목" required disabled={disabled || pending || externallyPending} value={draft.title} onChange={(event) => change({ ...draft, title: event.target.value })} />
-        <SelectField label="기록 종류" disabled={disabled || pending || externallyPending} value={draft.kind} onChange={(event) => handleKind(event.target.value as LearningDraft["kind"])}>
-            {recordKindOptions.map((option) => <option key={option.value} value={option.value} data-icon={option.value}>{option.label}</option>)}
-        </SelectField>
-      </div>
+      <TextField label="제목" required disabled={disabled || pending || externallyPending} value={draft.title} onChange={(event) => change({ ...draft, title: event.target.value })} />
       <TextAreaField label="본문" required rows={9} disabled={disabled || pending || externallyPending} value={draft.body} onChange={(event) => change({ ...draft, body: event.target.value })} />
+      <CheckboxField label="실험 항목 추가" aria-describedby={experimentHelpId} checked={draft.kind === "experiment"} disabled={disabled || pending || externallyPending} onChange={(event) => handleKind(event.target.checked ? "experiment" : "note")} />
+      <p id={experimentHelpId} className={styles.sequenceHint}>목적·가설·절차·결과가 필요할 때 켜세요. 끈 상태로 저장하면 실험 항목은 저장하지 않습니다.</p>
 
       <fieldset disabled={disabled || pending || externallyPending}>
         <legend>기술 주제</legend>
         <div className={styles.checkGrid}>
           {topics.map((topic) => (
-            <label key={topic.key}>
-              <input
-                type="checkbox"
-                checked={draft.topic_keys.includes(topic.key)}
-                onChange={(event) => change({
-                  ...draft,
-                  topic_keys: event.target.checked
-                    ? [...draft.topic_keys, topic.key]
-                    : draft.topic_keys.filter((key) => key !== topic.key),
-                })}
-              />
-              {topic.label}
-            </label>
+            <CheckboxField key={topic.key} label={topic.label}
+              checked={draft.topic_keys.includes(topic.key)}
+              onChange={(event) => change({
+                ...draft,
+                topic_keys: event.target.checked
+                  ? [...draft.topic_keys, topic.key]
+                  : draft.topic_keys.filter((key) => key !== topic.key),
+              })}
+            />
           ))}
         </div>
       </fieldset>
-      <label>
-        도메인 분류
-        <input
-          disabled={disabled || pending || externallyPending}
-          value={domainText}
-          placeholder="예: research, asset-management"
-          onChange={(event) => {
-            setDomainText(event.target.value);
-            change({ ...draft, domain_labels: commaList(event.target.value) });
-          }}
-        />
-      </label>
+      <DomainCategoryPicker disabled={disabled || pending || externallyPending} value={draft.domain_labels} onChange={(domain_labels) => change({ ...draft, domain_labels })} />
 
-      {experiment ? (
-        <ExperimentEditor
-          disabled={disabled || pending || externallyPending}
-          value={experiment}
-          onChange={updateExperiment}
-          referenceOptions={options}
-          datasetReferenceView={datasetReferenceView}
-          onMetricValidityChange={setHasInvalidMetric}
-        />
+      {experiment || savedExperiment ? (
+        <div hidden={!experiment}>
+          <ExperimentEditor
+            disabled={!experiment || disabled || pending || externallyPending}
+            value={(experiment ?? savedExperiment)!}
+            onChange={updateExperiment}
+            referenceOptions={options}
+            datasetReferenceView={datasetReferenceView}
+            onMetricValidityChange={setHasInvalidMetric}
+          />
+        </div>
       ) : null}
 
       <ReferenceEditor
@@ -259,7 +241,7 @@ function ExperimentEditor({
       <MetricEditor disabled={disabled} value={value.metrics} onChange={(metrics) => onChange({ ...value, metrics })} onValidityChange={onMetricValidityChange} />
       <details>
         <summary>문제 해결 기록</summary>
-        <label className={styles.inlineToggle}><input type="checkbox" disabled={disabled} checked={troubleshooting !== null && troubleshooting !== undefined} onChange={(event) => onChange({ ...value, troubleshooting: event.target.checked ? emptyTroubleshooting() : null })} />문제 해결 필드 사용</label>
+        <CheckboxField label="문제 해결 필드 사용" disabled={disabled} checked={troubleshooting !== null && troubleshooting !== undefined} onChange={(event) => onChange({ ...value, troubleshooting: event.target.checked ? emptyTroubleshooting() : null })} />
         {troubleshooting ? <TroubleshootingEditor disabled={disabled} value={troubleshooting} onChange={(next) => onChange({ ...value, troubleshooting: next })} /> : null}
       </details>
     </section>
@@ -271,7 +253,7 @@ function SequenceEditor({ value, onChange, disabled }: { value: ExperimentFields
   const planned = value.status === "planned";
   return <fieldset disabled={disabled}>
     <legend>학습 순서</legend>
-    <label className={styles.inlineToggle}><input type="checkbox" checked={Boolean(sequence)} onChange={event => onChange({ ...value, learning_sequence: event.target.checked ? { series: "", step: null, performed_on: null, start_mode: "unknown", outcome_status: "not_evaluated" } : null })} />학습 흐름에 연결</label>
+    <CheckboxField label="학습 흐름에 연결" checked={Boolean(sequence)} onChange={event => onChange({ ...value, learning_sequence: event.target.checked ? { series: "", step: null, performed_on: null, start_mode: "unknown", outcome_status: "not_evaluated" } : null })} />
     <p className={styles.sequenceHint}>같은 학습 흐름의 기록에 동일한 이름을 사용하세요. 실제 실행한 차수와 날짜만 입력하며, 수정일로 순서를 추정하지 않습니다.</p>
     {sequence && <div className={styles.formGrid}>
       <TextField label="학습 흐름 이름" required value={sequence.series} onChange={event => onChange({ ...value, learning_sequence: { ...sequence, series: event.target.value } })} />
@@ -366,8 +348,8 @@ function ReferenceEditor({ value, onChange, options, views, disabled }: { value:
     <fieldset disabled={disabled}>
       <legend>관련 참조</legend>
       <div className={styles.referenceAdd}>
-        <label>참조 선택<select value={selection} onChange={(event) => setSelection(event.target.value)}><option value="">선택하세요</option>{options.map((option) => <option key={referenceValue(option.key)} value={referenceValue(option.key)}>{option.label}</option>)}</select></label>
-        <button type="button" disabled={!selection} onClick={() => { const option = options.find((candidate) => referenceValue(candidate.key) === selection); if (option && !value.some((key) => referenceValue(key) === selection)) onChange([...value, option.key]); setSelection(""); }}>참조 추가</button>
+        <SelectField label="참조 선택" value={selection} onChange={(event) => setSelection(event.target.value)}><option value="">선택하세요</option>{options.map((option) => <option key={referenceValue(option.key)} value={referenceValue(option.key)}>{option.label}</option>)}</SelectField>
+        <Button disabled={!selection} onClick={() => { const option = options.find((candidate) => referenceValue(candidate.key) === selection); if (option && !value.some((key) => referenceValue(key) === selection)) onChange([...value, option.key]); setSelection(""); }}>참조 추가</Button>
       </div>
       <ul className={styles.referenceList}>
         {value.map((key, index) => {
@@ -379,7 +361,7 @@ function ReferenceEditor({ value, onChange, options, views, disabled }: { value:
           const content = view?.status === "available" && view.href
             ? <Link href={view.href}>{label ?? view.label}</Link>
             : <span>{label ?? "확인 가능한 참조"}</span>;
-          return <li key={`${referenceValue(key)}-${index}`}>{content}<button type="button" onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))}>참조 삭제</button></li>;
+          return <li key={`${referenceValue(key)}-${index}`}>{content}<Button variant="quiet" onClick={() => onChange(value.filter((_, itemIndex) => itemIndex !== index))}>참조 삭제</Button></li>;
         })}
       </ul>
     </fieldset>
@@ -426,4 +408,3 @@ function formatDate(value: string): string {
 function referenceValue(key: ReferenceKey): string { return `${key.kind}\u001f${key.target}\u001f${key.version ?? ""}`; }
 function sameReference(left: ReferenceKey, right: ReferenceKey): boolean { return referenceValue(left) === referenceValue(right); }
 function lineList(value: string): string[] { return value.split("\n").map((item) => item.trim()).filter(Boolean); }
-function commaList(value: string): string[] { return value.split(",").map((item) => item.trim()).filter(Boolean); }

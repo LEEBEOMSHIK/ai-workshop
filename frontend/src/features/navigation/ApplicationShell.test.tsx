@@ -46,3 +46,11 @@ it("preserves the existing unsaved-change guard on shell navigation",()=>{
  expect(screen.getByLabelText("Unsaved draft")).toHaveValue("Keep this draft");
  confirm.mockRestore();
 });
+
+it("keeps public menus and brand navigation in the current tab",()=>{
+ route.path="/";
+ render(<ApplicationShell area="public"/>);
+ for(const label of ["AI Workshop","홈","AI Labs","RAG 실험실","공개 연구","비공개 작업소 입장"]){
+  expect(screen.getByRole("link",{name:label})).toHaveAttribute("target","_self");
+ }
+});

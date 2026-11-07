@@ -140,9 +140,10 @@ describe("LearningRecordPage", () => {
     await user.click(screen.getByRole("button", { name: "저장된 내용 확인" }));
     const latestSnapshot = await screen.findByRole("region", { name: "서버 최신 전체 내용" });
     expect(within(latestSnapshot).getByRole("textbox", { name: "제목" })).toHaveValue("최신 서버 제목");
-    expect(within(latestSnapshot).getByRole("combobox", { name: "기록 종류" })).toHaveValue("experiment");
+    expect(within(latestSnapshot).getByRole("checkbox", { name: "실험 항목 추가" })).toBeChecked();
     expect(within(latestSnapshot).getByRole("textbox", { name: "목적" })).toHaveValue("서버 목적");
-    expect(within(latestSnapshot).getByRole("textbox", { name: "도메인 분류" })).toHaveValue("research");
+    expect(within(latestSnapshot).getByRole("checkbox", { name: "research" })).toBeChecked();
+    expect(within(latestSnapshot).getByRole("checkbox", { name: "research" })).toBeDisabled();
     expect(within(latestSnapshot).getByRole("link", { name: "RAG search" })).toHaveAttribute("href", "/workshop/rag/search");
     expect(within(editor).getByRole("textbox", { name: "제목" })).toHaveValue("내 충돌 초안");
     expect(puts).toHaveLength(1);
@@ -175,13 +176,13 @@ describe("LearningRecordPage", () => {
     await user.click(await screen.findByRole("button", { name: "저장된 내용 확인" }));
     let latest = await screen.findByRole("region", { name: "서버 최신 전체 내용" });
     expect(within(latest).getByRole("textbox", { name: "제목" })).toHaveValue("최신 메모");
-    expect(within(latest).getByRole("combobox", { name: "기록 종류" })).toHaveValue("note");
+    expect(within(latest).getByRole("checkbox", { name: "실험 항목 추가" })).not.toBeChecked();
     await user.click(screen.getByRole("button", { name: "저장된 내용 확인" }));
     await screen.findByRole("heading", { name: "현재 저장된 내용" });
 
     latest = screen.getByRole("region", { name: "서버 최신 전체 내용" });
     expect(within(latest).getByRole("textbox", { name: "제목" })).toHaveValue("더 최신 실험");
-    expect(within(latest).getByRole("combobox", { name: "기록 종류" })).toHaveValue("experiment");
+    expect(within(latest).getByRole("checkbox", { name: "실험 항목 추가" })).toBeChecked();
     expect(within(latest).getByRole("textbox", { name: "본문" })).toHaveValue("더 최신 실험 본문");
     expect(within(latest).getByRole("textbox", { name: "목적" })).toHaveValue("더 최신 목적");
   }, 15_000);
@@ -239,7 +240,7 @@ describe("LearningRecordPage", () => {
     expect(puts[1]).toMatchObject({ expected_revision: 4, draft: { title: "보존할 로컬 제목", body: "보존할 로컬 본문", experiment: { purpose: "보존할 로컬 목적" } } });
   }, 15_000);
 
-  it("requires confirmation before converting a note and retains its body and references", async () => {
+  it("adds experimental fields without confirmation and retains its body and references", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
     const puts: Array<Record<string, unknown>> = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -256,15 +257,13 @@ describe("LearningRecordPage", () => {
     render(<LearningRecordPage recordId="record-1" />);
 
     await openEditor(user);
-    const kind = screen.getByRole("combobox", { name: "기록 종류" });
-    await user.selectOptions(kind, "experiment");
-    expect(kind).toHaveValue("note");
+    const kind = screen.getByRole("checkbox", { name: "실험 항목 추가" });
+    await user.click(kind);
+    expect(kind).toBeChecked();
     expect(puts).toHaveLength(0);
-    await user.selectOptions(kind, "experiment");
-    expect(kind).toHaveValue("experiment");
     await user.click(screen.getByRole("button", { name: "변경 저장" }));
 
-    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(confirm).not.toHaveBeenCalled();
     expect(puts).toHaveLength(1);
     expect(puts[0]).toMatchObject({ expected_revision: 1, draft: { kind: "experiment", body: "원문 본문", references: [{ kind: "service", target: "rag.search", version: null }] } });
   });

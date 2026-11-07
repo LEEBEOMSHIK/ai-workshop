@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { PublicNavigation } from "../../../features/navigation/PublicNavigation";
+import { LoginLayout } from "../../../features/identity/LoginLayout";
 import { LoginPage } from "../../../features/identity/LoginPage";
 import { ServerRouteFailure } from "../../../shared/ui/ServerRouteFailure";
 import LoginRoute from "./page";
@@ -92,7 +92,7 @@ describe("LoginRoute", () => {
   it.each([403, 500, 503])("shows session HTTP %i failures without treating them as logged out", async (status) => {
     const fetcher = stubBackend(status);
     const result = await route();
-    expect(result.type).toBe(PublicNavigation);
+    expect(result.type).toBe(LoginLayout);
     expect(result.props.children.type).toBe(ServerRouteFailure);
     expect(result.props.children.props.failure).toEqual({ status, code: "session_failure", correlationId: "test-ref" });
     expect(fetcher).toHaveBeenCalledTimes(1);

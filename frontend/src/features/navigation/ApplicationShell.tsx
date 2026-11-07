@@ -50,7 +50,7 @@ function GroupedMenu({area,pathname,onNavigate}:{area:Area;pathname:string|null;
   {menuGroups(area).map(group => {
    const links = <ul key={group.label}>{group.items.map(item =>
     <li key={item.href}>
-     <Link className={styles.menuLink} href={item.href} aria-current={item.href === currentHref ? "page" : undefined} onClick={onNavigate}>
+     <Link target="_self" className={styles.menuLink} href={item.href} aria-current={item.href === currentHref ? "page" : undefined} onClick={onNavigate}>
       {item.label}
      </Link>
     </li>
@@ -61,7 +61,7 @@ function GroupedMenu({area,pathname,onNavigate}:{area:Area;pathname:string|null;
  </nav>;
 }
 function AreaLinks({area,user,pathname,onNavigate}:{area:Area;user?:SessionUser;pathname:string|null;onNavigate?:()=>void}){
- return <nav aria-label="영역 이동" className={styles.areaLinks}>{areaLinks.filter(link=>(!link.ownerOnly||user?.role==="owner")&&(area!=="public"||link.href===routes.workshopHome)).map(link=><Link key={link.href} className={styles.menuLink} href={link.href} aria-current={isWithinPath(pathname,link.prefix)?"location":undefined} onClick={onNavigate}>{area==="public"?"비공개 작업소 입장":link.label}</Link>)}</nav>;
+ return <nav aria-label="영역 이동" className={styles.areaLinks}>{areaLinks.filter(link=>(!link.ownerOnly||user?.role==="owner")&&(area!=="public"||link.href===routes.workshopHome)).map(link=><Link target="_self" key={link.href} className={styles.menuLink} href={link.href} aria-current={isWithinPath(pathname,link.prefix)?"location":undefined} onClick={onNavigate}>{area==="public"?"비공개 작업소 입장":link.label}</Link>)}</nav>;
 }
 function Account({user,compact=false}:{user?:SessionUser;compact?:boolean}){
  const pending=useRef(false);const [busy,setBusy]=useState(false);const [error,setError]=useState("");
@@ -116,7 +116,7 @@ const workspaceIcons: Record<string, string> = {
 };
 function WorkspaceRailLinks({activeHref}:{activeHref?:string}) {
  return <nav aria-label={areaMenus.workspace.label}>{areaMenus.workspace.items.map(item =>
-   <Link key={item.href} className={styles.railLink} href={item.href} aria-label={item.label} title={item.label} aria-current={item.href===activeHref?"page":undefined}>
+   <Link target="_self" key={item.href} className={styles.railLink} href={item.href} aria-label={item.label} title={item.label} aria-current={item.href===activeHref?"page":undefined}>
     <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"><path d={workspaceIcons[item.href]}/></svg>
    </Link>
   )}</nav>;
@@ -217,7 +217,7 @@ export function ApplicationShell({area,user,children,immersive=false,onMenuOpenC
    style={area==="workspace"&&!compactWorkspace?{width:sidebarWidth,flexBasis:sidebarWidth}:undefined}>
    <div className={styles.sidebarScroll}>
    {compactWorkspace?<>{menuTrigger}<WorkspaceRailLinks activeHref={activeItem?.href}/></>:<>
-    <Link className={styles.brand} href={brandPath}>AI Workshop</Link><p className={styles.sidebarLabel}>{areaMenus[area].label}</p>
+    <Link target="_self" className={styles.brand} href={brandPath}>AI Workshop</Link><p className={styles.sidebarLabel}>{areaMenus[area].label}</p>
     <GroupedMenu area={area} pathname={pathname}/><AreaLinks area={area} user={privateUser} pathname={pathname}/>
    </>}
    {area==="workspace"&&!conversationRoute&&<Button variant="quiet" className={styles.sidebarToggle} aria-label={compactWorkspace?"작업소 메뉴 펼치기":"작업소 메뉴 접기"}
@@ -234,7 +234,7 @@ export function ApplicationShell({area,user,children,immersive=false,onMenuOpenC
    <div className={`${styles.content} ${styles[`${area}Content`]}`}>{children}</div>
   </div>
   <dialog ref={dialog} id={drawerId} aria-label={area==="admin"?"관리자 메뉴":`${areaMenus[area].label} 메뉴`} className={styles.drawer} onKeyDown={trapDrawerFocus} onClose={afterClose} onCancel={event=>{event.preventDefault();closeDrawer();}} onClick={event=>{if(event.target===event.currentTarget)closeDrawer();}}>
-   {(mobile||compactWorkspace||drawerOpen)&&<div className={styles.drawerContent}><header><Link className={styles.brand} href={brandPath} onClick={closeDrawer}>AI Workshop</Link><button type="button" aria-label="메뉴 닫기" onClick={closeDrawer}>닫기</button></header>
+   {(mobile||compactWorkspace||drawerOpen)&&<div className={styles.drawerContent}><header><Link target="_self" className={styles.brand} href={brandPath} onClick={closeDrawer}>AI Workshop</Link><button type="button" aria-label="메뉴 닫기" onClick={closeDrawer}>닫기</button></header>
     <div className={styles.sidebarScroll}><GroupedMenu area={area} pathname={pathname} onNavigate={closeDrawer}/><AreaLinks area={area} user={privateUser} pathname={pathname} onNavigate={closeDrawer}/></div>
     {drawerOpen&&<Account key={pathname} user={privateUser}/>}
    </div>}

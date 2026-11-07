@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { Button, ButtonLink } from "@/shared/ui/Button";
 import { ChoiceGroup } from "@/shared/ui/ChoiceGroup";
+import { CheckboxField } from "@/shared/ui/CheckboxField";
 import { SelectField, TextAreaField, TextField } from "@/shared/ui/Fields";
 import { Disclosure, EmptyState, Notice, StatusBadge } from "@/shared/ui/Feedback";
 import { Pagination } from "@/shared/ui/Pagination";
@@ -52,6 +53,13 @@ export function ComponentCatalog() {
       </Specimen>
       <Specimen name="ChoiceGroup" purpose="짧은 선택지를 한눈에 비교하며 하나만 고를 때 사용합니다." usage="모델 설정 · 비교 결과" code={'<ChoiceGroup legend="정렬" variant="segmented"\n  options={options} value={order} onChange={setOrder} />'}>
         <ChoiceGroup legend="정렬" variant="segmented" options={orderOptions} value={order} onChange={setOrder} />
+      </Specimen>
+      <Specimen name="CheckboxField" purpose="독립된 항목을 선택합니다. 라벨 전체가 클릭 영역이며 선택·포커스·비활성을 구분합니다." usage="학습 기록 · 실험 항목 · 기술 주제" code={'<CheckboxField label="실험 항목 추가"\n  checked={enabled} onChange={event => setEnabled(event.target.checked)} />'}>
+        <CheckboxField label="선택하지 않은 항목" />
+        <CheckboxField label="선택한 항목" defaultChecked />
+        <CheckboxField label="여러 줄로 이어지는 긴 설명도 체크 표시와 첫 줄의 위치를 맞춰 읽을 수 있습니다." />
+        <CheckboxField label="비활성 항목" disabled />
+        <CheckboxField label="선택된 비활성 항목" defaultChecked disabled />
       </Specimen>
     </div>
     <h3 id="fields" className={styles.subhead}>입력과 폼</h3>

@@ -72,13 +72,16 @@ describe("LearningEditor", () => {
     expect(confirm).toHaveBeenCalled();
   });
 
-  it("keeps collection and comma input raw while typing and parses it on save", async () => {
+  it("adds explicit business categories without submitting and preserves collection input", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     const user = userEvent.setup();
     renderEditor(onSubmit);
 
     await user.type(screen.getByRole("textbox", { name: "비교 구성" }), "BM25{enter}Hybrid");
-    await user.type(screen.getByRole("textbox", { name: "도메인 분류" }), "research, asset-management");
+    await user.type(screen.getByRole("textbox", { name: "새 업무 분야" }), "research{enter}");
+    expect(onSubmit).not.toHaveBeenCalled();
+    await user.type(screen.getByRole("textbox", { name: "새 업무 분야" }), "asset-management");
+    await user.click(screen.getByRole("button", { name: "분야 추가" }));
     await user.click(screen.getByRole("button", { name: "변경 저장" }));
 
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({

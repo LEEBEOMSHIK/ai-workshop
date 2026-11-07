@@ -48,7 +48,7 @@ it("shows each reusable component with a named preview and its own expandable us
   render(await protectedGallery());
   expect(screen.getByRole("heading", {level: 2, name: "공통 컴포넌트"})).toBeVisible();
 
-  for (const name of ["Button", "ButtonLink", "ChoiceGroup", "TextField", "SelectField", "TextAreaField",
+  for (const name of ["Button", "ButtonLink", "ChoiceGroup", "CheckboxField", "TextField", "SelectField", "TextAreaField",
     "StatusBadge", "Notice", "EmptyState", "Disclosure", "Pagination"]) {
     const card = within(screen.getByRole("article", {name}));
     expect(card.getByRole("heading", {name, level: 3})).toBeVisible();

@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { learningRecordPath } from "../../shared/routing/routes";
 import { Pagination } from "../../shared/ui/Pagination";
 import { SelectField } from "../../shared/ui/Fields";
+import { Button } from "../../shared/ui/Button";
 import {
   createRecord,
   listEvaluationOptions,
@@ -29,6 +30,8 @@ interface LearningListPageProps {
 type ArchivedFilter = "false" | "true" | "all";
 
 export function LearningListPage({ onCreated = defaultCreated }: LearningListPageProps) {
+  const filterPanelId = useId();
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [topics, setTopics] = useState<LearningTopic[]>([]);
   const [evaluations, setEvaluations] = useState<EvaluationRun[]>([]);
   const [result, setResult] = useState<LearningList | null>(null);
@@ -106,27 +109,30 @@ export function LearningListPage({ onCreated = defaultCreated }: LearningListPag
   };
   const beginNew = (nextKind: RecordKind) => transitionNewDraft(nextKind);
   const summaries = result?.items ?? [];
+  const activeFilterCount = Number(Boolean(topicKey)) + Number(Boolean(kind)) + Number(archived !== "false");
+  const archiveLabel = archived === "all" ? "현재·보관 기록" : archived === "true" ? "보관 기록" : "현재 기록";
   const draftSeed = useMemo(() => newKind ? newDraft(newKind) : null, [newKind]);
   return (
-    <main className={styles.shell}>
-      <header className={styles.hero}>
-        <p className={styles.eyebrow}>비공개 작업소</p>
-        <h1>학습 기록</h1>
-        <p>메모와 실험·문제 해결 과정을 비공개로 남기고, 실제 서비스와 평가를 참조합니다.</p>
-        <p>학습 기록을 저장해도 모델 학습, 외부 전송 또는 공개가 실행되지는 않습니다.</p>
-        <div className={styles.actions}>
-          <button type="button" aria-describedby="new-note-help" onClick={() => beginNew("note")}>새 메모</button>
-          <button type="button" aria-describedby="new-experiment-help" onClick={() => beginNew("experiment")}>새 실험</button>
+    <main className={`${styles.shell} ${styles.listShell}`}>
+      <header className={styles.listHeader}>
+        <div>
+          <h1>학습 기록</h1>
+          <p>배운 내용과 실험 과정을 기록하고 이어갑니다.</p>
         </div>
-        <p className={styles.sequenceHint}><span id="new-note-help">메모는 아이디어·질문을 자유롭게 기록합니다.</span>{" "}<span id="new-experiment-help">실험은 목적·가설·절차·결과를 항목별로 기록합니다.</span></p>
+        <Button variant="primary" onClick={() => beginNew("note")}>
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+          새 기록
+        </Button>
       </header>
 
       {newKind && draftSeed ? (
         <section className={styles.panel} aria-labelledby="new-record-heading">
           <div className={styles.sectionHeading}>
-            <h2 id="new-record-heading">{newKind === "note" ? "새 메모" : "새 실험"}</h2>
+            <h2 id="new-record-heading">새 기록</h2>
             <button type="button" onClick={() => transitionNewDraft(null)}>작성 닫기</button>
           </div>
+          <p className={styles.sequenceHint}>자유롭게 기록하고, 필요하면 작성 중에 실험 항목을 추가하세요.</p>
+          <p className={styles.sequenceHint}>학습 기록을 저장해도 모델 학습, 외부 전송 또는 공개가 실행되지는 않습니다.</p>
           <LearningEditor
             key={newKind}
             initialDraft={draftSeed}
@@ -145,42 +151,56 @@ export function LearningListPage({ onCreated = defaultCreated }: LearningListPag
         </section>
       ) : null}
 
-      <section className={styles.panel} aria-labelledby="records-heading">
-        <div className={styles.sectionHeading}><h2 id="records-heading">내 기록</h2>
-          <SelectField label="정렬" value={sort} onChange={(event) => resetFilter(() => setSort(event.target.value as typeof sort))}>
-            <option value="learning_latest">학습 흐름별 최신순</option><option value="learning_order">학습 흐름별 처음부터</option><option value="updated">최근 수정순</option>
-          </SelectField>
+      <section className={styles.recordList} aria-label="학습 기록 목록">
+        <div className={styles.listHeading}>
+          <div className={styles.filterSummary} role="group" aria-label="적용된 필터">
+            <span>{archiveLabel}</span>
+            {topicKey && <span className={styles.filterChip}>{topics.find(topic => topic.key === topicKey)?.label ?? topicKey}</span>}
+            {kind && <span className={styles.filterChip}>{recordKindOptions.find(option => option.value === kind)?.label ?? kind}</span>}
+            {activeFilterCount > 0 && <Button variant="quiet" onClick={() => resetFilter(() => { setTopicKey(""); setKind(""); setArchived("false"); })}>필터 초기화</Button>}
+          </div>
+          <div className={styles.listToolbar}>
+            <SelectField label="정렬" value={sort} onChange={(event) => resetFilter(() => setSort(event.target.value as typeof sort))}>
+              <option value="learning_latest">학습 흐름별 최신순</option><option value="learning_order">학습 흐름별 처음부터</option><option value="updated">최근 수정순</option>
+            </SelectField>
+            <Button variant="quiet" className={styles.filterToggle} aria-expanded={filtersOpen} aria-controls={filterPanelId} onClick={() => setFiltersOpen(open => !open)}>
+              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M4 7h16M4 17h16" /><circle cx="9" cy="7" r="3" fill="var(--color-background)" /><circle cx="15" cy="17" r="3" fill="var(--color-background)" /></svg>
+              상세 필터{activeFilterCount > 0 && <span className={styles.filterCount}>{activeFilterCount}</span>}
+              <svg className={styles.filterChevron} aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="m6 9 6 6 6-6" /></svg>
+            </Button>
+          </div>
         </div>
-        <p className={styles.sequenceHint}>{sort === "updated"
-          ? "최근 수정한 기록부터 표시합니다. 학습 차수와 실행일은 각 기록에서 확인할 수 있습니다."
-          : `${sort === "learning_latest" ? "각 흐름에서 최신 학습부터" : "각 흐름에서 처음 학습부터"} 표시합니다. 출발점과 결과는 기록된 내용을 사용하며, 관련 계획은 따로 구분합니다.`}</p>
-        <div className={styles.filters}>
-          <label>주제 필터<select value={topicKey} onChange={(event) => resetFilter(() => setTopicKey(event.target.value))}><option value="">모든 주제</option>{topics.map((topic) => <option key={topic.key} value={topic.key}>{topic.label}</option>)}</select></label>
-          <label>종류 필터<select value={kind} onChange={(event) => resetFilter(() => setKind(event.target.value as RecordKind | ""))}><option value="">모든 종류</option>{recordKindOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-          <label>보관 상태<select value={archived} onChange={(event) => resetFilter(() => setArchived(event.target.value as ArchivedFilter))}><option value="false">현재 기록</option><option value="true">보관 기록</option><option value="all">전체</option></select></label>
+        <div id={filterPanelId} hidden={!filtersOpen} className={styles.filterPanel}>
+          <div className={styles.detailFilters}>
+            <SelectField label="주제 필터" value={topicKey} onChange={(event) => resetFilter(() => setTopicKey(event.target.value))}><option value="">모든 주제</option>{topics.map((topic) => <option key={topic.key} value={topic.key}>{topic.label}</option>)}</SelectField>
+            <SelectField label="종류 필터" value={kind} onChange={(event) => resetFilter(() => setKind(event.target.value as RecordKind | ""))}><option value="">모든 종류</option>{recordKindOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</SelectField>
+            <SelectField label="보관 상태" value={archived} onChange={(event) => resetFilter(() => setArchived(event.target.value as ArchivedFilter))}><option value="false">현재 기록</option><option value="true">보관 기록</option><option value="all">전체</option></SelectField>
+          </div>
+        </div>
+        {error ? <div className={styles.error} role="alert"><p>{error}</p><Button onClick={load}>다시 시도</Button></div> : null}
+        {loading ? <p role="status">학습 기록을 불러오는 중…</p> : null}
+        {!loading && !error && summaries.length === 0 ? <p className={styles.empty}>조건에 맞는 학습 기록이 없습니다.</p> : null}
+        {!loading && !error && summaries.length > 0 ? (
+          <LearningSequenceList records={summaries} topics={topics} ordered={sort !== "updated"} startIndex={cursorStack.length * pageSize} />
+        ) : null}
+        <div className={styles.listFooter}>
           <SelectField label="페이지당 표시" value={pageSize} onChange={(event) => {
             const option = learningPageSizeOptions.find(item => item.value === Number(event.target.value));
             if (option) resetFilter(() => setPageSize(option.value));
           }}>{learningPageSizeOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</SelectField>
+          <Pagination label="학습 기록 페이지" position={`${cursorStack.length + 1}페이지`}
+            canGoBack={!loading && cursorStack.length > 0} canGoForward={!loading && Boolean(result?.next_cursor)}
+            onPrevious={() => {
+              const previous = cursorStack.at(-1);
+              setCursorStack(stack => stack.slice(0, -1));
+              setCursor(previous);
+            }}
+            onNext={() => {
+              setCursorStack(stack => [...stack, cursor]);
+              setCursor(result?.next_cursor ?? undefined);
+            }}
+          />
         </div>
-        {error ? <div className={styles.error} role="alert"><p>{error}</p><button type="button" onClick={load}>다시 시도</button></div> : null}
-        {loading ? <p role="status">학습 기록을 불러오는 중…</p> : null}
-        {!loading && !error && summaries.length === 0 ? <p className={styles.empty}>조건에 맞는 학습 기록이 없습니다.</p> : null}
-        {!loading && !error && summaries.length > 0 ? (
-          <LearningSequenceList records={summaries} topics={topics} ordered={sort !== "updated"} />
-        ) : null}
-        <Pagination label="학습 기록 페이지" position={`${cursorStack.length + 1}페이지`}
-          canGoBack={!loading && cursorStack.length > 0} canGoForward={!loading && Boolean(result?.next_cursor)}
-          onPrevious={() => {
-            const previous = cursorStack.at(-1);
-            setCursorStack(stack => stack.slice(0, -1));
-            setCursor(previous);
-          }}
-          onNext={() => {
-            setCursorStack(stack => [...stack, cursor]);
-            setCursor(result?.next_cursor ?? undefined);
-          }}
-        />
       </section>
     </main>
   );

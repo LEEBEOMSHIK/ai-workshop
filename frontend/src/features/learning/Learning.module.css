@@ -121,6 +121,49 @@
 .actions { margin-top: 1rem; }
 .sectionHeading { justify-content: space-between; align-items: start; }
 
+.listHeading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--space-3) var(--space-5); }
+.listShell { padding: var(--space-8) var(--page-padding); background: var(--color-background); }
+.listHeader, .recordList { width: min(100%, 76rem); margin-inline: auto; }
+.listHeader { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-4); padding-block: var(--space-2) var(--space-6); }
+.listHeader > div { min-width: 0; }
+.listHeader h1 { margin: 0; }
+.listHeader p { margin: var(--space-2) 0 0; color: var(--color-text-muted); font-size: var(--font-size-control); word-break: keep-all; overflow-wrap: anywhere; }
+.recordList { padding-block-start: var(--space-4); border-top: 1px solid var(--color-border-subtle); }
+.panel + .recordList { margin-block-start: var(--space-8); border-top: 0; }
+.listFooter { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--space-3); padding-block: var(--space-4); border-top: 1px solid var(--color-border-subtle); }
+.listFooter > label { display: flex; align-items: center; gap: var(--space-2); font-size: var(--font-size-caption); color: var(--color-text-muted); }
+.listFooter select { width: auto; }
+.listToolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); min-width: 0; }
+.listToolbar > label { display: flex; align-items: center; gap: var(--space-2); min-width: 0; font-size: var(--font-size-caption); }
+.listToolbar > label > span { flex: none; color: var(--color-text-muted); }
+.listToolbar select { min-width: 0; max-width: 100%; width: auto; font-size: var(--font-size-caption); background-color: transparent; }
+.recordList .filterToggle { display: inline-flex; align-items: center; gap: var(--space-2); padding-inline: var(--space-3); background: transparent; border-color: transparent; color: var(--color-text-muted); font-size: var(--font-size-caption); white-space: nowrap; }
+.recordList .filterToggle:hover, .recordList .filterToggle[aria-expanded="true"] { background: var(--color-surface-hover); color: var(--color-accent-text); border-color: var(--color-border-control); }
+.filterCount { display: inline-grid; place-items: center; min-width: 1.25rem; border-radius: var(--radius-pill); background: var(--color-surface-selected); color: var(--color-accent-text); font-variant-numeric: tabular-nums; }
+.filterChevron { flex: none; transition: rotate 150ms ease-out; }
+.filterToggle[aria-expanded="true"] .filterChevron { rotate: 180deg; }
+.filterSummary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-height: var(--control-min-height); margin-block: var(--space-2); color: var(--color-text-muted); font-size: var(--font-size-caption); }
+.filterChip { padding: var(--space-1) var(--space-2); border-radius: var(--radius-pill); background: var(--color-surface); border: 1px solid var(--color-border-subtle); overflow-wrap: anywhere; }
+.recordList .filterSummary button { padding: var(--space-1) var(--space-2); background: transparent; border-color: transparent; color: var(--color-accent-text); font-size: var(--font-size-caption); }
+.recordList .filterSummary button:hover { background: var(--color-surface-hover); }
+.filterPanel { margin-block-end: var(--space-4); padding: var(--space-4); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-control); background: var(--color-surface); }
+.detailFilters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); }
+.detailFilters label { min-width: 0; font-size: var(--font-size-caption); }
+.detailFilters select { min-width: 0; width: 100%; }
+@container workspace-content (max-width: 48rem) {
+  .listToolbar { width: 100%; }
+  .listToolbar > label { flex: 1 1 12rem; }
+  .listToolbar select { flex: 1; width: 0; }
+}
+@container workspace-content (max-width: 30rem) {
+  .detailFilters { grid-template-columns: minmax(0, 1fr); }
+  .filterPanel { padding: var(--space-3); }
+  .listHeader { align-items: flex-start; }
+  .listHeader > div { flex: 1 1 100%; }
+  .listFooter > label { flex-wrap: wrap; }
+}
+@media (prefers-reduced-motion: reduce) { .filterChevron { transition: none; } }
+
 .editor {
   display: grid;
   gap: var(--space-4);
@@ -175,11 +218,8 @@
   gap: var(--space-4);
 }
 
-.checkGrid { display: flex; flex-wrap: wrap; gap: var(--space-4); }
-.checkGrid label,
-.editor label.inlineToggle { display: flex; flex-direction: row; align-items: center; }
-.checkGrid input,
-.inlineToggle input { width: auto; }
+.checkGrid { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.checkGrid > label { max-width: 100%; }
 
 .editor fieldset,
 .experiment { margin: 0; padding: 1rem; }
@@ -189,8 +229,17 @@
 .metricRow label { flex: 1 1 9rem; }
 
 .referenceList { display: grid; gap: var(--space-2); padding: 0; list-style: none; }
-.referenceList li { display: flex; justify-content: space-between; gap: var(--space-4); align-items: center; }
-.referenceAdd label { flex: 1; }
+.referenceList li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-3); align-items: center; padding-block: var(--space-2); border-bottom: 1px solid var(--color-border-subtle); }
+.referenceList li > :first-child { min-width: 0; overflow-wrap: anywhere; word-break: keep-all; }
+.referenceList li > button { justify-self: end; white-space: nowrap; }
+.referenceAdd { align-items: end; }
+.referenceAdd label { flex: 1 1 14rem; min-width: 0; }
+.referenceAdd > button { flex: 0 0 auto; }
+@container workspace-content (max-width: 30rem) {
+  .referenceAdd { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .referenceAdd > button { justify-self: stretch; }
+  .referenceList li { grid-template-columns: minmax(0, 1fr); }
+}
 
 .filters { margin-block: 1rem; align-items: end; }
 .filters label { flex: 1 1 12rem; }

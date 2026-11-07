@@ -43,6 +43,8 @@ describe("LearningListPage", () => {
     }));
     const user = userEvent.setup(); render(<LearningListPage />);
     await screen.findByText("결과 5 - 첫 페이지");
+    expect(screen.getByLabelText("목록 순번 1")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: /상세 필터/ }));
     await user.selectOptions(screen.getByRole("combobox", { name: "주제 필터" }), "fine-tuning");
     await user.selectOptions(screen.getByRole("combobox", { name: "종류 필터" }), "experiment");
     await user.selectOptions(screen.getByRole("combobox", { name: "보관 상태" }), "true");
@@ -50,16 +52,20 @@ describe("LearningListPage", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "다음 페이지" })).toBeEnabled());
     await user.click(screen.getByRole("button", { name: "다음 페이지" }));
     await screen.findByText("결과 5 - page-two");
+    expect(screen.getByLabelText("목록 순번 6")).toBeVisible();
     await user.selectOptions(screen.getByRole("combobox", { name: "페이지당 표시" }), "10");
     await screen.findByText("결과 10 - 첫 페이지");
+    expect(screen.getByLabelText("목록 순번 1")).toBeVisible();
     expect(screen.getByRole("button", { name: "이전 페이지" })).toBeDisabled();
     expect(Object.fromEntries(new URL(paths.at(-1)!, "http://test").searchParams)).toEqual({ sort: "updated", limit: "10", topic_key: "fine-tuning", kind: "experiment", archived: "true" });
     await user.click(screen.getByRole("button", { name: "다음 페이지" }));
     await screen.findByText("결과 10 - page-two");
+    expect(screen.getByLabelText("목록 순번 11")).toBeVisible();
     expect(new URL(paths.at(-1)!, "http://test").searchParams.get("limit")).toBe("10");
     await user.click(screen.getByRole("button", { name: "이전 페이지" }));
     await screen.findByText("결과 10 - 첫 페이지");
     expect(new URL(paths.at(-1)!, "http://test").searchParams.has("cursor")).toBe(false);
+    expect(screen.getByLabelText("목록 순번 1")).toBeVisible();
     await user.selectOptions(screen.getByRole("combobox", { name: "정렬" }), "learning_order");
     await waitFor(() => expect(new URL(paths.at(-1)!, "http://test").searchParams.get("sort")).toBe("learning_order"));
     expect(new URL(paths.at(-1)!, "http://test").searchParams.get("limit")).toBe("10");
@@ -106,7 +112,7 @@ describe("LearningListPage", () => {
     const user = userEvent.setup();
     render(<LearningListPage onCreated={onCreated} />);
 
-    await user.click(await screen.findByRole("button", { name: "새 메모" }));
+    await user.click(await screen.findByRole("button", { name: "새 기록" }));
     await user.type(screen.getByRole("textbox", { name: "제목" }), "새 메모");
     await user.type(screen.getByRole("textbox", { name: "본문" }), "첫 줄\n둘째 줄");
     await user.click(screen.getByRole("button", { name: "기록 저장" }));
@@ -142,7 +148,8 @@ describe("LearningListPage", () => {
     const user = userEvent.setup();
     render(<LearningListPage onCreated={vi.fn()} />);
 
-    await user.click(await screen.findByRole("button", { name: "새 실험" }));
+    await user.click(await screen.findByRole("button", { name: "새 기록" }));
+    await user.click(screen.getByRole("checkbox", { name: "실험 항목 추가" }));
     await user.type(screen.getByRole("textbox", { name: "제목" }), "리랭커 실험");
     await user.type(screen.getByRole("textbox", { name: "본문" }), "실험 진행 기록");
     await user.type(screen.getByRole("textbox", { name: "목적" }), "후보 순위 비교");
@@ -180,7 +187,7 @@ describe("LearningListPage", () => {
       successfulNavigationPrevented = event.defaultPrevented;
     }} />);
 
-    await user.click(await screen.findByRole("button", { name: "새 메모" }));
+    await user.click(await screen.findByRole("button", { name: "새 기록" }));
     await user.type(screen.getByRole("textbox", { name: "제목" }), "저장 중 초안");
     await user.type(screen.getByRole("textbox", { name: "본문" }), "저장 중에도 보호할 본문");
     await user.click(screen.getByRole("button", { name: "기록 저장" }));
@@ -198,8 +205,8 @@ describe("LearningListPage", () => {
   });
 
   it.each([
-    { action: "작성 닫기", expectedHeading: "새 메모" },
-    { action: "새 실험", expectedHeading: "새 메모" },
+    { action: "작성 닫기", expectedHeading: "새 기록" },
+    { action: "새 기록", expectedHeading: "새 기록" },
   ])("keeps a dirty new draft when $action is cancelled", async ({ action, expectedHeading }) => {
     vi.spyOn(window, "confirm").mockReturnValue(false);
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -212,7 +219,7 @@ describe("LearningListPage", () => {
     const user = userEvent.setup();
     render(<LearningListPage />);
 
-    await user.click(await screen.findByRole("button", { name: "새 메모" }));
+    await user.click(await screen.findByRole("button", { name: "새 기록" }));
     await user.type(screen.getByRole("textbox", { name: "제목" }), "보존할 초안");
     await user.type(screen.getByRole("textbox", { name: "본문" }), "보존할 본문");
     await user.click(screen.getByRole("button", { name: action }));
@@ -242,6 +249,7 @@ describe("LearningListPage", () => {
     expect(await screen.findByText("첫 번째 페이지")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "다음 페이지" }));
     expect(await screen.findByText("두 번째 페이지")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: /상세 필터/ }));
     await user.selectOptions(screen.getByRole("combobox", { name: "주제 필터" }), "rag");
     await user.selectOptions(screen.getByRole("combobox", { name: "주제 필터" }), "fine-tuning");
     tuning.resolve(jsonResponse({ items: [summary("파인튜닝 최신")], next_cursor: null }));

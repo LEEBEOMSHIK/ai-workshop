@@ -1,0 +1,48 @@
+.choice.choice {
+  display: grid;
+  grid-template-columns: calc(var(--control-choice-size) + var(--space-1)) minmax(0, 1fr);
+  align-items: start;
+  gap: 0 var(--space-3);
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: var(--control-min-height);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  color: var(--color-text);
+  background: transparent;
+  font-size: var(--font-size-control);
+  font-weight: 500;
+  line-height: var(--line-height-ui);
+  cursor: pointer;
+}
+.input.input.input {
+  appearance: none;
+  grid-area: 1 / 1;
+  box-sizing: border-box;
+  width: calc(var(--control-choice-size) + var(--space-1));
+  height: calc(var(--control-choice-size) + var(--space-1));
+  min-height: 0;
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-small);
+  background: var(--color-surface-input);
+  cursor: inherit;
+}
+.input.input.input:checked { border-color: var(--color-primary); background: var(--color-primary); }
+.check { grid-area: 1 / 1; width: 100%; height: auto; margin-block-start: var(--space-1); color: var(--color-on-primary); opacity: 0; pointer-events: none; }
+.input:checked + .check { opacity: 1; }
+.label { grid-area: 1 / 2; min-width: 0; overflow-wrap: anywhere; word-break: keep-all; }
+.choice:has(.input:checked) { background: var(--color-surface-selected); border-color: var(--color-border-subtle); }
+.choice:has(.input:enabled):hover { background: var(--color-surface-hover); border-color: var(--color-border-control); }
+.choice:has(.input:focus-visible) { outline: var(--focus-width) solid var(--focus-color); outline-offset: var(--focus-offset); }
+.input.input.input:focus-visible { outline: none; }
+.choice:has(.input:disabled) { cursor: not-allowed; color: var(--color-text-subtle); }
+.input.input.input:disabled { border-color: var(--color-border); background: var(--color-surface-raised); }
+.input:disabled + .check { color: var(--color-text-subtle); }
+@media (forced-colors: active) {
+  .input.input.input { appearance: auto; }
+  .check { display: none; }
+  .choice:has(.input:checked) { border-color: Highlight; }
+}

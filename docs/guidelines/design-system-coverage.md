@@ -1,5 +1,9 @@
 # 디자인 시스템 화면별 적용 현황
 
+로그인 화면(2026-11-07)은 별도 LoginLayout에서 기존 로고만 상단에 표시한다. 후속 요청에 따라 로그인 화면의 ThemeChoice는 제거했으며 다른 화면의 모드 설정은 유지한다. 사이드바 없이 로그인 폼을 중앙에 배치하고 Button·색상·여백·초점 토큰을 재사용한다. 공개 페이지와 작업소 탐색 메뉴는 유지한다. [구현·검증 기록](../worklogs/2026-11-07-login-layout.md)
+
+학습 업무 분야 선택(2026-11-06)은 공통 CheckboxField·TextField·Button을 사용하며 기존 분류값을 유지한다. 학습 연결은 인접 카드 장식선 대신 명시된 출발 차수에서 후속 카드로 향하는 연결선을 사용하며 사용자 승인 타임라인 시안에 따라 작은 원형 순번1·2를 자기 카드와 가로선으로 묶고 실제 계승만 원 사이 화살표로 연결한다. 카드 제목은 옅은 표면으로 강조한다. [시안 적용](../worklogs/2026-11-06-learning-timeline.md)을 참고한다. 연결 표시 후속 검증은 [목록 순번과 연결선](../worklogs/2026-11-06-learning-number-connections.md)에 남긴다. 상세 범위와 검증은 [작업 기록](../worklogs/2026-11-06-learning-categories-lineage.md)에 남긴다.
+
 화면 모드와 계정 설정은 공통 탐색 메뉴 하단에서 연다. 로그인한 사용자는 같은 패널에서 계정 이름·역할 확인과 로그아웃을 할 수 있다. 펼친 메뉴의 기본 너비는 288px이고 작업소에서는 256~400px로 조절한다. 대화 중에는 64px 아이콘 메뉴를 쓴다. 갤러리의 색상 견본에는 선택한 모드의 실제 값이 표시된다.
 
 ## 2026-11-05 실제 화면 점검
@@ -29,6 +33,7 @@
 | 저장·취소·삭제와 비활성 상태 | [Button](../../frontend/src/shared/ui/Button.tsx) | 로그인, 학습 기록 편집 |
 | 다른 화면으로 이동하는 버튼형 링크 | [ButtonLink](../../frontend/src/shared/ui/Button.tsx) | 모델 관리·구성 스튜디오에서 간편 설정으로 이동 |
 | 관련된 선택지 중 하나 고르기 | [ChoiceGroup](../../frontend/src/shared/ui/ChoiceGroup.tsx) | 모델 설정, 비교 회차 선택 |
+| 독립 항목 켜기·끄기 및 복수 선택 | [CheckboxField](../../frontend/src/shared/ui/CheckboxField.tsx) | 학습 작성기 기술 주제·실험 항목·문제 해결·학습 흐름; native checkbox·라벨 클릭·선택/포커스/disabled |
 | 한 줄 입력 · 목록 선택 · 여러 줄 입력 | [TextField · SelectField · TextAreaField](../../frontend/src/shared/ui/Fields.tsx) | 공간 만들기, 학습 기록 편집 |
 | 항목 상태 · 안내 · 빈 목록 · 상세 펼침 | [StatusBadge · Notice · EmptyState · Disclosure](../../frontend/src/shared/ui/Feedback.tsx) | 문제 이력, 실행 모니터링 |
 | 이전·다음 페이지 이동 | [Pagination](../../frontend/src/shared/ui/Pagination.tsx) | PDF 미리보기, 공개 연구 관리 |
